@@ -174,7 +174,7 @@ def generate_index(groups):
         grouped_html += '        </div>\n'
         grouped_html += '        <div class="report-list">\n'
         for i, r in enumerate(reports):
-            grouped_html += build_card_html(r, len(reports) - i)
+            grouped_html += build_card_html(r, i + 1)
         grouped_html += '        </div>\n'
         grouped_html += '      </div>\n'
 
