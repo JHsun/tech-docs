@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PostgreSQL 18 速查表 #5 — 索引、全文搜尋與效能</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap');
+:root{--bg:#0a0e17;--surface:#111827;--surface2:#1a2332;--border:#2a3a50;--accent:#38bdf8;--accent2:#818cf8;--accent3:#34d399;--accent4:#fb923c;--accent5:#f472b6;--text:#e2e8f0;--text-dim:#94a3b8;--code-bg:#0f172a;--keyword:#c084fc;--string:#34d399;--number:#fb923c;--comment:#64748b}
+*{margin:0;padding:0;box-sizing:border-box}body{background:var(--bg);color:var(--text);font-family:'Noto Sans TC',sans-serif;font-size:13px;line-height:1.6}
+.header{background:linear-gradient(135deg,#0f172a 0%,#1a3a2a 50%,#0f172a 100%);border-bottom:2px solid var(--accent5);padding:20px 30px;position:relative}.header h1{font-size:22px;font-weight:900;color:var(--accent5)}.header .subtitle{color:var(--text-dim);font-size:12px;margin-top:4px}.header .version{position:absolute;top:20px;right:30px;background:rgba(244,114,182,0.15);border:1px solid var(--accent5);padding:4px 14px;border-radius:20px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent5);font-weight:600}
+.container{max-width:1600px;margin:0 auto;padding:16px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden}.card.span2{grid-column:span 2}.card.span3{grid-column:span 3}
+.card-header{padding:8px 14px;font-weight:700;font-size:13px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border)}.card-header.blue{background:rgba(56,189,248,0.1);color:var(--accent)}.card-header.purple{background:rgba(129,140,248,0.1);color:var(--accent2)}.card-header.green{background:rgba(52,211,153,0.1);color:var(--accent3)}.card-header.orange{background:rgba(251,146,60,0.1);color:var(--accent4)}.card-header.pink{background:rgba(244,114,182,0.1);color:var(--accent5)}
+.card-body{padding:10px 14px}table{width:100%;border-collapse:collapse;font-size:12px}table th{text-align:left;padding:5px 8px;background:var(--surface2);color:var(--accent);font-weight:600;border-bottom:1px solid var(--border);font-size:11px;text-transform:uppercase;letter-spacing:.5px}table td{padding:4px 8px;border-bottom:1px solid rgba(42,58,80,0.5);vertical-align:top}table tr:last-child td{border-bottom:none}
+code{font-family:'JetBrains Mono',monospace;font-size:11.5px;background:var(--code-bg);padding:1px 5px;border-radius:3px;color:var(--accent3)}pre{background:var(--code-bg);border:1px solid var(--border);border-radius:4px;padding:8px 10px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5;margin:6px 0;color:var(--text)}pre .kw{color:var(--keyword);font-weight:600}pre .fn{color:var(--accent)}pre .str{color:var(--string)}pre .num{color:var(--number)}pre .cm{color:var(--comment);font-style:italic}
+.note{background:rgba(56,189,248,0.08);border-left:3px solid var(--accent);padding:6px 10px;margin:6px 0;font-size:11.5px;border-radius:0 4px 4px 0}.warn{background:rgba(251,146,60,0.08);border-left:3px solid var(--accent4);padding:6px 10px;margin:6px 0;font-size:11.5px;border-radius:0 4px 4px 0}
+h4{color:var(--accent2);font-size:12px;font-weight:700;margin:8px 0 4px;padding-bottom:2px;border-bottom:1px dashed var(--border)}h4:first-child{margin-top:0}.two-col{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.footer{text-align:center;padding:12px;color:var(--text-dim);font-size:11px;border-top:1px solid var(--border)}
+@media(max-width:1200px){.container{grid-template-columns:repeat(2,1fr)}.card.span3{grid-column:span 2}}@media(max-width:768px){.container{grid-template-columns:1fr}.card.span2,.card.span3{grid-column:span 1}.two-col{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="header"><h1>PostgreSQL 18 速查表 #5</h1><div class="subtitle">索引、全文搜尋與效能調校 — 對應官方文件 Part II Chapter 11-12, 14-15</div><div class="version">v18.3</div></div>
+<div class="container">
+
+<div class="card span2"><div class="card-header blue">🗂️ 索引類型總覽 (Ch11)</div><div class="card-body">
+<table><tr><th>索引方法</th><th>適用場景</th><th>支援運算子</th><th>特性</th></tr>
+<tr><td><code>B-tree</code></td><td><b>預設</b>。等值、範圍、排序</td><td><code>= &lt; &gt; &lt;= &gt;= BETWEEN IN</code></td><td>最通用，支援 UNIQUE/ORDER BY</td></tr>
+<tr><td><code>Hash</code></td><td>純等值查詢</td><td><code>=</code></td><td>PG10+ WAL 安全</td></tr>
+<tr><td><code>GiST</code></td><td>幾何、範圍、全文、鄰近搜尋</td><td><code>@&gt; &lt;@ &amp;&amp; ~= &lt;&lt;</code> 等</td><td>支援排除約束、KNN</td></tr>
+<tr><td><code>SP-GiST</code></td><td>非平衡分割空間（電話、IP）</td><td>與 GiST 類似</td><td>適合自然叢集資料</td></tr>
+<tr><td><code>GIN</code></td><td>反向索引：陣列、JSONB、全文</td><td><code>@&gt; &lt;@ ? ?| ?&amp; @@</code></td><td>建立慢查詢快</td></tr>
+<tr><td><code>BRIN</code></td><td>大型自然排序表（時序）</td><td><code>= &lt; &gt; BETWEEN</code></td><td>極小空間</td></tr></table>
+</div></div>
+
+<div class="card"><div class="card-header green">🔨 CREATE INDEX 語法</div><div class="card-body">
+<pre><span class="kw">CREATE</span> [ <span class="kw">UNIQUE</span> ] <span class="kw">INDEX</span> [ <span class="kw">CONCURRENTLY</span> ]
+  [ <span class="kw">IF NOT EXISTS</span> ] idx_name
+  <span class="kw">ON</span> tbl [ <span class="kw">USING</span> method ]
+  ( col | (expr)
+    [ opclass ] [ <span class="kw">ASC</span>|<span class="kw">DESC</span> ]
+    [ <span class="kw">NULLS FIRST</span>|<span class="kw">LAST</span> ] [, ...] )
+  [ <span class="kw">INCLUDE</span> (col [, ...]) ]
+  [ <span class="kw">WHERE</span> predicate ]
+  [ <span class="kw">WITH</span> (params) ]
+  [ <span class="kw">TABLESPACE</span> name ];</pre>
+<pre><span class="kw">REINDEX INDEX</span> idx;
+<span class="kw">REINDEX TABLE</span> t;
+<span class="kw">REINDEX</span> (<span class="kw">VERBOSE</span>) <span class="kw">DATABASE</span> db;
+<span class="kw">DROP INDEX</span> [<span class="kw">CONCURRENTLY</span>] idx;</pre>
+</div></div>
+
+<div class="card span2"><div class="card-header purple">🎯 索引進階策略</div><div class="card-body"><div class="two-col"><div>
+<h4>多欄索引</h4>
+<pre><span class="kw">CREATE INDEX ON</span> orders (customer_id, created_at <span class="kw">DESC</span>);
+<span class="cm">-- 最左前綴：可服務 WHERE customer_id = ?</span>
+<span class="cm">-- 可服務 WHERE customer_id = ? AND created_at > ?</span>
+<span class="cm">-- 不可服務 WHERE created_at > ?（無前綴）</span></pre>
+<h4>表達式索引</h4>
+<pre><span class="kw">CREATE INDEX ON</span> users (<span class="fn">lower</span>(email));
+<span class="kw">CREATE INDEX ON</span> logs ((<span class="fn">data</span>->><span class="str">'type'</span>));</pre>
+<h4>部分索引</h4>
+<pre><span class="kw">CREATE INDEX ON</span> orders (created_at)
+  <span class="kw">WHERE</span> status = <span class="str">'pending'</span>;</pre>
+</div><div>
+<h4>覆蓋索引 (INCLUDE)</h4>
+<pre><span class="kw">CREATE INDEX ON</span> orders (customer_id)
+  <span class="kw">INCLUDE</span> (total, status);
+<span class="cm">-- Index-Only Scan 不用回表</span></pre>
+<h4>CONCURRENTLY（不阻塞寫入）</h4>
+<pre><span class="kw">CREATE INDEX CONCURRENTLY</span> idx <span class="kw">ON</span> big_table (col);
+<span class="cm">-- 失敗→INVALID，需 DROP + 重建</span></pre>
+<h4>GIN 索引 opclass</h4>
+<pre><span class="kw">CREATE INDEX ON</span> t <span class="kw">USING GIN</span> (data);
+<span class="cm">-- 支援 @> ? ?| ?&</span>
+<span class="kw">CREATE INDEX ON</span> t <span class="kw">USING GIN</span> (data <span class="fn">jsonb_path_ops</span>);
+<span class="cm">-- 只支援 @>，更小更快</span></pre>
+<h4>BRIN 索引</h4>
+<pre><span class="kw">CREATE INDEX ON</span> logs <span class="kw">USING BRIN</span> (created_at)
+  <span class="kw">WITH</span> (pages_per_range = <span class="num">128</span>);</pre>
+</div></div></div></div>
+
+<div class="card"><div class="card-header orange">📋 索引選擇速查</div><div class="card-body">
+<table><tr><th>場景</th><th>推薦索引</th></tr>
+<tr><td>等值/範圍查詢</td><td>B-tree（預設）</td></tr>
+<tr><td>唯一約束</td><td>B-tree UNIQUE</td></tr>
+<tr><td>JSONB <code>@&gt;</code> 包含</td><td>GIN / GIN jsonb_path_ops</td></tr>
+<tr><td>JSONB 鍵存在 <code>?</code></td><td>GIN（預設 opclass）</td></tr>
+<tr><td>陣列包含 <code>@&gt;</code></td><td>GIN</td></tr>
+<tr><td>全文搜尋 <code>@@</code></td><td>GIN（快）或 GiST（小）</td></tr>
+<tr><td>幾何/鄰近搜尋</td><td>GiST / SP-GiST</td></tr>
+<tr><td>範圍重疊 <code>&amp;&amp;</code></td><td>GiST</td></tr>
+<tr><td>IP/電話前綴</td><td>SP-GiST</td></tr>
+<tr><td>巨量時序表</td><td>BRIN</td></tr>
+<tr><td>低基數欄位</td><td>BRIN 或部分索引</td></tr></table>
+</div></div>
+
+<div class="card span2"><div class="card-header pink">🔍 全文搜尋 (Ch12)</div><div class="card-body"><div class="two-col"><div>
+<h4>核心型別與運算子</h4>
+<table><tr><td><code>tsvector</code></td><td>正規化詞彙集（含位置/權重）</td></tr>
+<tr><td><code>tsquery</code></td><td>搜尋查詢（&amp; | ! &lt;-&gt;）</td></tr>
+<tr><td><code>@@</code></td><td>匹配運算子</td></tr></table>
+<h4>建立 tsvector / tsquery</h4>
+<pre><span class="fn">to_tsvector</span>(<span class="str">'english'</span>, <span class="str">'The quick brown foxes'</span>)
+<span class="cm">-- 'brown':3 'fox':4 'quick':2</span>
+
+<span class="cm">-- 帶權重</span>
+<span class="fn">setweight</span>(<span class="fn">to_tsvector</span>(<span class="str">'english'</span>, title), <span class="str">'A'</span>) ||
+<span class="fn">setweight</span>(<span class="fn">to_tsvector</span>(<span class="str">'english'</span>, body), <span class="str">'D'</span>)
+
+<span class="fn">to_tsquery</span>(<span class="str">'english'</span>, <span class="str">'fox &amp; (quick | fast)'</span>)
+<span class="fn">plainto_tsquery</span>(<span class="str">'english'</span>, <span class="str">'quick fox'</span>)    <span class="cm">-- &amp;</span>
+<span class="fn">phraseto_tsquery</span>(<span class="str">'english'</span>, <span class="str">'quick fox'</span>)   <span class="cm">-- &lt;-&gt;</span>
+<span class="fn">websearch_to_tsquery</span>(<span class="str">'english'</span>,
+  <span class="str">'"quick fox" or brown -lazy'</span>)             <span class="cm">-- Google 風格</span></pre>
+</div><div>
+<h4>排名與高亮</h4>
+<pre><span class="kw">SELECT</span> title,
+  <span class="fn">ts_rank</span>(tsv, q) rank,
+  <span class="fn">ts_rank_cd</span>(tsv, q) rank_cd
+<span class="kw">FROM</span> articles, <span class="fn">to_tsquery</span>(<span class="str">'english'</span>,<span class="str">'database'</span>) q
+<span class="kw">WHERE</span> tsv @@ q <span class="kw">ORDER BY</span> rank <span class="kw">DESC</span>;
+
+<span class="kw">SELECT</span> <span class="fn">ts_headline</span>(<span class="str">'english'</span>, body, q,
+  <span class="str">'StartSel=&lt;b&gt;, StopSel=&lt;/b&gt;, MaxFragments=3'</span>)
+<span class="kw">FROM</span> articles, <span class="fn">to_tsquery</span>(...) q;</pre>
+<h4>GIN 索引加速</h4>
+<pre><span class="kw">ALTER TABLE</span> articles <span class="kw">ADD COLUMN</span> tsv <span class="fn">tsvector</span>
+  <span class="kw">GENERATED ALWAYS AS</span> (
+    <span class="fn">to_tsvector</span>(<span class="str">'english'</span>, title||<span class="str">' '</span>||body)
+  ) <span class="kw">STORED</span>;
+<span class="kw">CREATE INDEX ON</span> articles <span class="kw">USING GIN</span>(tsv);</pre>
+<h4>tsquery 運算子</h4>
+<table><tr><td><code>&amp;</code> AND</td><td><code>|</code> OR</td><td><code>!!</code> NOT</td><td><code>&lt;-&gt;</code> FOLLOWED BY</td><td><code>&lt;N&gt;</code> 距離 N</td></tr></table>
+</div></div></div></div>
+
+<div class="card"><div class="card-header blue">📈 EXPLAIN 查詢計畫 (Ch14.1)</div><div class="card-body">
+<pre><span class="kw">EXPLAIN</span> (<span class="kw">ANALYZE</span>, <span class="kw">BUFFERS</span>, <span class="kw">VERBOSE</span>, <span class="kw">FORMAT TEXT</span>) stmt;</pre>
+<h4>掃描節點</h4>
+<table><tr><td><code>Seq Scan</code></td><td>全表掃描</td></tr>
+<tr><td><code>Index Scan</code></td><td>索引掃描+回表</td></tr>
+<tr><td><code>Index Only Scan</code></td><td>純索引掃描（覆蓋）</td></tr>
+<tr><td><code>Bitmap Index+Heap Scan</code></td><td>位圖索引掃描</td></tr></table>
+<h4>聯結節點</h4>
+<table><tr><td><code>Nested Loop</code></td><td>小結果集，有索引</td></tr>
+<tr><td><code>Hash Join</code></td><td>中等大小等值聯結</td></tr>
+<tr><td><code>Merge Join</code></td><td>大型已排序</td></tr></table>
+</div></div>
+
+<div class="card span2"><div class="card-header orange">⚡ 效能調校要點 (Ch14)</div><div class="card-body"><div class="two-col"><div>
+<h4>查詢效能關鍵參數</h4>
+<table><tr><th>參數</th><th>說明</th><th>建議</th></tr>
+<tr><td><code>work_mem</code></td><td>排序/雜湊記憶體</td><td>4-64MB/op</td></tr>
+<tr><td><code>maintenance_work_mem</code></td><td>VACUUM/CREATE INDEX</td><td>256MB-1GB</td></tr>
+<tr><td><code>effective_cache_size</code></td><td>OS+PG 快取估計</td><td>RAM 50-75%</td></tr>
+<tr><td><code>random_page_cost</code></td><td>隨機 I/O 成本</td><td>SSD: 1.1-1.5</td></tr>
+<tr><td><code>default_statistics_target</code></td><td>統計精度</td><td>100-500</td></tr></table>
+</div><div>
+<h4>常見問題與解法</h4>
+<table><tr><td>不當 Seq Scan</td><td>確認索引 + ANALYZE</td></tr>
+<tr><td>溢出磁碟排序</td><td>增加 work_mem</td></tr>
+<tr><td>統計不準</td><td><code>ANALYZE tbl; ALTER COLUMN SET STATISTICS 500;</code></td></tr>
+<tr><td>鎖等待</td><td>檢查 pg_stat_activity 長交易</td></tr>
+<tr><td>大量 dead tuples</td><td>檢查 autovacuum</td></tr>
+<tr><td>連線過多</td><td>使用 PgBouncer</td></tr></table>
+</div></div></div></div>
+
+<div class="card"><div class="card-header green">📊 統計與規劃器 (Ch14.2)</div><div class="card-body">
+<pre><span class="kw">ANALYZE</span> table_name;
+<span class="kw">ANALYZE</span> table_name (col1, col2);
+<span class="kw">ALTER TABLE</span> t <span class="kw">ALTER COLUMN</span> c <span class="kw">SET STATISTICS</span> <span class="num">500</span>;
+
+<span class="cm">-- 擴展統計（多欄關聯）</span>
+<span class="kw">CREATE STATISTICS</span> stts (dependencies) <span class="kw">ON</span> city, zip <span class="kw">FROM</span> addr;
+<span class="kw">CREATE STATISTICS</span> stts2 (ndistinct) <span class="kw">ON</span> a, b <span class="kw">FROM</span> t;
+<span class="kw">CREATE STATISTICS</span> stts3 (mcv) <span class="kw">ON</span> a, b <span class="kw">FROM</span> t;
+
+<span class="kw">SELECT</span> * <span class="kw">FROM</span> <span class="fn">pg_stats</span> <span class="kw">WHERE</span> tablename = <span class="str">'t'</span>;</pre>
+</div></div>
+
+<div class="card"><div class="card-header purple">🔀 平行查詢 (Ch15)</div><div class="card-body">
+<table><tr><th>參數</th><th>說明</th><th>預設</th></tr>
+<tr><td><code>max_parallel_workers_per_gather</code></td><td>每個 Gather 最大 worker</td><td>2</td></tr>
+<tr><td><code>max_parallel_workers</code></td><td>全系統平行上限</td><td>8</td></tr>
+<tr><td><code>min_parallel_table_scan_size</code></td><td>表至少多大</td><td>8MB</td></tr>
+<tr><td><code>min_parallel_index_scan_size</code></td><td>索引至少多大</td><td>512KB</td></tr></table>
+<pre><span class="kw">ALTER TABLE</span> big <span class="kw">SET</span> (parallel_workers = <span class="num">4</span>);
+<span class="kw">ALTER FUNCTION</span> f() <span class="kw">PARALLEL SAFE</span>;</pre>
+<div class="note">✅ Seq/Index/Bitmap Scan, Join, Aggregate, Append<br>❌ 寫入主查詢、Cursor、PARALLEL UNSAFE 函式</div>
+</div></div>
+
+<div class="card"><div class="card-header pink">🏆 查詢最佳化技巧</div><div class="card-body">
+<table><tr><th>技巧</th><th>說明</th></tr>
+<tr><td>避免 <code>SELECT *</code></td><td>只取需要欄位</td></tr>
+<tr><td><code>EXISTS</code> 替代 <code>IN</code></td><td>EXISTS 找到即停</td></tr>
+<tr><td><code>= ANY(arr)</code> 替代大量 OR</td><td>更簡潔高效</td></tr>
+<tr><td>避免函式包裝索引欄位</td><td>需表達式索引</td></tr>
+<tr><td>批量 INSERT / COPY</td><td>比逐列快數十倍</td></tr>
+<tr><td>鍵集分頁</td><td><code>WHERE id &gt; :last LIMIT n</code></td></tr>
+<tr><td>物化檢視</td><td>複雜聚合快取</td></tr>
+<tr><td>分割大表</td><td>查詢裁剪只掃描相關分割區</td></tr>
+<tr><td>CTE NOT MATERIALIZED</td><td>允許內聯最佳化</td></tr></table>
+</div></div>
+
+</div>
+<div class="footer">PostgreSQL 18.3 速查表 #5 — 索引、全文搜尋與效能 | 基於官方文件 Part II Ch11-12, 14-15 | 2026</div>
+</body>
+</html>

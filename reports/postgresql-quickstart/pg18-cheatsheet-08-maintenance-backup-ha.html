@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PostgreSQL 18 速查表 #8 — 維護、備份與高可用性</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap');
+:root{--bg:#0a0e17;--surface:#111827;--surface2:#1a2332;--border:#2a3a50;--accent:#38bdf8;--accent2:#818cf8;--accent3:#34d399;--accent4:#fb923c;--accent5:#f472b6;--text:#e2e8f0;--text-dim:#94a3b8;--code-bg:#0f172a;--keyword:#c084fc;--string:#34d399;--number:#fb923c;--comment:#64748b}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:'Noto Sans TC',sans-serif;font-size:13px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.header{background:linear-gradient(135deg,#0f172a 0%,#3f1a00 50%,#0f172a 100%);border-bottom:2px solid var(--accent4);padding:20px 30px;position:relative}
+.header h1{font-size:22px;font-weight:900;color:var(--accent4);letter-spacing:1px}
+.header .subtitle{color:var(--text-dim);font-size:12px;margin-top:4px}
+.header .version{position:absolute;top:20px;right:30px;background:rgba(251,146,60,0.15);border:1px solid var(--accent4);padding:4px 14px;border-radius:20px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent4);font-weight:600}
+.container{max-width:1600px;margin:0 auto;padding:16px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.card.span2{grid-column:span 2}.card.span3{grid-column:span 3}
+.card-header{padding:8px 14px;font-weight:700;font-size:13px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border)}
+.card-header.blue{background:rgba(56,189,248,0.1);color:var(--accent)}
+.card-header.purple{background:rgba(129,140,248,0.1);color:var(--accent2)}
+.card-header.green{background:rgba(52,211,153,0.1);color:var(--accent3)}
+.card-header.orange{background:rgba(251,146,60,0.1);color:var(--accent4)}
+.card-header.pink{background:rgba(244,114,182,0.1);color:var(--accent5)}
+.card-body{padding:10px 14px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+table th{text-align:left;padding:5px 8px;background:var(--surface2);color:var(--accent);font-weight:600;border-bottom:1px solid var(--border);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+table td{padding:4px 8px;border-bottom:1px solid rgba(42,58,80,0.5);vertical-align:top}
+table tr:last-child td{border-bottom:none}
+code{font-family:'JetBrains Mono',monospace;font-size:11.5px;background:var(--code-bg);padding:1px 5px;border-radius:3px;color:var(--accent3)}
+pre{background:var(--code-bg);border:1px solid var(--border);border-radius:4px;padding:8px 10px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5;margin:6px 0;color:var(--text)}
+pre .kw{color:var(--keyword);font-weight:600}pre .fn{color:var(--accent)}pre .str{color:var(--string)}pre .num{color:var(--number)}pre .cm{color:var(--comment);font-style:italic}
+.note{background:rgba(56,189,248,0.08);border-left:3px solid var(--accent);padding:6px 10px;margin:6px 0;font-size:11.5px;border-radius:0 4px 4px 0}
+.warn{background:rgba(251,146,60,0.08);border-left:3px solid var(--accent4);padding:6px 10px;margin:6px 0;font-size:11.5px;border-radius:0 4px 4px 0}
+h4{color:var(--accent2);font-size:12px;font-weight:700;margin:8px 0 4px;padding-bottom:2px;border-bottom:1px dashed var(--border)}h4:first-child{margin-top:0}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.footer{text-align:center;padding:12px;color:var(--text-dim);font-size:11px;border-top:1px solid var(--border)}
+@media(max-width:1200px){.container{grid-template-columns:repeat(2,1fr)}.card.span3{grid-column:span 2}}
+@media(max-width:768px){.container{grid-template-columns:1fr}.card.span2,.card.span3{grid-column:span 1}.two-col{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>PostgreSQL 18 速查表 #8</h1>
+  <div class="subtitle">維護、備份與高可用性 — 對應官方文件 Part III Chapter 23–31</div>
+  <div class="version">v18.3</div>
+</div>
+
+<div class="container">
+
+<!-- ============ VACUUM ============ -->
+<div class="card span2">
+  <div class="card-header blue">🧹 VACUUM 維護 (Ch24.1)</div>
+  <div class="card-body">
+    <div class="two-col">
+      <div>
+        <h4>VACUUM 種類</h4>
+        <pre><span class="cm">-- 標準 VACUUM（回收空間，不鎖表）</span>
+<span class="kw">VACUUM</span> table_name;
+<span class="kw">VACUUM</span> (<span class="kw">VERBOSE</span>) table_name;
+
+<span class="cm">-- VACUUM FULL（重寫表，取得 AccessExclusive 鎖）</span>
+<span class="kw">VACUUM FULL</span> table_name;
+
+<span class="cm">-- VACUUM + ANALYZE</span>
+<span class="kw">VACUUM ANALYZE</span> table_name;
+
+<span class="cm">-- 凍結（防止 transaction ID wraparound）</span>
+<span class="kw">VACUUM FREEZE</span> table_name;
+
+<span class="cm">-- 平行 VACUUM (PG13+)</span>
+<span class="kw">VACUUM</span> (<span class="kw">PARALLEL</span> <span class="num">4</span>) table_name;
+
+<span class="cm">-- 跳過鎖定的表 (PG12+)</span>
+<span class="kw">VACUUM</span> (<span class="kw">SKIP_LOCKED</span>) table_name;</pre>
+        <table>
+          <tr><th>比較</th><th>VACUUM</th><th>VACUUM FULL</th></tr>
+          <tr><td>鎖定</td><td>不阻塞讀寫</td><td>AccessExclusive（全鎖）</td></tr>
+          <tr><td>空間</td><td>標記可重用（不歸還 OS）</td><td>重寫表（歸還 OS）</td></tr>
+          <tr><td>速度</td><td>快</td><td>慢（需雙倍空間）</td></tr>
+          <tr><td>使用場景</td><td>例行維護</td><td>嚴重膨脹時</td></tr>
+        </table>
+      </div>
+      <div>
+        <h4>Autovacuum 參數</h4>
+        <table>
+          <tr><td><code>autovacuum</code></td><td><code>on</code></td><td>啟用自動清理</td></tr>
+          <tr><td><code>autovacuum_max_workers</code></td><td><code>3</code></td><td>最大 worker 數</td></tr>
+          <tr><td><code>autovacuum_naptime</code></td><td><code>1min</code></td><td>檢查間隔</td></tr>
+          <tr><td><code>autovacuum_vacuum_threshold</code></td><td><code>50</code></td><td>最小死元組數</td></tr>
+          <tr><td><code>autovacuum_vacuum_scale_factor</code></td><td><code>0.2</code></td><td>死元組比例門檻</td></tr>
+          <tr><td><code>autovacuum_analyze_threshold</code></td><td><code>50</code></td><td>ANALYZE 最小變動數</td></tr>
+          <tr><td><code>autovacuum_analyze_scale_factor</code></td><td><code>0.1</code></td><td>ANALYZE 變動比例</td></tr>
+          <tr><td><code>autovacuum_vacuum_cost_delay</code></td><td><code>2ms</code></td><td>I/O 節流延遲</td></tr>
+          <tr><td><code>autovacuum_vacuum_cost_limit</code></td><td><code>-1</code></td><td>I/O 成本上限</td></tr>
+          <tr><td><code>autovacuum_freeze_max_age</code></td><td><code>2×10⁸</code></td><td>強制凍結年齡</td></tr>
+        </table>
+        <h4>大表調整（表級設定）</h4>
+        <pre><span class="kw">ALTER TABLE</span> big_table <span class="kw">SET</span> (
+  autovacuum_vacuum_scale_factor = <span class="num">0.01</span>,
+  autovacuum_analyze_scale_factor = <span class="num">0.005</span>,
+  autovacuum_vacuum_cost_delay = <span class="num">0</span>
+);</pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 監控 ============ -->
+<div class="card">
+  <div class="card-header green">📊 監控活動 (Ch27)</div>
+  <div class="card-body">
+    <h4>關鍵系統視圖</h4>
+    <table>
+      <tr><td><code>pg_stat_activity</code></td><td>目前連線與查詢</td></tr>
+      <tr><td><code>pg_stat_user_tables</code></td><td>表統計（掃描數、元組數等）</td></tr>
+      <tr><td><code>pg_stat_user_indexes</code></td><td>索引使用統計</td></tr>
+      <tr><td><code>pg_statio_user_tables</code></td><td>表 I/O 統計</td></tr>
+      <tr><td><code>pg_stat_bgwriter</code></td><td>背景寫入器統計</td></tr>
+      <tr><td><code>pg_stat_database</code></td><td>資料庫級統計</td></tr>
+      <tr><td><code>pg_stat_replication</code></td><td>複寫狀態</td></tr>
+      <tr><td><code>pg_stat_wal</code></td><td>WAL 統計</td></tr>
+      <tr><td><code>pg_locks</code></td><td>目前鎖定</td></tr>
+      <tr><td><code>pg_stat_progress_*</code></td><td>操作進度</td></tr>
+    </table>
+    <h4>實用查詢</h4>
+    <pre><span class="cm">-- 目前活躍查詢</span>
+<span class="kw">SELECT</span> pid, age(<span class="fn">clock_timestamp</span>(), query_start),
+  state, query
+<span class="kw">FROM</span> pg_stat_activity
+<span class="kw">WHERE</span> state != <span class="str">'idle'</span>
+<span class="kw">ORDER BY</span> query_start;
+
+<span class="cm">-- 未使用的索引</span>
+<span class="kw">SELECT</span> relname, indexrelname, idx_scan
+<span class="kw">FROM</span> pg_stat_user_indexes
+<span class="kw">WHERE</span> idx_scan = <span class="num">0</span>;</pre>
+  </div>
+</div>
+
+<!-- ============ 備份 pg_dump ============ -->
+<div class="card span2">
+  <div class="card-header orange">💾 備份與還原 (Ch25)</div>
+  <div class="card-body">
+    <div class="two-col">
+      <div>
+        <h4>pg_dump 邏輯備份</h4>
+        <pre><span class="cm"># 純 SQL 文字</span>
+pg_dump -d mydb -f backup.sql
+
+<span class="cm"># 自訂格式（推薦，可壓縮、可選擇性還原）</span>
+pg_dump -d mydb -Fc -f backup.dump
+
+<span class="cm"># 目錄格式（可平行）</span>
+pg_dump -d mydb -Fd -j 4 -f backup_dir/
+
+<span class="cm"># 只備份綱要</span>
+pg_dump -d mydb -s -f schema.sql
+
+<span class="cm"># 只備份資料</span>
+pg_dump -d mydb -a -f data.sql
+
+<span class="cm"># 備份特定表</span>
+pg_dump -d mydb -t public.users -f users.sql
+
+<span class="cm"># 排除表</span>
+pg_dump -d mydb -T temp_* -f backup.sql
+
+<span class="cm"># 全叢集備份</span>
+pg_dumpall -f all.sql
+pg_dumpall --roles-only -f roles.sql</pre>
+      </div>
+      <div>
+        <h4>pg_restore 還原</h4>
+        <pre><span class="cm"># 從自訂/目錄格式還原</span>
+pg_restore -d mydb backup.dump
+
+<span class="cm"># 平行還原</span>
+pg_restore -d mydb -j 4 backup_dir/
+
+<span class="cm"># 只還原特定表</span>
+pg_restore -d mydb -t users backup.dump
+
+<span class="cm"># 清除再還原</span>
+pg_restore -d mydb --clean --if-exists backup.dump
+
+<span class="cm"># 列出備份內容</span>
+pg_restore -l backup.dump
+
+<span class="cm"># 純 SQL 檔直接用 psql</span>
+psql -d mydb -f backup.sql</pre>
+
+        <h4>COPY 高速匯入匯出</h4>
+        <pre><span class="cm">-- 伺服器端</span>
+<span class="kw">COPY</span> t <span class="kw">TO</span> <span class="str">'/tmp/t.csv'</span> <span class="kw">CSV HEADER</span>;
+<span class="kw">COPY</span> t <span class="kw">FROM</span> <span class="str">'/tmp/t.csv'</span> <span class="kw">CSV HEADER</span>;
+
+<span class="cm">-- 客戶端（psql）</span>
+\copy t <span class="kw">TO</span> <span class="str">'t.csv'</span> <span class="kw">CSV HEADER</span>
+\copy t <span class="kw">FROM</span> <span class="str">'t.csv'</span> <span class="kw">CSV HEADER</span></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 物理備份 PITR ============ -->
+<div class="card">
+  <div class="card-header purple">🕐 PITR 時間點還原 (Ch25.3)</div>
+  <div class="card-body">
+    <h4>基礎備份</h4>
+    <pre><span class="cm"># pg_basebackup</span>
+pg_basebackup -D /backup/base \
+  -Ft -z \              <span class="cm"># tar 壓縮格式</span>
+  -Xs                   <span class="cm"># 串流 WAL</span>
+  -P                    <span class="cm"># 顯示進度</span>
+  --checkpoint=fast</pre>
+
+    <h4>WAL 歸檔設定</h4>
+    <pre><span class="cm"># postgresql.conf</span>
+wal_level = replica
+archive_mode = on
+archive_command = <span class="str">'cp %p /archive/%f'</span>
+<span class="cm"># 或使用 archive_library (PG15+)</span></pre>
+
+    <h4>還原 (recovery.signal)</h4>
+    <pre><span class="cm"># 1. 還原基礎備份到資料目錄</span>
+<span class="cm"># 2. 建立 recovery.signal 檔案</span>
+touch $PGDATA/recovery.signal
+
+<span class="cm"># 3. 設定 postgresql.conf</span>
+restore_command = <span class="str">'cp /archive/%f %p'</span>
+recovery_target_time = <span class="str">'2024-03-15 14:30:00'</span>
+<span class="cm"># 或 recovery_target_lsn = '0/1A2B3C4D'</span>
+<span class="cm"># 或 recovery_target_xid = '12345'</span>
+<span class="cm"># 或 recovery_target = 'immediate'</span>
+recovery_target_action = <span class="str">'promote'</span>
+
+<span class="cm"># 4. 啟動 PostgreSQL</span></pre>
+  </div>
+</div>
+
+<!-- ============ 串流複寫 ============ -->
+<div class="card span2">
+  <div class="card-header blue">🔄 串流複寫 (Ch26)</div>
+  <div class="card-body">
+    <div class="two-col">
+      <div>
+        <h4>主庫設定</h4>
+        <pre><span class="cm"># postgresql.conf</span>
+wal_level = replica
+max_wal_senders = <span class="num">10</span>
+max_replication_slots = <span class="num">10</span>
+hot_standby = on
+
+<span class="cm"># 同步複寫（選用）</span>
+synchronous_standby_names = <span class="str">'s1'</span>
+<span class="cm"># 或 'FIRST 1 (s1, s2)'</span>
+<span class="cm"># 或 'ANY 1 (s1, s2)'</span>
+
+<span class="cm"># pg_hba.conf</span>
+host replication replicator 10.0.0.0/8 scram-sha-256</pre>
+
+        <h4>建立備庫</h4>
+        <pre><span class="cm"># 從主庫建立基礎備份</span>
+pg_basebackup -h primary_host \
+  -U replicator -D /data/standby \
+  -Xs -P -R
+<span class="cm"># -R 自動建立 standby.signal 和設定連線</span>
+
+<span class="cm"># 或手動設定 postgresql.conf</span>
+primary_conninfo = <span class="str">'host=primary port=5432 user=replicator password=xxx application_name=s1'</span></pre>
+      </div>
+      <div>
+        <h4>複寫槽 (Replication Slots)</h4>
+        <pre><span class="cm">-- 物理複寫槽（保留 WAL 直到備庫消費）</span>
+<span class="kw">SELECT</span> <span class="fn">pg_create_physical_replication_slot</span>(<span class="str">'slot1'</span>);
+
+<span class="cm">-- 邏輯複寫槽</span>
+<span class="kw">SELECT</span> <span class="fn">pg_create_logical_replication_slot</span>(<span class="str">'slot1'</span>, <span class="str">'pgoutput'</span>);
+
+<span class="cm">-- 查看複寫槽</span>
+<span class="kw">SELECT</span> * <span class="kw">FROM</span> pg_replication_slots;
+
+<span class="cm">-- 刪除</span>
+<span class="kw">SELECT</span> <span class="fn">pg_drop_replication_slot</span>(<span class="str">'slot1'</span>);</pre>
+
+        <h4>監控複寫延遲</h4>
+        <pre><span class="cm">-- 主庫查看</span>
+<span class="kw">SELECT</span> client_addr, state,
+  sent_lsn, write_lsn, flush_lsn,
+  replay_lsn,
+  <span class="fn">pg_wal_lsn_diff</span>(sent_lsn, replay_lsn) lag_bytes
+<span class="kw">FROM</span> pg_stat_replication;
+
+<span class="cm">-- 備庫查看</span>
+<span class="kw">SELECT</span>
+  <span class="fn">pg_is_in_recovery</span>(),
+  <span class="fn">pg_last_wal_receive_lsn</span>(),
+  <span class="fn">pg_last_wal_replay_lsn</span>(),
+  <span class="fn">pg_last_xact_replay_timestamp</span>();</pre>
+
+        <h4>手動故障切換</h4>
+        <pre><span class="cm"># 備庫升為主庫</span>
+pg_ctl promote -D $PGDATA
+<span class="cm">-- 或</span>
+<span class="kw">SELECT</span> <span class="fn">pg_promote</span>();</pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 邏輯複寫 ============ -->
+<div class="card">
+  <div class="card-header green">📡 邏輯複寫 (Ch29)</div>
+  <div class="card-body">
+    <h4>發佈端（主庫）</h4>
+    <pre><span class="cm"># wal_level = logical</span>
+
+<span class="kw">CREATE PUBLICATION</span> my_pub
+  <span class="kw">FOR TABLE</span> users, orders;
+<span class="cm">-- 或 FOR ALL TABLES</span>
+<span class="cm">-- 或 FOR TABLES IN SCHEMA public</span>
+
+<span class="cm">-- 只複寫特定操作</span>
+<span class="kw">CREATE PUBLICATION</span> insert_only
+  <span class="kw">FOR TABLE</span> logs
+  <span class="kw">WITH</span> (publish = <span class="str">'insert'</span>);
+
+<span class="cm">-- 列篩選 (PG15+)</span>
+<span class="kw">CREATE PUBLICATION</span> filtered
+  <span class="kw">FOR TABLE</span> orders <span class="kw">WHERE</span> (region = <span class="str">'TW'</span>);
+
+<span class="cm">-- 欄位篩選 (PG15+)</span>
+<span class="kw">CREATE PUBLICATION</span> partial
+  <span class="kw">FOR TABLE</span> users (id, name, email);</pre>
+
+    <h4>訂閱端</h4>
+    <pre><span class="kw">CREATE SUBSCRIPTION</span> my_sub
+  <span class="kw">CONNECTION</span> <span class="str">'host=pub_host dbname=mydb user=replicator password=xxx'</span>
+  <span class="kw">PUBLICATION</span> my_pub
+  <span class="kw">WITH</span> (
+    copy_data = <span class="kw">true</span>,  <span class="cm">-- 初始同步</span>
+    create_slot = <span class="kw">true</span>
+  );
+
+<span class="kw">ALTER SUBSCRIPTION</span> my_sub <span class="kw">REFRESH PUBLICATION</span>;
+<span class="kw">ALTER SUBSCRIPTION</span> my_sub <span class="kw">DISABLE</span>;
+<span class="kw">DROP SUBSCRIPTION</span> my_sub;</pre>
+    <div class="note"><b>邏輯複寫 vs 物理複寫</b>：邏輯可選表/列/列篩選、跨版本、多對一合併。物理是完整叢集複製</div>
+  </div>
+</div>
+
+<!-- ============ WAL ============ -->
+<div class="card">
+  <div class="card-header orange">📜 WAL 與 Checkpoint (Ch28)</div>
+  <div class="card-body">
+    <h4>WAL (Write-Ahead Logging)</h4>
+    <table>
+      <tr><td><b>原理</b></td><td>所有修改先寫入 WAL，再寫入資料檔案</td></tr>
+      <tr><td><b>目的</b></td><td>crash recovery、複寫、PITR</td></tr>
+      <tr><td><b>位置</b></td><td><code>$PGDATA/pg_wal/</code></td></tr>
+      <tr><td><b>段大小</b></td><td>預設 16MB（initdb --wal-segsize 可調）</td></tr>
+    </table>
+
+    <h4>WAL 等級</h4>
+    <table>
+      <tr><td><code>minimal</code></td><td>只做 crash recovery</td></tr>
+      <tr><td><code>replica</code></td><td>支援物理複寫和歸檔（<b>預設</b>）</td></tr>
+      <tr><td><code>logical</code></td><td>支援邏輯複寫</td></tr>
+    </table>
+
+    <h4>Checkpoint 參數</h4>
+    <table>
+      <tr><td><code>checkpoint_timeout</code></td><td><code>5min</code></td><td>最大 checkpoint 間隔</td></tr>
+      <tr><td><code>max_wal_size</code></td><td><code>1GB</code></td><td>觸發 checkpoint 的 WAL 量</td></tr>
+      <tr><td><code>checkpoint_completion_target</code></td><td><code>0.9</code></td><td>分散寫入的目標比例</td></tr>
+    </table>
+
+    <h4>synchronous_commit 選項</h4>
+    <table>
+      <tr><td><code>on</code></td><td>本地 WAL flush（預設）</td></tr>
+      <tr><td><code>off</code></td><td>不等 WAL flush（快但可能丟少量資料）</td></tr>
+      <tr><td><code>local</code></td><td>本地 flush，不等遠端</td></tr>
+      <tr><td><code>remote_write</code></td><td>等遠端寫入 OS 緩衝</td></tr>
+      <tr><td><code>remote_apply</code></td><td>等遠端回放完成</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ============ pg_stat_statements ============ -->
+<div class="card">
+  <div class="card-header pink">📈 pg_stat_statements & JIT (Ch30-31)</div>
+  <div class="card-body">
+    <h4>pg_stat_statements（必裝擴充）</h4>
+    <pre><span class="cm"># postgresql.conf</span>
+shared_preload_libraries = <span class="str">'pg_stat_statements'</span>
+pg_stat_statements.track = all
+
+<span class="cm">-- 啟用</span>
+<span class="kw">CREATE EXTENSION</span> pg_stat_statements;
+
+<span class="cm">-- 查詢最慢的 SQL</span>
+<span class="kw">SELECT</span> query,
+  calls, mean_exec_time, total_exec_time,
+  rows, shared_blks_hit, shared_blks_read
+<span class="kw">FROM</span> pg_stat_statements
+<span class="kw">ORDER BY</span> mean_exec_time <span class="kw">DESC</span>
+<span class="kw">LIMIT</span> <span class="num">20</span>;
+
+<span class="cm">-- 重置統計</span>
+<span class="kw">SELECT</span> <span class="fn">pg_stat_statements_reset</span>();</pre>
+
+    <h4>JIT 編譯 (Ch30)</h4>
+    <table>
+      <tr><td><code>jit</code></td><td><code>on</code></td><td>啟用 JIT</td></tr>
+      <tr><td><code>jit_above_cost</code></td><td><code>100000</code></td><td>啟用 JIT 的成本門檻</td></tr>
+      <tr><td><code>jit_inline_above_cost</code></td><td><code>500000</code></td><td>內聯函式的門檻</td></tr>
+      <tr><td><code>jit_optimize_above_cost</code></td><td><code>500000</code></td><td>最佳化的門檻</td></tr>
+    </table>
+    <div class="note">JIT 對大量資料處理有幫助，但對簡單 OLTP 查詢可能增加延遲</div>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<div class="footer">
+  PostgreSQL 18.3 速查表 #8 — 維護、備份與高可用性 | 基於 PostgreSQL 官方文件 Part III Ch23-31 | 2026
+</div>
+</body>
+</html>

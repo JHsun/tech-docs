@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PostgreSQL 18 速查表 #6 — 交易與並行控制 (MVCC)</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap');
+:root{--bg:#0a0e17;--surface:#111827;--surface2:#1a2332;--border:#2a3a50;--accent:#38bdf8;--accent2:#818cf8;--accent3:#34d399;--accent4:#fb923c;--accent5:#f472b6;--text:#e2e8f0;--text-dim:#94a3b8;--code-bg:#0f172a;--keyword:#c084fc;--string:#34d399;--number:#fb923c;--comment:#64748b}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:'Noto Sans TC',sans-serif;font-size:13px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.header{background:linear-gradient(135deg,#0f172a 0%,#7c2d12 50%,#0f172a 100%);border-bottom:2px solid var(--accent5);padding:20px 30px;position:relative}
+.header h1{font-size:22px;font-weight:900;color:var(--accent5);letter-spacing:1px}
+.header .subtitle{color:var(--text-dim);font-size:12px;margin-top:4px}
+.header .version{position:absolute;top:20px;right:30px;background:rgba(244,114,182,0.15);border:1px solid var(--accent5);padding:4px 14px;border-radius:20px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent5);font-weight:600}
+.container{max-width:1600px;margin:0 auto;padding:16px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.card.span2{grid-column:span 2}.card.span3{grid-column:span 3}
+.card-header{padding:8px 14px;font-weight:700;font-size:13px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border)}
+.card-header.blue{background:rgba(56,189,248,0.1);color:var(--accent)}
+.card-header.purple{background:rgba(129,140,248,0.1);color:var(--accent2)}
+.card-header.green{background:rgba(52,211,153,0.1);color:var(--accent3)}
+.card-header.orange{background:rgba(251,146,60,0.1);color:var(--accent4)}
+.card-header.pink{background:rgba(244,114,182,0.1);color:var(--accent5)}
+.card-body{padding:10px 14px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+table th{text-align:left;padding:5px 8px;background:var(--surface2);color:var(--accent);font-weight:600;border-bottom:1px solid var(--border);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+table td{padding:4px 8px;border-bottom:1px solid rgba(42,58,80,0.5);vertical-align:top}
+table tr:last-child td{border-bottom:none}
+code{font-family:'JetBrains Mono',monospace;font-size:11.5px;background:var(--code-bg);padding:1px 5px;border-radius:3px;color:var(--accent3)}
+pre{background:var(--code-bg);border:1px solid var(--border);border-radius:4px;padding:8px 10px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5;margin:6px 0;color:var(--text)}
+pre .kw{color:var(--keyword);font-weight:600}pre .fn{color:var(--accent)}pre .str{color:var(--string)}pre .num{color:var(--number)}pre .cm{color:var(--comment);font-style:italic}
+.note{background:rgba(56,189,248,0.08);border-left:3px solid var(--accent);padding:6px 10px;margin:6px 0;font-size:11.5px;border-radius:0 4px 4px 0}
+.warn{background:rgba(251,146,60,0.08);border-left:3px solid var(--accent4);padding:6px 10px;margin:6px 0;font-size:11.5px;border-radius:0 4px 4px 0}
+h4{color:var(--accent2);font-size:12px;font-weight:700;margin:8px 0 4px;padding-bottom:2px;border-bottom:1px dashed var(--border)}h4:first-child{margin-top:0}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.footer{text-align:center;padding:12px;color:var(--text-dim);font-size:11px;border-top:1px solid var(--border)}
+@media(max-width:1200px){.container{grid-template-columns:repeat(2,1fr)}.card.span3{grid-column:span 2}}
+@media(max-width:768px){.container{grid-template-columns:1fr}.card.span2,.card.span3{grid-column:span 1}.two-col{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>PostgreSQL 18 速查表 #6</h1>
+  <div class="subtitle">交易與並行控制 (MVCC) — 對應官方文件 Part II Chapter 13</div>
+  <div class="version">v18.3</div>
+</div>
+
+<div class="container">
+
+<!-- ============ 交易基本操作 ============ -->
+<div class="card">
+  <div class="card-header blue">🔄 交易基本操作 (Ch13.1)</div>
+  <div class="card-body">
+    <pre><span class="cm">-- 開始交易</span>
+<span class="kw">BEGIN</span>;
+<span class="kw">BEGIN TRANSACTION</span>;
+<span class="kw">BEGIN ISOLATION LEVEL</span> ...;
+<span class="kw">START TRANSACTION</span>;
+
+<span class="cm">-- 提交</span>
+<span class="kw">COMMIT</span>;
+<span class="kw">END</span>;
+
+<span class="cm">-- 回滾</span>
+<span class="kw">ROLLBACK</span>;
+<span class="kw">ABORT</span>;
+
+<span class="cm">-- 儲存點</span>
+<span class="kw">SAVEPOINT</span> sp1;
+<span class="kw">ROLLBACK TO SAVEPOINT</span> sp1;
+<span class="kw">RELEASE SAVEPOINT</span> sp1;
+
+<span class="cm">-- 設定交易特性</span>
+<span class="kw">SET TRANSACTION</span>
+  <span class="kw">ISOLATION LEVEL</span> ...
+  <span class="kw">READ ONLY</span> | <span class="kw">READ WRITE</span>
+  <span class="kw">DEFERRABLE</span> | <span class="kw">NOT DEFERRABLE</span>;</pre>
+    <div class="note">PostgreSQL 的每個 SQL 語句都在交易中執行（autocommit 模式自動 BEGIN + COMMIT）</div>
+  </div>
+</div>
+
+<!-- ============ 隔離層級 ============ -->
+<div class="card span2">
+  <div class="card-header purple">🔒 交易隔離層級 (Ch13.2)</div>
+  <div class="card-body">
+    <table>
+      <tr><th>隔離層級</th><th>髒讀</th><th>不可重複讀</th><th>幻讀</th><th>序列化異常</th><th>說明</th></tr>
+      <tr><td><code>READ UNCOMMITTED</code></td><td>❌*</td><td>可能</td><td>可能</td><td>可能</td><td>PG 中等同 READ COMMITTED</td></tr>
+      <tr><td><code>READ COMMITTED</code></td><td>❌</td><td>可能</td><td>可能</td><td>可能</td><td><b>預設值</b>。每條語句看到已提交資料</td></tr>
+      <tr><td><code>REPEATABLE READ</code></td><td>❌</td><td>❌</td><td>❌*</td><td>可能</td><td>快照在交易開始時固定。*PG 不會有幻讀</td></tr>
+      <tr><td><code>SERIALIZABLE</code></td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>完全可序列化（SSI 演算法）</td></tr>
+    </table>
+
+    <div class="two-col" style="margin-top:8px">
+      <div>
+        <h4>READ COMMITTED 行為</h4>
+        <pre><span class="cm">-- 每條 SELECT 看到的是該語句
+-- 開始時已提交的資料快照
+-- UPDATE/DELETE 會等待衝突行的
+-- 交易提交後重新評估 WHERE</span>
+<span class="kw">BEGIN</span>;
+<span class="kw">SELECT</span> * <span class="kw">FROM</span> t; <span class="cm">-- 快照A</span>
+<span class="cm">-- 其他交易提交了變更...</span>
+<span class="kw">SELECT</span> * <span class="kw">FROM</span> t; <span class="cm">-- 快照B（可能不同！）</span>
+<span class="kw">COMMIT</span>;</pre>
+      </div>
+      <div>
+        <h4>REPEATABLE READ / SERIALIZABLE</h4>
+        <pre><span class="cm">-- 交易開始時取得快照，
+-- 整個交易看到一致的資料</span>
+<span class="kw">BEGIN ISOLATION LEVEL REPEATABLE READ</span>;
+<span class="kw">SELECT</span> * <span class="kw">FROM</span> t; <span class="cm">-- 快照A</span>
+<span class="cm">-- 其他交易提交了變更...</span>
+<span class="kw">SELECT</span> * <span class="kw">FROM</span> t; <span class="cm">-- 仍是快照A</span>
+<span class="cm">-- 若更新被其他交易已修改的列：
+-- ERROR: could not serialize access</span>
+<span class="kw">COMMIT</span>;</pre>
+      </div>
+    </div>
+    <div class="warn"><b>SERIALIZABLE</b> 會偵測序列化衝突並中止交易。應用程式必須準備好重試被中止的交易</div>
+  </div>
+</div>
+
+<!-- ============ MVCC 機制 ============ -->
+<div class="card">
+  <div class="card-header green">🔬 MVCC 機制</div>
+  <div class="card-body">
+    <h4>核心原理</h4>
+    <table>
+      <tr><td><b>多版本</b></td><td>UPDATE 不覆蓋原列，而是建立新版本</td></tr>
+      <tr><td><b>快照</b></td><td>每個交易/語句看到特定時間點的資料</td></tr>
+      <tr><td><b>不阻塞</b></td><td>讀取不阻塞寫入，寫入不阻塞讀取</td></tr>
+    </table>
+    <h4>列版本控制</h4>
+    <table>
+      <tr><td><code>xmin</code></td><td>建立此版本的交易 ID</td></tr>
+      <tr><td><code>xmax</code></td><td>刪除/更新此版本的交易 ID</td></tr>
+      <tr><td><code>cmin/cmax</code></td><td>交易內的命令序號</td></tr>
+    </table>
+    <h4>可見性規則</h4>
+    <pre><span class="cm">-- 一個列版本對交易 T 可見，當且僅當：
+-- 1. xmin 已提交 且 xmin < T 的快照
+-- 2. xmax 未設定 或 xmax 未提交 或 xmax >= T 的快照</span></pre>
+    <div class="note"><b>VACUUM</b> 負責清理已不被任何交易可見的舊版本（死元組）</div>
+  </div>
+</div>
+
+<!-- ============ 表級鎖 ============ -->
+<div class="card span2">
+  <div class="card-header orange">🔐 表級鎖 (Ch13.3.1)</div>
+  <div class="card-body">
+    <table>
+      <tr><th>鎖模式</th><th>衝突對象</th><th>典型觸發</th></tr>
+      <tr><td><code>ACCESS SHARE</code></td><td>ACCESS EXCLUSIVE</td><td>SELECT</td></tr>
+      <tr><td><code>ROW SHARE</code></td><td>EXCLUSIVE, ACCESS EXCL.</td><td>SELECT FOR UPDATE/SHARE</td></tr>
+      <tr><td><code>ROW EXCLUSIVE</code></td><td>SHARE, SHARE ROW EXCL., EXCL., ACCESS EXCL.</td><td>INSERT, UPDATE, DELETE</td></tr>
+      <tr><td><code>SHARE UPDATE EXCLUSIVE</code></td><td>SHARE UPDATE EXCL., SHARE, SHARE ROW EXCL., EXCL., ACCESS EXCL.</td><td>VACUUM, ANALYZE, CREATE INDEX CONCURRENTLY</td></tr>
+      <tr><td><code>SHARE</code></td><td>ROW EXCL., SHARE UPDATE EXCL., SHARE ROW EXCL., EXCL., ACCESS EXCL.</td><td>CREATE INDEX (非 CONCURRENTLY)</td></tr>
+      <tr><td><code>SHARE ROW EXCLUSIVE</code></td><td>ROW EXCL., SHARE UPDATE EXCL., SHARE, SHARE ROW EXCL., EXCL., ACCESS EXCL.</td><td>CREATE TRIGGER, ALTER TABLE（某些）</td></tr>
+      <tr><td><code>EXCLUSIVE</code></td><td>ROW SHARE+以上全部</td><td>REFRESH MATERIALIZED VIEW CONCURRENTLY</td></tr>
+      <tr><td><code>ACCESS EXCLUSIVE</code></td><td><b>與所有鎖衝突</b></td><td>DROP TABLE, ALTER TABLE, VACUUM FULL, LOCK TABLE</td></tr>
+    </table>
+    <pre><span class="cm">-- 手動鎖表</span>
+<span class="kw">LOCK TABLE</span> t <span class="kw">IN</span> <span class="kw">ACCESS EXCLUSIVE MODE</span>;
+<span class="kw">LOCK TABLE</span> t <span class="kw">IN</span> <span class="kw">SHARE MODE NOWAIT</span>;</pre>
+    <div class="note"><b>關鍵</b>：SELECT 只取 ACCESS SHARE 鎖，與 INSERT/UPDATE/DELETE (ROW EXCLUSIVE) <b>不衝突</b>。這就是「讀不阻塞寫」的原理</div>
+  </div>
+</div>
+
+<!-- ============ 列級鎖 ============ -->
+<div class="card">
+  <div class="card-header pink">🔑 列級鎖 (Ch13.3.2)</div>
+  <div class="card-body">
+    <table>
+      <tr><th>模式</th><th>衝突</th><th>觸發</th></tr>
+      <tr><td><code>FOR KEY SHARE</code></td><td>FOR UPDATE</td><td>外鍵檢查</td></tr>
+      <tr><td><code>FOR SHARE</code></td><td>FOR UPDATE, FOR NO KEY UPDATE</td><td>SELECT FOR SHARE</td></tr>
+      <tr><td><code>FOR NO KEY UPDATE</code></td><td>FOR SHARE, FOR UPDATE, FOR NO KEY UPDATE</td><td>UPDATE（不修改鍵欄位）</td></tr>
+      <tr><td><code>FOR UPDATE</code></td><td><b>全部衝突</b></td><td>UPDATE（修改鍵欄位）、DELETE、SELECT FOR UPDATE</td></tr>
+    </table>
+    <h4>鎖等待選項</h4>
+    <pre><span class="kw">SELECT</span> ... <span class="kw">FOR UPDATE NOWAIT</span>;
+<span class="cm">-- 無法取鎖時立即拋出錯誤</span>
+
+<span class="kw">SELECT</span> ... <span class="kw">FOR UPDATE SKIP LOCKED</span>;
+<span class="cm">-- 跳過已鎖定的列（工作佇列必備）</span></pre>
+  </div>
+</div>
+
+<!-- ============ 死鎖 ============ -->
+<div class="card">
+  <div class="card-header blue">💀 死鎖處理 (Ch13.3.4)</div>
+  <div class="card-body">
+    <pre><span class="cm">-- 死鎖場景：
+-- TX1: UPDATE t SET ... WHERE id=1; (等 id=2)
+-- TX2: UPDATE t SET ... WHERE id=2; (等 id=1)
+-- → deadlock detected!</span>
+
+<span class="cm">-- PostgreSQL 自動偵測死鎖（每秒檢查）
+-- 會中止其中一個交易</span></pre>
+    <h4>預防死鎖</h4>
+    <table>
+      <tr><td>1</td><td>以一致的順序取得鎖（如總是先鎖 id 小的）</td></tr>
+      <tr><td>2</td><td>縮短交易時間</td></tr>
+      <tr><td>3</td><td>使用 NOWAIT 或 SKIP LOCKED</td></tr>
+      <tr><td>4</td><td>降低隔離層級</td></tr>
+    </table>
+    <h4>相關參數</h4>
+    <table>
+      <tr><td><code>deadlock_timeout</code></td><td>等待多久開始檢查死鎖（預設 1s）</td></tr>
+      <tr><td><code>lock_timeout</code></td><td>等待鎖的最大時間（預設 0=無限）</td></tr>
+      <tr><td><code>statement_timeout</code></td><td>語句最大執行時間</td></tr>
+      <tr><td><code>idle_in_transaction_session_timeout</code></td><td>閒置交易超時</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ============ 諮詢鎖 ============ -->
+<div class="card">
+  <div class="card-header green">🎯 諮詢鎖 (Advisory Locks) (Ch13.3.5)</div>
+  <div class="card-body">
+    <pre><span class="cm">-- 會話級（直到釋放或斷線）</span>
+<span class="kw">SELECT</span> <span class="fn">pg_advisory_lock</span>(<span class="num">12345</span>);
+<span class="kw">SELECT</span> <span class="fn">pg_advisory_unlock</span>(<span class="num">12345</span>);
+
+<span class="cm">-- 嘗試取鎖（不等待）</span>
+<span class="kw">SELECT</span> <span class="fn">pg_try_advisory_lock</span>(<span class="num">12345</span>);  <span class="cm">-- true/false</span>
+
+<span class="cm">-- 交易級（COMMIT/ROLLBACK 時自動釋放）</span>
+<span class="kw">SELECT</span> <span class="fn">pg_advisory_xact_lock</span>(<span class="num">12345</span>);
+
+<span class="cm">-- 共享鎖（允許多讀但排斥寫）</span>
+<span class="kw">SELECT</span> <span class="fn">pg_advisory_lock_shared</span>(<span class="num">12345</span>);
+
+<span class="cm">-- 雙參數（兩個 int4 → 一個 int8 鍵）</span>
+<span class="kw">SELECT</span> <span class="fn">pg_advisory_lock</span>(<span class="num">1</span>, <span class="num">100</span>);</pre>
+    <h4>使用場景</h4>
+    <table>
+      <tr><td>應用層互斥</td><td>防止重複處理同一工作</td></tr>
+      <tr><td>分散式鎖</td><td>多進程協調</td></tr>
+      <tr><td>限速</td><td>控制並發操作數量</td></tr>
+      <tr><td>工作佇列</td><td>搭配 SKIP LOCKED</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ============ 監控鎖 ============ -->
+<div class="card">
+  <div class="card-header orange">📊 鎖監控與診斷</div>
+  <div class="card-body">
+    <h4>查看目前鎖</h4>
+    <pre><span class="kw">SELECT</span> l.locktype, l.relation::regclass,
+  l.mode, l.granted, l.pid,
+  a.usename, a.query, a.state
+<span class="kw">FROM</span> pg_locks l
+<span class="kw">JOIN</span> pg_stat_activity a <span class="kw">ON</span> l.pid = a.pid
+<span class="kw">WHERE</span> l.relation <span class="kw">IS NOT NULL</span>;</pre>
+
+    <h4>查看鎖等待</h4>
+    <pre><span class="kw">SELECT</span>
+  blocked.pid <span class="kw">AS</span> blocked_pid,
+  blocked.query <span class="kw">AS</span> blocked_query,
+  blocking.pid <span class="kw">AS</span> blocking_pid,
+  blocking.query <span class="kw">AS</span> blocking_query
+<span class="kw">FROM</span> pg_stat_activity blocked
+<span class="kw">JOIN</span> pg_locks bl <span class="kw">ON</span> bl.pid = blocked.pid
+  <span class="kw">AND NOT</span> bl.granted
+<span class="kw">JOIN</span> pg_locks kl <span class="kw">ON</span> kl.locktype = bl.locktype
+  <span class="kw">AND</span> kl.database <span class="kw">IS NOT DISTINCT FROM</span> bl.database
+  <span class="kw">AND</span> kl.relation <span class="kw">IS NOT DISTINCT FROM</span> bl.relation
+  <span class="kw">AND</span> kl.granted
+<span class="kw">JOIN</span> pg_stat_activity blocking
+  <span class="kw">ON</span> kl.pid = blocking.pid;</pre>
+
+    <h4>終止阻塞連線</h4>
+    <pre><span class="kw">SELECT</span> <span class="fn">pg_cancel_backend</span>(pid);     <span class="cm">-- 取消查詢</span>
+<span class="kw">SELECT</span> <span class="fn">pg_terminate_backend</span>(pid);  <span class="cm">-- 終止連線</span></pre>
+  </div>
+</div>
+
+<!-- ============ SSI ============ -->
+<div class="card">
+  <div class="card-header purple">🛡️ Serializable Snapshot Isolation (SSI)</div>
+  <div class="card-body">
+    <h4>運作機制</h4>
+    <table>
+      <tr><td>基礎</td><td>REPEATABLE READ + 依賴追蹤</td></tr>
+      <tr><td>讀寫依賴 (rw)</td><td>T1 讀了 T2 將修改的資料</td></tr>
+      <tr><td>偵測</td><td>當出現「危險結構」（rw-antidependency cycle）時中止交易</td></tr>
+    </table>
+    <h4>使用建議</h4>
+    <table>
+      <tr><td>1</td><td>將 <code>default_transaction_isolation</code> 設為 serializable</td></tr>
+      <tr><td>2</td><td>所有交易都用同層級（混用會失去保證）</td></tr>
+      <tr><td>3</td><td>應用層必須準備好<b>重試</b>序列化失敗</td></tr>
+      <tr><td>4</td><td>盡量使用短交易</td></tr>
+      <tr><td>5</td><td><code>READ ONLY DEFERRABLE</code> 用於長讀取交易（等待安全快照）</td></tr>
+    </table>
+    <h4>相關參數</h4>
+    <pre><span class="kw">SET</span> default_transaction_isolation = <span class="str">'serializable'</span>;
+<span class="cm">-- max_pred_locks_per_transaction = 64 (預設)</span>
+<span class="cm">-- max_pred_locks_per_relation = -2 (預設)</span>
+<span class="cm">-- max_pred_locks_per_page = 2 (預設)</span></pre>
+    <div class="note"><code>READ ONLY DEFERRABLE</code> 交易在安全時刻開始，保證不會被中止，適合長時間報表查詢</div>
+  </div>
+</div>
+
+<!-- ============ 工作佇列模式 ============ -->
+<div class="card">
+  <div class="card-header pink">📮 工作佇列模式 (SKIP LOCKED)</div>
+  <div class="card-body">
+    <pre><span class="cm">-- 工作表</span>
+<span class="kw">CREATE TABLE</span> job_queue (
+  id <span class="fn">serial</span> <span class="kw">PRIMARY KEY</span>,
+  payload <span class="fn">jsonb</span>,
+  status <span class="fn">text</span> <span class="kw">DEFAULT</span> <span class="str">'pending'</span>,
+  created <span class="fn">timestamptz</span> <span class="kw">DEFAULT</span> <span class="fn">now</span>()
+);
+
+<span class="cm">-- Worker 取得工作</span>
+<span class="kw">UPDATE</span> job_queue
+<span class="kw">SET</span> status = <span class="str">'processing'</span>
+<span class="kw">WHERE</span> id = (
+  <span class="kw">SELECT</span> id <span class="kw">FROM</span> job_queue
+  <span class="kw">WHERE</span> status = <span class="str">'pending'</span>
+  <span class="kw">ORDER BY</span> created
+  <span class="kw">LIMIT</span> <span class="num">1</span>
+  <span class="kw">FOR UPDATE SKIP LOCKED</span>
+)
+<span class="kw">RETURNING</span> *;</pre>
+    <div class="note"><b>SKIP LOCKED</b> 讓多個 worker 可以同時從佇列取得不同工作，無需等待</div>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<div class="footer">
+  PostgreSQL 18.3 速查表 #6 — 交易與並行控制 | 基於 PostgreSQL 官方文件 Part II Ch13 | 2026
+</div>
+</body>
+</html>
