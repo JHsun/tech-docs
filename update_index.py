@@ -17,20 +17,73 @@ REPO_ROOT = Path(__file__).parent
 REPORTS_DIR = REPO_ROOT / "reports"
 INDEX_PATH = REPO_ROOT / "index.html"
 
-# 分類的簡短顯示名稱
-CATEGORY_DISPLAY = {
+# 手動覆蓋顯示名稱（可選，未列出的會自動推導）
+CATEGORY_DISPLAY_OVERRIDE = {
     "claude-code-quickstart": "Claude Code",
     "etcd-quickstart": "etcd",
-    "linux-cheat-sheet": "Linux",
     "postgresql-quickstart": "PostgreSQL",
-    "redis-cheat-sheet": "Redis",
-    "playwright-cheat-sheet": "Playwright",
     "_uncategorized": "其他",
 }
 
+# 色盤：light (bg, text) / dark (bg, text)，自動輪替分配
+COLOR_PALETTE = [
+    {"light": ("#e8e0ff", "#5a4bd1"), "dark": ("rgba(108,92,231,0.2)", "#b9a0fc")},     # 紫
+    {"light": ("#d4f5e9", "#0f7b5f"), "dark": ("rgba(16,185,129,0.15)", "#6ee7b7")},     # 綠
+    {"light": ("#ffecd2", "#b8651a"), "dark": ("rgba(251,191,36,0.15)", "#fcd34d")},      # 橘
+    {"light": ("#dbeafe", "#1e40af"), "dark": ("rgba(59,130,246,0.15)", "#93c5fd")},      # 藍
+    {"light": ("#fee2e2", "#b91c1c"), "dark": ("rgba(239,68,68,0.15)", "#fca5a5")},       # 紅
+    {"light": ("#d1fae5", "#065f46"), "dark": ("rgba(16,185,129,0.15)", "#6ee7b7")},      # 翠綠
+    {"light": ("#fef3c7", "#92400e"), "dark": ("rgba(245,158,11,0.15)", "#fcd34d")},      # 金
+    {"light": ("#ede9fe", "#6d28d9"), "dark": ("rgba(139,92,246,0.15)", "#c4b5fd")},      # 靛
+    {"light": ("#fce7f3", "#9d174d"), "dark": ("rgba(236,72,153,0.15)", "#f9a8d4")},      # 粉
+    {"light": ("#e0f2fe", "#075985"), "dark": ("rgba(14,165,233,0.15)", "#7dd3fc")},      # 天藍
+]
+
+# 其他分類的固定色
+OTHER_COLOR = {"light": ("#e8e8ed", "#6e6e73"), "dark": ("rgba(255,255,255,0.08)", "#a1a1a6")}
+
+
+def auto_display_name(cat):
+    """從資料夾名推導顯示名稱：去掉常見後綴，首字母大寫"""
+    if cat == "_uncategorized":
+        return "其他"
+    name = cat
+    for suffix in ("-quickstart", "-cheat-sheet", "-tutorial", "-guide"):
+        name = name.replace(suffix, "")
+    parts = name.split("-")
+    return " ".join(p.capitalize() for p in parts if p)
+
 
 def category_display_name(cat):
-    return CATEGORY_DISPLAY.get(cat, cat)
+    return CATEGORY_DISPLAY_OVERRIDE.get(cat, auto_display_name(cat))
+
+
+def assign_colors(categories):
+    """為每個分類分配色盤顏色，回傳 {cat: color_entry}"""
+    mapping = {}
+    for i, cat in enumerate(categories):
+        mapping[cat] = COLOR_PALETTE[i % len(COLOR_PALETTE)]
+    mapping["_uncategorized"] = OTHER_COLOR
+    return mapping
+
+
+def build_tag_css(color_map):
+    """動態生成分類相關的 CSS 變數和規則"""
+    light_vars = ""
+    dark_vars = ""
+    tag_rules = ""
+    icon_rules = ""
+
+    for cat, colors in color_map.items():
+        slug = cat.replace("-", "")  # CSS 變數用的 slug
+        lb, lt = colors["light"]
+        db, dt = colors["dark"]
+        light_vars += f"      --tag-{slug}: {lb}; --tag-{slug}-text: {lt};\n"
+        dark_vars += f"      --tag-{slug}: {db}; --tag-{slug}-text: {dt};\n"
+        tag_rules += f'    .report-tag[data-tag="{cat}"] {{ background: var(--tag-{slug}); color: var(--tag-{slug}-text); }}\n'
+        icon_rules += f'    .category-icon[data-cat="{cat}"] {{ background: var(--tag-{slug}); color: var(--tag-{slug}-text); }}\n'
+
+    return light_vars, dark_vars, tag_rules, icon_rules
 
 
 def extract_title(filepath):
@@ -105,6 +158,10 @@ def generate_index(groups):
     total = sum(len(v) for v in groups.values())
     categories = [k for k in groups.keys() if k != "_uncategorized"]
 
+    # --- 動態色標 ---
+    color_map = assign_colors(categories)
+    light_vars, dark_vars, tag_rules, icon_rules = build_tag_css(color_map)
+
     # --- build grouped view ---
     grouped_html = ""
     for cat, reports in groups.items():
@@ -167,14 +224,7 @@ def generate_index(groups):
       --border-hover: rgba(108, 92, 231, 0.3);
       --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
       --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04);
-      --tag-claude: #e8e0ff; --tag-claude-text: #5a4bd1;
-      --tag-etcd: #d4f5e9; --tag-etcd-text: #0f7b5f;
-      --tag-linux: #ffecd2; --tag-linux-text: #b8651a;
-      --tag-pg: #dbeafe; --tag-pg-text: #1e40af;
-      --tag-redis: #fee2e2; --tag-redis-text: #b91c1c;
-      --tag-playwright: #d1fae5; --tag-playwright-text: #065f46;
-      --tag-other: #e8e8ed; --tag-other-text: #6e6e73;
-      --header-bg: rgba(245, 245, 247, 0.8);
+""" + light_vars + """      --header-bg: rgba(245, 245, 247, 0.8);
       --radius-sm: 10px;
       --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     }
@@ -194,14 +244,7 @@ def generate_index(groups):
       --border-hover: rgba(167, 139, 250, 0.35);
       --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
       --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3);
-      --tag-claude: rgba(108, 92, 231, 0.2); --tag-claude-text: #b9a0fc;
-      --tag-etcd: rgba(16, 185, 129, 0.15); --tag-etcd-text: #6ee7b7;
-      --tag-linux: rgba(251, 191, 36, 0.15); --tag-linux-text: #fcd34d;
-      --tag-pg: rgba(59, 130, 246, 0.15); --tag-pg-text: #93c5fd;
-      --tag-redis: rgba(239, 68, 68, 0.15); --tag-redis-text: #fca5a5;
-      --tag-playwright: rgba(16, 185, 129, 0.15); --tag-playwright-text: #6ee7b7;
-      --tag-other: rgba(255, 255, 255, 0.08); --tag-other-text: #a1a1a6;
-      --header-bg: rgba(13, 13, 15, 0.85);
+""" + dark_vars + """      --header-bg: rgba(13, 13, 15, 0.85);
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -332,13 +375,7 @@ def generate_index(groups):
       font-size: 0.72rem; padding: 0.2rem 0.6rem; border-radius: 12px;
       font-weight: 600; white-space: nowrap;
     }
-    .report-tag[data-tag="claude-code-quickstart"] { background: var(--tag-claude); color: var(--tag-claude-text); }
-    .report-tag[data-tag="etcd-quickstart"] { background: var(--tag-etcd); color: var(--tag-etcd-text); }
-    .report-tag[data-tag="linux-cheat-sheet"] { background: var(--tag-linux); color: var(--tag-linux-text); }
-    .report-tag[data-tag="postgresql-quickstart"] { background: var(--tag-pg); color: var(--tag-pg-text); }
-    .report-tag[data-tag="redis-cheat-sheet"] { background: var(--tag-redis); color: var(--tag-redis-text); }
-    .report-tag[data-tag="playwright-cheat-sheet"] { background: var(--tag-playwright); color: var(--tag-playwright-text); }
-    .report-tag[data-tag="_uncategorized"] { background: var(--tag-other); color: var(--tag-other-text); }
+""" + tag_rules + """
     .report-arrow {
       color: var(--text-muted); font-size: 0.85rem; opacity: 0;
       transform: translateX(-4px); transition: all var(--transition);
@@ -354,13 +391,7 @@ def generate_index(groups):
       width: 28px; height: 28px; border-radius: 8px;
       display: flex; align-items: center; justify-content: center; font-size: 0.85rem;
     }
-    .category-icon[data-cat="claude-code-quickstart"] { background: var(--tag-claude); color: var(--tag-claude-text); }
-    .category-icon[data-cat="etcd-quickstart"] { background: var(--tag-etcd); color: var(--tag-etcd-text); }
-    .category-icon[data-cat="linux-cheat-sheet"] { background: var(--tag-linux); color: var(--tag-linux-text); }
-    .category-icon[data-cat="postgresql-quickstart"] { background: var(--tag-pg); color: var(--tag-pg-text); }
-    .category-icon[data-cat="redis-cheat-sheet"] { background: var(--tag-redis); color: var(--tag-redis-text); }
-    .category-icon[data-cat="playwright-cheat-sheet"] { background: var(--tag-playwright); color: var(--tag-playwright-text); }
-    .category-icon[data-cat="_uncategorized"] { background: var(--tag-other); color: var(--tag-other-text); }
+""" + icon_rules + """
     .category-title { font-size: 0.95rem; font-weight: 700; letter-spacing: -0.01em; }
     .category-count {
       font-size: 0.7rem; font-weight: 600; background: var(--accent-subtle);
