@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Discord 訊息系統完整深度研究報告</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;500;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
+<style>
+:root {
+  --blurple: #5865F2;
+  --blurple-dark: #4752C4;
+  --green: #57F287;
+  --yellow: #FEE75C;
+  --fuchsia: #EB459E;
+  --red: #ED4245;
+  --bg-dark: #1a1a2e;
+  --bg-card: #16213e;
+  --bg-surface: #0f3460;
+  --text-primary: #f0f0f0;
+  --text-secondary: #a8b3cf;
+  --text-muted: #72809a;
+  --border: rgba(88, 101, 242, 0.2);
+  --glow: rgba(88, 101, 242, 0.15);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html {
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: var(--blurple) var(--bg-dark);
+}
+
+body {
+  font-family: 'Noto Sans TC', sans-serif;
+  background: var(--bg-dark);
+  color: var(--text-primary);
+  line-height: 1.8;
+  font-size: 16px;
+  overflow-x: hidden;
+}
+
+/* Background pattern */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(88, 101, 242, 0.08) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(235, 69, 158, 0.06) 0%, transparent 50%),
+    radial-gradient(circle at 50% 50%, rgba(87, 242, 135, 0.04) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Header */
+.hero {
+  position: relative;
+  padding: 80px 40px 60px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(88,101,242,0.12) 0%, transparent 100%);
+  overflow: hidden;
+}
+
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -120px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(88,101,242,0.18) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(88,101,242,0.15);
+  border: 1px solid rgba(88,101,242,0.3);
+  border-radius: 100px;
+  padding: 6px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--blurple);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 24px;
+  position: relative;
+  z-index: 1;
+}
+
+.hero-badge svg {
+  width: 16px;
+  height: 16px;
+  fill: var(--blurple);
+}
+
+.hero h1 {
+  font-family: 'DM Serif Display', serif;
+  font-size: clamp(2.4rem, 5vw, 3.6rem);
+  font-weight: 400;
+  line-height: 1.2;
+  margin-bottom: 16px;
+  position: relative;
+  z-index: 1;
+  background: linear-gradient(135deg, #fff 0%, #a8b3cf 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.hero .subtitle {
+  font-size: 17px;
+  color: var(--text-secondary);
+  max-width: 640px;
+  margin: 0 auto;
+  position: relative;
+  z-index: 1;
+}
+
+.hero .meta {
+  margin-top: 24px;
+  font-size: 13px;
+  color: var(--text-muted);
+  position: relative;
+  z-index: 1;
+}
+
+/* Navigation */
+.toc {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(26, 26, 46, 0.92);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 40px;
+  overflow-x: auto;
+}
+
+.toc-inner {
+  display: flex;
+  gap: 0;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.toc a {
+  display: block;
+  padding: 14px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-decoration: none;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.toc a:hover {
+  color: var(--blurple);
+  border-bottom-color: var(--blurple);
+}
+
+/* Main Container */
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 40px;
+  position: relative;
+  z-index: 1;
+}
+
+/* Section */
+.section {
+  padding: 60px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.section:last-child {
+  border-bottom: none;
+}
+
+.section-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+
+.section-label.part1 { color: var(--blurple); }
+.section-label.part2 { color: var(--green); }
+.section-label.part3 { color: var(--fuchsia); }
+.section-label.part4 { color: var(--yellow); }
+.section-label.part5 { color: var(--red); }
+
+.section h2 {
+  font-family: 'DM Serif Display', serif;
+  font-size: 2rem;
+  font-weight: 400;
+  margin-bottom: 8px;
+  color: #fff;
+}
+
+.section-desc {
+  color: var(--text-secondary);
+  font-size: 15px;
+  margin-bottom: 36px;
+}
+
+.section h3 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin: 36px 0 16px;
+  color: #fff;
+  padding-left: 14px;
+  border-left: 3px solid var(--blurple);
+}
+
+.section p {
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.section strong { color: #fff; }
+
+/* Cards */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin: 20px 0;
+}
+
+.card {
+  background: rgba(22, 33, 62, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  transition: border-color 0.2s, transform 0.2s;
+}
+
+.card:hover {
+  border-color: rgba(88,101,242,0.4);
+  transform: translateY(-2px);
+}
+
+.card-icon {
+  font-size: 28px;
+  margin-bottom: 12px;
+}
+
+.card h4 {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: #fff;
+}
+
+.card p {
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin-bottom: 0;
+}
+
+/* Tables */
+.table-wrapper {
+  overflow-x: auto;
+  margin: 20px 0;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+thead {
+  background: rgba(88, 101, 242, 0.1);
+}
+
+th {
+  text-align: left;
+  padding: 12px 16px;
+  font-weight: 600;
+  color: var(--blurple);
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+td {
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(88,101,242,0.08);
+  color: var(--text-secondary);
+  vertical-align: top;
+}
+
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(88,101,242,0.04); }
+
+td code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  background: rgba(88,101,242,0.12);
+  color: var(--blurple);
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+/* Inline code */
+p code, li code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  background: rgba(88,101,242,0.12);
+  color: var(--blurple);
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+/* Callout boxes */
+.callout {
+  border-radius: 10px;
+  padding: 20px 24px;
+  margin: 20px 0;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.callout.warning {
+  background: rgba(254, 231, 92, 0.08);
+  border: 1px solid rgba(254, 231, 92, 0.2);
+}
+
+.callout.warning .callout-title { color: var(--yellow); }
+
+.callout.info {
+  background: rgba(88, 101, 242, 0.08);
+  border: 1px solid rgba(88, 101, 242, 0.2);
+}
+
+.callout.info .callout-title { color: var(--blurple); }
+
+.callout.danger {
+  background: rgba(237, 66, 69, 0.08);
+  border: 1px solid rgba(237, 66, 69, 0.2);
+}
+
+.callout.danger .callout-title { color: var(--red); }
+
+.callout-title {
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.callout p { margin-bottom: 0; color: var(--text-secondary); }
+
+/* Tag / Badge */
+.tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
+.tag.blurple { background: rgba(88,101,242,0.2); color: var(--blurple); }
+.tag.green { background: rgba(87,242,135,0.15); color: var(--green); }
+.tag.red { background: rgba(237,66,69,0.15); color: var(--red); }
+.tag.yellow { background: rgba(254,231,92,0.15); color: #d4a017; }
+
+/* Limit reference table */
+.limit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.limit-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(22, 33, 62, 0.5);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.limit-item .label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.limit-item .value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--blurple);
+}
+
+/* Footer */
+.footer {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-muted);
+  font-size: 13px;
+  border-top: 1px solid var(--border);
+}
+
+/* Animations */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.section { animation: fadeUp 0.5s ease-out; }
+
+/* Print */
+@media print {
+  body { background: #fff; color: #222; }
+  .toc { position: static; background: #fff; }
+  .hero { background: none; }
+  .hero h1 { background: none; -webkit-text-fill-color: #222; color: #222; }
+  .card, .callout, .limit-item { border-color: #ccc; }
+  td, th { color: #222; }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .hero { padding: 50px 20px 40px; }
+  .container { padding: 0 20px; }
+  .toc { padding: 0 16px; }
+  .toc a { padding: 12px 14px; font-size: 12px; }
+  .card-grid { grid-template-columns: 1fr; }
+  .limit-grid { grid-template-columns: 1fr; }
+  table { font-size: 13px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Hero -->
+<header class="hero">
+  <div class="hero-badge">
+    <svg viewBox="0 0 24 24"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/></svg>
+    深度研究報告
+  </div>
+  <h1>Discord 訊息系統<br>完整深度研究報告</h1>
+  <p class="subtitle">涵蓋一般使用者操作、API / Bot 開發、伺服器管理與訊息格式四大面向的全方位技術分析</p>
+  <p class="meta">基於 Discord 官方開發文件、Support 頁面及可靠第三方資源彙整 · 2026 年 3 月</p>
+</header>
+
+<!-- TOC -->
+<nav class="toc">
+  <div class="toc-inner">
+    <a href="#part1">一般使用者操作</a>
+    <a href="#part2">API 與 Bot 開發</a>
+    <a href="#part3">伺服器管理與權限</a>
+    <a href="#part4">訊息格式與嵌入</a>
+    <a href="#limits">數值限制速查</a>
+  </div>
+</nav>
+
+<div class="container">
+
+<!-- ==================== Part 1 ==================== -->
+<section class="section" id="part1">
+  <div class="section-label part1">▎ 第一部分</div>
+  <h2>一般使用者操作</h2>
+  <p class="section-desc">傳送、編輯、刪除、回覆、轉發、釘選、Reaction、Thread、搜尋、附件——使用者在 Discord 中與訊息互動的所有方式。</p>
+
+  <h3>傳送訊息的所有方式與字數限制</h3>
+  <div class="card-grid">
+    <div class="card">
+      <div class="card-icon">💬</div>
+      <h4>純文字訊息</h4>
+      <p>免費用戶上限 <strong>2,000 字元</strong>，Nitro 訂閱者可達 <strong>4,000 字元</strong>。超過上限時自動轉為 .txt 附件，可直接展開閱讀。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">📎</div>
+      <h4>圖片、影片與檔案</h4>
+      <p>透過「+」按鈕或拖曳上傳。多張圖片以馬賽克拼貼呈現。支援 PNG、JPG、GIF、MP4、WebM、MOV、PDF 等幾乎所有格式。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🎤</div>
+      <h4>語音訊息</h4>
+      <p>長按麥克風圖示錄製，最長 <strong>20 分鐘</strong>。錄製後可預聽再傳送，聊天中顯示音訊波形與時長。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">😀</div>
+      <h4>Emoji、Sticker 與 GIF</h4>
+      <p>單獨傳送的 Emoji 以 jumbo 尺寸顯示（最多 27 個維持大尺寸）。跨伺服器使用自訂 Emoji/Sticker 需 Nitro。GIF 透過內建 Tenor/GIPHY 搜尋。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">📊</div>
+      <h4>Polls（投票）</h4>
+      <p>問題上限 <strong>300 字元</strong>，最多 <strong>10 個選項</strong>（每項 55 字元），投票期限最長 <strong>1 週</strong>。投票不匿名，所有人可見投票者身份。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔇</div>
+      <h4>靜默訊息</h4>
+      <p>訊息開頭輸入 <code>@silent</code>，訊息會傳送但不產生推播或桌面通知。訊息上會顯示一個帶「z」的鈴鐺圖示。</p>
+    </div>
+  </div>
+
+  <h3>編輯訊息：無時間限制，但歷史不可見</h3>
+  <p>使用者可<strong>隨時</strong>編輯自己的訊息，沒有時間限制。桌面版可按<strong>上方向鍵</strong>快速編輯最後一則訊息。編輯後訊息旁出現小字「(edited)」，滑鼠懸停可查看最後編輯時間。</p>
+  <div class="callout warning">
+    <div class="callout-title">⚠ 關鍵限制</div>
+    <p>Discord <strong>不提供編輯歷史</strong>，其他使用者只能看到最新版本。附件無法在編輯中新增或替換，僅能在桌面版刪除現有附件。第三方管理 Bot（如 Dyno、Carl-bot）可記錄編輯歷史，但這非平台原生功能。</p>
+  </div>
+
+  <h3>刪除、回覆、轉發與釘選</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr><th>功能</th><th>操作方式</th><th>限制與注意事項</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>刪除</strong></td>
+          <td>右鍵 → Delete（Shift+點刪除可跳過確認）</td>
+          <td>刪除後永久消失，無法復原。刪除他人訊息需 Manage Messages 權限</td>
+        </tr>
+        <tr>
+          <td><strong>回覆 (Reply)</strong></td>
+          <td>懸停訊息 → 點回覆箭頭</td>
+          <td>預設 ping 被回覆者，可切換 @ON/@OFF。僅限同頻道，不支援跨頻道</td>
+        </tr>
+        <tr>
+          <td><strong>轉發 (Forward)</strong></td>
+          <td>右鍵 → Forward（2024 年 10 月上線）</td>
+          <td>最多 <strong>5 個目的地</strong>。顯示「Forwarded」標籤但不顯示原作者。內容為靜態快照，原訊息編輯不同步</td>
+        </tr>
+        <tr>
+          <td><strong>釘選 (Pin)</strong></td>
+          <td>右鍵 → Pin Message</td>
+          <td>每個頻道最多 <strong>50 則</strong>釘選訊息。需 Manage Messages 權限</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Reaction 與 Thread</h3>
+  <p>每則訊息最多 <strong>20 種不同的 Emoji Reaction</strong>，每種的反應人數不限。Super Reactions 為 Nitro 專屬，呈現動畫爆發效果。</p>
+  <p>Thread 從頻道訊息分支出來，名稱上限 <strong>100 字元</strong>。Auto-archive 選項包括 1 小時、24 小時、3 天、7 天。每個 Thread 最多 <strong>1,000 名成員</strong>，可獨立設定 Slowmode。Private Thread 需伺服器 Level 2 Boost。</p>
+
+  <h3>搜尋語法</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>篩選器</th><th>用法</th></tr></thead>
+      <tbody>
+        <tr><td><code>from:username</code></td><td>來自特定使用者</td></tr>
+        <tr><td><code>mentions:username</code></td><td>提及特定使用者</td></tr>
+        <tr><td><code>has:link / image / file / video / sound / poll</code></td><td>包含特定內容類型</td></tr>
+        <tr><td><code>in:#channel</code></td><td>在特定頻道中</td></tr>
+        <tr><td><code>before:YYYY-MM-DD</code></td><td>指定日期之前</td></tr>
+        <tr><td><code>after:YYYY-MM-DD</code></td><td>指定日期之後</td></tr>
+        <tr><td><code>during:YYYY-MM-DD</code></td><td>指定日期當天</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>搜尋使用 token-based 匹配，不支援部分字串比對。結果可依 Relevance 或 Recency 排序（僅桌面版）。</p>
+
+  <h3>附件大小限制</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>方案</th><th>每檔上限</th></tr></thead>
+      <tbody>
+        <tr><td>免費</td><td><strong>10 MB</strong>（2024 年 9 月起自 25 MB 下調）</td></tr>
+        <tr><td>Nitro Basic</td><td><strong>50 MB</strong></td></tr>
+        <tr><td>Nitro</td><td><strong>500 MB</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ==================== Part 2 ==================== -->
+<section class="section" id="part2">
+  <div class="section-label part2">▎ 第二部分</div>
+  <h2>API 與 Bot 開發</h2>
+  <p class="section-desc">Message Object 資料結構、所有 API Endpoint、Webhook、Components、Gateway Events、Rate Limit 與 Interaction 回應機制。</p>
+
+  <h3>Message Object 核心欄位</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>欄位</th><th>類型</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>snowflake</td><td>訊息唯一 ID</td></tr>
+        <tr><td><code>channel_id</code></td><td>snowflake</td><td>所在頻道 ID</td></tr>
+        <tr><td><code>author</code></td><td>User Object</td><td>訊息作者</td></tr>
+        <tr><td><code>content</code></td><td>string</td><td>訊息文字內容</td></tr>
+        <tr><td><code>timestamp</code></td><td>ISO8601</td><td>傳送時間</td></tr>
+        <tr><td><code>edited_timestamp</code></td><td>?ISO8601</td><td>最後編輯時間，未編輯則為 null</td></tr>
+        <tr><td><code>tts</code></td><td>boolean</td><td>是否為 TTS 訊息</td></tr>
+        <tr><td><code>mention_everyone</code></td><td>boolean</td><td>是否提及 @everyone</td></tr>
+        <tr><td><code>mentions</code></td><td>array of User</td><td>被提及的使用者</td></tr>
+        <tr><td><code>attachments</code></td><td>array of Attachment</td><td>附件</td></tr>
+        <tr><td><code>embeds</code></td><td>array of Embed</td><td>Embed 內容</td></tr>
+        <tr><td><code>reactions</code></td><td>array of Reaction</td><td>反應</td></tr>
+        <tr><td><code>pinned</code></td><td>boolean</td><td>是否已釘選</td></tr>
+        <tr><td><code>type</code></td><td>integer</td><td>訊息類型</td></tr>
+        <tr><td><code>flags</code></td><td>integer</td><td>訊息旗標位元欄位</td></tr>
+        <tr><td><code>components</code></td><td>array of Component</td><td>訊息元件（按鈕、選單等）</td></tr>
+        <tr><td><code>message_reference</code></td><td>object</td><td>回覆/轉發的來源參考</td></tr>
+        <tr><td><code>thread</code></td><td>?Channel</td><td>從此訊息建立的 Thread</td></tr>
+        <tr><td><code>poll</code></td><td>?Poll</td><td>投票物件</td></tr>
+        <tr><td><code>message_snapshots</code></td><td>?array</td><td>轉發訊息的快照</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout danger">
+    <div class="callout-title">🚨 重要警告：MESSAGE_CONTENT Privileged Intent</div>
+    <p>未啟用 <code>MESSAGE_CONTENT</code> Privileged Intent 的 Bot，在 MESSAGE_CREATE 事件中 <code>content</code>、<code>embeds</code>、<code>attachments</code>、<code>components</code> 會收到空值。例外：Bot 自己的訊息、DM 訊息、@mention Bot 的訊息。已驗證 Bot（100+ guilds）需向 Discord 申請核准才能啟用。</p>
+  </div>
+
+  <h3>訊息相關 API Endpoint</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>操作</th><th>方法與路徑</th><th>關鍵限制</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>建立訊息</strong></td>
+          <td><code>POST /channels/{id}/messages</code></td>
+          <td>需 SEND_MESSAGES。至少提供 content / embeds / sticker_ids / components / files / poll 之一。最大 25 MiB</td>
+        </tr>
+        <tr>
+          <td><strong>編輯訊息</strong></td>
+          <td><code>PATCH /channels/{id}/messages/{id}</code></td>
+          <td>原作者可改 content/embeds/flags/components。他人僅能用 MANAGE_MESSAGES 改 flags</td>
+        </tr>
+        <tr>
+          <td><strong>刪除單則</strong></td>
+          <td><code>DELETE /channels/{id}/messages/{id}</code></td>
+          <td>刪他人訊息需 MANAGE_MESSAGES</td>
+        </tr>
+        <tr>
+          <td><strong>批次刪除</strong></td>
+          <td><code>POST /channels/{id}/messages/bulk-delete</code></td>
+          <td><strong>2–100 個 ID</strong>，不能刪超過 <strong>14 天</strong>的訊息。需 MANAGE_MESSAGES</td>
+        </tr>
+        <tr>
+          <td><strong>取得列表</strong></td>
+          <td><code>GET /channels/{id}/messages</code></td>
+          <td>支援 before/after/around（互斥）+ limit（1–100，預設 50）</td>
+        </tr>
+        <tr>
+          <td><strong>取得單則</strong></td>
+          <td><code>GET /channels/{id}/messages/{id}</code></td>
+          <td>需 VIEW_CHANNEL + READ_MESSAGE_HISTORY</td>
+        </tr>
+        <tr>
+          <td><strong>跨頻發布</strong></td>
+          <td><code>POST /channels/{id}/messages/{id}/crosspost</code></td>
+          <td>每頻道每小時最多 10 次</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Reaction API</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>方法</th><th>路徑</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td>PUT</td><td><code>.../reactions/{emoji}/@me</code></td><td>新增自己的 Reaction</td></tr>
+        <tr><td>DELETE</td><td><code>.../reactions/{emoji}/@me</code></td><td>移除自己的 Reaction</td></tr>
+        <tr><td>DELETE</td><td><code>.../reactions/{emoji}/{user.id}</code></td><td>移除他人 Reaction（需 MANAGE_MESSAGES）</td></tr>
+        <tr><td>GET</td><td><code>.../reactions/{emoji}</code></td><td>取得反應者列表（limit 1–100，預設 25）</td></tr>
+        <tr><td>DELETE</td><td><code>.../reactions</code></td><td>清除所有 Reaction（需 MANAGE_MESSAGES）</td></tr>
+        <tr><td>DELETE</td><td><code>.../reactions/{emoji}</code></td><td>清除特定 Emoji 的所有 Reaction</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Webhook 與 Bot 訊息的差異</h3>
+  <p>Webhook 端點 <code>POST /webhooks/{id}/{token}</code> 不需 Bot Token。可在每則訊息覆寫 <code>username</code> 與 <code>avatar_url</code>。<code>allowed_mentions</code> 預設只解析 <code>["users"]</code>（Bot 預設解析全部）。加上 <code>wait=true</code> 參數可讓 API 回傳完整訊息物件。</p>
+
+  <h3>Message Components 元件系統</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>類型</th><th>值</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td>ACTION_ROW</td><td>1</td><td>容器，最多 5 個 Button 或 1 個 Select Menu</td></tr>
+        <tr><td>BUTTON</td><td>2</td><td>六種樣式：Primary / Secondary / Success / Danger / Link / Premium</td></tr>
+        <tr><td>STRING_SELECT</td><td>3</td><td>文字下拉選單，最多 25 個選項</td></tr>
+        <tr><td>TEXT_INPUT</td><td>4</td><td>文字輸入（僅限 Modal）</td></tr>
+        <tr><td>USER_SELECT</td><td>5</td><td>使用者選擇器</td></tr>
+        <tr><td>ROLE_SELECT</td><td>6</td><td>角色選擇器</td></tr>
+        <tr><td>MENTIONABLE_SELECT</td><td>7</td><td>使用者+角色選擇器</td></tr>
+        <tr><td>CHANNEL_SELECT</td><td>8</td><td>頻道選擇器</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>每則訊息最多 <strong>5 個 Action Row</strong>。<code>custom_id</code> 最長 100 字元。Components V2 透過 <code>IS_COMPONENTS_V2</code> flag 啟用，支援 Section、Text Display、Thumbnail、Media Gallery 等新元件，但啟用後 content 和 embeds 不再可用，且<strong>不可逆轉</strong>。</p>
+
+  <h3>Gateway Intents 與 Rate Limit</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>Intent</th><th>Bit</th><th>控制的事件</th></tr></thead>
+      <tbody>
+        <tr><td><code>GUILD_MESSAGES</code></td><td><code>1 &lt;&lt; 9</code></td><td>MESSAGE_CREATE/UPDATE/DELETE/DELETE_BULK</td></tr>
+        <tr><td><code>GUILD_MESSAGE_REACTIONS</code></td><td><code>1 &lt;&lt; 10</code></td><td>MESSAGE_REACTION_ADD/REMOVE/REMOVE_ALL/REMOVE_EMOJI</td></tr>
+        <tr><td><code>DIRECT_MESSAGES</code></td><td><code>1 &lt;&lt; 12</code></td><td>DM 中的訊息事件</td></tr>
+        <tr><td><code>MESSAGE_CONTENT</code> <span class="tag red">Privileged</span></td><td><code>1 &lt;&lt; 15</code></td><td>未啟用則收不到訊息內容</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout info">
+    <div class="callout-title">📋 Rate Limit 最佳實踐</div>
+    <p>全域限制 <strong>50 請求/秒</strong>。傳送訊息限制為每頻道每 5 秒 <strong>5 則</strong>。永遠不要硬編碼 Rate Limit 數值，而是解析回應 Header（<code>X-RateLimit-Remaining</code>、<code>X-RateLimit-Reset-After</code> 等）並實作 exponential backoff。收到 429 時使用 <code>retry_after</code> 欄位。無效請求上限為 10 分鐘內 10,000 次。</p>
+  </div>
+
+  <h3>Interaction 回應機制</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>類型</th><th>值</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td>CHANNEL_MESSAGE_WITH_SOURCE</td><td>4</td><td>直接回覆訊息</td></tr>
+        <tr><td>DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE</td><td>5</td><td>先顯示「思考中…」，稍後編輯</td></tr>
+        <tr><td>DEFERRED_UPDATE_MESSAGE</td><td>6</td><td>ACK Component Interaction</td></tr>
+        <tr><td>UPDATE_MESSAGE</td><td>7</td><td>更新原始 Component 訊息</td></tr>
+        <tr><td>MODAL</td><td>9</td><td>回覆 Modal 對話框</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Ephemeral 訊息透過 flag <code>1 &lt;&lt; 6</code>（64）設定，僅觸發者可見。初始回應須在 <strong>3 秒內</strong>完成，Token 有效期 <strong>15 分鐘</strong>。Followup 訊息透過 <code>POST /webhooks/{app_id}/{token}</code> 發送。</p>
+
+  <h3>Message Flags 位元欄位</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>Flag</th><th>值</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>CROSSPOSTED</code></td><td>1</td><td>已被跨頻發布</td></tr>
+        <tr><td><code>IS_CROSSPOST</code></td><td>2</td><td>此訊息來自跨頻發布</td></tr>
+        <tr><td><code>SUPPRESS_EMBEDS</code></td><td>4</td><td>抑制 Embed</td></tr>
+        <tr><td><code>SOURCE_MESSAGE_DELETED</code></td><td>8</td><td>來源訊息已刪除</td></tr>
+        <tr><td><code>HAS_THREAD</code></td><td>32</td><td>此訊息有關聯的 Thread</td></tr>
+        <tr><td><code>EPHEMERAL</code></td><td>64</td><td>僅觸發者可見</td></tr>
+        <tr><td><code>LOADING</code></td><td>128</td><td>Deferred 回應的「思考中」狀態</td></tr>
+        <tr><td><code>SUPPRESS_NOTIFICATIONS</code></td><td>4096</td><td>靜默訊息，不觸發通知</td></tr>
+        <tr><td><code>IS_VOICE_MESSAGE</code></td><td>8192</td><td>語音訊息</td></tr>
+        <tr><td><code>HAS_SNAPSHOT</code></td><td>16384</td><td>包含轉發快照</td></tr>
+        <tr><td><code>IS_COMPONENTS_V2</code></td><td>32768</td><td>使用 Components V2（不可逆）</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ==================== Part 3 ==================== -->
+<section class="section" id="part3">
+  <div class="section-label part3">▎ 第三部分</div>
+  <h2>伺服器管理與權限</h2>
+  <p class="section-desc">訊息相關權限、Slowmode、AutoMod、Audit Log、公告頻道、Forum 頻道與安全設定的完整管理指南。</p>
+
+  <h3>訊息相關權限清單</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>權限</th><th>API 名稱</th><th>效果</th></tr></thead>
+      <tbody>
+        <tr><td>Send Messages</td><td><code>SEND_MESSAGES</code></td><td>傳送訊息。拒絕時隱性拒絕 MENTION_EVERYONE、SEND_TTS 等</td></tr>
+        <tr><td>Send in Threads</td><td><code>SEND_MESSAGES_IN_THREADS</code></td><td>在 Thread 中傳送（獨立於 SEND_MESSAGES）</td></tr>
+        <tr><td>Manage Messages</td><td><code>MANAGE_MESSAGES</code></td><td>刪除他人訊息、釘選、管理 Reaction、發布公告</td></tr>
+        <tr><td>Manage Threads</td><td><code>MANAGE_THREADS</code></td><td>重命名/刪除/關閉 Thread、設定 Thread Slowmode</td></tr>
+        <tr><td>Read History</td><td><code>READ_MESSAGE_HISTORY</code></td><td>關閉後只能看即時新訊息</td></tr>
+        <tr><td>Attach Files</td><td><code>ATTACH_FILES</code></td><td>上傳檔案與媒體</td></tr>
+        <tr><td>Embed Links</td><td><code>EMBED_LINKS</code></td><td>連結自動生成嵌入預覽</td></tr>
+        <tr><td>Add Reactions</td><td><code>ADD_REACTIONS</code></td><td>新增 Reaction（關閉仍可點擊已有的）</td></tr>
+        <tr><td>External Emoji</td><td><code>USE_EXTERNAL_EMOJIS</code></td><td>使用其他伺服器的 Emoji</td></tr>
+        <tr><td>Mention @everyone</td><td><code>MENTION_EVERYONE</code></td><td>使用 @everyone 與 @here</td></tr>
+        <tr><td>Voice Messages</td><td><code>SEND_VOICE_MESSAGES</code></td><td>傳送語音訊息</td></tr>
+        <tr><td>App Commands</td><td><code>USE_APPLICATION_COMMANDS</code></td><td>使用斜線指令</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>權限優先順序：使用者專屬覆寫 → 頻道角色覆寫 → @everyone 頻道覆寫 → 伺服器角色 → @everyone 伺服器。<code>Administrator</code> 可繞過所有限制。被 Timeout 的成員暫時失去除 VIEW_CHANNEL 和 READ_MESSAGE_HISTORY 以外的所有權限。</p>
+
+  <h3>Slowmode 設定</h3>
+  <p>限制使用者傳送訊息的頻率，範圍 <strong>5 秒到 6 小時</strong>（API 支援 0–21,600 秒任意整數）。UI 預設值包括 5s/10s/15s/30s/1m/2m/5m/10m/15m/30m/1h/2h/6h。</p>
+  <div class="callout warning">
+    <div class="callout-title">⚠ 2026 年 2 月重大變更</div>
+    <p>Discord 已將 Slowmode 繞過整合為單一的「<strong>Bypass Slowmode</strong>」權限。舊版 Manage Messages / Manage Channel 不再自動繞過 Slowmode，管理員需重新檢視角色設定。</p>
+  </div>
+
+  <h3>AutoMod 自動審核</h3>
+  <p>AutoMod 在訊息<strong>發布前</strong>自動偵測並處置，涵蓋文字頻道、Thread、Voice Text 與 Forum。</p>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>規則類型</th><th>上限</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><strong>KEYWORD</strong></td><td>6 條</td><td>自訂關鍵字最多 1,000 個（每個 60 字元），regex 最多 10 條（260 字元，Rust 風格）</td></tr>
+        <tr><td><strong>KEYWORD_PRESET</strong></td><td>1 條</td><td>Discord 內建詞庫：Profanity / Sexual Content / Slurs</td></tr>
+        <tr><td><strong>SPAM</strong></td><td>1 條</td><td>機器學習偵測垃圾訊息</td></tr>
+        <tr><td><strong>MENTION_SPAM</strong></td><td>1 條</td><td>mention_total_limit 最高 50 個唯一提及</td></tr>
+        <tr><td><strong>MEMBER_PROFILE</strong></td><td>1 條</td><td>檢查成員名稱</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>處置動作包括 Block Message（可附帶最多 150 字元自訂訊息）、Send Alert Message（記錄到指定頻道）、Timeout（最長 4 週）。每條規則可豁免最多 <strong>20 個角色</strong>與 <strong>50 個頻道</strong>。</p>
+
+  <h3>Audit Log</h3>
+  <p>記錄的訊息操作包括 MESSAGE_DELETE(72)、MESSAGE_BULK_DELETE(73)、MESSAGE_PIN(74)、MESSAGE_UNPIN(75)、AUTO_MODERATION_BLOCK_MESSAGE(143) 等。所有條目保留 <strong>45 天</strong>。</p>
+  <div class="callout info">
+    <div class="callout-title">📋 注意</div>
+    <p>Audit Log <strong>不記錄使用者自行刪除</strong>的訊息，僅記錄被他人（或 Bot）刪除的情況。要完整記錄需依賴第三方 Bot。</p>
+  </div>
+
+  <h3>公告頻道與 Forum 頻道</h3>
+  <p><strong>Announcement Channel</strong> 僅限 Community 伺服器。訊息可「Publish」後推送至所有追蹤伺服器，限制為每頻道每小時 <strong>10 次</strong>發布。</p>
+  <p><strong>Forum Channel</strong> 每篇貼文即一個 Thread，建立時必須包含標題與初始訊息。最多 <strong>20 個標籤</strong>，每篇可選 <strong>5 個</strong>。</p>
+</section>
+
+<!-- ==================== Part 4 ==================== -->
+<section class="section" id="part4">
+  <div class="section-label part4">▎ 第四部分</div>
+  <h2>訊息格式與嵌入</h2>
+  <p class="section-desc">Markdown 語法、Embed 結構、Timestamp 格式、Mention 語法、自訂 Emoji 與連結預覽的完整技術規格。</p>
+
+  <h3>Discord Markdown 完整語法</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>格式</th><th>語法</th><th>備註</th></tr></thead>
+      <tbody>
+        <tr><td><strong>粗體</strong></td><td><code>**text**</code></td><td></td></tr>
+        <tr><td><em>斜體</em></td><td><code>*text*</code> 或 <code>_text_</code></td><td></td></tr>
+        <tr><td><strong><em>粗斜體</em></strong></td><td><code>***text***</code></td><td></td></tr>
+        <tr><td><u>底線</u></td><td><code>__text__</code></td><td></td></tr>
+        <tr><td><s>刪除線</s></td><td><code>~~text~~</code></td><td></td></tr>
+        <tr><td>Spoiler</td><td><code>||text||</code></td><td>點擊才顯示</td></tr>
+        <tr><td>行內程式碼</td><td><code>`code`</code></td><td></td></tr>
+        <tr><td>程式碼區塊</td><td><code>```code```</code></td><td></td></tr>
+        <tr><td>語法高亮</td><td><code>```js\ncode```</code></td><td>支援 js、python、css、diff、ansi 等</td></tr>
+        <tr><td>單行引用</td><td><code>&gt; text</code></td><td></td></tr>
+        <tr><td>多行引用</td><td><code>&gt;&gt;&gt; text</code></td><td>之後所有內容皆為引用</td></tr>
+        <tr><td>H1 標題</td><td><code># text</code></td><td>須在行首</td></tr>
+        <tr><td>H2 標題</td><td><code>## text</code></td><td></td></tr>
+        <tr><td>H3 標題</td><td><code>### text</code></td><td></td></tr>
+        <tr><td>小字/副文字</td><td><code>-# text</code></td><td>行首使用，較小字體</td></tr>
+        <tr><td>無序清單</td><td><code>- item</code> 或 <code>* item</code></td><td></td></tr>
+        <tr><td>有序清單</td><td><code>1. item</code></td><td></td></tr>
+        <tr><td>遮罩連結</td><td><code>[文字](url)</code></td><td>在 Embed 中有效</td></tr>
+        <tr><td>抑制預覽</td><td><code>&lt;https://url&gt;</code></td><td>角括號包住 URL</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Embed 完整結構與限制</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>欄位</th><th>字元上限</th></tr></thead>
+      <tbody>
+        <tr><td><code>title</code></td><td><strong>256</strong></td></tr>
+        <tr><td><code>description</code></td><td><strong>4,096</strong></td></tr>
+        <tr><td><code>fields</code>（數量）</td><td><strong>25 個</strong></td></tr>
+        <tr><td><code>field.name</code></td><td><strong>256</strong></td></tr>
+        <tr><td><code>field.value</code></td><td><strong>1,024</strong></td></tr>
+        <tr><td><code>footer.text</code></td><td><strong>2,048</strong></td></tr>
+        <tr><td><code>author.name</code></td><td><strong>256</strong></td></tr>
+        <tr><td>所有 Embed 總字元數</td><td><strong>6,000</strong></td></tr>
+        <tr><td>每則訊息 Embed 數量</td><td><strong>10</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Bot 無法設定 <code>type</code>（永遠為 "rich"）、<code>video</code>、<code>provider</code> 或 height/width/proxy_url。Embed 中的 Mention 僅在 description 與 field value 中渲染，且<strong>不會觸發通知</strong>。</p>
+
+  <h3>Timestamp 格式</h3>
+  <p>語法：<code>&lt;t:UNIX_TIMESTAMP:STYLE&gt;</code>，自動依觀看者時區調整。</p>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>樣式</th><th>代碼</th><th>輸出範例</th></tr></thead>
+      <tbody>
+        <tr><td>Short Time</td><td><code>t</code></td><td>9:01 AM</td></tr>
+        <tr><td>Long Time</td><td><code>T</code></td><td>9:01:00 AM</td></tr>
+        <tr><td>Short Date</td><td><code>d</code></td><td>11/28/2018</td></tr>
+        <tr><td>Long Date</td><td><code>D</code></td><td>November 28, 2018</td></tr>
+        <tr><td>Short Date/Time</td><td><code>f</code>（預設）</td><td>November 28, 2018 9:01 AM</td></tr>
+        <tr><td>Long Date/Time</td><td><code>F</code></td><td>Wednesday, November 28, 2018 9:01 AM</td></tr>
+        <tr><td>Relative</td><td><code>R</code></td><td>3 years ago / in 5 minutes</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Mention 語法</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>類型</th><th>語法</th></tr></thead>
+      <tbody>
+        <tr><td>使用者</td><td><code>&lt;@USER_ID&gt;</code></td></tr>
+        <tr><td>角色</td><td><code>&lt;@&amp;ROLE_ID&gt;</code></td></tr>
+        <tr><td>頻道</td><td><code>&lt;#CHANNEL_ID&gt;</code></td></tr>
+        <tr><td>斜線指令</td><td><code>&lt;/command:COMMAND_ID&gt;</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>API 的 <code>allowed_mentions</code> 物件控制通知行為，<code>parse</code> 陣列可包含 <code>"users"</code>/<code>"roles"</code>/<code>"everyone"</code>。空的 <code>parse: []</code> 完全抑制所有 Mention 通知。</p>
+
+  <h3>自訂 Emoji 與連結預覽</h3>
+  <p>靜態 Emoji：<code>&lt;:name:ID&gt;</code>，動態：<code>&lt;a:name:ID&gt;</code>。CDN 位址為 <code>https://cdn.discordapp.com/emojis/{id}.png</code>（動態用 .gif）。</p>
+  <p>Discord 透過 OpenGraph（<code>og:title</code>、<code>og:description</code>、<code>og:image</code>）與 Twitter Card metadata 自動生成連結預覽。YouTube、Spotify、Twitter 等享有強化嵌入。抑制方式：角括號包住 URL、設定 <code>SUPPRESS_EMBEDS</code> flag、或在使用者設定中關閉。</p>
+</section>
+
+<!-- ==================== Limits ==================== -->
+<section class="section" id="limits">
+  <div class="section-label part5">▎ 速查表</div>
+  <h2>所有關鍵數值限制</h2>
+  <p class="section-desc">一目瞭然的 Discord 訊息系統數值上限快速參考。</p>
+
+  <div class="limit-grid">
+    <div class="limit-item"><span class="label">訊息字元上限（免費）</span><span class="value">2,000</span></div>
+    <div class="limit-item"><span class="label">訊息字元上限（Nitro）</span><span class="value">4,000</span></div>
+    <div class="limit-item"><span class="label">Bot/Webhook 訊息上限</span><span class="value">2,000</span></div>
+    <div class="limit-item"><span class="label">每則訊息 Embed 數量</span><span class="value">10</span></div>
+    <div class="limit-item"><span class="label">所有 Embed 總字元數</span><span class="value">6,000</span></div>
+    <div class="limit-item"><span class="label">Embed title</span><span class="value">256</span></div>
+    <div class="limit-item"><span class="label">Embed description</span><span class="value">4,096</span></div>
+    <div class="limit-item"><span class="label">Embed fields</span><span class="value">25</span></div>
+    <div class="limit-item"><span class="label">Embed field value</span><span class="value">1,024</span></div>
+    <div class="limit-item"><span class="label">Embed footer text</span><span class="value">2,048</span></div>
+    <div class="limit-item"><span class="label">檔案上傳（免費）</span><span class="value">10 MB</span></div>
+    <div class="limit-item"><span class="label">檔案上傳（Nitro Basic）</span><span class="value">50 MB</span></div>
+    <div class="limit-item"><span class="label">檔案上傳（Nitro）</span><span class="value">500 MB</span></div>
+    <div class="limit-item"><span class="label">最大請求大小</span><span class="value">25 MiB</span></div>
+    <div class="limit-item"><span class="label">每則訊息 Sticker 數</span><span class="value">3</span></div>
+    <div class="limit-item"><span class="label">釘選訊息上限（每頻道）</span><span class="value">50</span></div>
+    <div class="limit-item"><span class="label">唯一 Reaction Emoji 數</span><span class="value">20</span></div>
+    <div class="limit-item"><span class="label">Thread 名稱長度</span><span class="value">100</span></div>
+    <div class="limit-item"><span class="label">Thread 成員上限</span><span class="value">1,000</span></div>
+    <div class="limit-item"><span class="label">批次刪除訊息數量</span><span class="value">2–100</span></div>
+    <div class="limit-item"><span class="label">批次刪除最大天數</span><span class="value">14 天</span></div>
+    <div class="limit-item"><span class="label">Action Row 上限</span><span class="value">5</span></div>
+    <div class="limit-item"><span class="label">Select Menu 選項數</span><span class="value">25</span></div>
+    <div class="limit-item"><span class="label">傳送頻率限制</span><span class="value">5/5s</span></div>
+    <div class="limit-item"><span class="label">API 全域限制</span><span class="value">50/s</span></div>
+    <div class="limit-item"><span class="label">Interaction 回應期限</span><span class="value">3 秒</span></div>
+    <div class="limit-item"><span class="label">Interaction Token 效期</span><span class="value">15 分</span></div>
+    <div class="limit-item"><span class="label">公告發布限制</span><span class="value">10/hr</span></div>
+    <div class="limit-item"><span class="label">Slowmode 範圍</span><span class="value">0–21,600s</span></div>
+    <div class="limit-item"><span class="label">AutoMod Keyword 規則</span><span class="value">6 條</span></div>
+    <div class="limit-item"><span class="label">AutoMod 每規則關鍵字</span><span class="value">1,000</span></div>
+    <div class="limit-item"><span class="label">Audit Log 保留天數</span><span class="value">45 天</span></div>
+    <div class="limit-item"><span class="label">投票選項上限</span><span class="value">10</span></div>
+    <div class="limit-item"><span class="label">轉發目的地上限</span><span class="value">5</span></div>
+    <div class="limit-item"><span class="label">語音訊息最長時間</span><span class="value">20 分</span></div>
+  </div>
+</section>
+
+</div>
+
+<!-- Footer -->
+<footer class="footer">
+  <p>Discord 訊息系統完整深度研究報告 · 基於 Discord 官方文件與可靠第三方資源 · 2026 年 3 月</p>
+</footer>
+
+</body>
+</html>
