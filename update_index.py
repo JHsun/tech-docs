@@ -108,7 +108,7 @@ def scan_reports():
     if not REPORTS_DIR.exists():
         return groups
 
-    html_files = sorted(REPORTS_DIR.rglob("*.html"), key=lambda f: f.name, reverse=True)
+    html_files = sorted(REPORTS_DIR.rglob("*.html"), key=lambda f: f.name)
 
     for f in html_files:
         rel = f.relative_to(REPORTS_DIR)
