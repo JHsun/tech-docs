@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>etcd 速查表 ② — 資料模型 · API · 架構原理</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600&family=DM+Serif+Display&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0f1117;--card:#181b25;--border:#2a2e3d;--accent:#00d4aa;--accent2:#6c5ce7;--accent3:#fd79a8;--warn:#fdcb6e;--text:#e2e5f0;--muted:#8892a8;--code-bg:#13151d;--tag-bg:rgba(0,212,170,.12);--tag-text:#00d4aa}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text);line-height:1.65}.page{max-width:1400px;margin:0 auto;padding:32px 24px}.header{text-align:center;margin-bottom:40px;position:relative}.header::after{content:'';position:absolute;bottom:-20px;left:50%;transform:translateX(-50%);width:120px;height:3px;background:linear-gradient(90deg,var(--accent2),var(--accent3));border-radius:2px}.header h1{font-family:'DM Serif Display',serif;font-size:2.6em;background:linear-gradient(135deg,var(--accent2),var(--accent3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:6px}.header .sub{color:var(--muted);font-size:.95em;font-weight:300}.badge{display:inline-block;padding:3px 12px;border-radius:20px;font-size:.78em;font-weight:600;margin:8px 4px 0;letter-spacing:.03em}.badge{background:var(--tag-bg);color:var(--tag-text)}.badge.p{background:rgba(108,92,231,.15);color:#a29bfe}.badge.k{background:rgba(253,121,168,.12);color:#fd79a8}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:20px}.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:24px;position:relative;overflow:hidden;transition:border-color .3s}.card:hover{border-color:var(--accent2)}.card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--accent2),var(--accent3));opacity:0;transition:opacity .3s}.card:hover::before{opacity:1}.card.wide{grid-column:1/-1}.card h2{font-size:1.15em;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px}.i{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:.85em;flex-shrink:0}.i.g{background:rgba(0,212,170,.15);color:var(--accent)}.i.v{background:rgba(108,92,231,.18);color:#a29bfe}.i.r{background:rgba(253,121,168,.15);color:var(--accent3)}.i.y{background:rgba(253,203,110,.15);color:var(--warn)}.card h3{font-size:.88em;font-weight:600;color:var(--accent2);margin:16px 0 8px;text-transform:uppercase;letter-spacing:.06em}pre{background:var(--code-bg);border:1px solid var(--border);border-radius:8px;padding:14px 16px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:.8em;line-height:1.7;margin:8px 0;color:#c5cee0}code{font-family:'JetBrains Mono',monospace;font-size:.88em;background:var(--code-bg);padding:2px 7px;border-radius:4px;color:var(--accent2)}.cm{color:#74b9ff}.fl{color:#fdcb6e}.vl{color:#55efc4}.ct{color:#636e88;font-style:italic}table{width:100%;border-collapse:collapse;margin:8px 0;font-size:.88em}th{text-align:left;padding:8px 10px;background:var(--code-bg);color:var(--accent2);font-weight:600;font-size:.85em;text-transform:uppercase;letter-spacing:.04em;border-bottom:2px solid var(--border)}td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:top}tr:last-child td{border-bottom:none}p,li{font-size:.9em}ul{padding-left:18px}li{margin-bottom:4px}.note{background:rgba(108,92,231,.06);border-left:3px solid var(--accent2);padding:10px 14px;border-radius:0 8px 8px 0;margin:10px 0;font-size:.85em;color:var(--muted)}.note.w{background:rgba(253,203,110,.06);border-left-color:var(--warn)}.footer{text-align:center;padding:32px 0 16px;color:var(--muted);font-size:.78em}.footer a{color:var(--accent2);text-decoration:none}@media(max-width:900px){.grid{grid-template-columns:1fr}.header h1{font-size:1.8em}}
+</style>
+</head>
+<body>
+<div class="page">
+<div class="header"><h1>etcd 速查表 ②</h1><div class="sub">資料模型 · gRPC API · 架構原理 · 與其他系統比較</div><span class="badge">v3.5</span><span class="badge p">Learning 章節</span><span class="badge k">2 / 5</span></div>
+<div class="grid">
+<div class="card wide"><h2><span class="i v">🧬</span>MVCC 資料模型</h2><p>etcd 使用<strong>多版本並行控制 (MVCC)</strong> 的持久化鍵值儲存，後端為 <strong>bbolt</strong>（B+ Tree）。每次異動產生新版本，不覆蓋舊資料。</p><h3>核心概念</h3><table><tr><th>概念</th><th>說明</th></tr><tr><td><strong>Key Space</strong></td><td>扁平鍵空間，按位元組字串字典序排列</td></tr><tr><td><strong>Revision</strong></td><td>64-bit 全域單調遞增邏輯時鐘。每次原子異動 +1。初始 = 1</td></tr><tr><td><strong>Version</strong></td><td>每個 key 的修改計數器。修改 +1，刪除歸零</td></tr><tr><td><strong>Generation</strong></td><td>key 從建立到刪除的生命週期。刪除產生 <strong>tombstone</strong></td></tr><tr><td><strong>Compaction</strong></td><td>移除指定 revision 之前的歷史版本（最新值保留）</td></tr></table><h3>物理儲存結構</h3><p>B+ Tree key 為三元組 <code>(major, sub, type)</code>：major = 儲存 revision，sub = 同 revision 內區分子，type = 選用後綴（如 <code>t</code> 代表 tombstone）。另有<strong>記憶體內 B-Tree 索引</strong>將使用者 key 映射到 revision 指標。</p></div>
+<div class="card"><h2><span class="i g">📋</span>KeyValue Protobuf 結構</h2><pre><span class="ct">message KeyValue {</span>
+  bytes  <span class="vl">key</span>             = 1;  <span class="ct">// 鍵（不可為空）</span>
+  int64  <span class="vl">create_revision</span> = 2;  <span class="ct">// 最後建立的 revision</span>
+  int64  <span class="vl">mod_revision</span>    = 3;  <span class="ct">// 最後修改的 revision</span>
+  int64  <span class="vl">version</span>         = 4;  <span class="ct">// 當前 generation 的版本</span>
+  bytes  <span class="vl">value</span>           = 5;  <span class="ct">// 值</span>
+  int64  <span class="vl">lease</span>           = 6;  <span class="ct">// 租約 ID（0=無）</span>
+<span class="ct">}</span></pre><h3>Response Header（所有回應共有）</h3><pre><span class="ct">message ResponseHeader {</span>
+  uint64 <span class="vl">cluster_id</span> = 1;
+  uint64 <span class="vl">member_id</span>  = 2;
+  int64  <span class="vl">revision</span>   = 3;  <span class="ct">// 當前 KV revision</span>
+  uint64 <span class="vl">raft_term</span>  = 4;
+<span class="ct">}</span></pre></div>
+<div class="card"><h2><span class="i v">🌐</span>gRPC API 服務總覽</h2><table><tr><th>服務</th><th>用途</th><th>核心 RPC</th></tr><tr><td><strong>KV</strong></td><td>鍵值操作</td><td>Range, Put, DeleteRange, Txn, Compact</td></tr><tr><td><strong>Watch</strong></td><td>監聽變更</td><td>Watch（雙向串流）</td></tr><tr><td><strong>Lease</strong></td><td>TTL 管理</td><td>Grant, Revoke, KeepAlive, TimeToLive, Leases</td></tr><tr><td><strong>Cluster</strong></td><td>成員管理</td><td>MemberAdd, Remove, Update, List, Promote</td></tr><tr><td><strong>Auth</strong></td><td>認證授權</td><td>AuthEnable, UserAdd, RoleGrant, Authenticate</td></tr><tr><td><strong>Maintenance</strong></td><td>維運操作</td><td>Alarm, Status, Defragment, Hash, Snapshot, MoveLeader</td></tr></table></div>
+<div class="card"><h2><span class="i r">📡</span>gRPC Gateway (REST API)</h2><p>v3.5+ 使用 <code>/v3/*</code> 端點。Key/Value 需 <strong>base64 編碼</strong>。</p><pre><span class="ct"># Put</span>
+<span class="cm">curl</span> -X POST http://127.0.0.1:2379/v3/kv/put \
+  -d '{"key":"Zm9v","value":"YmFy"}'
+<span class="ct"># Get</span>
+<span class="cm">curl</span> -X POST http://127.0.0.1:2379/v3/kv/range \
+  -d '{"key":"Zm9v"}'
+<span class="ct"># Watch</span>
+<span class="cm">curl</span> -N -X POST http://127.0.0.1:2379/v3/watch \
+  -d '{"create_request":{"key":"Zm9v"}}'
+<span class="ct"># 認證取 Token</span>
+<span class="cm">curl</span> -X POST http://127.0.0.1:2379/v3/auth/authenticate \
+  -d '{"name":"root","password":"pw"}'
+<span class="ct"># 後續請求: -H "Authorization: &lt;token&gt;"</span></pre><div class="note">gRPC Gateway <strong>不支援</strong> TLS Common Name 認證。</div></div>
+<div class="card"><h2><span class="i y">🔑</span>RangeRequest 關鍵參數</h2><table><tr><th>參數</th><th>說明</th></tr><tr><td><code>key</code></td><td>查詢起始鍵</td></tr><tr><td><code>range_end</code></td><td>範圍結束鍵（不含）</td></tr><tr><td><code>limit</code></td><td>最大回傳筆數</td></tr><tr><td><code>revision</code></td><td>查詢指定歷史版本</td></tr><tr><td><code>sort_order</code></td><td>NONE / ASCEND / DESCEND</td></tr><tr><td><code>sort_target</code></td><td>KEY / VERSION / CREATE / MOD / VALUE</td></tr><tr><td><code>serializable</code></td><td>允許非最新讀（低延遲）</td></tr><tr><td><code>keys_only</code></td><td>僅回傳鍵</td></tr><tr><td><code>count_only</code></td><td>僅回傳筆數</td></tr></table></div>
+<div class="card"><h2><span class="i g">🛡️</span>API 一致性保證</h2><table><tr><th>保證</th><th>說明</th></tr><tr><td><strong>原子性</strong></td><td>所有 API 呼叫皆原子</td></tr><tr><td><strong>持久性</strong></td><td>已完成操作在故障後持久</td></tr><tr><td><strong>線性化讀</strong></td><td>預設所有讀寫經 Raft 共識</td></tr><tr><td><strong>序列化讀</strong></td><td>低延遲但可能讀到舊資料</td></tr></table><h3>Watch 保證</h3><ul><li><strong>有序</strong> — 按 revision 排列</li><li><strong>可靠</strong> — 不遺漏連續事件</li><li><strong>原子</strong> — 同 revision 完整送出</li><li><strong>可書籤</strong> — Progress notification</li></ul><div class="note w">Lease <strong>不保證互斥</strong>。</div></div>
+<div class="card"><h2><span class="i v">💾</span>持久化儲存檔案</h2><table><tr><th>檔案類型</th><th>說明</th></tr><tr><td><strong>Database (*.db)</strong></td><td>bbolt B+ Tree，Copy-on-write</td></tr><tr><td><strong>WAL (*.wal)</strong></td><td>Write-Ahead Log，Append-only，新檔於 64MB 時建立</td></tr><tr><td><strong>Snapshot (*.snap)</strong></td><td>V2 store 快照</td></tr></table></div>
+<div class="card"><h2><span class="i r">🎓</span>Learner 設計</h2><p><strong>Learner</strong> = 非投票 Raft 成員</p><pre><span class="cm">etcdctl member add</span> node4 <span class="fl">--peer-urls</span>=http://10.0.1.13:2380 <span class="fl">--learner</span>
+<span class="cm">etcdctl member promote</span> &lt;memberID&gt;</pre><ul><li>不能被選為 Leader</li><li>拒絕客戶端讀寫（序列化讀除外）</li><li>叢集同時只允許<strong>一個 Learner</strong></li></ul></div>
+<div class="card"><h2><span class="i y">🔐</span>認證設計 (v3 Auth)</h2><ul><li>認證元資料透過 <strong>Raft 共識</strong>同步</li><li>密碼雜湊：<strong>bcrypt</strong>（成本 4–31，預設 10）</li><li>Token：<strong>Simple</strong> 或 <strong>JWT</strong></li></ul><h3>權限模型</h3><ul><li>精確 key 或範圍 <code>[start, end)</code></li><li>類型：<code>read</code> / <code>write</code> / <code>readwrite</code></li></ul></div>
+<div class="card"><h2><span class="i g">⚖️</span>gRPC Naming &amp; Discovery</h2><pre>import (
+    resolver "go.etcd.io/etcd/client/v3/naming/resolver"
+    "google.golang.org/grpc"
+)
+r, _ := resolver.NewBuilder(etcdClient)
+conn, _ := grpc.NewClient("etcd:///my-service", grpc.WithResolvers(r))</pre></div>
+<div class="card wide"><h2><span class="i v">🆚</span>etcd vs 其他 KV 儲存比較</h2><table><tr><th>特性</th><th>etcd</th><th>ZooKeeper</th><th>Consul</th></tr><tr><td>共識演算法</td><td><strong>Raft</strong></td><td>ZAB</td><td>Raft</td></tr><tr><td>API</td><td>gRPC + HTTP/JSON</td><td>自訂 Jute</td><td>HTTP</td></tr><tr><td>線性化讀</td><td>✅ 預設</td><td>❌ 需 sync()</td><td>✅</td></tr><tr><td>MVCC</td><td>✅</td><td>❌</td><td>❌</td></tr><tr><td>Watch</td><td>串流、可靠</td><td>會話式</td><td>阻塞式</td></tr><tr><td>資料模型</td><td>扁平 key</td><td>階層目錄</td><td>扁平</td></tr></table></div>
+<div class="card"><h2><span class="i r">📖</span>術語表</h2><table><tr><th>術語</th><th>說明</th></tr><tr><td><strong>Alarm</strong></td><td>叢集異常訊號</td></tr><tr><td><strong>Compaction</strong></td><td>丟棄舊 revision</td></tr><tr><td><strong>Quorum</strong></td><td>(N/2)+1 多數派</td></tr><tr><td><strong>Revision</strong></td><td>全域版本號</td></tr><tr><td><strong>WAL</strong></td><td>Write-Ahead Log</td></tr><tr><td><strong>Learner</strong></td><td>非投票成員</td></tr><tr><td><strong>Snapshot</strong></td><td>時間點備份</td></tr></table></div>
+</div>
+<div class="footer">etcd v3.5 速查表 ② / 5 — 來源：<a href="https://etcd.io/docs/v3.5/learning/">etcd.io Learning</a></div>
+</div></body></html>
