@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sed 完全教學指南</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0c0f14;
+    --surface: #141820;
+    --surface2: #1a1f2b;
+    --border: #2a3040;
+    --text: #c8cdd8;
+    --text-dim: #6b7280;
+    --accent: #f59e0b;
+    --accent2: #10b981;
+    --accent3: #6366f1;
+    --code-bg: #0d1117;
+    --code-border: #1e2736;
+    --tag: #ff6b6b;
+    --output: #34d399;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Noto Sans TC', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.8;
+    font-size: 16px;
+    overflow-x: hidden;
+  }
+
+  /* ── Hero ── */
+  .hero {
+    position: relative;
+    min-height: 60vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    overflow: hidden;
+    border-bottom: 1px solid var(--border);
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 40%, rgba(245,158,11,0.08), transparent),
+      radial-gradient(ellipse 60% 50% at 20% 80%, rgba(99,102,241,0.06), transparent),
+      radial-gradient(ellipse 50% 40% at 80% 20%, rgba(16,185,129,0.05), transparent);
+  }
+  .hero-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 60px 60px;
+    opacity: 0.15;
+  }
+  .hero-content { position: relative; z-index: 1; padding: 2rem; }
+  .hero-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1.5rem;
+    opacity: 0.9;
+  }
+  .hero h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(3rem, 8vw, 6rem);
+    font-weight: 900;
+    color: #fff;
+    line-height: 1.1;
+    margin-bottom: 0.5rem;
+  }
+  .hero h1 span { color: var(--accent); }
+  .hero-sub {
+    font-size: 1.15rem;
+    color: var(--text-dim);
+    font-weight: 300;
+    max-width: 500px;
+    margin: 1rem auto 0;
+  }
+
+  /* ── TOC ── */
+  .toc-bar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(12, 15, 20, 0.85);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+  }
+  .toc-bar::-webkit-scrollbar { display: none; }
+  .toc-inner {
+    display: flex;
+    gap: 0;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 1rem;
+  }
+  .toc-inner a {
+    display: block;
+    padding: 0.85rem 1.1rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-dim);
+    text-decoration: none;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    letter-spacing: 0.3px;
+  }
+  .toc-inner a:hover {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+
+  /* ── Main ── */
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 1.5rem 6rem;
+  }
+
+  /* ── Section ── */
+  section {
+    margin-top: 4rem;
+    animation: fadeUp 0.6s ease both;
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .section-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 3px;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+  }
+  h2 {
+    font-size: 1.8rem;
+    font-weight: 900;
+    color: #fff;
+    margin-bottom: 1rem;
+    line-height: 1.3;
+  }
+  h3 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #e2e5ea;
+    margin: 2rem 0 0.75rem;
+    padding-left: 0.75rem;
+    border-left: 3px solid var(--accent);
+  }
+  h4 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--accent2);
+    margin: 1.5rem 0 0.5rem;
+  }
+
+  p { margin-bottom: 1rem; }
+
+  /* ── Code blocks ── */
+  .code-wrap {
+    position: relative;
+    margin: 1rem 0 1.5rem;
+    border-radius: 10px;
+    border: 1px solid var(--code-border);
+    background: var(--code-bg);
+    overflow: hidden;
+  }
+  .code-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: rgba(255,255,255,0.02);
+    border-bottom: 1px solid var(--code-border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+  }
+  .code-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: 0.6;
+  }
+  pre {
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.7;
+    color: #c9d1d9;
+    scrollbar-width: thin;
+  }
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85em;
+  }
+  p code, li code, td code {
+    background: rgba(245,158,11,0.1);
+    color: var(--accent);
+    padding: 0.15em 0.45em;
+    border-radius: 4px;
+    font-size: 0.82em;
+  }
+  .cm { color: #6b7280; }
+  .kw { color: #f59e0b; }
+  .str { color: #34d399; }
+  .flag { color: #818cf8; }
+  .output-label {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 1px;
+    color: var(--output);
+    background: rgba(52,211,153,0.08);
+    padding: 0.15em 0.6em;
+    border-radius: 3px;
+    margin-bottom: 0.25rem;
+  }
+  .output-line { color: var(--output); opacity: 0.85; }
+
+  /* ── Table ── */
+  .table-wrap {
+    overflow-x: auto;
+    margin: 1rem 0 1.5rem;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+  thead { background: var(--surface2); }
+  th {
+    text-align: left;
+    padding: 0.75rem 1rem;
+    font-weight: 600;
+    color: var(--accent);
+    font-size: 0.8rem;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 0.65rem 1rem;
+    border-bottom: 1px solid rgba(42,48,64,0.5);
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(245,158,11,0.02); }
+
+  /* ── Info box ── */
+  .info {
+    background: rgba(99,102,241,0.06);
+    border-left: 3px solid var(--accent3);
+    border-radius: 0 8px 8px 0;
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+    font-size: 0.9rem;
+  }
+  .info strong { color: var(--accent3); }
+
+  .tip {
+    background: rgba(16,185,129,0.06);
+    border-left: 3px solid var(--accent2);
+    border-radius: 0 8px 8px 0;
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+    font-size: 0.9rem;
+  }
+  .tip strong { color: var(--accent2); }
+
+  .warn {
+    background: rgba(245,158,11,0.06);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+    font-size: 0.9rem;
+  }
+  .warn strong { color: var(--accent); }
+
+  ul, ol {
+    margin: 0.5rem 0 1rem 1.5rem;
+  }
+  li { margin-bottom: 0.4rem; }
+
+  /* ── Footer ── */
+  footer {
+    text-align: center;
+    padding: 3rem 1rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 0.8rem;
+  }
+
+  @media (max-width: 640px) {
+    .hero { min-height: 45vh; }
+    h2 { font-size: 1.4rem; }
+    pre { font-size: 0.78rem; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════ HERO ═══════════ -->
+<header class="hero">
+  <div class="hero-grid"></div>
+  <div class="hero-content">
+    <div class="hero-label">Linux Stream Editor</div>
+    <h1><span>sed</span> 完全教學</h1>
+    <p class="hero-sub">從基礎到進階，掌握 Linux 最強大的串流文字編輯器</p>
+  </div>
+</header>
+
+<!-- ═══════════ TOC ═══════════ -->
+<nav class="toc-bar">
+  <div class="toc-inner">
+    <a href="#intro">簡介</a>
+    <a href="#syntax">語法</a>
+    <a href="#options">常用選項</a>
+    <a href="#substitute">替換</a>
+    <a href="#delete">刪除</a>
+    <a href="#insert">插入與附加</a>
+    <a href="#print">列印</a>
+    <a href="#address">位址定位</a>
+    <a href="#regex">正規表示式</a>
+    <a href="#advanced">進階技巧</a>
+    <a href="#realworld">實戰範例</a>
+    <a href="#cheatsheet">速查表</a>
+  </div>
+</nav>
+
+<main class="container">
+
+<!-- ═══════════ 1. 簡介 ═══════════ -->
+<section id="intro">
+  <div class="section-num">01</div>
+  <h2>什麼是 sed？</h2>
+  <p><code>sed</code>（Stream Editor，串流編輯器）是 Unix/Linux 系統中最經典的文字處理工具之一。它能逐行讀取輸入資料，依照指定的編輯指令進行轉換，再將結果輸出。由於不需要開啟互動式編輯器，<code>sed</code> 特別適合用在腳本自動化、批次處理、日誌分析等場景。</p>
+
+  <div class="info">
+    <strong>核心概念：</strong>sed 不會直接修改原始檔案（除非加上 <code>-i</code> 選項），它預設將處理結果輸出到標準輸出（stdout），原始檔案保持不變。
+  </div>
+
+  <h3>sed 的工作流程</h3>
+  <p>每一次循環中，sed 會執行以下步驟：</p>
+  <ol>
+    <li>從輸入讀取一行文字到「模式空間」（Pattern Space）</li>
+    <li>對模式空間中的內容執行所有指令</li>
+    <li>將模式空間的內容輸出到標準輸出</li>
+    <li>清空模式空間，讀取下一行，重複以上步驟</li>
+  </ol>
+</section>
+
+<!-- ═══════════ 2. 基本語法 ═══════════ -->
+<section id="syntax">
+  <div class="section-num">02</div>
+  <h2>基本語法結構</h2>
+
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>基本語法</div>
+    <pre><span class="kw">sed</span> <span class="flag">[選項]</span> <span class="str">'指令'</span> 輸入檔案
+
+<span class="cm"># 也可以搭配管線使用</span>
+指令 | <span class="kw">sed</span> <span class="flag">[選項]</span> <span class="str">'指令'</span></pre>
+  </div>
+
+  <p>其中「指令」的格式為：</p>
+
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>指令格式</div>
+    <pre><span class="str">[位址]</span><span class="kw">命令</span>
+
+<span class="cm"># 範例：</span>
+<span class="str">'3'</span><span class="kw">d</span>            <span class="cm"># 刪除第 3 行</span>
+<span class="str">'/error/'</span><span class="kw">p</span>       <span class="cm"># 列印含有 error 的行</span>
+<span class="str">'1,5'</span><span class="kw">s/old/new/</span> <span class="cm"># 在第 1~5 行替換 old 為 new</span></pre>
+  </div>
+</section>
+
+<!-- ═══════════ 3. 常用選項 ═══════════ -->
+<section id="options">
+  <div class="section-num">03</div>
+  <h2>常用選項（Options）</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>選項</th><th>說明</th><th>範例</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>-n</code></td>
+          <td>安靜模式，抑制自動輸出，僅輸出經 <code>p</code> 指令明確要求的行</td>
+          <td><code>sed -n '3p' file</code></td>
+        </tr>
+        <tr>
+          <td><code>-e</code></td>
+          <td>指定多個編輯指令（可串接多個 <code>-e</code>）</td>
+          <td><code>sed -e 's/a/A/' -e 's/b/B/' file</code></td>
+        </tr>
+        <tr>
+          <td><code>-i</code></td>
+          <td>直接修改原始檔案（就地編輯）</td>
+          <td><code>sed -i 's/old/new/g' file</code></td>
+        </tr>
+        <tr>
+          <td><code>-i.bak</code></td>
+          <td>就地編輯並建立備份檔案（副檔名為 .bak）</td>
+          <td><code>sed -i.bak 's/old/new/g' file</code></td>
+        </tr>
+        <tr>
+          <td><code>-r</code> / <code>-E</code></td>
+          <td>啟用擴展正規表示式（ERE），免除部分跳脫字元</td>
+          <td><code>sed -E 's/(foo|bar)/baz/g' file</code></td>
+        </tr>
+        <tr>
+          <td><code>-f</code></td>
+          <td>從檔案讀取 sed 指令</td>
+          <td><code>sed -f script.sed file</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tip">
+    <strong>macOS 注意：</strong>macOS 預設使用 BSD 版 sed，<code>-i</code> 後面必須加空字串 <code>-i ''</code>，否則會報錯。GNU sed（Linux）則可以直接寫 <code>-i</code>。
+  </div>
+</section>
+
+<!-- ═══════════ 4. 替換指令 ═══════════ -->
+<section id="substitute">
+  <div class="section-num">04</div>
+  <h2>替換指令（s）— 最常用的功能</h2>
+
+  <p>替換指令是 sed 最核心的功能，語法如下：</p>
+
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>替換語法</div>
+    <pre><span class="kw">s</span>/<span class="str">搜尋模式</span>/<span class="str">替換文字</span>/<span class="flag">旗標</span></pre>
+  </div>
+
+  <h3>替換旗標（Flags）</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>旗標</th><th>說明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>g</code></td><td>全域替換（替換該行所有匹配項，而非僅第一個）</td></tr>
+        <tr><td><code>數字</code></td><td>只替換第 N 個匹配項，如 <code>2</code> 替換第二個</td></tr>
+        <tr><td><code>p</code></td><td>列印替換成功的行</td></tr>
+        <tr><td><code>w 檔案</code></td><td>將替換成功的行寫入指定檔案</td></tr>
+        <tr><td><code>i</code> / <code>I</code></td><td>忽略大小寫匹配（GNU sed 擴展）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>基本替換範例</h3>
+
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>範例：基本替換</div>
+    <pre><span class="cm"># 將每行第一個 "cat" 替換為 "dog"</span>
+<span class="kw">echo</span> <span class="str">"I have a cat and a cat"</span> | <span class="kw">sed</span> <span class="str">'s/cat/dog/'</span>
+<span class="output-label">OUTPUT</span>
+<span class="output-line">I have a dog and a cat</span>
+
+<span class="cm"># 全域替換（加上 g 旗標）</span>
+<span class="kw">echo</span> <span class="str">"I have a cat and a cat"</span> | <span class="kw">sed</span> <span class="str">'s/cat/dog/g'</span>
+<span class="output-label">OUTPUT</span>
+<span class="output-line">I have a dog and a dog</span>
+
+<span class="cm"># 只替換第 2 個匹配項</span>
+<span class="kw">echo</span> <span class="str">"aaa bbb aaa bbb aaa"</span> | <span class="kw">sed</span> <span class="str">'s/aaa/XXX/2'</span>
+<span class="output-label">OUTPUT</span>
+<span class="output-line">aaa bbb XXX bbb aaa</span></pre>
+  </div>
+
+  <h3>使用不同分隔符</h3>
+  <p>當搜尋模式中包含 <code>/</code> 時（如路徑），可以改用其他字元作為分隔符：</p>
+
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>範例：自訂分隔符</div>
+    <pre><span class="cm"># 使用 | 作為分隔符（替換檔案路徑）</span>
+<span class="kw">sed</span> <span class="str">'s|/usr/local/bin|/opt/bin|g'</span> config.txt
+
+<span class="cm"># 使用 # 作為分隔符</span>
+<span class="kw">sed</span> <span class="str">'s#http://#https://#g'</span> urls.txt
+
+<span class="cm"># 使用 @ 作為分隔符</span>
+<span class="kw">sed</span> <span class="str">'s@oldpath@newpath@g'</span> file.txt</pre>
+  </div>
+
+  <h3>反向參照（Back Reference）</h3>
+  <p>使用 <code>\(</code> 和 <code>\)</code> 捕捉群組，再用 <code>\1</code>、<code>\2</code> 等引用：</p>
+
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>範例：反向參照</div>
+    <pre><span class="cm"># 將 "John Smith" 轉為 "Smith, John"</span>
+<span class="kw">echo</span> <span class="str">"John Smith"</span> | <span class="kw">sed</span> <span class="str">'s/\(.*\) \(.*\)/\2, \1/'</span>
+<span class="output-label">OUTPUT</span>
+<span class="output-line">Smith, John</span>
+
+<span class="cm"># 使用 ERE（-E），括號不需跳脫</span>
+<span class="kw">echo</span> <span class="str">"John Smith"</span> | <span class="kw">sed</span> <span class="flag">-E</span> <span class="str">'s/(.*) (.*)/\2, \1/'</span>
+<span class="output-label">OUTPUT</span>
+<span class="output-line">Smith, John</span>
+
+<span class="cm"># 在每個單字前後加上引號</span>
+<span class="kw">echo</span> <span class="str">"hello world"</span> | <span class="kw">sed</span> <span class="flag">-E</span> <span class="str">'s/([a-z]+)/"\1"/g'</span>
+<span class="output-label">OUTPUT</span>
+<span class="output-line">"hello" "world"</span>
+
+<span class="cm"># & 代表整個匹配的內容</span>
+<span class="kw">echo</span> <span class="str">"1234"</span> | <span class="kw">sed</span> <span class="str">'s/[0-9]*/[&]/'</span>
+<span class="output-label">OUTPUT</span>
+<span class="output-line">[1234]</span></pre>
+  </div>
+</section>
+
+<!-- ═══════════ 5. 刪除指令 ═══════════ -->
+<section id="delete">
+  <div class="section-num">05</div>
+  <h2>刪除指令（d）</h2>
+
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>範例：刪除操作</div>
+    <pre><span class="cm"># 刪除第 3 行</span>
+<span class="kw">sed</span> <span class="str">'3d'</span> file.txt
+
+<span class="cm"># 刪除第 2 到第 5 行</span>
+<span class="kw">sed</span> <span class="str">'2,5d'</span> file.txt
+
+<span class="cm"># 刪除最後一行</span>
+<span class="kw">sed</span> <span class="str">'$d'</span> file.txt
+
+<span class="cm"># 刪除空白行</span>
+<span class="kw">sed</span> <span class="str">'/^$/d'</span> file.txt
+
+<span class="cm"># 刪除含有 "DEBUG" 的行</span>
+<span class="kw">sed</span> <span class="str">'/DEBUG/d'</span> log.txt
+
+<span class="cm"># 刪除以 # 開頭的註解行</span>
+<span class="kw">sed</span> <span class="str">'/^#/d'</span> config.txt
+
+<span class="cm"># 刪除以 # 開頭的行和空白行</span>
+<span class="kw">sed</span> <span class="flag">-e</span> <span class="str">'/^#/d'</span> <span class="flag">-e</span> <span class="str">'/^$/d'</span> config.txt
+
+<span class="cm"># 刪除第 1 行到第一個空白行</span>
+<span class="kw">sed</span> <span class="str">'1,/^$/d'</span> file.txt</pre>
+  </div>
+</section>
+
+<!-- ═══════════ 6. 插入與附加 ═══════════ -->
+<section id="insert">
+  <div class="section-num">06</div>
+  <h2>插入、附加與變更（i / a / c）</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>指令</th><th>說明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>i\</code></td><td>在指定行<strong>之前</strong>插入文字</td></tr>
+        <tr><td><code>a\</code></td><td>在指定行<strong>之後</strong>附加文字</td></tr>
+        <tr><td><code>c\</code></td><td>將指定行<strong>整行取代</strong>為新文字</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>範例：插入、附加、變更</div>
+    <pre><span class="cm"># 在第 1 行之前插入一行文字</span>
+<span class="kw">sed</span> <span class="str">'1i\#!/bin/bash'</span> script.sh
+
+<span class="cm"># 在第 3 行之後附加一行文字</span>
+<span class="kw">sed</span> <span class="str">'3a\# 這是新加入的註解'</span> file.txt
+
+<span class="cm"># 在最後一行之後附加文字</span>
+<span class="kw">sed</span> <span class="str">'$a\END OF FILE'</span> file.txt
+
+<span class="cm"># 將含有 "old_config" 的行整行替換</span>
+<span class="kw">sed</span> <span class="str">'/old_config/c\new_config=true'</span> config.txt
+
+<span class="cm"># 在每行匹配 "TODO" 的行之前插入空行</span>
+<span class="kw">sed</span> <span class="str">'/TODO/i\\'</span> file.txt</pre>
+  </div>
+</section>
+
+<!-- ═══════════ 7. 列印指令 ═══════════ -->
+<section id="print">
+  <div class="section-num">07</div>
+  <h2>列印指令（p）與行號（=）</h2>
+
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>範例：列印操作</div>
+    <pre><span class="cm"># 列印第 5 行（搭配 -n 避免重複輸出）</span>
+<span class="kw">sed</span> <span class="flag">-n</span> <span class="str">'5p'</span> file.txt
+
+<span class="cm"># 列印第 10 到第 20 行</span>
+<span class="kw">sed</span> <span class="flag">-n</span> <span class="str">'10,20p'</span> file.txt
+
+<span class="cm"># 列印含有 "error" 的行（類似 grep）</span>
+<span class="kw">sed</span> <span class="flag">-n</span> <span class="str">'/error/p'</span> log.txt
+
+<span class="cm"># 忽略大小寫列印含 "error" 的行</span>
+<span class="kw">sed</span> <span class="flag">-n</span> <span class="str">'/error/Ip'</span> log.txt
+
+<span class="cm"># 列印第 1 行到匹配 "END" 的行</span>
+<span class="kw">sed</span> <span class="flag">-n</span> <span class="str">'1,/END/p'</span> file.txt
+
+<span class="cm"># 顯示行號</span>
+<span class="kw">sed</span> <span class="flag">-n</span> <span class="str">'/pattern/='</span> file.txt
+
+<span class="cm"># 同時顯示行號和內容</span>
+<span class="kw">sed</span> <span class="flag">-n</span> <span class="str">'/pattern/{=;p}'</span> file.txt</pre>
+  </div>
+</section>
+
+<!-- ═══════════ 8. 位址定位 ═══════════ -->
+<section id="address">
+  <div class="section-num">08</div>
+  <h2>位址定位（Addressing）</h2>
+  <p>位址用來指定 sed 指令要作用在哪些行上。</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>位址格式</th><th>說明</th><th>範例</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>n</code></td><td>第 n 行</td><td><code>sed '5d'</code> — 刪除第 5 行</td></tr>
+        <tr><td><code>$</code></td><td>最後一行</td><td><code>sed '$d'</code> — 刪除最後一行</td></tr>
+        <tr><td><code>n,m</code></td><td>第 n 到第 m 行</td><td><code>sed '2,5d'</code> — 刪除 2~5 行</td></tr>
+        <tr><td><code>n~step</code></td><td>從第 n 行開始，每隔 step 行</td><td><code>sed '1~2d'</code> — 刪除奇數行</td></tr>
+        <tr><td><code>/pattern/</code></td><td>匹配正規表示式的行</td><td><code>sed '/^#/d'</code> — 刪除 # 開頭的行</td></tr>
+        <tr><td><code>/p1/,/p2/</code></td><td>從匹配 p1 到匹配 p2 的範圍</td><td><code>sed '/START/,/END/d'</code></td></tr>
+        <tr><td><code>n,/pattern/</code></td><td>從第 n 行到匹配 pattern 的行</td><td><code>sed '1,/^$/d'</code></td></tr>
+        <tr><td><code>!</code></td><td>反向選取（不匹配的行）</td><td><code>sed '/keep/!d'</code> — 只保留含 keep 的行</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>範例：位址定位</div>
+    <pre><span class="cm"># 只在第 1 行進行替換</span>
+<span class="kw">sed</span> <span class="str">'1s/hello/HELLO/'</span> file.txt
+
+<span class="cm"># 從第 3 行到最後一行替換</span>
+<span class="kw">sed</span> <span class="str">'3,$s/foo/bar/g'</span> file.txt
+
+<span class="cm"># 每隔一行列印（列印偶數行）</span>
+<span class="kw">sed</span> <span class="flag">-n</span> <span class="str">'2~2p'</span> file.txt
+
+<span class="cm"># 反選：刪除「不含」error 的所有行（保留含 error 的行）</span>
+<span class="kw">sed</span> <span class="str">'/error/!d'</span> log.txt
+
+<span class="cm"># 在 BEGIN 和 END 之間的行進行替換</span>
+<span class="kw">sed</span> <span class="str">'/BEGIN/,/END/s/old/new/g'</span> file.txt</pre>
+  </div>
+</section>
+
+<!-- ═══════════ 9. 正規表示式 ═══════════ -->
+<section id="regex">
+  <div class="section-num">09</div>
+  <h2>sed 中的正規表示式</h2>
+
+  <h3>基本正規表示式（BRE）</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>符號</th><th>說明</th><th>範例</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>.</code></td><td>匹配任意單一字元</td><td><code>s/h.t/hat/</code></td></tr>
+        <tr><td><code>*</code></td><td>前一字元重複 0 次或多次</td><td><code>s/ab*/a/</code></td></tr>
+        <tr><td><code>^</code></td><td>行首</td><td><code>/^#/</code> 匹配 # 開頭的行</td></tr>
+        <tr><td><code>$</code></td><td>行尾</td><td><code>/;$/</code> 匹配 ; 結尾的行</td></tr>
+        <tr><td><code>[abc]</code></td><td>字元集合，匹配 a、b 或 c</td><td><code>s/[aeiou]//g</code></td></tr>
+        <tr><td><code>[^abc]</code></td><td>否定字元集合</td><td><code>s/[^0-9]//g</code></td></tr>
+        <tr><td><code>\( \)</code></td><td>捕捉群組</td><td><code>s/\(.*\)/[\1]/</code></td></tr>
+        <tr><td><code>\1 \2</code></td><td>反向參照第 N 個群組</td><td>見替換章節範例</td></tr>
+        <tr><td><code>\{n\}</code></td><td>前一字元恰好重複 n 次</td><td><code>/a\{3\}/</code> 匹配 aaa</td></tr>
+        <tr><td><code>\{n,m\}</code></td><td>前一字元重複 n 到 m 次</td><td><code>/a\{2,4\}/</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>擴展正規表示式（ERE）— 使用 <code>-E</code> 選項</h3>
+  <p>ERE 與 BRE 功能相同，但括號和量詞不需要跳脫，寫起來更簡潔：</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>ERE 符號</th><th>等同 BRE</th><th>說明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>+</code></td><td><code>\+</code></td><td>前一字元至少出現 1 次</td></tr>
+        <tr><td><code>?</code></td><td><code>\?</code></td><td>前一字元出現 0 或 1 次</td></tr>
+        <tr><td><code>()</code></td><td><code>\( \)</code></td><td>捕捉群組</td></tr>
+        <tr><td><code>{n,m}</code></td><td><code>\{n,m\}</code></td><td>重複次數範圍</td></tr>
+        <tr><td><code>|</code></td><td><code>\|</code></td><td>或（alternation）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>範例：BRE vs ERE</div>
+    <pre><span class="cm"># BRE：需要跳脫</span>
+<span class="kw">sed</span> <span class="str">'s/\(foo\|bar\)/baz/g'</span> file.txt
+
+<span class="cm"># ERE：更簡潔（推薦）</span>
+<span class="kw">sed</span> <span class="flag">-E</span> <span class="str">'s/(foo|bar)/baz/g'</span> file.txt</pre>
+  </div>
+</section>
+
+<!-- ═══════════ 10. 進階技巧 ═══════════ -->
+<section id="advanced">
+  <div class="section-num">10</div>
+  <h2>進階技巧</h2>
+
+  <h3>多指令組合</h3>
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>範例：多指令</div>
+    <pre><span class="cm"># 方法一：使用 -e</span>
+<span class="kw">sed</span> <span class="flag">-e</span> <span class="str">'s/foo/bar/g'</span> <span class="flag">-e</span> <span class="str">'s/baz/qux/g'</span> file.txt
+
+<span class="cm"># 方法二：使用分號</span>
+<span class="kw">sed</span> <span class="str">'s/foo/bar/g; s/baz/qux/g'</span> file.txt
+
+<span class="cm"># 方法三：使用大括號對同一行執行多個動作</span>
+<span class="kw">sed</span> <span class="str">'/pattern/{ s/a/A/g; s/b/B/g; }'</span> file.txt</pre>
+  </div>
+
+  <h3>Hold Space（保持空間）</h3>
+  <p>除了模式空間外，sed 還有一個「保持空間」（Hold Space），可以暫存資料：</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>指令</th><th>說明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>h</code></td><td>將模式空間內容複製到保持空間（覆蓋）</td></tr>
+        <tr><td><code>H</code></td><td>將模式空間內容附加到保持空間</td></tr>
+        <tr><td><code>g</code></td><td>將保持空間內容複製到模式空間（覆蓋）</td></tr>
+        <tr><td><code>G</code></td><td>將保持空間內容附加到模式空間</td></tr>
+        <tr><td><code>x</code></td><td>交換模式空間與保持空間</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>範例：反轉檔案行序（模擬 tac）</div>
+    <pre><span class="cm"># 利用 Hold Space 反轉所有行</span>
+<span class="kw">sed</span> <span class="str">-n '1!G; h; $p'</span> file.txt</pre>
+  </div>
+
+  <h3>多行處理（N / P / D）</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>指令</th><th>說明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>N</code></td><td>讀取下一行並附加到模式空間（以 \n 分隔）</td></tr>
+        <tr><td><code>P</code></td><td>列印模式空間中第一個 \n 之前的內容</td></tr>
+        <tr><td><code>D</code></td><td>刪除模式空間中第一個 \n 之前的內容，重新開始循環</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>範例：合併相鄰行</div>
+    <pre><span class="cm"># 將每兩行合併為一行，用空格分隔</span>
+<span class="kw">sed</span> <span class="str">'N; s/\n/ /'</span> file.txt
+
+<span class="cm"># 刪除跨行的連續空白行（僅保留一個空行）</span>
+<span class="kw">sed</span> <span class="str">'/^$/{ N; /^\n$/d; }'</span> file.txt</pre>
+  </div>
+
+  <h3>分支與標籤（b / t / :label）</h3>
+
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>範例：標籤與迴圈</div>
+    <pre><span class="cm"># 持續替換直到沒有匹配（模擬迴圈）</span>
+<span class="cm"># 將連續空格壓縮為單一空格</span>
+<span class="kw">sed</span> <span class="str">':loop; s/  / /; t loop'</span> file.txt
+
+<span class="cm"># 解釋：</span>
+<span class="cm"># :loop   → 定義標籤 "loop"</span>
+<span class="cm"># s/  / / → 將兩個空格替換為一個</span>
+<span class="cm"># t loop  → 如果替換成功，跳回 loop 繼續執行</span></pre>
+  </div>
+
+  <h3>讀取與寫入檔案（r / w）</h3>
+
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>範例：讀寫檔案</div>
+    <pre><span class="cm"># 在第 3 行之後插入 header.txt 的內容</span>
+<span class="kw">sed</span> <span class="str">'3r header.txt'</span> file.txt
+
+<span class="cm"># 在匹配 "INSERT_HERE" 的行之後插入檔案內容</span>
+<span class="kw">sed</span> <span class="str">'/INSERT_HERE/r template.txt'</span> file.txt
+
+<span class="cm"># 將含有 "ERROR" 的行寫入新檔案</span>
+<span class="kw">sed</span> <span class="flag">-n</span> <span class="str">'/ERROR/w errors.txt'</span> log.txt</pre>
+  </div>
+
+  <h3>轉換指令（y）</h3>
+  <p><code>y</code> 指令進行逐字元對應轉換，類似 <code>tr</code> 命令：</p>
+
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>範例：字元轉換</div>
+    <pre><span class="cm"># 將小寫 abc 轉為大寫 ABC</span>
+<span class="kw">echo</span> <span class="str">"apple banana cherry"</span> | <span class="kw">sed</span> <span class="str">'y/abc/ABC/'</span>
+<span class="output-label">OUTPUT</span>
+<span class="output-line">Apple BAnAnA Cherry</span></pre>
+  </div>
+</section>
+
+<!-- ═══════════ 11. 實戰範例 ═══════════ -->
+<section id="realworld">
+  <div class="section-num">11</div>
+  <h2>實戰應用範例</h2>
+
+  <h3>日誌與系統管理</h3>
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>日誌處理</div>
+    <pre><span class="cm"># 提取特定時間範圍的日誌</span>
+<span class="kw">sed</span> <span class="flag">-n</span> <span class="str">'/2024-01-15 10:00/,/2024-01-15 11:00/p'</span> app.log
+
+<span class="cm"># 移除日誌中的 ANSI 色彩碼</span>
+<span class="kw">sed</span> <span class="flag">-E</span> <span class="str">'s/\x1b\[[0-9;]*m//g'</span> colored.log
+
+<span class="cm"># 統一 IP 位址格式（隱碼處理）</span>
+<span class="kw">sed</span> <span class="flag">-E</span> <span class="str">'s/[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/xxx.xxx.xxx.xxx/g'</span> access.log</pre>
+  </div>
+
+  <h3>設定檔處理</h3>
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>設定檔修改</div>
+    <pre><span class="cm"># 修改設定值</span>
+<span class="kw">sed</span> <span class="flag">-i</span> <span class="str">'s/^port=.*/port=8080/'</span> config.ini
+
+<span class="cm"># 取消某行的註解（移除行首 #）</span>
+<span class="kw">sed</span> <span class="flag">-i</span> <span class="str">'/^#.*listen_port/s/^#//'</span> nginx.conf
+
+<span class="cm"># 加上註解（在行首加 #）</span>
+<span class="kw">sed</span> <span class="flag">-i</span> <span class="str">'/dangerous_option/s/^/#/'</span> config.txt
+
+<span class="cm"># 在 [section] 區塊後加入新的設定</span>
+<span class="kw">sed</span> <span class="flag">-i</span> <span class="str">'/^\[database\]/a\host=localhost'</span> config.ini</pre>
+  </div>
+
+  <h3>程式碼與文件處理</h3>
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>程式碼處理</div>
+    <pre><span class="cm"># 移除行尾空白</span>
+<span class="kw">sed</span> <span class="flag">-i</span> <span class="str">'s/[[:space:]]*$//'</span> *.py
+
+<span class="cm"># 將 Tab 替換為 4 個空格</span>
+<span class="kw">sed</span> <span class="flag">-i</span> <span class="str">'s/\t/    /g'</span> code.py
+
+<span class="cm"># 在每行前加上行號</span>
+<span class="kw">sed</span> <span class="str">'='</span> file.txt | <span class="kw">sed</span> <span class="str">'N; s/\n/\t/'</span>
+
+<span class="cm"># 移除 HTML 標籤</span>
+<span class="kw">sed</span> <span class="flag">-E</span> <span class="str">'s/<[^>]+>//g'</span> page.html
+
+<span class="cm"># CSV：提取第 2 欄</span>
+<span class="kw">sed</span> <span class="flag">-E</span> <span class="str">'s/^[^,]*,([^,]*).*/\1/'</span> data.csv</pre>
+  </div>
+
+  <h3>批次檔案重新命名（搭配其他命令）</h3>
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>批次操作</div>
+    <pre><span class="cm"># 批次重新命名：將空格替換為底線</span>
+<span class="kw">for</span> f <span class="kw">in</span> *; <span class="kw">do</span>
+  new=$(<span class="kw">echo</span> "$f" | <span class="kw">sed</span> <span class="str">'s/ /_/g'</span>)
+  [ "$f" != "$new" ] && <span class="kw">mv</span> "$f" "$new"
+<span class="kw">done</span>
+
+<span class="cm"># 批次替換多個檔案中的字串</span>
+<span class="kw">find</span> . -name "*.txt" -exec <span class="kw">sed</span> <span class="flag">-i</span> <span class="str">'s/old_api/new_api/g'</span> {} +
+
+<span class="cm"># 使用 sed 產生 SQL INSERT 語句</span>
+<span class="kw">sed</span> <span class="flag">-E</span> <span class="str">"s/^(.*),(.*),(.*)\$/INSERT INTO users VALUES ('\1','\2','\3');/"</span> data.csv</pre>
+  </div>
+</section>
+
+<!-- ═══════════ 12. 速查表 ═══════════ -->
+<section id="cheatsheet">
+  <div class="section-num">12</div>
+  <h2>sed 指令速查表</h2>
+
+  <h3>核心命令</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>命令</th><th>功能</th><th>範例</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>s///</code></td><td>替換</td><td><code>sed 's/old/new/g'</code></td></tr>
+        <tr><td><code>d</code></td><td>刪除行</td><td><code>sed '3d'</code></td></tr>
+        <tr><td><code>p</code></td><td>列印行</td><td><code>sed -n '5p'</code></td></tr>
+        <tr><td><code>i\</code></td><td>之前插入</td><td><code>sed '1i\text'</code></td></tr>
+        <tr><td><code>a\</code></td><td>之後附加</td><td><code>sed '3a\text'</code></td></tr>
+        <tr><td><code>c\</code></td><td>整行取代</td><td><code>sed '5c\new line'</code></td></tr>
+        <tr><td><code>y///</code></td><td>字元轉換</td><td><code>sed 'y/abc/ABC/'</code></td></tr>
+        <tr><td><code>=</code></td><td>列印行號</td><td><code>sed -n '/pat/='</code></td></tr>
+        <tr><td><code>q</code></td><td>遇到即退出</td><td><code>sed '10q'</code> 列印前 10 行</td></tr>
+        <tr><td><code>r file</code></td><td>讀入檔案</td><td><code>sed '3r data.txt'</code></td></tr>
+        <tr><td><code>w file</code></td><td>寫出到檔案</td><td><code>sed -n '/err/w e.txt'</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>常用單行指令集錦</h3>
+  <div class="code-wrap">
+    <div class="code-header"><span class="code-dot"></span>One-liners</div>
+    <pre><span class="cm"># 列印前 N 行（模擬 head）</span>
+<span class="kw">sed</span> <span class="str">'10q'</span>
+
+<span class="cm"># 列印最後一行（模擬 tail -1）</span>
+<span class="kw">sed</span> <span class="flag">-n</span> <span class="str">'$p'</span>
+
+<span class="cm"># 移除所有空白行</span>
+<span class="kw">sed</span> <span class="str">'/^[[:space:]]*$/d'</span>
+
+<span class="cm"># 移除行首空白</span>
+<span class="kw">sed</span> <span class="str">'s/^[[:space:]]*//'</span>
+
+<span class="cm"># 移除行尾空白</span>
+<span class="kw">sed</span> <span class="str">'s/[[:space:]]*$//'</span>
+
+<span class="cm"># 移除行首和行尾空白（trim）</span>
+<span class="kw">sed</span> <span class="str">'s/^[[:space:]]*//; s/[[:space:]]*$//'</span>
+
+<span class="cm"># 在每行前加上前綴</span>
+<span class="kw">sed</span> <span class="str">'s/^/PREFIX: /'</span>
+
+<span class="cm"># 在每行後加上後綴</span>
+<span class="kw">sed</span> <span class="str">'s/$/ :SUFFIX/'</span>
+
+<span class="cm"># 將 DOS 換行（\r\n）轉為 Unix 換行（\n）</span>
+<span class="kw">sed</span> <span class="str">'s/\r$//'</span>
+
+<span class="cm"># 雙倍行距（每行後插入空行）</span>
+<span class="kw">sed</span> <span class="str">'G'</span>
+
+<span class="cm"># 壓縮連續空行為單一空行</span>
+<span class="kw">sed</span> <span class="str">'/^$/N;/^\n$/d'</span></pre>
+  </div>
+
+  <div class="warn">
+    <strong>安全提醒：</strong>使用 <code>sed -i</code> 直接修改檔案前，建議先用 <code>sed -i.bak</code> 建立備份，或先不加 <code>-i</code> 預覽輸出結果，確認無誤後再執行就地修改。
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <p>sed 完全教學指南 — Stream Editor Reference</p>
+</footer>
+
+</body>
+</html>
