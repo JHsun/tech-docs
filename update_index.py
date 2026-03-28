@@ -24,6 +24,7 @@ CATEGORY_DISPLAY = {
     "linux-cheat-sheet": "Linux",
     "postgresql-quickstart": "PostgreSQL",
     "redis-cheat-sheet": "Redis",
+    "playwright-cheat-sheet": "Playwright",
     "_uncategorized": "其他",
 }
 
@@ -171,6 +172,7 @@ def generate_index(groups):
       --tag-linux: #ffecd2; --tag-linux-text: #b8651a;
       --tag-pg: #dbeafe; --tag-pg-text: #1e40af;
       --tag-redis: #fee2e2; --tag-redis-text: #b91c1c;
+      --tag-playwright: #d1fae5; --tag-playwright-text: #065f46;
       --tag-other: #e8e8ed; --tag-other-text: #6e6e73;
       --header-bg: rgba(245, 245, 247, 0.8);
       --radius-sm: 10px;
@@ -197,6 +199,7 @@ def generate_index(groups):
       --tag-linux: rgba(251, 191, 36, 0.15); --tag-linux-text: #fcd34d;
       --tag-pg: rgba(59, 130, 246, 0.15); --tag-pg-text: #93c5fd;
       --tag-redis: rgba(239, 68, 68, 0.15); --tag-redis-text: #fca5a5;
+      --tag-playwright: rgba(16, 185, 129, 0.15); --tag-playwright-text: #6ee7b7;
       --tag-other: rgba(255, 255, 255, 0.08); --tag-other-text: #a1a1a6;
       --header-bg: rgba(13, 13, 15, 0.85);
     }
@@ -334,6 +337,7 @@ def generate_index(groups):
     .report-tag[data-tag="linux-cheat-sheet"] { background: var(--tag-linux); color: var(--tag-linux-text); }
     .report-tag[data-tag="postgresql-quickstart"] { background: var(--tag-pg); color: var(--tag-pg-text); }
     .report-tag[data-tag="redis-cheat-sheet"] { background: var(--tag-redis); color: var(--tag-redis-text); }
+    .report-tag[data-tag="playwright-cheat-sheet"] { background: var(--tag-playwright); color: var(--tag-playwright-text); }
     .report-tag[data-tag="_uncategorized"] { background: var(--tag-other); color: var(--tag-other-text); }
     .report-arrow {
       color: var(--text-muted); font-size: 0.85rem; opacity: 0;
@@ -355,6 +359,7 @@ def generate_index(groups):
     .category-icon[data-cat="linux-cheat-sheet"] { background: var(--tag-linux); color: var(--tag-linux-text); }
     .category-icon[data-cat="postgresql-quickstart"] { background: var(--tag-pg); color: var(--tag-pg-text); }
     .category-icon[data-cat="redis-cheat-sheet"] { background: var(--tag-redis); color: var(--tag-redis-text); }
+    .category-icon[data-cat="playwright-cheat-sheet"] { background: var(--tag-playwright); color: var(--tag-playwright-text); }
     .category-icon[data-cat="_uncategorized"] { background: var(--tag-other); color: var(--tag-other-text); }
     .category-title { font-size: 0.95rem; font-weight: 700; letter-spacing: -0.01em; }
     .category-count {
