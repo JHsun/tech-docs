@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kafka 4.2 Cheat Sheet — 第4篇：Design + Implementation</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;500;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0f1117;--surface:#181b24;--surface2:#1e2230;--border:#2a2e3d;--accent:#38bdf8;--accent2:#818cf8;--accent3:#34d399;--accent4:#fb923c;--accent5:#f472b6;--text:#e2e8f0;--text-dim:#94a3b8;--text-bright:#f8fafc;--code-bg:#131620;--tag-bg:rgba(56,189,248,0.12);--tag-text:#7dd3fc;--warning-bg:rgba(251,146,60,0.1);--success-bg:rgba(52,211,153,0.1);}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text);line-height:1.75;font-size:15px;}
+.hero{background:linear-gradient(135deg,#0f1117 0%,#1a1535 40%,#0f2535 70%,#0f1117 100%);border-bottom:1px solid var(--border);padding:3rem 2rem 2.5rem;text-align:center;position:relative;overflow:hidden;}
+.hero::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 55% 45%,rgba(251,146,60,0.04) 0%,transparent 55%);pointer-events:none;}
+.hero-content{position:relative;z-index:1;}
+.series-tag{display:inline-block;background:var(--tag-bg);color:var(--tag-text);padding:.3rem 1rem;border-radius:99px;font-size:.8rem;font-weight:500;letter-spacing:.05em;margin-bottom:1rem;}
+.hero h1{font-family:'DM Serif Display',serif;font-size:clamp(2rem,5vw,3.2rem);color:var(--text-bright);line-height:1.2;margin-bottom:.5rem;}
+.hero h1 span{color:var(--accent4);}
+.hero .subtitle{color:var(--text-dim);font-size:1rem;font-weight:300;}
+.container{max-width:1140px;margin:0 auto;padding:2rem 1.5rem 4rem;}
+.toc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.5rem 2rem;margin-bottom:2.5rem;}
+.toc h3{font-size:.85rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.1em;margin-bottom:1rem;}
+.toc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:.5rem;}
+.toc a{color:var(--accent);text-decoration:none;font-size:.9rem;padding:.3rem 0;transition:color .2s;}
+.toc a:hover{color:var(--text-bright);}
+.toc a .num{color:var(--text-dim);font-family:'JetBrains Mono',monospace;font-size:.75rem;margin-right:.3rem;}
+.section{margin-bottom:3rem;scroll-margin-top:1rem;}
+.section-header{display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem;padding-bottom:.75rem;border-bottom:2px solid var(--border);}
+.sn{font-family:'JetBrains Mono',monospace;font-size:.75rem;font-weight:700;color:var(--bg);width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;flex-shrink:0;}
+.sn.a{background:var(--accent)}.sn.b{background:var(--accent2)}.sn.c{background:var(--accent3)}.sn.d{background:var(--accent4)}.sn.e{background:var(--accent5)}
+.section-header h2{font-size:1.4rem;font-weight:700;color:var(--text-bright);}
+.section-header h2 small{font-weight:400;font-size:.85rem;color:var(--text-dim);margin-left:.5rem;}
+h3{font-size:1.1rem;color:var(--accent);margin:1.5rem 0 .75rem;}
+h4{font-size:.95rem;color:var(--accent2);margin:1.2rem 0 .5rem;}
+p{margin-bottom:.8rem;}
+.card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem;margin:1rem 0;}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.2rem 1.4rem;transition:border-color .2s;}
+.card:hover{border-color:var(--accent);}
+.card .ct{font-weight:700;color:var(--text-bright);margin-bottom:.4rem;font-size:.95rem;}
+.card .ct .en{font-weight:400;font-size:.8rem;color:var(--text-dim);}
+.card p{font-size:.88rem;color:var(--text-dim);margin:0;line-height:1.6;}
+.tw{overflow-x:auto;margin:1rem 0;border-radius:10px;border:1px solid var(--border);}
+table{width:100%;border-collapse:collapse;font-size:.85rem;}
+thead th{background:var(--surface2);color:var(--text-bright);font-weight:600;text-align:left;padding:.6rem .8rem;border-bottom:1px solid var(--border);white-space:nowrap;}
+tbody td{padding:.55rem .8rem;border-bottom:1px solid var(--border);vertical-align:top;}
+tbody tr:last-child td{border-bottom:none;}
+tbody tr:hover{background:rgba(56,189,248,.04);}
+pre{background:var(--code-bg);border:1px solid var(--border);border-radius:8px;padding:1rem 1.2rem;overflow-x:auto;margin:.8rem 0 1rem;font-size:.82rem;line-height:1.7;}
+code{font-family:'JetBrains Mono',monospace;font-size:.82rem;}
+pre code{color:#c9d1d9;}
+:not(pre)>code{background:var(--surface2);padding:.15rem .45rem;border-radius:4px;color:var(--accent);font-size:.78em;}
+.cl{display:inline-block;background:var(--surface2);color:var(--text-dim);font-size:.72rem;font-family:'JetBrains Mono',monospace;padding:.2rem .7rem;border-radius:6px 6px 0 0;margin-bottom:-1px;position:relative;z-index:1;}
+.cm{color:#6b7280;font-style:italic;}.kw{color:var(--accent5);}.fn{color:var(--accent3);}.str{color:var(--accent4);}
+.callout{border-radius:8px;padding:1rem 1.2rem;margin:1rem 0;font-size:.9rem;line-height:1.65;}
+.callout.w{background:var(--warning-bg);border-left:3px solid var(--accent4);}
+.callout.s{background:var(--success-bg);border-left:3px solid var(--accent3);}
+.callout.i{background:rgba(56,189,248,.07);border-left:3px solid var(--accent);}
+.callout b{display:block;margin-bottom:.3rem;}
+.tag{display:inline-block;font-size:.65rem;font-weight:600;padding:.12rem .45rem;border-radius:4px;margin-right:.2rem;vertical-align:middle;}
+.tag.n{background:rgba(52,211,153,.15);color:var(--accent3);}
+.tag.i{background:rgba(251,146,60,.15);color:var(--accent4);}
+.flow{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin:1rem 0;font-size:.85rem;}
+.flow-step{background:var(--surface);border:1px solid var(--border);padding:.5rem 1rem;border-radius:8px;color:var(--text-bright);font-weight:500;}
+.flow-arrow{color:var(--text-dim);font-size:1.2rem;}
+.footer{text-align:center;padding:2rem;color:var(--text-dim);font-size:.8rem;border-top:1px solid var(--border);}
+@media(max-width:600px){.hero{padding:2rem 1rem 1.5rem;}.container{padding:1rem;}.toc-grid,.card-grid{grid-template-columns:1fr;}.flow{flex-direction:column;}.flow-arrow{transform:rotate(90deg);}}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-content">
+    <div class="series-tag">Kafka 4.2 Cheat Sheet 系列 — 共 9 篇</div>
+    <h1>第 4 篇：<span>Design + Implementation</span></h1>
+    <p class="subtitle">持久化 ∙ Zero-Copy ∙ Producer/Consumer 設計 ∙ Replication ∙ Log Compaction ∙ 訊息格式 ∙ 網路層 ∙ 協定</p>
+  </div>
+</header>
+
+<div class="container">
+
+<nav class="toc">
+  <h3>本篇目錄</h3>
+  <div class="toc-grid">
+    <a href="#d1"><span class="num">01</span> 持久化設計</a>
+    <a href="#d2"><span class="num">02</span> 效率：Zero-Copy 與壓縮</a>
+    <a href="#d3"><span class="num">03</span> Producer 設計</a>
+    <a href="#d4"><span class="num">04</span> Consumer 設計</a>
+    <a href="#d5"><span class="num">05</span> 訊息傳遞語意</a>
+    <a href="#d6"><span class="num">06</span> Replication 副本機制</a>
+    <a href="#d7"><span class="num">07</span> Log Compaction</a>
+    <a href="#d8"><span class="num">08</span> Quotas 配額</a>
+    <a href="#i1"><span class="num">09</span> 網路層</a>
+    <a href="#i2"><span class="num">10</span> 訊息格式 Record Batch v2</a>
+    <a href="#i3"><span class="num">11</span> 磁碟 Log 結構</a>
+    <a href="#i4"><span class="num">12</span> 協定概要</a>
+  </div>
+</nav>
+
+<!-- ====================== DESIGN ====================== -->
+
+<section class="section" id="d1">
+  <div class="section-header"><span class="sn a">01</span><h2>持久化設計 <small>Persistence</small></h2></div>
+
+  <h3>為何依賴檔案系統？</h3>
+  <p>Kafka 將所有資料寫入檔案系統的<strong>持久化日誌（Persistent Log）</strong>，依賴 OS 的 <strong>Pagecache</strong> 而非自行管理記憶體快取。</p>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="ct">循序 I/O 遠勝隨機 I/O</div>
+      <p>6 顆 7200rpm SATA RAID-5：循序寫入 ~600 MB/s，隨機寫入 ~100 KB/s — 差距 <strong>6000 倍</strong></p>
+    </div>
+    <div class="card">
+      <div class="ct">Pagecache 優勢</div>
+      <p>32GB 機器可快取 28-30GB，無 GC 開銷。服務重啟後快取仍然<strong>溫熱</strong>（in-process cache 需重建）</p>
+    </div>
+    <div class="card">
+      <div class="ct">O(1) 操作</div>
+      <p>讀寫皆為簡單的檔案追加與讀取，效能<strong>與資料量無關</strong>。不使用 BTree（避免磁碟 seek ~10ms）</p>
+    </div>
+  </div>
+
+  <div class="callout i">
+    <b>💡 JVM 特性考量</b>
+    Java 物件的記憶體開銷通常是資料大小的 <strong>2 倍以上</strong>；堆內資料越多 GC 越慢。使用 Pagecache 完全避開這些問題。
+  </div>
+</section>
+
+<section class="section" id="d2">
+  <div class="section-header"><span class="sn a">02</span><h2>效率：Zero-Copy 與壓縮 <small>Efficiency</small></h2></div>
+
+  <h3>Zero-Copy（sendfile）</h3>
+  <p>Producer、Broker、Consumer 使用<strong>相同的二進位訊息格式</strong>，資料傳輸時無需修改。</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>傳統路徑（4 次複製）</th><th>sendfile 路徑（1 次複製）</th></tr></thead>
+      <tbody><tr>
+        <td>磁碟 → Pagecache → 使用者空間 → Socket Buffer → NIC</td>
+        <td>磁碟 → Pagecache → <strong>直接到 NIC</strong></td>
+      </tr></tbody>
+    </table>
+  </div>
+
+  <div class="callout w">
+    <b>⚠️ SSL/TLS 限制</b>
+    啟用 SSL 時<strong>不使用 sendfile</strong>（TLS 在使用者空間運作）。對 TLS 場景效能有影響。
+  </div>
+
+  <h3>端到端批次壓縮</h3>
+  <div class="flow">
+    <div class="flow-step">Producer 批次壓縮</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-step">Broker 以壓縮形式儲存</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-step">Consumer 以壓縮形式接收</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-step">Consumer 端解壓</div>
+  </div>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>壓縮碼</th><th>演算法</th><th>特性</th></tr></thead>
+      <tbody>
+        <tr><td>0</td><td>None</td><td>無壓縮</td></tr>
+        <tr><td>1</td><td>GZIP</td><td>高壓縮比，CPU 較高</td></tr>
+        <tr><td>2</td><td>Snappy</td><td>平衡壓縮比與速度</td></tr>
+        <tr><td>3</td><td>LZ4</td><td>高速壓縮/解壓</td></tr>
+        <tr><td>4</td><td>ZStandard</td><td>最佳壓縮比，可調級別</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section" id="d3">
+  <div class="section-header"><span class="sn b">03</span><h2>Producer 設計 <small>The Producer</small></h2></div>
+
+  <h3>負載平衡</h3>
+  <p>Producer <strong>直接發送到 Partition Leader Broker</strong>，無中間路由。所有 Kafka 節點都能回應 Metadata 請求。</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>分區策略</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Random</strong></td><td>隨機負載平衡</td></tr>
+        <tr><td><strong>Sticky</strong>（預設）</td><td>沾黏到同一 Partition 直到 Batch 填滿，再切換</td></tr>
+        <tr><td><strong>Key-based</strong></td><td>以 Key Hash 決定 Partition — 相同 Key 保證進入同一 Partition</td></tr>
+        <tr><td><strong>Custom</strong></td><td>實作 <code>Partitioner</code> 介面自訂邏輯</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>非同步批次發送</h3>
+  <p>Producer 在記憶體中累積資料，以更大批次發送。透過 <code>batch.size</code>（預設 16KB）和 <code>linger.ms</code>（預設 5ms）控制，在<strong>延遲與吞吐量之間取捨</strong>。</p>
+</section>
+
+<section class="section" id="d4">
+  <div class="section-header"><span class="sn b">04</span><h2>Consumer 設計 <small>The Consumer</small></h2></div>
+
+  <h3>Pull vs Push 模型</h3>
+  <p>Kafka 採用 <strong>Pull-based 模型</strong>：Consumer 主動從 Broker 拉取資料。</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>比較</th><th>Push</th><th>Pull（Kafka）</th></tr></thead>
+      <tbody>
+        <tr><td>速率控制</td><td>由 Broker 決定 → Consumer 可能被淹沒</td><td>Consumer 自行控制 → 可自行追趕</td></tr>
+        <tr><td>批次效率</td><td>難以最佳化批次大小</td><td>拉取所有可用訊息，天然支援批次</td></tr>
+        <tr><td>空閒處理</td><td>無此問題</td><td><strong>Long Poll</strong> 機制避免忙碌等待</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Consumer Position（Offset）</h3>
+  <p>Kafka 的做法極為簡化：每個 Partition 在每個 Consumer Group 中的位置 = <strong>一個整數（Offset）</strong>。不需要訊息鎖、確認追蹤。位置定期 Checkpoint 到 <code>__consumer_offsets</code> Topic。Consumer 可隨時<strong>倒回（Rewind）</strong>重新消費。</p>
+
+  <h3>Static Membership</h3>
+  <p>設定 <code>group.instance.id</code> 提供持久身份 → 短暫重啟<strong>不觸發 Rebalance</strong>。需 Broker 與 Client 版本 ≥ 2.3。</p>
+</section>
+
+<section class="section" id="d5">
+  <div class="section-header"><span class="sn c">05</span><h2>訊息傳遞語意 <small>Message Delivery Semantics</small></h2></div>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>語意</th><th>說明</th><th>實現方式</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>At-most-once</strong></td>
+          <td>訊息可能丟失，不重複</td>
+          <td>Producer 停用重試；Consumer 處理前先 Commit Offset</td>
+        </tr>
+        <tr>
+          <td><strong>At-least-once</strong>（預設）</td>
+          <td>訊息不丟失，可能重複</td>
+          <td>Producer 啟用重試；Consumer 處理後再 Commit Offset</td>
+        </tr>
+        <tr>
+          <td><strong>Exactly-once</strong></td>
+          <td>每條訊息恰好處理一次</td>
+          <td>Idempotent Producer + Transactional Producer + <code>read_committed</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Exactly-Once 實現要件</h3>
+  <div class="card-grid">
+    <div class="card">
+      <div class="ct">Idempotent Producer</div>
+      <p>Broker 為每個 Producer 分配 ID，每條訊息附帶 Sequence Number → 自動去重</p>
+    </div>
+    <div class="card">
+      <div class="ct">Transactional Producer</div>
+      <p>將訊息<strong>原子性發送到多個 Topic-Partition</strong>。設定 <code>transactional.id</code></p>
+    </div>
+    <div class="card">
+      <div class="ct">read_committed Consumer</div>
+      <p><code>isolation.level=read_committed</code> → 僅可見已 Commit 的事務訊息</p>
+    </div>
+  </div>
+
+  <h3>事務錯誤處理分類</h3>
+  <div class="tw">
+    <table>
+      <thead><tr><th>例外類型</th><th>處理方式</th></tr></thead>
+      <tbody>
+        <tr><td><code>RetriableException</code></td><td>暫時性，內部自動重試</td></tr>
+        <tr><td><code>AbortableException</code></td><td>需中止事務 + 重新處理</td></tr>
+        <tr><td><code>ApplicationRecoverableException</code></td><td>需應用層復原，含 Producer 重啟</td></tr>
+        <tr><td><code>InvalidConfigurationException</code></td><td>設定問題，無法自動復原</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section" id="d6">
+  <div class="section-header"><span class="sn c">06</span><h2>Replication 副本機制 <small>Replication</small></h2></div>
+
+  <h3>架構</h3>
+  <p>每個 Partition：<strong>1 Leader + N Follower</strong>（共 = Replication Factor）。所有寫入發到 Leader；Follower 像 Consumer 一樣從 Leader 拉取複製。</p>
+
+  <h3>ISR（In-Sync Replicas）</h3>
+  <p>Leader 維護<strong>同步副本集（ISR）</strong>。Follower 被移出 ISR 的條件：</p>
+  <div class="card-grid">
+    <div class="card">
+      <div class="ct">Session 遺失</div>
+      <p>Controller 偵測 Heartbeat 逾時 → Follower 被認定為死亡</p>
+    </div>
+    <div class="card">
+      <div class="ct">落後太多</div>
+      <p>無法在 <code>replica.lag.time.max.ms</code>（預設 30s）內追上 Leader Log 末端</p>
+    </div>
+  </div>
+
+  <h3>Committed Message 規則</h3>
+  <div class="tw">
+    <table>
+      <thead><tr><th><code>acks</code> 值</th><th>行為</th><th>持久性</th></tr></thead>
+      <tbody>
+        <tr><td><code>0</code></td><td>不等待任何確認</td><td>最低</td></tr>
+        <tr><td><code>1</code></td><td>Leader 寫入即確認</td><td>中等</td></tr>
+        <tr><td><code>all</code> (<code>-1</code>)</td><td>等待所有 ISR 副本確認</td><td>最高</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>搭配 <code>min.insync.replicas</code>：ISR 數量 &lt; 此值時，<code>acks=all</code> 的寫入會被拒絕。</p>
+
+  <h3>ISR 模型 vs 多數投票</h3>
+  <div class="tw">
+    <table>
+      <thead><tr><th>特性</th><th>多數投票（Raft/Zab）</th><th>ISR（Kafka）</th></tr></thead>
+      <tbody>
+        <tr><td>容忍 f 次故障所需副本</td><td><strong>2f+1</strong></td><td><strong>f+1</strong></td></tr>
+        <tr><td>Commit 條件</td><td>f+1 副本確認</td><td>所有 ISR 確認</td></tr>
+        <tr><td>磁碟用量</td><td>較多（5 副本容 2 故障）</td><td>較少（3 副本容 2 故障）</td></tr>
+        <tr><td>Leader 選舉</td><td>任何多數成員</td><td>僅 ISR 成員</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Unclean Leader Election</h3>
+  <p>當某 Partition 的<strong>所有副本都死亡</strong>時：</p>
+  <div class="tw">
+    <table>
+      <thead><tr><th>選項</th><th>策略</th><th>風險</th></tr></thead>
+      <tbody>
+        <tr><td><code>unclean.leader.election.enable=false</code>（預設）</td><td>等待 ISR 副本恢復</td><td>可能永久不可用</td></tr>
+        <tr><td><code>unclean.leader.election.enable=true</code></td><td>接受非 ISR 副本為 Leader</td><td>可能丟失資料</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section" id="d7">
+  <div class="section-header"><span class="sn d">07</span><h2>Log Compaction <small>日誌壓縮</small></h2></div>
+
+  <p>保留每個 Key 的<strong>最後已知 Value</strong>。設定 <code>cleanup.policy=compact</code>。</p>
+
+  <h3>Log 結構</h3>
+  <div class="flow">
+    <div class="flow-step"><strong>Tail</strong>（已壓縮）<br><small>每個 Key 僅保留最新值</small></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-step"><strong>Head</strong>（未壓縮）<br><small>所有新寫入訊息</small></div>
+  </div>
+
+  <h3>刪除機制</h3>
+  <p>Key + <strong>null payload</strong> = <strong>Tombstone（墓碑標記）</strong>。先前該 Key 的訊息會在壓縮時被移除。Tombstone 本身在 <code>delete.retention.ms</code>（預設 24 小時）後清除。</p>
+
+  <h3>壓縮保證</h3>
+  <div class="tw">
+    <table>
+      <thead><tr><th>#</th><th>保證</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>跟上進度的 Consumer 會看到每條寫入的訊息（受 <code>min.compaction.lag.ms</code> 控制）</td></tr>
+        <tr><td>2</td><td><strong>順序永遠保持</strong> — 壓縮不重新排序</td></tr>
+        <tr><td>3</td><td><strong>Offset 永遠不變</strong> — 是位置的永久識別碼</td></tr>
+        <tr><td>4</td><td>從頭消費可看到每個 Key 的至少<strong>最終狀態</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>壓縮流程</h3>
+  <p>背景 Log Cleaner 執行緒：選擇最髒的 Log → 建立 Key→Last Offset 的雜湊表（每項 24 bytes）→ 重新複製段檔案並跳過已有更新值的 Key。使用 8GB Cleaner Buffer 可清理約 <strong>366GB Log Head</strong>（假設 1KB 訊息）。</p>
+
+  <h3>使用案例</h3>
+  <div class="card-grid">
+    <div class="card"><div class="ct">資料庫變更訂閱 <span class="en">CDC</span></div><p>跨系統複製資料庫狀態（搭配 Debezium 等）</p></div>
+    <div class="card"><div class="ct">事件溯源 <span class="en">Event Sourcing</span></div><p>變更日誌作為主要儲存</p></div>
+    <div class="card"><div class="ct">高可用日記帳 <span class="en">Journaling</span></div><p>串流計算的容錯本地狀態（如 Kafka Streams State Store）</p></div>
+  </div>
+</section>
+
+<section class="section" id="d8">
+  <div class="section-header"><span class="sn d">08</span><h2>Quotas 配額 <small>Quotas</small></h2></div>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>配額類型</th><th>引入版本</th><th>單位</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Network Bandwidth</strong></td><td>0.9</td><td>bytes/sec per broker</td><td>限制每個 Client Group 每個 Broker 的讀寫速率</td></tr>
+        <tr><td><strong>Request Rate</strong></td><td>0.11</td><td>% of I/O + Network threads</td><td>限制 Client 可使用的請求處理時間百分比</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Client 群組識別</h3>
+  <p>以 <strong>(user, client-id)</strong> 元組識別。同群組所有連線<strong>共享</strong>配額。設定優先順序共 8 層（從最具體到最通用）。</p>
+
+  <h3>節流機制</h3>
+  <p>超出配額 → Broker 計算延遲時間 → 回應中帶入延遲 → <strong>靜音頻道</strong>直到延遲結束。Fetch 回應不包含資料。測量視窗：多個小視窗（如 30 個 1 秒視窗）快速偵測。</p>
+</section>
+
+<!-- ====================== IMPLEMENTATION ====================== -->
+
+<section class="section" id="i1">
+  <div class="section-header"><span class="sn e">09</span><h2>網路層 <small>Network Layer</small></h2></div>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="ct">NIO 架構</div>
+      <p>1 個 Acceptor 執行緒 + <strong>N 個 Processor 執行緒</strong>。每個 Processor 處理固定數量的連線。</p>
+    </div>
+    <div class="card">
+      <div class="ct">TCP 協定</div>
+      <p>二進位、Size-delimited。連線不需握手。建議使用<strong>持久連線</strong>。每個連線保證<strong>按序處理</strong>。</p>
+    </div>
+    <div class="card">
+      <div class="ct">批次設計</div>
+      <p>Send / Fetch API 始終處理<strong>訊息集合</strong>而非單一訊息。支援跨多個 Topic-Partition 的批次。</p>
+    </div>
+  </div>
+
+  <p><strong>雙向相容</strong>：新 Client 可與舊 Server 溝通，舊 Client 可與新 Server 溝通（透過 API 版本協商）。</p>
+</section>
+
+<section class="section" id="i2">
+  <div class="section-header"><span class="sn e">10</span><h2>訊息格式 <small>Record Batch v2</small></h2></div>
+
+  <p>目前格式為 <strong>magic=2</strong>（自 0.11.0）。4.0 起已移除 v0/v1 的寫入支援。</p>
+
+  <h3>Record Batch 結構</h3>
+  <div class="cl">binary layout</div>
+  <pre><code>baseOffset:           int64    <span class="cm">// 8 bytes</span>
+batchLength:          int32    <span class="cm">// 4 bytes</span>
+partitionLeaderEpoch: int32    <span class="cm">// 4 bytes — 不含在 CRC 中</span>
+magic:                int8     <span class="cm">// 1 byte — 目前為 2</span>
+crc:                  uint32   <span class="cm">// 4 bytes — CRC-32C (Castagnoli)</span>
+attributes:           int16    <span class="cm">// 2 bytes — 見下表</span>
+lastOffsetDelta:      int32    <span class="cm">// 4 bytes</span>
+baseTimestamp:        int64    <span class="cm">// 8 bytes</span>
+maxTimestamp:         int64    <span class="cm">// 8 bytes</span>
+producerId:           int64    <span class="cm">// 8 bytes</span>
+producerEpoch:        int16    <span class="cm">// 2 bytes</span>
+baseSequence:         int32    <span class="cm">// 4 bytes</span>
+recordsCount:         int32    <span class="cm">// 4 bytes</span>
+records:              [Record] <span class="cm">// 壓縮時整體壓縮</span></code></pre>
+
+  <p>磁碟上總大小 = <code>batchLength + 12 bytes</code>。CRC 涵蓋 <code>attributes</code> 到批次末尾。</p>
+
+  <h3>Attributes 位元遮罩</h3>
+  <div class="tw">
+    <table>
+      <thead><tr><th>Bit</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td>0–2</td><td>壓縮類型（0=none, 1=gzip, 2=snappy, 3=lz4, 4=zstd）</td></tr>
+        <tr><td>3</td><td>Timestamp 類型（0=CreateTime, 1=LogAppendTime）</td></tr>
+        <tr><td>4</td><td>是否為 Transactional（0=否, 1=是）</td></tr>
+        <tr><td>5</td><td>是否為 Control Batch（0=否, 1=是）</td></tr>
+        <tr><td>6</td><td>是否設定 Delete Horizon</td></tr>
+        <tr><td>7–15</td><td>未使用</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Record 結構（每筆記錄）</h3>
+  <div class="cl">binary layout</div>
+  <pre><code>length:         varint
+attributes:     int8      <span class="cm">// 目前未使用</span>
+timestampDelta: varlong   <span class="cm">// = timestamp - baseTimestamp</span>
+offsetDelta:    varint    <span class="cm">// = offset - baseOffset</span>
+keyLength:      varint
+key:            byte[]
+valueLength:    varint
+value:          byte[]
+headersCount:   varint
+headers:        [Header]  <span class="cm">// headerKeyLength(varint) + headerKey(String) + headerValueLength(varint) + headerValue(byte[])</span></code></pre>
+
+  <p>使用與 <strong>Protobuf 相同的 Varint（Zig-Zag）編碼</strong>。Delta 編碼大幅減少批次內的重複資訊。</p>
+
+  <h3>版本差異摘要</h3>
+  <div class="tw">
+    <table>
+      <thead><tr><th>特性</th><th>v0</th><th>v1</th><th>v2（目前）</th></tr></thead>
+      <tbody>
+        <tr><td>Timestamp</td><td>❌</td><td>✅</td><td>✅（Delta）</td></tr>
+        <tr><td>Headers</td><td>❌</td><td>❌</td><td>✅</td></tr>
+        <tr><td>Varint</td><td>❌</td><td>❌</td><td>✅</td></tr>
+        <tr><td>CRC</td><td>CRC32</td><td>CRC32</td><td><strong>CRC-32C</strong></td></tr>
+        <tr><td>壓縮方式</td><td>遞迴訊息</td><td>遞迴訊息</td><td>批次壓縮</td></tr>
+        <tr><td>Transaction</td><td>❌</td><td>❌</td><td>✅</td></tr>
+        <tr><td>ZStd</td><td>❌</td><td>❌</td><td>✅</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section" id="i3">
+  <div class="section-header"><span class="sn a">11</span><h2>磁碟 Log 結構 <small>Log on Disk</small></h2></div>
+
+  <h3>目錄與檔案</h3>
+  <div class="cl">disk layout</div>
+  <pre><code>log.dirs/
+├── my-topic-0/
+│   ├── 00000000000000000000.log       <span class="cm">// 日誌段</span>
+│   ├── 00000000000000000000.index     <span class="cm">// Offset 索引</span>
+│   ├── 00000000000000000000.timeindex <span class="cm">// 時間索引</span>
+│   ├── 00000000000000123456.log
+│   ├── 00000000000000123456.index
+│   ├── 00000000000000123456.timeindex
+│   ├── leader-epoch-checkpoint
+│   └── ...(.snapshot, .txnindex)
+└── my-topic-1/</code></pre>
+
+  <p>每個 <code>.log</code> 檔案以其第一條訊息的 Offset 命名。</p>
+
+  <h3>索引檔案</h3>
+  <div class="tw">
+    <table>
+      <thead><tr><th>索引</th><th>內容</th><th>項目大小</th><th>密度控制</th></tr></thead>
+      <tbody>
+        <tr><td><code>.index</code></td><td>Offset → 檔案中的實體位置（bytes）</td><td><strong>8 bytes</strong>（4B 相對 Offset + 4B Position）</td><td><code>log.index.interval.bytes=4096</code></td></tr>
+        <tr><td><code>.timeindex</code></td><td>Timestamp → Offset</td><td>—</td><td>僅在 Timestamp 大於上次索引時插入</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>兩者皆為<strong>稀疏索引</strong>，使用<strong>二元搜尋</strong>查找。</p>
+
+  <h3>讀寫流程</h3>
+  <div class="card-grid">
+    <div class="card">
+      <div class="ct">寫入</div>
+      <p>始終追加到最後一個段檔案。達到 <code>log.segment.bytes</code>（預設 1GB）或 <code>log.segment.ms</code>（預設 7 天）時滾動新檔案。</p>
+    </div>
+    <div class="card">
+      <div class="ct">讀取</div>
+      <p>① 二元搜尋定位段檔案 → ② 在 <code>.index</code> 中找到最近位置 → ③ 循序讀取至目標 Offset</p>
+    </div>
+    <div class="card">
+      <div class="ct">刪除</div>
+      <p>以整個段為單位。時間策略看段中最大 Timestamp；大小策略持續刪除最舊段。</p>
+    </div>
+  </div>
+
+  <h3>啟動恢復</h3>
+  <p>迭代最新段的所有訊息，驗證 Size + Offset + <strong>CRC32</strong>。偵測到損壞時<strong>截斷到最後有效 Offset</strong>。</p>
+</section>
+
+<section class="section" id="i4">
+  <div class="section-header"><span class="sn a">12</span><h2>協定概要 <small>Protocol</small></h2></div>
+
+  <h3>請求/回應結構</h3>
+  <div class="cl">binary</div>
+  <pre><code>Request  => Size(int32) + RequestHeader + RequestBody
+Response => Size(int32) + ResponseHeader + ResponseBody
+
+RequestHeader v2:
+  request_api_key:     INT16    <span class="cm">// API 識別碼</span>
+  request_api_version: INT16    <span class="cm">// 版本號</span>
+  correlation_id:      INT32    <span class="cm">// 客戶端提供，回應回傳</span>
+  client_id:           STRING
+  _tagged_fields               <span class="cm">// KIP-482 可擴展欄位</span></code></pre>
+
+  <h3>基本型別摘要</h3>
+  <div class="tw">
+    <table>
+      <thead><tr><th>型別</th><th>大小</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td>INT8 / INT16 / INT32 / INT64</td><td>1/2/4/8 B</td><td>有號，Big-Endian</td></tr>
+        <tr><td>VARINT / VARLONG</td><td>1-5 / 1-10 B</td><td>Zig-Zag 編碼</td></tr>
+        <tr><td>STRING</td><td>2+N B</td><td>INT16 長度 + UTF-8</td></tr>
+        <tr><td>COMPACT_STRING</td><td>1-5+N B</td><td>UNSIGNED_VARINT(N+1) + UTF-8</td></tr>
+        <tr><td>BYTES / COMPACT_BYTES</td><td>4+N / 1-5+N B</td><td>二進位資料</td></tr>
+        <tr><td>UUID</td><td>16 B</td><td>Type 4 UUID</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>常用 API Keys</h3>
+  <div class="tw">
+    <table>
+      <thead><tr><th>API</th><th>Key</th><th>API</th><th>Key</th><th>API</th><th>Key</th></tr></thead>
+      <tbody>
+        <tr><td>Produce</td><td>0</td><td>Fetch</td><td>1</td><td>Metadata</td><td>3</td></tr>
+        <tr><td>OffsetCommit</td><td>8</td><td>OffsetFetch</td><td>9</td><td>FindCoordinator</td><td>10</td></tr>
+        <tr><td>JoinGroup</td><td>11</td><td>Heartbeat</td><td>12</td><td>SyncGroup</td><td>14</td></tr>
+        <tr><td>CreateTopics</td><td>19</td><td>DeleteTopics</td><td>20</td><td>ApiVersions</td><td>18</td></tr>
+        <tr><td>InitProducerId</td><td>22</td><td>EndTxn</td><td>26</td><td>DescribeConfigs</td><td>32</td></tr>
+        <tr><td colspan="2"><span class="tag n">4.2</span> ShareFetch</td><td>78</td><td>ShareAcknowledge</td><td>79</td><td>AddRaftVoter</td><td>80</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>版本協商機制</h3>
+  <p>Client 透過 <code>ApiVersionsRequest</code> 查詢 Server 支援的 API 版本範圍，雙方使用<strong>共同支援的最高版本</strong>。KIP-482 引入的 <strong>Tagged Fields</strong> 允許 Schema 演進而不需版本提升。</p>
+</section>
+
+</div>
+
+<footer class="footer">
+  Kafka 4.2 Cheat Sheet 系列 — 第 4 篇 / 共 9 篇 ｜ 內容依據 Apache Kafka 4.2 官方文件整理<br>
+  上一篇：第 3 篇 — Configuration ｜ 下一篇：第 5 篇 — Operations
+</footer>
+
+</body>
+</html>
