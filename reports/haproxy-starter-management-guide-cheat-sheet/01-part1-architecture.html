@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HAProxy 3.2 速查表 Part 1 — 架構與核心概念</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap');
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --accent: #22d3ee;
+    --accent2: #a78bfa;
+    --accent3: #f472b6;
+    --accent4: #34d399;
+    --warn: #fbbf24;
+    --danger: #f87171;
+    --text: #e2e8f0;
+    --text2: #94a3b8;
+    --text3: #64748b;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Noto Sans TC', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    font-size: 15px;
+  }
+
+  .hero {
+    background: linear-gradient(135deg, #1e1b4b 0%, #0f1117 50%, #0c2a2a 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 3rem 2rem 2.5rem;
+    text-align: center;
+  }
+  .hero-badge {
+    display: inline-block;
+    background: rgba(34,211,238,0.12);
+    color: var(--accent);
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.3rem 1rem;
+    border-radius: 100px;
+    border: 1px solid rgba(34,211,238,0.25);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+  }
+  .hero h1 {
+    font-size: 2.2rem;
+    font-weight: 900;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 0.5rem;
+  }
+  .hero p { color: var(--text2); font-size: 1rem; }
+
+  .container { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+  /* Navigation */
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.5rem 2rem;
+    margin-bottom: 2.5rem;
+  }
+  .toc h2 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin-bottom: 1rem;
+  }
+  .toc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 0.5rem;
+  }
+  .toc a {
+    color: var(--text2);
+    text-decoration: none;
+    font-size: 0.9rem;
+    padding: 0.3rem 0.6rem;
+    border-radius: 6px;
+    transition: all 0.2s;
+    display: block;
+  }
+  .toc a:hover { background: var(--surface2); color: var(--accent); }
+  .toc a .num { color: var(--accent2); font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; margin-right: 0.4rem; }
+
+  /* Sections */
+  section {
+    margin-bottom: 2.5rem;
+  }
+  .section-head {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-bottom: 1.2rem;
+    padding-bottom: 0.8rem;
+    border-bottom: 2px solid var(--border);
+  }
+  .section-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--bg);
+    background: var(--accent);
+    padding: 0.25rem 0.7rem;
+    border-radius: 6px;
+    white-space: nowrap;
+  }
+  .section-num.purple { background: var(--accent2); }
+  .section-num.pink { background: var(--accent3); }
+  .section-num.green { background: var(--accent4); }
+  .section-head h2 { font-size: 1.3rem; font-weight: 700; }
+
+  /* Cards */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.4rem 1.6rem;
+    margin-bottom: 1.2rem;
+  }
+  .card h3 {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .card h3 .icon { font-size: 1.1rem; }
+  .card p { color: var(--text2); margin-bottom: 0.6rem; }
+
+  /* Tables */
+  .tbl-wrap { overflow-x: auto; margin: 1rem 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+  }
+  thead th {
+    background: var(--surface2);
+    color: var(--accent);
+    font-weight: 600;
+    text-align: left;
+    padding: 0.7rem 1rem;
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--text2);
+    vertical-align: top;
+  }
+  tbody tr:hover { background: rgba(34,211,238,0.04); }
+  td code, p code, li code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    background: rgba(34,211,238,0.1);
+    color: var(--accent);
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+  }
+
+  /* Diagram boxes */
+  .diagram {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.8rem;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82rem;
+    line-height: 1.9;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .diagram .hl-cyan { color: var(--accent); font-weight: 600; }
+  .diagram .hl-purple { color: var(--accent2); font-weight: 600; }
+  .diagram .hl-pink { color: var(--accent3); font-weight: 600; }
+  .diagram .hl-green { color: var(--accent4); font-weight: 600; }
+  .diagram .hl-yellow { color: var(--warn); font-weight: 600; }
+  .diagram .dim { color: var(--text3); }
+
+  /* Alert boxes */
+  .alert {
+    border-left: 4px solid;
+    border-radius: 0 8px 8px 0;
+    padding: 1rem 1.2rem;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+  }
+  .alert-warn { border-color: var(--warn); background: rgba(251,191,36,0.08); }
+  .alert-warn .alert-title { color: var(--warn); }
+  .alert-danger { border-color: var(--danger); background: rgba(248,113,113,0.07); }
+  .alert-danger .alert-title { color: var(--danger); }
+  .alert-info { border-color: var(--accent); background: rgba(34,211,238,0.06); }
+  .alert-info .alert-title { color: var(--accent); }
+  .alert-title { font-weight: 700; margin-bottom: 0.3rem; font-size: 0.85rem; }
+
+  /* Flow list */
+  .flow-list { list-style: none; counter-reset: flow; }
+  .flow-list li {
+    counter-increment: flow;
+    position: relative;
+    padding-left: 3.2rem;
+    margin-bottom: 0.8rem;
+    color: var(--text2);
+  }
+  .flow-list li::before {
+    content: counter(flow);
+    position: absolute;
+    left: 0;
+    top: 0.1rem;
+    width: 2rem;
+    height: 2rem;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: var(--bg);
+    font-weight: 700;
+    font-size: 0.8rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .flow-list li strong { color: var(--text); }
+
+  /* Tag list */
+  .tags { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.8rem 0; }
+  .tag {
+    display: inline-block;
+    font-size: 0.78rem;
+    padding: 0.25rem 0.7rem;
+    border-radius: 6px;
+    font-weight: 500;
+  }
+  .tag-cyan { background: rgba(34,211,238,0.12); color: var(--accent); border: 1px solid rgba(34,211,238,0.2); }
+  .tag-purple { background: rgba(167,139,250,0.12); color: var(--accent2); border: 1px solid rgba(167,139,250,0.2); }
+  .tag-pink { background: rgba(244,114,182,0.12); color: var(--accent3); border: 1px solid rgba(244,114,182,0.2); }
+  .tag-green { background: rgba(52,211,153,0.12); color: var(--accent4); border: 1px solid rgba(52,211,153,0.2); }
+  .tag-yellow { background: rgba(251,191,36,0.12); color: var(--warn); border: 1px solid rgba(251,191,36,0.2); }
+  .tag-red { background: rgba(248,113,113,0.12); color: var(--danger); border: 1px solid rgba(248,113,113,0.2); }
+
+  /* Two column grid */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+  @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  /* VS comparison */
+  .vs-container { display: grid; grid-template-columns: 1fr auto 1fr; gap: 0; align-items: stretch; margin: 1rem 0; }
+  .vs-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 1.2rem 1.4rem;
+    border-radius: 10px;
+  }
+  .vs-box h4 { font-size: 1rem; margin-bottom: 0.8rem; }
+  .vs-box.left h4 { color: var(--accent); }
+  .vs-box.right h4 { color: var(--accent2); }
+  .vs-divider {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.8rem;
+    font-weight: 900;
+    font-size: 1.5rem;
+    color: var(--text3);
+  }
+  .vs-box ul { list-style: none; }
+  .vs-box ul li { padding: 0.25rem 0; color: var(--text2); font-size: 0.88rem; }
+  .vs-box ul li::before { content: "›"; margin-right: 0.5rem; font-weight: 700; }
+  .vs-box.left ul li::before { color: var(--accent); }
+  .vs-box.right ul li::before { color: var(--accent2); }
+
+  .footer {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text3);
+    font-size: 0.8rem;
+    border-top: 1px solid var(--border);
+    margin-top: 2rem;
+  }
+  .footer a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <div class="hero-badge">HAProxy 3.2 Cheat Sheet</div>
+  <h1>Part 1 — 架構與核心概念</h1>
+  <p>Starter Guide：Ch.1 文件總覽 ｜ Ch.2 負載均衡基礎 ｜ §3.1 HAProxy 定位 ｜ §3.2 運作架構</p>
+</div>
+
+<div class="container">
+
+<!-- ==================== TOC ==================== -->
+<nav class="toc">
+  <h2>📑 本篇目錄</h2>
+  <div class="toc-grid">
+    <a href="#ch1"><span class="num">01</span>六份官方文件總覽</a>
+    <a href="#ch2"><span class="num">02</span>負載均衡基礎概念</a>
+    <a href="#l4l7"><span class="num">03</span>L4 vs L7 架構比較</a>
+    <a href="#health"><span class="num">04</span>健康檢查與 Stickiness</a>
+    <a href="#is"><span class="num">05</span>HAProxy 的 14 種角色</a>
+    <a href="#isnot"><span class="num">06</span>HAProxy 不是什麼</a>
+    <a href="#arch"><span class="num">07</span>事件驅動架構 &amp; 執行緒模型</a>
+    <a href="#pipeline"><span class="num">08</span>九步請求處理流程</a>
+    <a href="#sections"><span class="num">09</span>設定檔結構速查</a>
+    <a href="#traps"><span class="num">10</span>關鍵警告與常見陷阱</a>
+  </div>
+</nav>
+
+<!-- ==================== CH1 ==================== -->
+<section id="ch1">
+  <div class="section-head">
+    <span class="section-num">CH 1</span>
+    <h2>六份官方文件總覽</h2>
+  </div>
+  <div class="card">
+    <h3><span class="icon">📚</span> 找對文件，省一半時間</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>文件</th><th>涵蓋內容</th><th>適用對象</th></tr></thead>
+        <tbody>
+          <tr><td><code>intro.txt</code></td><td>負載均衡基礎、HAProxy 是什麼/不是什麼、已知陷阱、OS 限制、取得方式</td><td>新手入門、觀念釐清</td></tr>
+          <tr><td><code>management.txt</code></td><td>啟動、執行期管理、多節點管理、無縫升級</td><td>系統管理員、維運團隊</td></tr>
+          <tr><td><code>configuration.txt</code></td><td>所有設定關鍵字與選項 — <strong>權威參考手冊</strong></td><td>任何修改設定的人</td></tr>
+          <tr><td><code>coding-style.txt</code></td><td>程式碼貢獻風格規範</td><td>開發者</td></tr>
+          <tr><td><code>proxy-protocol.txt</code></td><td>PROXY Protocol 規格（事實標準）</td><td>實作 PROXY Protocol 者</td></tr>
+          <tr><td><code>README</code></td><td>從原始碼編譯 HAProxy</td><td>自行建置者</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="alert alert-info">
+      <div class="alert-title">💡 重點</div>
+      Starter Guide（intro.txt）<strong>不提供任何設定教學</strong>，它只解釋概念並指引你去正確的文件。設定問題永遠查 <code>configuration.txt</code>。
+    </div>
+  </div>
+</section>
+
+<!-- ==================== CH2 ==================== -->
+<section id="ch2">
+  <div class="section-head">
+    <span class="section-num">CH 2</span>
+    <h2>負載均衡基礎概念</h2>
+  </div>
+  <div class="card">
+    <h3><span class="icon">⚖️</span> 核心定義</h3>
+    <p>負載均衡 = 聚合多個元件，使<strong>總處理量超過單一元件</strong>。</p>
+    <p>單一操作仍然在單一元件上執行 — 負載均衡提升的是<strong>吞吐量，不是單一請求速度</strong>。</p>
+  </div>
+
+  <div class="card">
+    <h3><span class="icon">🏗️</span> 負載均衡的四大類別</h3>
+    <div class="tags">
+      <span class="tag tag-cyan">CPU 排程（多處理器）</span>
+      <span class="tag tag-purple">鏈路聚合（EtherChannel / Bonding）</span>
+      <span class="tag tag-green">IP 層（ECMP / DNS Round-robin）</span>
+      <span class="tag tag-pink">伺服器層（負載均衡器）← HAProxy</span>
+    </div>
+  </div>
+
+  <div class="card" id="l4l7">
+    <h3><span class="icon">🔀</span> L4（封包級） vs L7（代理級）— 最關鍵的架構分野</h3>
+    <div class="vs-container">
+      <div class="vs-box left">
+        <h4>L4 封包級（Packet-based）</h4>
+        <ul>
+          <li>處理單位：<strong>個別封包</strong></li>
+          <li>輸入/輸出封包 <strong>1:1 對應</strong></li>
+          <li>可達線速（ASIC 硬體）</li>
+          <li>通常<strong>無狀態</strong></li>
+          <li>幾乎<strong>無內容感知</strong></li>
+          <li>支援 DSR（封包未修改時）</li>
+          <li>兩側必須<strong>相同協定</strong></li>
+          <li>Stickiness 有限（hash 易碎）</li>
+          <li>適合：網路層 LB、高速基本伺服器 LB</li>
+        </ul>
+      </div>
+      <div class="vs-divider">vs</div>
+      <div class="vs-box right">
+        <h4>L7 代理級（Proxy-based）</h4>
+        <ul>
+          <li>處理單位：<strong>重組後的完整 session</strong></li>
+          <li>兩側封包<strong>無對應關係</strong></li>
+          <li>有處理成本，不一定達線速</li>
+          <li><strong>永遠有狀態</strong></li>
+          <li><strong>完整內容感知</strong></li>
+          <li>不支援 DSR（回程必經 LB）</li>
+          <li>兩側可<strong>不同協定</strong>（IPv4↔IPv6, 明文↔SSL）</li>
+          <li>豐富 Stickiness（cookie, 內容, 記憶）</li>
+          <li>適合：伺服器負載均衡 ← <strong>HAProxy</strong></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3><span class="icon">🏢</span> 大規模參考架構（分層設計）</h3>
+    <div class="diagram"><span class="dim">業界標準的大規模部署模式：</span>
+
+<span class="hl-yellow">前端路由器</span> ──ECMP──▶ <span class="hl-cyan">多台 L4 LB</span> ──────▶ <span class="hl-purple">更多台 L7 LB</span> ──────▶ <span class="hl-green">伺服器群</span>
+  <span class="dim">│                     │ 有狀態封包級        │ 代理級              │</span>
+  <span class="dim">│ 多鏈路聚合流量      │ 快速分配連線        │ 解析內容做精細決策  │ 實際處理請求</span></div>
+  </div>
+
+  <div class="card" id="health">
+    <h3><span class="icon">🏥</span> 健康檢查的四種方法</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>方法</th><th>原理</th><th>優缺點</th></tr></thead>
+        <tbody>
+          <tr><td><strong>週期性探針</strong>（最常見）</td><td>定期發送探測請求</td><td>✅ 不影響生產流量 ⚠️ 需要足夠頻率</td></tr>
+          <tr><td><strong>生產流量取樣</strong></td><td>觀察真實流量的回應</td><td>⚠️ 犧牲部分流量 ✅ 最真實</td></tr>
+          <tr><td><strong>混合式</strong></td><td>兩者搭配：兩者偵測故障，僅探針確認恢復</td><td>✅ 最佳方案</td></tr>
+          <tr><td><strong>集中式回報</strong></td><td>中央監控代理定期更新所有 LB</td><td>✅ 全局視角 ⚠️ 精度/反應稍差</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="alert alert-warn">
+      <div class="alert-title">⚠️ 檢查粒度至關重要</div>
+      Ping → 只確認主機在線；Port 連線 → 只確認 port 開啟；HTTP 請求 → 確認應用正常；含資料庫查詢 → 確認整個堆疊正常。
+    </div>
+  </div>
+
+  <div class="card">
+    <h3><span class="icon">📌</span> Session Stickiness 核心觀念</h3>
+    <p>Hash 演算法（如 Source IP）的致命弱點：任何伺服器數量變動 → <strong>所有用戶重新分配</strong>。</p>
+    <p>解法是<strong>記憶化（Memorization）</strong>：</p>
+    <div class="grid-2">
+      <div class="card" style="margin:0">
+        <h3 style="font-size:0.9rem">LB 端記憶</h3>
+        <p>Stick-table 儲存在 HAProxy 記憶體，透過 <code>peers</code> 多主複寫到其他節點</p>
+      </div>
+      <div class="card" style="margin:0">
+        <h3 style="font-size:0.9rem">Client 端記憶</h3>
+        <p>Cookie 插入、子域名重導 — 客戶端每次請求帶回 server 資訊</p>
+      </div>
+    </div>
+    <div class="alert alert-info" style="margin-top:1rem">
+      <div class="alert-title">💡 官方原文強調</div>
+      記憶化是「<strong>選擇 L7 而非 L4 負載均衡器最有力的理由</strong>」。
+    </div>
+  </div>
+</section>
+
+<!-- ==================== §3.1 ==================== -->
+<section id="is">
+  <div class="section-head">
+    <span class="section-num purple">§ 3.1</span>
+    <h2>HAProxy 是什麼 — 14 種功能角色</h2>
+  </div>
+  <div class="card">
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>#</th><th>角色</th><th>關鍵細節</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td><strong>TCP Proxy</strong></td><td>接受 TCP → 連線後端 → 雙向轉發。支援 IPv4 / IPv6 / Unix Socket 任意組合</td></tr>
+          <tr><td>2</td><td><strong>HTTP 反向代理</strong></td><td>HTTP 術語中的「Gateway」。兩側可任意混用 HTTP/1.x 或 HTTP/2，TLS + ALPN 自動偵測協定</td></tr>
+          <tr><td>3</td><td><strong>SSL 終止/發起/卸載</strong></td><td>Per-SNI 設定、執行期更新憑證<strong>無需重啟</strong>。已報告部署含<strong>數十萬張憑證</strong></td></tr>
+          <tr><td>4</td><td><strong>TCP 正規化器</strong></td><td>本地終止連線 → 無效封包、SYN Flood 永遠不到達後端。可獨立最佳化 TCP 參數</td></tr>
+          <tr><td>5</td><td><strong>HTTP 正規化器</strong></td><td>僅轉發完整有效請求。修復規範容忍的偏差（如多行 header）</td></tr>
+          <tr><td>6</td><td><strong>HTTP 修改工具</strong></td><td>修改/新增/移除/改寫 URL 及任何 request/response header</td></tr>
+          <tr><td>7</td><td><strong>內容交換器</strong></td><td>依請求任意元素決定路由。同一 port 可處理多種協定（HTTP, HTTPS, SSH）</td></tr>
+          <tr><td>8</td><td><strong>伺服器負載均衡器</strong></td><td>TCP mode: 每連線決策；HTTP mode: 每請求決策</td></tr>
+          <tr><td>9</td><td><strong>流量調節器</strong></td><td>速率限制、優先順序調整、封包標記（影響外部網路元件）</td></tr>
+          <tr><td>10</td><td><strong>DDoS / 濫用防護</strong></td><td>Per-IP/URL/Cookie 統計、偵測異常模式、自動反制（限速/封鎖/導向舊內容）</td></tr>
+          <tr><td>11</td><td><strong>網路除錯觀測點</strong></td><td>日誌精度極高，常用於縮小網路問題範圍</td></tr>
+          <tr><td>12</td><td><strong>HTTP 壓縮卸載</strong></td><td>壓縮後端未壓縮的回應，改善低頻寬/行動用戶體驗</td></tr>
+          <tr><td>13</td><td><strong>快取代理</strong></td><td>RAM 快取、免維護。設計目標是節省 <strong>HAProxy 資源</strong>，非節省後端資源</td></tr>
+          <tr><td>14</td><td><strong>FastCGI 閘道</strong></td><td>直接負載均衡 FastCGI 應用，無需額外閘道層</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="isnot">
+  <div class="section-head">
+    <span class="section-num pink">§ 3.1</span>
+    <h2>HAProxy 不是什麼 — 4 項明確排除</h2>
+  </div>
+  <div class="grid-2">
+    <div class="card">
+      <h3 style="color:var(--danger)"><span class="icon">✗</span> 不是正向代理（Forward Proxy）</h3>
+      <p>不是瀏覽器用來上網的 proxy。用 <strong>Squid</strong>；HAProxy 可放在其前面做 LB</p>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--danger)"><span class="icon">✗</span> 不是資料清洗器</h3>
+      <p>不會修改 request/response <strong>body</strong>（只改 header/URL）</p>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--danger)"><span class="icon">✗</span> 不是靜態 Web Server</h3>
+      <p>啟動後 chroot + 降權 → <strong>零檔案系統存取</strong>。用 Apache/Nginx；HAProxy 可放在前面</p>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--danger)"><span class="icon">✗</span> 不是封包級負載均衡器</h3>
+      <p>看不到 IP 封包或 UDP datagram、不做 NAT/DSR。用 <strong>IPVS</strong>（Linux Virtual Server）— 與 HAProxy 完美互補</p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== §3.2 ==================== -->
+<section id="arch">
+  <div class="section-head">
+    <span class="section-num green">§ 3.2</span>
+    <h2>事件驅動架構 &amp; 執行緒模型</h2>
+  </div>
+
+  <div class="card">
+    <h3><span class="icon">⚙️</span> 核心架構特性</h3>
+    <div class="tags">
+      <span class="tag tag-cyan">事件驅動</span>
+      <span class="tag tag-cyan">非阻塞</span>
+      <span class="tag tag-purple">優先順序排程</span>
+      <span class="tag tag-purple">多執行緒</span>
+      <span class="tag tag-green">CPU 快取最佳化</span>
+      <span class="tag tag-green">分層旁路機制</span>
+    </div>
+    <div class="grid-2" style="margin-top:1rem">
+      <div>
+        <p><strong>Kernel / Userspace 處理比例：</strong></p>
+        <p>TCP / HTTP close mode：<code>~15% HAProxy</code> / <code>~85% Kernel</code></p>
+        <p>HTTP keep-alive mode：<code>~30% HAProxy</code> / <code>~70% Kernel</code></p>
+        <p style="margin-top:0.5rem; font-size:0.85rem">→ <strong>OS 調校對效能影響極大</strong></p>
+      </div>
+      <div>
+        <p><strong>規模實績：</strong></p>
+        <p>單一行程可承載 <code>300,000</code> 個獨立 proxy 設定</p>
+        <p>單核心足以應付 <strong>&gt;99% 使用場景</strong></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3><span class="icon">🧵</span> 執行緒模型</h3>
+    <p>使用 <code>nbthread</code>（每 CPU 核心一個執行緒），取代已棄用的 <code>nbproc</code>（多程序模式）。</p>
+    <p>多執行緒主要有利於：<strong>SSL 運算</strong>或轉發速率 <strong>&gt; 40 Gbps</strong> 的場景。</p>
+    <div class="alert alert-danger">
+      <div class="alert-title">🚨 關鍵限制</div>
+      <ul style="margin-top:0.3rem; padding-left:1.2rem; color:var(--text2)">
+        <li>主機<strong>絕對不能 swap</strong></li>
+        <li>CPU <strong>不能被虛擬化限速</strong>（sub-CPU allocation）</li>
+        <li>CPU <strong>不能與 CPU 密集型行程共用</strong></li>
+        <li>遇到效能問題？<strong>反直覺第一步：減少 CPU 數量</strong></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3><span class="icon">🚀</span> 啟動 &amp; 執行行為</h3>
+    <p>所需檔案：<strong>僅</strong>可執行檔 + 設定檔。</p>
+    <p>啟動流程：解析所有設定 → 綁定所有監聽 socket → 任何綁定失敗即<strong>拒絕啟動</strong>。</p>
+    <div class="alert alert-info">
+      <div class="alert-title">💡 零執行期失敗保證</div>
+      通過啟動階段後，HAProxy <strong>不可能再失敗</strong>（直到被停止）。這是架構層面的設計保證。
+    </div>
+    <p style="margin-top:0.8rem">執行中只做三件事：</p>
+    <div class="tags">
+      <span class="tag tag-cyan">① 處理進入的連線</span>
+      <span class="tag tag-green">② 週期性伺服器健康檢查</span>
+      <span class="tag tag-purple">③ 與其他 HAProxy 節點交換資訊</span>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 9-STEP PIPELINE ==================== -->
+<section id="pipeline">
+  <div class="section-head">
+    <span class="section-num green">§ 3.2</span>
+    <h2>九步請求處理流程</h2>
+  </div>
+
+  <div class="card">
+    <div class="diagram"><span class="hl-cyan">Client</span>
+  │
+  ▼
+┌──────────────────────────────────────────────────────┐
+│  <span class="hl-cyan">FRONTEND</span>（半代理 — 只關注客戶端）                    │
+│  bind 位址 ｜ ACL ｜ use_backend 規則                 │
+│                                                      │
+│  ① <span class="hl-yellow">Accept</span> 監聽 socket 上的連線                       │
+│  ② <span class="hl-yellow">Frontend 處理規則</span>（攔截/修改 header/stats/CLI）   │
+│  ③ <span class="hl-yellow">傳遞</span>連線到 Backend                               │
+└──────────────────────┬───────────────────────────────┘
+                       ▼
+┌──────────────────────────────────────────────────────┐
+│  <span class="hl-purple">BACKEND</span>（半代理 — 只關注伺服器）                     │
+│  伺服器清單 ｜ balance 演算法 ｜ 健康檢查              │
+│                                                      │
+│  ④ <span class="hl-yellow">Backend 處理規則</span>（對連線）                        │
+│  ⑤ <span class="hl-yellow">選擇伺服器</span>（依負載均衡策略）                      │
+│  ⑥ <span class="hl-yellow">Backend 處理規則</span>（對回應）                        │
+└──────────────────────┬───────────────────────────────┘
+                       ▼
+┌──────────────────────────────────────────────────────┐
+│  ⑦ <span class="hl-yellow">Frontend 處理規則</span>（對回應）                       │
+│  ⑧ <span class="hl-yellow">寫入日誌</span>（精細詳情）                              │
+│  ⑨ HTTP → <span class="hl-green">回到步驟②</span>等下一個請求                      │
+│     非 HTTP → <span class="hl-pink">關閉連線</span>                                │
+└──────────────────────────────────────────────────────┘</div>
+  </div>
+
+  <div class="card">
+    <h3><span class="icon">🧩</span> Frontend / Backend / Listen 的關係</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>實體</th><th>定義</th><th>適用場景</th></tr></thead>
+        <tbody>
+          <tr><td><code>frontend</code></td><td>半代理：只關注<strong>客戶端</strong>（bind、ACL、use_backend）</td><td>HTTP — 一個 frontend 可轉發到<strong>多個 backend</strong></td></tr>
+          <tr><td><code>backend</code></td><td>半代理：只關注<strong>伺服器</strong>（server 清單、balance、check）</td><td>HTTP — 不同 backend 可用不同演算法</td></tr>
+          <tr><td><code>listen</code></td><td>完整代理 = frontend + backend 合一</td><td>TCP-only — 分開寫通常無額外好處</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== CONFIG SECTIONS ==================== -->
+<section id="sections">
+  <div class="section-head">
+    <span class="section-num purple">§ 3.2</span>
+    <h2>設定檔七大區段速查</h2>
+  </div>
+  <div class="card">
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>區段</th><th>用途</th><th>關鍵項目</th></tr></thead>
+        <tbody>
+          <tr><td><code>global</code></td><td>行程範圍設定</td><td><code>maxconn</code>, <code>nbthread</code>, <code>log</code>, <code>chroot</code>, <code>ssl-default-bind-*</code></td></tr>
+          <tr><td><code>defaults</code></td><td>所有 frontend/backend 繼承的預設值</td><td><code>mode</code>, <code>timeout</code>, <code>option httplog</code>, <code>option dontlognull</code></td></tr>
+          <tr><td><code>frontend</code></td><td>客戶端連線入口</td><td><code>bind</code>, <code>acl</code>, <code>use_backend</code>, <code>default_backend</code></td></tr>
+          <tr><td><code>backend</code></td><td>伺服器池</td><td><code>balance</code>, <code>server</code>, <code>option httpchk</code>, <code>cookie</code></td></tr>
+          <tr><td><code>listen</code></td><td>前後端合一</td><td>適合簡單 TCP 轉發、stats 頁面</td></tr>
+          <tr><td><code>peers</code></td><td>Stick-table 複寫</td><td>多節點間同步 session 資料</td></tr>
+          <tr><td><code>resolvers</code></td><td>DNS 解析設定</td><td>動態伺服器解析、SRV 記錄</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== TRAPS ==================== -->
+<section id="traps">
+  <div class="section-head">
+    <span class="section-num" style="background:var(--danger)">⚠️</span>
+    <h2>關鍵警告與常見陷阱</h2>
+  </div>
+
+  <div class="card">
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>陷阱</th><th>說明</th></tr></thead>
+        <tbody>
+          <tr><td><code>nbproc</code> 已棄用</td><td>改用 <code>nbthread</code>。多程序模式導致 stick-table / stats / 限制都各自隔離</td></tr>
+          <tr><td><code>mode tcp</code> 停用 HTTP</td><td>在 TCP mode 下所有 HTTP 功能失效 — 無 header ACL、無 cookie 操作</td></tr>
+          <tr><td>未設 <code>maxconn</code></td><td>全域和 per-frontend/server 都需設定，否則資源耗盡</td></tr>
+          <tr><td>僅用 TCP check</td><td>TCP check 只確認 port 開啟。HTTP 後端應用 <code>option httpchk</code></td></tr>
+          <tr><td>Sticky 未配 <code>option redispatch</code></td><td>目標伺服器掛掉時，客戶端會持續收到錯誤而不會被轉派</td></tr>
+          <tr><td>使用 Heartbeat 而非 VRRP</td><td>官方建議 <strong>VRRP/CARP</strong>，提供最快、最無縫的切換</td></tr>
+          <tr><td>Stick-table reload 遺失</td><td>若未設定 <code>peers</code>（即使單節點），reload 時 stick-table 資料丟失</td></tr>
+          <tr><td>快取定位錯誤</td><td>HAProxy 快取節省的是 <strong>HAProxy 自身資源</strong>。要節省後端資源 → 用 Varnish</td></tr>
+          <tr><td>IP-based stickiness + NAT</td><td>NAT/共享 IP 會破壞 IP hash → 改用 cookie-based persistence</td></tr>
+          <tr><td>Reload 前未驗證設定</td><td>永遠先跑 <code>haproxy -c -f config.cfg</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+</div><!-- /container -->
+
+<div class="footer">
+  HAProxy 3.2 中文速查表 — Part 1/5 架構與核心概念 ｜ 
+  資料來源：<a href="https://docs.haproxy.org/3.2/intro.html" target="_blank">docs.haproxy.org</a> ｜ 
+  產製日期：2026-04-03
+</div>
+
+</body>
+</html>

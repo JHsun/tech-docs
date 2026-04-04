@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HAProxy 3.2 Stick-table 反 DDoS 食譜 Part A</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap');
+  :root{--bg:#0f1117;--surface:#1a1d27;--surface2:#232733;--border:#2e3345;--accent:#f97316;--accent2:#22d3ee;--accent3:#a78bfa;--accent4:#34d399;--warn:#fbbf24;--danger:#f87171;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;font-size:15px}
+  .hero{background:linear-gradient(135deg,#2a1500 0%,#0f1117 50%,#0c2020 100%);border-bottom:1px solid var(--border);padding:3rem 2rem 2.5rem;text-align:center}
+  .hero-badge{display:inline-block;background:rgba(249,115,22,0.12);color:var(--accent);font-size:.75rem;font-weight:600;padding:.3rem 1rem;border-radius:100px;border:1px solid rgba(249,115,22,0.25);letter-spacing:.08em;text-transform:uppercase;margin-bottom:1rem}
+  .hero h1{font-size:2rem;font-weight:900;background:linear-gradient(135deg,var(--accent),var(--danger));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:.5rem}
+  .hero p{color:var(--text2);font-size:.95rem}
+  .container{max-width:1100px;margin:0 auto;padding:2rem 1.5rem}
+  .toc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.5rem 2rem;margin-bottom:2.5rem}
+  .toc h2{font-size:.85rem;text-transform:uppercase;letter-spacing:.1em;color:var(--accent);margin-bottom:1rem}
+  .toc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:.5rem}
+  .toc a{color:var(--text2);text-decoration:none;font-size:.88rem;padding:.3rem .6rem;border-radius:6px;transition:all .2s;display:block}
+  .toc a:hover{background:var(--surface2);color:var(--accent)}
+  .toc a .n{color:var(--accent2);font-family:'JetBrains Mono',monospace;font-size:.78rem;margin-right:.4rem}
+  section{margin-bottom:2.5rem}
+  .sh{display:flex;align-items:center;gap:.8rem;margin-bottom:1.2rem;padding-bottom:.8rem;border-bottom:2px solid var(--border)}
+  .sn{font-family:'JetBrains Mono',monospace;font-size:.72rem;font-weight:600;color:var(--bg);padding:.22rem .65rem;border-radius:6px;white-space:nowrap}
+  .s1{background:var(--accent)}.s2{background:var(--accent2)}.s3{background:var(--accent3)}.s4{background:var(--accent4)}.sr{background:var(--danger)}.sy{background:var(--warn)}
+  .sh h2{font-size:1.25rem;font-weight:700}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.3rem 1.5rem;margin-bottom:1.1rem}
+  .card h3{font-size:.95rem;font-weight:700;color:var(--accent2);margin-bottom:.7rem}
+  .card p{color:var(--text2);margin-bottom:.5rem;font-size:.92rem}
+  .tw{overflow-x:auto;margin:.8rem 0}
+  table{width:100%;border-collapse:collapse;font-size:.82rem}
+  thead th{background:var(--surface2);color:var(--accent2);font-weight:600;text-align:left;padding:.55rem .75rem;border-bottom:2px solid var(--border);white-space:nowrap}
+  tbody td{padding:.45rem .75rem;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top}
+  tbody tr:hover{background:rgba(249,115,22,0.04)}
+  td code,p code,li code{font-family:'JetBrains Mono',monospace;font-size:.78em;background:rgba(34,211,238,0.1);color:var(--accent2);padding:.1rem .35rem;border-radius:4px}
+  .cb{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.9rem 1.1rem;margin:.7rem 0;font-family:'JetBrains Mono',monospace;font-size:.74rem;line-height:1.85;color:var(--text);overflow-x:auto;white-space:pre}
+  .hc{color:var(--accent2);font-weight:600}.hp{color:var(--accent3);font-weight:600}.hk{color:#f472b6;font-weight:600}.hg{color:var(--accent4);font-weight:600}.hy{color:var(--warn);font-weight:600}.hr{color:var(--danger);font-weight:600}.ho{color:var(--accent);font-weight:600}.dm{color:var(--text3)}
+  .al{border-left:4px solid;border-radius:0 8px 8px 0;padding:.8rem 1rem;margin:.8rem 0;font-size:.86rem}
+  .al-w{border-color:var(--warn);background:rgba(251,191,36,0.08)}.al-w .at{color:var(--warn)}
+  .al-d{border-color:var(--danger);background:rgba(248,113,113,0.07)}.al-d .at{color:var(--danger)}
+  .al-i{border-color:var(--accent2);background:rgba(34,211,238,0.06)}.al-i .at{color:var(--accent2)}
+  .at{font-weight:700;margin-bottom:.3rem;font-size:.8rem}
+  .g2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+  @media(max-width:768px){.g2{grid-template-columns:1fr}}
+  ul.c{padding-left:1.2rem;color:var(--text2);font-size:.88rem}ul.c li{margin-bottom:.2rem}
+  .footer{text-align:center;padding:2rem;color:var(--text3);font-size:.78rem;border-top:1px solid var(--border);margin-top:2rem}
+  .footer a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-badge">HAProxy 3.2 專題速查</div>
+  <h1>Stick-table 反 DDoS 食譜 — Part A</h1>
+  <p>基礎語法 ｜ sc0/1/2 追蹤系統 ｜ 連線限速 ｜ HTTP 限速 ｜ 暴力破解防護 ｜ Bot 偵測 ｜ 地理圍欄</p>
+</div>
+
+<div class="container">
+
+<nav class="toc">
+  <h2>📑 本篇目錄</h2>
+  <div class="toc-grid">
+    <a href="#syntax"><span class="n">01</span>Stick-table 語法</a>
+    <a href="#counters"><span class="n">02</span>可儲存計數器一覽</a>
+    <a href="#sc"><span class="n">03</span>sc0/sc1/sc2 追蹤系統</a>
+    <a href="#conn"><span class="n">04</span>連線速率限制</a>
+    <a href="#http"><span class="n">05</span>HTTP 請求速率限制</a>
+    <a href="#brute"><span class="n">06</span>暴力破解登入防護</a>
+    <a href="#bot"><span class="n">07</span>Bot 偵測</a>
+    <a href="#geo"><span class="n">08</span>地理圍欄</a>
+  </div>
+</nav>
+
+<!-- ===== 01 語法 ===== -->
+<section id="syntax">
+  <div class="sh"><span class="sn s1">01</span><h2>Stick-table 基礎語法</h2></div>
+  <div class="card">
+    <h3>📐 宣告語法</h3>
+    <div class="cb">stick-table type &lt;type&gt; size &lt;size&gt; [expire &lt;duration&gt;] [nopurge] [peers &lt;section&gt;] [store &lt;data&gt;,...]</div>
+  </div>
+  <div class="card">
+    <h3>🔑 Key 型別</h3>
+    <div class="tw"><table>
+      <thead><tr><th>型別</th><th>說明</th><th>使用場景</th></tr></thead>
+      <tbody>
+        <tr><td><code>ip</code></td><td>IPv4 位址</td><td>追蹤來源 IP（純 IPv4）</td></tr>
+        <tr><td><code>ipv6</code></td><td>IPv6 位址</td><td>雙棧或純 IPv6</td></tr>
+        <tr><td><code>integer</code></td><td>32-bit 整數</td><td>User ID、Session ID</td></tr>
+        <tr><td><code>string [len N]</code></td><td>字串（預設 32 字元）</td><td>Cookie、API Key</td></tr>
+        <tr><td><code>binary [len N]</code></td><td>二進位（預設 32 bytes）</td><td>複合鍵如 <code>base32+src</code></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>⚠️ 每區段僅能一個 table 的解法</h3>
+    <div class="cb"><span class="dm"># ✅ 解法：在專用空白 backend 宣告 table</span>
+backend <span class="ho">st_conn_rate</span>
+    stick-table type ip size 200k expire 30s store conn_rate(10s),conn_cur
+
+backend <span class="hp">st_req_rate</span>
+    stick-table type ip size 200k expire 60s store http_req_rate(60s)
+
+backend <span class="hg">st_err_rate</span>
+    stick-table type ip size 200k expire 5m store http_err_rate(30s),gpc0
+
+<span class="dm"># 在實際 frontend 中透過 table 參數引用</span>
+frontend ft_main
+    bind *:80
+    http-request track-sc0 src <span class="ho">table st_conn_rate</span>
+    http-request track-sc1 src <span class="hp">table st_req_rate</span>
+    http-request track-sc2 src <span class="hg">table st_err_rate</span></div>
+  </div>
+  <div class="card">
+    <h3>📊 滑動視窗原理</h3>
+    <p>速率計數器使用<strong>雙週期近似法</strong>：維護「前一週期計數」與「當前週期計數」兩個整數。</p>
+    <p>讀取公式：<code>rate = prev_count × (剩餘時間/週期) + cur_count</code> → 平滑衰減效果。</p>
+    <p>每個速率計數器僅耗用 <strong>8 bytes</strong>。最長週期約 30 天。</p>
+  </div>
+</section>
+
+<!-- ===== 02 計數器 ===== -->
+<section id="counters">
+  <div class="sh"><span class="sn s2">02</span><h2>可儲存計數器完整一覽</h2></div>
+  <div class="card">
+    <div class="tw"><table>
+      <thead><tr><th>分類</th><th>計數器</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td rowspan="3"><strong>連線</strong></td><td><code>conn_cnt</code></td><td>累計連線數</td></tr>
+        <tr><td><code>conn_cur</code></td><td>當前並行連線（自動增減）</td></tr>
+        <tr><td><code>conn_rate(P)</code></td><td>P 期間的連線速率</td></tr>
+        <tr><td rowspan="2"><strong>會話</strong></td><td><code>sess_cnt</code></td><td>累計會話數</td></tr>
+        <tr><td><code>sess_rate(P)</code></td><td>會話速率</td></tr>
+        <tr><td rowspan="6"><strong>HTTP</strong></td><td><code>http_req_cnt</code></td><td>累計請求數</td></tr>
+        <tr><td><code>http_req_rate(P)</code></td><td>請求速率（<strong>限速首選</strong>）</td></tr>
+        <tr><td><code>http_err_cnt</code></td><td>累計錯誤（4xx）</td></tr>
+        <tr><td><code>http_err_rate(P)</code></td><td>錯誤速率</td></tr>
+        <tr><td><code>http_fail_cnt</code></td><td>累計失敗（5xx）</td></tr>
+        <tr><td><code>http_fail_rate(P)</code></td><td>失敗速率</td></tr>
+        <tr><td rowspan="4"><strong>頻寬</strong></td><td><code>bytes_in_cnt</code></td><td>累計接收</td></tr>
+        <tr><td><code>bytes_in_rate(P)</code></td><td>接收速率</td></tr>
+        <tr><td><code>bytes_out_cnt</code></td><td>累計傳送</td></tr>
+        <tr><td><code>bytes_out_rate(P)</code></td><td>傳送速率</td></tr>
+        <tr><td rowspan="3"><strong>通用</strong></td><td><code>gpc0</code> / <code>gpc1</code></td><td>通用計數器（手動遞增）</td></tr>
+        <tr><td><code>gpc0_rate(P)</code></td><td>gpc0 遞增速率</td></tr>
+        <tr><td><code>gpt0</code></td><td>通用標籤（任意 32-bit 整數）</td></tr>
+        <tr><td><strong>3.0 新增</strong></td><td><code>glitch_cnt</code> / <code>glitch_rate(P)</code></td><td>HTTP/2 協議異常偵測</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== 03 sc 系統 ===== -->
+<section id="sc">
+  <div class="sh"><span class="sn sr">03</span><h2>sc0/sc1/sc2 追蹤系統 — 最大 Bug 來源</h2></div>
+  <div class="card">
+    <h3>🔢 追蹤與讀取的對應關係</h3>
+    <div class="cb"><span class="dm"># 追蹤（寫入）</span>
+http-request track-<span class="ho">sc0</span> src table st_conn     <span class="dm"># sc0 → st_conn</span>
+http-request track-<span class="hp">sc1</span> src table st_req      <span class="dm"># sc1 → st_req</span>
+http-request track-<span class="hg">sc2</span> src table st_err      <span class="dm"># sc2 → st_err</span>
+
+<span class="dm"># 讀取（數字對應 sc 編號，不是表格索引）</span>
+sc_conn_rate(<span class="ho">0</span>)        <span class="dm"># 讀 sc0 → st_conn 的 conn_rate</span>
+sc_http_req_rate(<span class="hp">1</span>)    <span class="dm"># 讀 sc1 → st_req 的 http_req_rate</span>
+sc_http_err_rate(<span class="hg">2</span>)    <span class="dm"># 讀 sc2 → st_err 的 http_err_rate</span>
+sc_get_gpc0(<span class="hg">2</span>)         <span class="dm"># 讀 sc2 → st_err 的 gpc0</span>
+sc_inc_gpc0(<span class="hg">2</span>)         <span class="dm"># 遞增 sc2 → st_err 的 gpc0</span></div>
+  </div>
+  <div class="card">
+    <h3>💣 三大致命錯誤</h3>
+    <div class="al al-d">
+      <div class="at">🚨 錯誤 1：省略 table 參數</div>
+      <code>http-request track-sc0 src</code> 不指定 table → 在當前區段找表 → 找不到則<strong>靜默失敗</strong>，無任何錯誤。
+    </div>
+    <div class="al al-d">
+      <div class="at">🚨 錯誤 2：同 sc 重複追蹤</div>
+      同一連線中對同個 sc 編號的第二次 <code>track-sc</code> 會被<strong>靜默忽略</strong>。
+    </div>
+    <div class="al al-w">
+      <div class="at">⚠️ 錯誤 3：http-request 追蹤 conn_rate</div>
+      HTTP 模式下 <code>http-request track-sc</code> 的 <code>conn_rate</code> 會被<strong>每個 HTTP 請求</strong>遞增（因 keep-alive），非每個 TCP 連線。追蹤真實 TCP 連線需用 <code>tcp-request connection track-sc</code>。
+    </div>
+  </div>
+</section>
+
+<!-- ===== 04 連線限速 ===== -->
+<section id="conn">
+  <div class="sh"><span class="sn s1">04</span><h2>依 IP 的連線速率限制</h2></div>
+  <div class="card">
+    <div class="cb">backend st_conn_rate
+    stick-table type ip size 200k expire 30s store conn_rate(10s),conn_cur
+
+frontend ft_main
+    bind *:80
+    bind *:443 ssl crt /etc/haproxy/certs/site.pem
+
+    acl is_whitelisted src 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+
+    <span class="dm"># TCP 層追蹤（真實連線數）</span>
+    tcp-request connection track-sc0 src table st_conn_rate if !is_whitelisted
+
+    acl conn_rate_abuse sc_conn_rate(0) gt 20   <span class="dm"># 10s &gt; 20 新連線</span>
+    acl conn_cur_abuse  sc_conn_cur(0)  gt 50   <span class="dm"># &gt; 50 並行</span>
+
+    <span class="dm"># TCP 層拒絕（最快，不建立 session）</span>
+    tcp-request connection reject if conn_rate_abuse
+    <span class="dm"># 或 silent-drop（HAProxy 釋放資源，客戶端掛起）</span>
+    <span class="dm"># tcp-request connection silent-drop if conn_cur_abuse</span>
+
+    default_backend bk_web</div>
+  </div>
+  <div class="card">
+    <h3>📊 閾值建議</h3>
+    <div class="tw"><table>
+      <thead><tr><th>場景</th><th>conn_rate(10s)</th><th>conn_cur</th></tr></thead>
+      <tbody>
+        <tr><td>一般網站</td><td>20–50</td><td>30–100</td></tr>
+        <tr><td>API</td><td>10–30</td><td>10–50</td></tr>
+        <tr><td>DDoS 防禦</td><td>10–20</td><td>20–50</td></tr>
+        <tr><td>企業 NAT 環境</td><td>大幅放寬</td><td>大幅放寬</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>⚡ 動作對照表</h3>
+    <div class="tw"><table>
+      <thead><tr><th>動作</th><th>效果</th><th>資源消耗</th><th>適用</th></tr></thead>
+      <tbody>
+        <tr><td><code>reject</code>（tcp-request connection）</td><td>立即 RST</td><td>極低</td><td>一般限速</td></tr>
+        <tr><td><code>deny</code></td><td>回傳 HTTP 錯誤</td><td>低</td><td>API 429</td></tr>
+        <tr><td><code>silent-drop</code></td><td>HAProxy 關閉，客戶端永不收到回應</td><td>零</td><td>DDoS</td></tr>
+        <tr><td><code>tarpit</code></td><td>佔住連線後才送錯誤</td><td><strong>高</strong></td><td>中度濫用</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== 05 HTTP 限速 ===== -->
+<section id="http">
+  <div class="sh"><span class="sn s2">05</span><h2>HTTP 請求速率限制</h2></div>
+  <div class="card">
+    <h3>📋 http_req_rate vs http_req_cnt</h3>
+    <div class="tw"><table>
+      <thead><tr><th></th><th><code>http_req_rate(P)</code></th><th><code>http_req_cnt</code></th></tr></thead>
+      <tbody>
+        <tr><td>類型</td><td>滑動視窗速率</td><td>累計計數</td></tr>
+        <tr><td>衰減</td><td>✅ 自動衰減</td><td>❌ 永不歸零</td></tr>
+        <tr><td>適用</td><td><strong>速率限制首選</strong></td><td>固定視窗 / 統計</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>✅ 完整設定 + 429 自訂回應</h3>
+    <div class="cb">frontend ft_web
+    bind *:80
+    mode http
+
+    stick-table type ipv6 size 100k expire 30s store http_req_rate(10s)
+    http-request track-sc0 src
+
+    <span class="dm"># 10s 內 &gt; 20 個請求 → 429</span>
+    http-request deny deny_status 429 \
+        hdr Retry-After "10" \
+        content-type "application/json" \
+        string '{"error":"rate_limit_exceeded","retry_after":10}' \
+        if { sc_http_req_rate(0) gt 20 }
+
+    default_backend bk_servers</div>
+  </div>
+</section>
+
+<!-- ===== 06 暴力破解 ===== -->
+<section id="brute">
+  <div class="sh"><span class="sn s3">06</span><h2>暴力破解登入防護</h2></div>
+  <div class="card">
+    <h3>🔐 設計概念</h3>
+    <p><code>base32+src</code> = Host+URL 的 hash(4B) + 來源 IP(4B) → 8B binary key → 同一 IP 攻擊 <code>/login</code> 不會與正常瀏覽混淆。</p>
+  </div>
+  <div class="card">
+    <div class="cb"><span class="dm"># 表 A：依 IP 追蹤濫用狀態（gpc0 &gt; 0 = 已封鎖）</span>
+backend st_per_ip
+    stick-table type ip size 100k <span class="hr">expire 15m</span> store gpc0,http_err_rate(30s)
+
+<span class="dm"># 表 B：依 IP+URL 追蹤登入速率</span>
+backend st_login
+    stick-table type binary len 8 size 100k expire 10m store http_req_rate(60s)
+
+frontend ft_web
+    bind *:80
+    mode http
+
+    acl is_login path_beg -i /login /api/auth
+    acl is_post  method POST
+
+    <span class="dm"># sc0 → 全域濫用狀態</span>
+    http-request track-sc0 src table st_per_ip
+    <span class="dm"># sc1 → 登入速率（僅登入 POST）</span>
+    http-request track-sc1 base32+src table st_login if is_post is_login
+
+    <span class="dm"># 偵測</span>
+    acl login_too_fast   sc_http_req_rate(1) gt 5   <span class="dm"># 60s &gt; 5 次登入</span>
+    acl high_err_rate    sc_http_err_rate(0) gt 3   <span class="dm"># 30s &gt; 3 次 4xx</span>
+    acl is_banned        sc_get_gpc0(0) gt 0
+
+    <span class="dm"># 封鎖觸發器</span>
+    acl mark_ban sc_inc_gpc0(0) gt 0
+
+    <span class="dm"># 執行</span>
+    http-request deny deny_status 429 if is_banned
+    http-request deny deny_status 429 if login_too_fast is_post is_login mark_ban
+    http-request deny deny_status 429 if high_err_rate mark_ban
+
+    default_backend be_app</div>
+    <div class="al al-i">
+      <div class="at">💡 自動解鎖</div>
+      <code>st_per_ip</code> 的 <code>expire 15m</code> = 15 分鐘不活躍後條目被驅逐 → gpc0 歸零 → 自動解鎖。手動解鎖：<code>clear table st_per_ip key 1.2.3.4</code>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 07 Bot ===== -->
+<section id="bot">
+  <div class="sh"><span class="sn s4">07</span><h2>多指標 Bot 偵測</h2></div>
+  <div class="card">
+    <h3>🤖 四大偵測指標</h3>
+    <div class="tw"><table>
+      <thead><tr><th>指標</th><th>計數器</th><th>閾值</th><th>偵測目標</th></tr></thead>
+      <tbody>
+        <tr><td>獨特頁面/30s</td><td><code>gpc0_rate(30s)</code></td><td>&gt; 15</td><td>爬蟲/抓取器</td></tr>
+        <tr><td>請求量/10s</td><td><code>http_req_rate(10s)</code></td><td>&gt; 50</td><td>請求洪水</td></tr>
+        <tr><td>4xx 錯誤/1m</td><td><code>http_err_rate(1m)</code></td><td>&gt; 10</td><td>弱點掃描器</td></tr>
+        <tr><td>User-Agent</td><td>Header 匹配</td><td>黑名單</td><td>已知惡意工具</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <div class="cb"><span class="dm"># 表 1：IP+URL 首次訪問</span>
+backend per_ip_url
+    stick-table type binary len 8 size 1m expire 24h store http_req_rate(24h)
+
+<span class="dm"># 表 2：IP 行為評分</span>
+backend per_ip
+    stick-table type ip size 1m expire 24h \
+        store gpc0,gpc0_rate(30s),gpt0,http_err_rate(1m),http_req_rate(10s)
+
+frontend ft_main
+    bind *:80
+    acl is_bad_ua   req.hdr(User-Agent) -m sub -i sqlmap nikto masscan scrapy
+    acl is_good_bot req.hdr(User-Agent) -m sub -i Googlebot Bingbot
+    acl is_static   path_end -i .css .js .png .jpg .gif .svg .ico
+
+    http-request track-sc0 src table per_ip
+    http-request track-sc1 url32+src table per_ip_url unless is_static
+
+    <span class="dm"># 首次訪問此 URL → 遞增 sc0 的 gpc0（獨特頁面計數）</span>
+    acl first_visit sc_http_req_rate(1) eq 1
+    http-request sc-inc-gpc0(0) if first_visit
+
+    <span class="dm"># 偵測</span>
+    acl page_flood   sc_gpc0_rate(0) gt 15      <span class="dm"># 30s &gt; 15 新頁面</span>
+    acl req_flood    sc_http_req_rate(0) gt 50   <span class="dm"># 10s &gt; 50 請求</span>
+    acl is_scanner   sc_http_err_rate(0) gt 10   <span class="dm"># 1m &gt; 10 錯誤</span>
+    acl is_tagged    sc_get_gpt0(0) eq 1
+
+    <span class="dm"># 持久標記</span>
+    http-request sc-set-gpt0(0) 1 if page_flood
+    http-request sc-set-gpt0(0) 1 if is_scanner
+
+    <span class="dm"># 執行</span>
+    http-request allow if is_good_bot
+    http-request deny deny_status 403 if is_bad_ua
+    http-request deny deny_status 429 if is_tagged
+    http-request deny deny_status 429 if page_flood
+    http-request deny deny_status 429 if req_flood
+
+    default_backend be_web</div>
+  </div>
+</section>
+
+<!-- ===== 08 地理圍欄 ===== -->
+<section id="geo">
+  <div class="sh"><span class="sn s1">08</span><h2>地理圍欄：Map + Stick-table</h2></div>
+  <div class="card">
+    <div class="cb">frontend ft_geo
+    bind *:80
+    mode http
+
+    <span class="dm"># IP → 國家代碼（需 GeoIP map 檔）</span>
+    http-request set-var(txn.country) src,map_ip(/etc/haproxy/geoip.map)
+    http-request set-header X-GeoIP-Country %[var(txn.country)]
+
+    <span class="dm"># 黑名單方式</span>
+    acl geo_blocked var(txn.country) -m str CN RU KP IR SY
+    http-request deny deny_status 403 if geo_blocked
+
+    <span class="dm"># 高風險國家套用更嚴格速率</span>
+    stick-table type ip size 200k expire 10m store http_req_rate(10s)
+    http-request track-sc0 src
+
+    acl geo_risky     var(txn.country) -m str BR IN PH VN
+    acl strict_rate   sc_http_req_rate(0) gt 30
+    acl standard_rate sc_http_req_rate(0) gt 100
+
+    http-request deny deny_status 429 if geo_risky strict_rate
+    http-request deny deny_status 429 if standard_rate
+
+    default_backend be_default</div>
+    <p>GeoIP 來源：MaxMind GeoLite2（免費）。Map 格式：<code>1.0.0.0/24 AU</code>（每行一筆）。</p>
+    <div class="cb"><span class="dm"># Runtime 動態更新 map（無需 reload）</span>
+echo "set map /etc/haproxy/geoip.map 1.2.3.0/24 XX" | socat stdio $SOCK</div>
+  </div>
+</section>
+
+</div>
+
+<div class="footer">
+  HAProxy 3.2 Stick-table 反 DDoS 食譜 — Part A ｜ 
+  資料來源：<a href="https://www.haproxy.com/blog/introduction-to-haproxy-stick-tables" target="_blank">haproxy.com</a> ｜ 
+  產製日期：2026-04-04
+</div>
+</body>
+</html>

@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HAProxy 3.2 Stick-table 反 DDoS 食譜 Part B</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap');
+  :root{--bg:#0f1117;--surface:#1a1d27;--surface2:#232733;--border:#2e3345;--accent:#f97316;--accent2:#22d3ee;--accent3:#a78bfa;--accent4:#34d399;--warn:#fbbf24;--danger:#f87171;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;font-size:15px}
+  .hero{background:linear-gradient(135deg,#200a00 0%,#0f1117 50%,#1a0020 100%);border-bottom:1px solid var(--border);padding:3rem 2rem 2.5rem;text-align:center}
+  .hero-badge{display:inline-block;background:rgba(249,115,22,0.12);color:var(--accent);font-size:.75rem;font-weight:600;padding:.3rem 1rem;border-radius:100px;border:1px solid rgba(249,115,22,0.25);letter-spacing:.08em;text-transform:uppercase;margin-bottom:1rem}
+  .hero h1{font-size:2rem;font-weight:900;background:linear-gradient(135deg,var(--danger),var(--accent3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:.5rem}
+  .hero p{color:var(--text2);font-size:.95rem}
+  .container{max-width:1100px;margin:0 auto;padding:2rem 1.5rem}
+  .toc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.5rem 2rem;margin-bottom:2.5rem}
+  .toc h2{font-size:.85rem;text-transform:uppercase;letter-spacing:.1em;color:var(--danger);margin-bottom:1rem}
+  .toc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:.5rem}
+  .toc a{color:var(--text2);text-decoration:none;font-size:.88rem;padding:.3rem .6rem;border-radius:6px;transition:all .2s;display:block}
+  .toc a:hover{background:var(--surface2);color:var(--danger)}
+  .toc a .n{color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:.78rem;margin-right:.4rem}
+  section{margin-bottom:2.5rem}
+  .sh{display:flex;align-items:center;gap:.8rem;margin-bottom:1.2rem;padding-bottom:.8rem;border-bottom:2px solid var(--border)}
+  .sn{font-family:'JetBrains Mono',monospace;font-size:.72rem;font-weight:600;color:var(--bg);padding:.22rem .65rem;border-radius:6px;white-space:nowrap}
+  .s1{background:var(--accent)}.s2{background:var(--accent2)}.s3{background:var(--accent3)}.s4{background:var(--accent4)}.sr{background:var(--danger)}.sy{background:var(--warn)}
+  .sh h2{font-size:1.25rem;font-weight:700}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.3rem 1.5rem;margin-bottom:1.1rem}
+  .card h3{font-size:.95rem;font-weight:700;color:var(--accent2);margin-bottom:.7rem}
+  .card p{color:var(--text2);margin-bottom:.5rem;font-size:.92rem}
+  .tw{overflow-x:auto;margin:.8rem 0}
+  table{width:100%;border-collapse:collapse;font-size:.82rem}
+  thead th{background:var(--surface2);color:var(--accent2);font-weight:600;text-align:left;padding:.55rem .75rem;border-bottom:2px solid var(--border);white-space:nowrap}
+  tbody td{padding:.45rem .75rem;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top}
+  tbody tr:hover{background:rgba(249,115,22,0.04)}
+  td code,p code,li code{font-family:'JetBrains Mono',monospace;font-size:.78em;background:rgba(34,211,238,0.1);color:var(--accent2);padding:.1rem .35rem;border-radius:4px}
+  .cb{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.9rem 1.1rem;margin:.7rem 0;font-family:'JetBrains Mono',monospace;font-size:.74rem;line-height:1.85;color:var(--text);overflow-x:auto;white-space:pre}
+  .hc{color:var(--accent2);font-weight:600}.hp{color:var(--accent3);font-weight:600}.hg{color:var(--accent4);font-weight:600}.hy{color:var(--warn);font-weight:600}.hr{color:var(--danger);font-weight:600}.ho{color:var(--accent);font-weight:600}.dm{color:var(--text3)}
+  .al{border-left:4px solid;border-radius:0 8px 8px 0;padding:.8rem 1rem;margin:.8rem 0;font-size:.86rem}
+  .al-w{border-color:var(--warn);background:rgba(251,191,36,0.08)}.al-w .at{color:var(--warn)}
+  .al-d{border-color:var(--danger);background:rgba(248,113,113,0.07)}.al-d .at{color:var(--danger)}
+  .al-i{border-color:var(--accent2);background:rgba(34,211,238,0.06)}.al-i .at{color:var(--accent2)}
+  .at{font-weight:700;margin-bottom:.3rem;font-size:.8rem}
+  .g2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+  @media(max-width:768px){.g2{grid-template-columns:1fr}}
+  .footer{text-align:center;padding:2rem;color:var(--text3);font-size:.78rem;border-top:1px solid var(--border);margin-top:2rem}
+  .footer a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-badge">HAProxy 3.2 專題速查</div>
+  <h1>Stick-table 反 DDoS 食譜 — Part B</h1>
+  <p>Tarpit 策略 ｜ 多時間窗口 ｜ 三維防禦矩陣 ｜ Peers 同步 ｜ CLI 管理 ｜ 12 個致命錯誤</p>
+</div>
+
+<div class="container">
+
+<nav class="toc">
+  <h2>📑 本篇目錄</h2>
+  <div class="toc-grid">
+    <a href="#tarpit"><span class="n">09</span>Tarpit 分層策略</a>
+    <a href="#multi"><span class="n">10</span>多時間窗口限速</a>
+    <a href="#matrix"><span class="n">11</span>三維防禦矩陣</a>
+    <a href="#peers"><span class="n">12</span>Peers 同步 &amp; 陷阱</a>
+    <a href="#cli"><span class="n">13</span>CLI 管理指令</a>
+    <a href="#mistakes"><span class="n">14</span>12 個致命錯誤</a>
+  </div>
+</nav>
+
+<!-- ===== 09 Tarpit ===== -->
+<section id="tarpit">
+  <div class="sh"><span class="sn sr">09</span><h2>Tarpit 分層策略</h2></div>
+  <div class="card">
+    <h3>🪤 Tarpit 運作方式</h3>
+    <p>接受連線 → 接收完整請求 → <strong>佔住連線不處理</strong> → <code>timeout tarpit</code> 到期 → 送回錯誤。迫使攻擊者每個連線被「黏住」。</p>
+  </div>
+  <div class="card">
+    <h3>🏗️ 分層回應：deny → tarpit → silent-drop</h3>
+    <div class="cb">frontend ft_web
+    bind *:80
+    mode http
+    <span class="hy">timeout tarpit 15s</span>
+
+    stick-table type ip size 200k expire 60s store http_req_rate(10s),conn_cur
+    http-request track-sc0 src
+
+    <span class="dm"># 從最嚴重到最輕微（先匹配先執行）</span>
+    acl extreme  sc_http_req_rate(0) gt 100  <span class="dm"># DDoS</span>
+    acl severe   sc_http_req_rate(0) gt 50   <span class="dm"># 嚴重</span>
+    acl moderate sc_http_req_rate(0) gt 20   <span class="dm"># 中度</span>
+
+    http-request <span class="hr">silent-drop</span>       if extreme    <span class="dm"># 零資源消耗</span>
+    http-request <span class="ho">deny</span> deny_status 429 if severe    <span class="dm"># 快速回應</span>
+    http-request <span class="hy">tarpit</span> deny_status 429 if moderate <span class="dm"># 佔住連線</span>
+
+    default_backend bk_servers</div>
+    <div class="al al-d">
+      <div class="at">🚨 Tarpit 是雙面刃</div>
+      每個被 tarpit 的連線佔用一個 <code>maxconn</code> 插槽。若 maxconn=50000 且 timeout tarpit=30s → 僅需 ~1,667 req/s 的攻擊即可耗盡所有插槽。<strong>大規模 DDoS 務必用 silent-drop。</strong>
+    </div>
+  </div>
+  <div class="card">
+    <h3>📋 策略選擇指南</h3>
+    <div class="tw"><table>
+      <thead><tr><th>策略</th><th>最佳場景</th><th>優點</th><th>風險</th></tr></thead>
+      <tbody>
+        <tr><td><code>deny</code></td><td>API 限速、標準防護</td><td>快速釋放資源</td><td>攻擊者瞬間得知被封鎖</td></tr>
+        <tr><td><code>tarpit</code></td><td>暴力破解、少量 bot</td><td>消耗攻擊者連線</td><td>佔用 maxconn 插槽</td></tr>
+        <tr><td><code>silent-drop</code></td><td>大規模 DDoS</td><td>零資源消耗</td><td>中間防火牆可能殘留狀態</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== 10 多窗口 ===== -->
+<section id="multi">
+  <div class="sh"><span class="sn s2">10</span><h2>多時間窗口分層限速</h2></div>
+  <div class="card">
+    <h3>⏱️ 短期爆發 → 中期持續 → 長期累計</h3>
+    <div class="cb"><span class="dm"># 三層時間窗口</span>
+backend rate_1s
+    stick-table type ip size 1m expire 10s store http_req_rate(1s)
+
+backend rate_15m
+    stick-table type ip size 1m expire 30m store http_req_rate(15m)
+
+backend rate_1h
+    stick-table type ip size 1m expire 2h store http_req_rate(1h)
+
+frontend ft_api
+    bind *:443 ssl crt /etc/haproxy/certs/api.pem
+    acl is_api path_beg /api
+
+    http-request track-sc0 src table rate_1s  if is_api  <span class="dm"># 短期</span>
+    http-request track-sc1 src table rate_15m if is_api  <span class="dm"># 中期</span>
+    http-request track-sc2 src table rate_1h  if is_api  <span class="dm"># 長期</span>
+
+    acl burst   sc_http_req_rate(0) gt 5      <span class="dm"># &gt; 5/秒</span>
+    acl medium  sc_http_req_rate(1) gt 500    <span class="dm"># &gt; 500/15分</span>
+    acl long    sc_http_req_rate(2) gt 1000   <span class="dm"># &gt; 1000/時</span>
+
+    http-request deny deny_status 429 if burst  is_api
+    http-request deny deny_status 429 if medium is_api
+    http-request deny deny_status 429 if long   is_api
+
+    default_backend bk_api</div>
+    <div class="al al-i">
+      <div class="at">💡 expire 設定原則</div>
+      <code>expire</code> 應為最長速率週期的 <strong>1.5–2 倍</strong>。例如 <code>http_req_rate(15m)</code> → <code>expire 30m</code>。
+    </div>
+  </div>
+</section>
+
+<!-- ===== 11 三維矩陣 ===== -->
+<section id="matrix">
+  <div class="sh"><span class="sn s3">11</span><h2>三維防禦矩陣（生產推薦模板）</h2></div>
+  <div class="card">
+    <h3>🛡️ 連線 × 請求 × 錯誤</h3>
+    <div class="cb">backend <span class="ho">tbl_conn</span>
+    stick-table type ip size 200k expire 30s store conn_rate(10s),conn_cur
+
+backend <span class="hc">tbl_req</span>
+    stick-table type ip size 200k expire 60s store http_req_rate(60s)
+
+backend <span class="hg">tbl_err</span>
+    stick-table type ip size 200k expire 5m store http_err_rate(30s),gpc0
+
+frontend ft_main
+    bind *:80
+    bind *:443 ssl crt /etc/haproxy/certs/site.pem
+
+    acl whitelist src -f /etc/haproxy/whitelist.lst
+
+    <span class="dm"># 三維追蹤</span>
+    tcp-request connection track-sc0 src table <span class="ho">tbl_conn</span> if !whitelist
+    http-request track-sc1 src table <span class="hc">tbl_req</span>  if !whitelist
+    http-request track-sc2 src table <span class="hg">tbl_err</span>  if !whitelist
+
+    <span class="dm"># 偵測</span>
+    acl conn_abuse sc_conn_rate(0) gt 20
+    acl conn_full  sc_conn_cur(0)  gt 50
+    acl req_abuse  sc_http_req_rate(1) gt 300
+    acl err_abuse  sc_http_err_rate(2) gt 30
+    acl is_banned  sc_get_gpc0(2) gt 0
+    acl mark_ban   sc_inc_gpc0(2) gt 0
+
+    <span class="dm"># 執行（從嚴到輕）</span>
+    tcp-request connection reject if conn_abuse !whitelist
+    tcp-request connection reject if conn_full  !whitelist
+    http-request silent-drop if is_banned
+    http-request tarpit deny_status 429 if err_abuse mark_ban
+    http-request deny deny_status 429 hdr Retry-After "60" if req_abuse
+
+    default_backend bk_servers</div>
+    <div class="al al-i">
+      <div class="at">💡 突破 3 個 sc 限制</div>
+      把多個計數器存入<strong>同一表</strong>共用一個 sc 插槽：<code>store conn_rate(10s),http_req_rate(60s),http_err_rate(30s),conn_cur</code>。HAProxy Enterprise 提供 sc0–sc11 共 12 個。
+    </div>
+  </div>
+</section>
+
+<!-- ===== 12 Peers ===== -->
+<section id="peers">
+  <div class="sh"><span class="sn sr">12</span><h2>Peers 同步 — 重載持久化 &amp; 多節點</h2></div>
+  <div class="card">
+    <h3>🔴 最重要的設定：單節點 peers（防重載資料遺失）</h3>
+    <div class="cb">global
+    <span class="hr">localpeer haproxy1</span>   <span class="dm"># 必須與 peer 名稱一致</span>
+
+<span class="hr">peers mypeers</span>
+    peer haproxy1 127.0.0.1:10000
+
+frontend ft_main
+    bind *:80
+    stick-table type ip size 100k expire 30s \
+        store http_req_rate(10s) <span class="hr">peers mypeers</span>
+    http-request track-sc0 src
+    http-request deny deny_status 429 if { sc_http_req_rate(0) gt 20 }
+    default_backend be_srv</div>
+    <div class="al al-d">
+      <div class="at">🚨 沒有 peers = 每次 reload 全部歸零</div>
+      速率限制歸零 → 攻擊者在重載瞬間獲得完全豁免。即使單節點也<strong>必須</strong>設定 peers。
+    </div>
+  </div>
+  <div class="card">
+    <h3>🌐 多節點叢集</h3>
+    <div class="cb"><span class="dm"># 所有節點用相同設定，以 -L 區分身份</span>
+<span class="dm"># haproxy -f haproxy.cfg -L haproxy1  （節點 1）</span>
+<span class="dm"># haproxy -f haproxy.cfg -L haproxy2  （節點 2）</span>
+
+peers haproxy_peers
+    peer haproxy1 10.0.1.1:1024
+    peer haproxy2 10.0.1.2:1024
+    peer haproxy3 10.0.1.3:1024
+
+backend st_global
+    stick-table type ip size 200k expire 60s \
+        store http_req_rate(10s),conn_rate(10s),gpc0 \
+        peers haproxy_peers</div>
+    <div class="al al-d">
+      <div class="at">🚨 致命限制：Peers 只覆寫，不聚合</div>
+      節點 A 看到 IP X 的 50 個請求、節點 B 也看到 50 個 → 計數器<strong>不會顯示 100</strong>，而是最後一次推送的值（50）。攻擊者分散流量到多節點即可繞過。<strong>對策：閾值減半。</strong>或用 HAProxy Enterprise 的 Stick Table Aggregator。
+    </div>
+  </div>
+</section>
+
+<!-- ===== 13 CLI ===== -->
+<section id="cli">
+  <div class="sh"><span class="sn s2">13</span><h2>CLI 管理指令速查</h2></div>
+  <div class="card">
+    <div class="cb"><span class="dm"># ===== 查看 =====</span>
+echo "show table" | socat stdio $SOCK                              <span class="dm"># 列出所有表</span>
+echo "show table st_req_rate" | socat stdio $SOCK                  <span class="dm"># 所有條目</span>
+echo "show table st_req_rate key 192.168.1.100" | socat stdio $SOCK <span class="dm"># 特定 IP</span>
+echo "show table st_req_rate data.http_req_rate gt 100" | socat stdio $SOCK <span class="dm"># 過濾</span>
+
+<span class="dm"># 支援的比較運算子：eq, ne, gt, lt, ge, le</span>
+
+<span class="dm"># ===== 手動設定（封鎖 IP）=====</span>
+echo "set table st_err key 10.0.0.5 data.gpc0 1" | socat stdio $SOCK
+
+<span class="dm"># ===== 清除 =====</span>
+echo "clear table st_req_rate" | socat stdio $SOCK                  <span class="dm"># 清空整表</span>
+echo "clear table st_err key 1.2.3.4" | socat stdio $SOCK          <span class="dm"># 解鎖特定 IP</span>
+echo "clear table st_err data.gpc0 ge 1" | socat stdio $SOCK       <span class="dm"># 批量解鎖</span>
+
+<span class="dm"># ===== 即時監控 =====</span>
+watch -n 1 'echo "show table st_req_rate" | socat stdio /var/run/haproxy.sock'
+
+<span class="dm"># ===== Peers 狀態 =====</span>
+echo "show peers" | socat stdio $SOCK</div>
+    <div class="al al-w">
+      <div class="at">⚠️ use &gt; 0 的條目無法清除</div>
+      有活躍 session 引用的條目必須等 session 結束。替代方案：<code>set table ... data.gpc0 0</code> 解除封鎖效果（條目仍在但不再觸發規則）。
+    </div>
+  </div>
+</section>
+
+<!-- ===== 14 錯誤 ===== -->
+<section id="mistakes">
+  <div class="sh"><span class="sn sr">14</span><h2>12 個致命錯誤速查表</h2></div>
+  <div class="card">
+    <div class="tw"><table>
+      <thead><tr><th>#</th><th>錯誤</th><th>後果</th><th>修正</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td><strong>未配 peers</strong></td><td>每次 reload 全部歸零</td><td>即使單節點也設 peers</td></tr>
+        <tr><td>2</td><td><strong>sc 編號混淆</strong></td><td>讀錯表的計數器</td><td><code>sc_*(N)</code> 的 N = track-sc<strong>N</strong></td></tr>
+        <tr><td>3</td><td><strong>DDoS 用 tarpit</strong></td><td>maxconn 被 tarpit 耗盡</td><td>大規模攻擊用 silent-drop</td></tr>
+        <tr><td>4</td><td><strong>size 過小</strong></td><td>條目被驅逐 → 攻擊者重獲存取</td><td>DDoS 防禦至少 <code>size 1m</code></td></tr>
+        <tr><td>5</td><td><strong>省略 table 參數</strong></td><td>追蹤靜默失敗</td><td>外部 backend 表必寫 <code>table xxx</code></td></tr>
+        <tr><td>6</td><td><strong>http-request 追蹤 conn_rate</strong></td><td>keep-alive 下每個請求都算一次</td><td>真實 TCP 連線用 <code>tcp-request connection</code></td></tr>
+        <tr><td>7</td><td><strong>peers 覆寫語義</strong></td><td>多節點計數器不加總</td><td>閾值減半，或用 Enterprise Aggregator</td></tr>
+        <tr><td>8</td><td><strong>peer 名稱不匹配</strong></td><td>同步靜默失敗</td><td><code>hostname</code> 必須與 peer 名稱一致</td></tr>
+        <tr><td>9</td><td><strong>expire 與週期不匹配</strong></td><td>expire 太長浪費空間</td><td>expire = 最長週期的 1.5–2 倍</td></tr>
+        <tr><td>10</td><td><strong>同 sc 重複 track</strong></td><td>第二次追蹤靜默忽略</td><td>不同維度用不同 sc 編號</td></tr>
+        <tr><td>11</td><td><strong>混用 gpc0 與 gpc(N)</strong></td><td>衝突</td><td>同一表不混用舊式與陣列式</td></tr>
+        <tr><td>12</td><td><strong>clear 無法清除活躍條目</strong></td><td>「無法解封」某些 IP</td><td><code>set table ... data.gpc0 0</code> 解除效果</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+</div>
+
+<div class="footer">
+  HAProxy 3.2 Stick-table 反 DDoS 食譜 — Part B ｜ 
+  資料來源：<a href="https://www.haproxy.com/blog/introduction-to-haproxy-stick-tables" target="_blank">haproxy.com</a> ｜ 
+  產製日期：2026-04-04
+</div>
+</body>
+</html>

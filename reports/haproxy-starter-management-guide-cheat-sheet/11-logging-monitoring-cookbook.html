@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HAProxy 3.2 Logging &amp; 監控食譜</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap');
+  :root{--bg:#0f1117;--surface:#1a1d27;--surface2:#232733;--border:#2e3345;--accent:#10b981;--accent2:#22d3ee;--accent3:#a78bfa;--warn:#fbbf24;--danger:#f87171;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;font-size:15px}
+  .hero{background:linear-gradient(135deg,#001a10 0%,#0f1117 50%,#0a1628 100%);border-bottom:1px solid var(--border);padding:3rem 2rem 2.5rem;text-align:center}
+  .hero-badge{display:inline-block;background:rgba(16,185,129,0.12);color:var(--accent);font-size:.75rem;font-weight:600;padding:.3rem 1rem;border-radius:100px;border:1px solid rgba(16,185,129,0.25);letter-spacing:.08em;text-transform:uppercase;margin-bottom:1rem}
+  .hero h1{font-size:2rem;font-weight:900;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:.5rem}
+  .hero p{color:var(--text2);font-size:.95rem}
+  .container{max-width:1100px;margin:0 auto;padding:2rem 1.5rem}
+  .toc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.5rem 2rem;margin-bottom:2.5rem}
+  .toc h2{font-size:.85rem;text-transform:uppercase;letter-spacing:.1em;color:var(--accent);margin-bottom:1rem}
+  .toc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:.5rem}
+  .toc a{color:var(--text2);text-decoration:none;font-size:.88rem;padding:.3rem .6rem;border-radius:6px;transition:all .2s;display:block}
+  .toc a:hover{background:var(--surface2);color:var(--accent)}
+  .toc a .n{color:var(--accent2);font-family:'JetBrains Mono',monospace;font-size:.78rem;margin-right:.4rem}
+  section{margin-bottom:2.5rem}
+  .sh{display:flex;align-items:center;gap:.8rem;margin-bottom:1.2rem;padding-bottom:.8rem;border-bottom:2px solid var(--border)}
+  .sn{font-family:'JetBrains Mono',monospace;font-size:.72rem;font-weight:600;color:var(--bg);padding:.22rem .65rem;border-radius:6px;white-space:nowrap}
+  .s1{background:var(--accent)}.s2{background:var(--accent2)}.s3{background:var(--accent3)}.sr{background:var(--danger)}.sy{background:var(--warn)}
+  .sh h2{font-size:1.25rem;font-weight:700}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.3rem 1.5rem;margin-bottom:1.1rem}
+  .card h3{font-size:.95rem;font-weight:700;color:var(--accent2);margin-bottom:.7rem}
+  .card p{color:var(--text2);margin-bottom:.5rem;font-size:.9rem}
+  .tw{overflow-x:auto;margin:.8rem 0}
+  table{width:100%;border-collapse:collapse;font-size:.82rem}
+  thead th{background:var(--surface2);color:var(--accent);font-weight:600;text-align:left;padding:.55rem .75rem;border-bottom:2px solid var(--border);white-space:nowrap}
+  tbody td{padding:.45rem .75rem;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top}
+  tbody tr:hover{background:rgba(16,185,129,0.04)}
+  td code,p code,li code{font-family:'JetBrains Mono',monospace;font-size:.78em;background:rgba(34,211,238,0.1);color:var(--accent2);padding:.1rem .35rem;border-radius:4px}
+  .cb{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.9rem 1.1rem;margin:.7rem 0;font-family:'JetBrains Mono',monospace;font-size:.73rem;line-height:1.85;color:var(--text);overflow-x:auto;white-space:pre}
+  .dia{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1.4rem;margin:1rem 0;font-family:'JetBrains Mono',monospace;font-size:.73rem;line-height:1.9;color:var(--text);overflow-x:auto;white-space:pre}
+  .hc{color:var(--accent2);font-weight:600}.hp{color:var(--accent3);font-weight:600}.hg{color:var(--accent);font-weight:600}.hy{color:var(--warn);font-weight:600}.hr{color:var(--danger);font-weight:600}.dm{color:var(--text3)}
+  .al{border-left:4px solid;border-radius:0 8px 8px 0;padding:.8rem 1rem;margin:.8rem 0;font-size:.86rem}
+  .al-w{border-color:var(--warn);background:rgba(251,191,36,0.08)}.al-w .at{color:var(--warn)}
+  .al-d{border-color:var(--danger);background:rgba(248,113,113,0.07)}.al-d .at{color:var(--danger)}
+  .al-i{border-color:var(--accent);background:rgba(16,185,129,0.06)}.al-i .at{color:var(--accent)}
+  .at{font-weight:700;margin-bottom:.3rem;font-size:.8rem}
+  .g2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+  @media(max-width:768px){.g2{grid-template-columns:1fr}}
+  .footer{text-align:center;padding:2rem;color:var(--text3);font-size:.78rem;border-top:1px solid var(--border);margin-top:2rem}
+  .footer a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-badge">HAProxy 3.2 專題速查</div>
+  <h1>Logging &amp; 監控食譜</h1>
+  <p>日誌格式解剖 ｜ 終止狀態碼 ｜ 五大計時欄位 ｜ JSON 日誌 ｜ Prometheus ｜ halog ｜ 自訂錯誤頁</p>
+</div>
+
+<div class="container">
+
+<nav class="toc">
+  <h2>📑 本篇目錄</h2>
+  <div class="toc-grid">
+    <a href="#format"><span class="n">01</span>HTTP 日誌格式解剖</a>
+    <a href="#timers"><span class="n">02</span>五大計時欄位圖解</a>
+    <a href="#tsc"><span class="n">03</span>終止狀態碼完整表</a>
+    <a href="#json"><span class="n">04</span>JSON 日誌</a>
+    <a href="#filter"><span class="n">05</span>日誌過濾與取樣</a>
+    <a href="#prom"><span class="n">06</span>Prometheus 告警指標</a>
+    <a href="#halog"><span class="n">07</span>halog 分析工具</a>
+    <a href="#error"><span class="n">08</span>自訂錯誤頁</a>
+  </div>
+</nav>
+
+<!-- ===== 01 Format ===== -->
+<section id="format">
+  <div class="sh"><span class="sn s1">01</span><h2>HTTP 日誌格式解剖</h2></div>
+  <div class="card">
+    <h3>📝 預設 HTTP 日誌（option httplog）</h3>
+    <div class="dia"><span class="hc">來源IP:Port</span> [<span class="hp">接受時間</span>] <span class="hg">Frontend</span> <span class="hy">Backend/Server</span> <span class="hr">Tq/Tw/Tc/Tr/Ta</span> <span class="hc">狀態碼</span> <span class="hp">回應大小</span> <span class="dm">Cookie</span> <span class="hy">終止碼</span> <span class="hg">actconn/feconn/beconn/srv_conn/retries</span> <span class="hc">srv_queue/bk_queue</span> "<span class="hp">方法 URI 協定</span>"
+
+<span class="dm">範例：</span>
+192.168.1.100:52481 [03/Apr/2026:14:23:01.234] ft_web bk_api/api1 1/0/2/45/48 200 1523 - - ---- 150/120/80/5/0 0/0 "GET /api/users HTTP/1.1"
+│                   │                          │      │           │          │   │        │    │ │
+│                   │                          │      │           │          │   │        │    │ └ Request line
+│                   │                          │      │           │          │   │        │    └ Queue (srv/bk)
+│                   │                          │      │           │          │   │        └ Connections (act/fe/be/srv/retries)
+│                   │                          │      │           │          │   └ Response size
+│                   │                          │      │           │          └ Status code
+│                   │                          │      │           └ <span class="hr">Timers (Tq/Tw/Tc/Tr/Ta) ms</span>
+│                   │                          │      └ Backend/Server
+│                   │                          └ Frontend name
+│                   └ Accept timestamp
+└ Client IP:Port</div>
+  </div>
+</section>
+
+<!-- ===== 02 Timers ===== -->
+<section id="timers">
+  <div class="sh"><span class="sn s2">02</span><h2>五大計時欄位圖解</h2></div>
+  <div class="card">
+    <div class="dia"><span class="hc">Client</span>                              <span class="hg">HAProxy</span>                              <span class="hp">Server</span>
+
+──TCP connect──▶ ──request──▶           ──queue──▶ ──TCP connect──▶ ──response──▶ ──data──▶
+               │            │           │          │               │              │
+               ├────<span class="hr">Tq</span>─────┤           │          │               │              │
+               │  請求接收    ├────<span class="hr">Tw</span>────┤          │               │              │
+               │             │  佇列等待  ├────<span class="hr">Tc</span>───┤               │              │
+               │             │           │ TCP 建立  ├──────<span class="hr">Tr</span>──────┤              │
+               │             │           │           │  回應 header  │              │
+               ├─────────────┴───────────┴───────────┴──────────────┴──<span class="hr">Ta</span>──────────┤
+               │                              總時間                                │</div>
+    <div class="tw"><table>
+      <thead><tr><th>欄位</th><th>起點</th><th>終點</th><th>異常值含義</th></tr></thead>
+      <tbody>
+        <tr><td><code>Tq</code></td><td>連線接受</td><td>完整 request 收到</td><td>高 = 慢客戶端或大 body</td></tr>
+        <tr><td><code>Tw</code></td><td>request 完成</td><td>分配到 server</td><td>高 = server 過載，佇列中等待</td></tr>
+        <tr><td><code>Tc</code></td><td>開始連 server</td><td>TCP 建立完成</td><td>高 = 網路延遲或 server 無回應</td></tr>
+        <tr><td><code>Tr</code></td><td>request 送出</td><td>response header 收到</td><td>高 = server 思考時間（最重要的後端效能指標）</td></tr>
+        <tr><td><code>Ta</code></td><td>連線接受</td><td>最後一個 byte 傳完</td><td>≈ Tq+Tw+Tc+Tr + data 傳輸</td></tr>
+      </tbody>
+    </table></div>
+    <div class="al al-i">
+      <div class="at">💡 快速診斷</div>
+      Tq 高 → 客戶端問題。Tw &gt; 0 → server 全忙（檢查 maxconn）。Tc 高 → 網路或 server 健康。Tr 高 → 後端應用慢。Ta ≫ Tq+Tw+Tc+Tr → 回應 body 傳輸慢。
+    </div>
+  </div>
+</section>
+
+<!-- ===== 03 終止碼 ===== -->
+<section id="tsc">
+  <div class="sh"><span class="sn sr">03</span><h2>終止狀態碼（Termination State Code）</h2></div>
+  <div class="card">
+    <h3>🔤 四個字元的含義</h3>
+    <p>格式：<code>XYZW</code> — X=會話關閉原因, Y=會話狀態, Z=持久化 cookie, W=持久化 cookie 處理</p>
+  </div>
+  <div class="card">
+    <h3>📋 第一字元 X：會話關閉原因（最常查）</h3>
+    <div class="tw"><table>
+      <thead><tr><th>碼</th><th>含義</th><th>常見場景</th></tr></thead>
+      <tbody>
+        <tr><td><code>C</code></td><td><strong>Client</strong> 先關閉</td><td>用戶取消、瀏覽器關閉</td></tr>
+        <tr><td><code>S</code></td><td><strong>Server</strong> 先關閉</td><td>Server crash、主動斷開</td></tr>
+        <tr><td><code>P</code></td><td><strong>Proxy</strong> 主動關閉</td><td>HAProxy deny/tarpit/redirect</td></tr>
+        <tr><td><code>L</code></td><td><strong>Local</strong> 處理</td><td>Stats 頁面、CLI、cache 命中</td></tr>
+        <tr><td><code>R</code></td><td><strong>Resource</strong> 不足</td><td>記憶體不足、maxconn 達上限</td></tr>
+        <tr><td><code>I</code></td><td><strong>Internal</strong> 錯誤</td><td>HAProxy bug（應回報）</td></tr>
+        <tr><td><code>D</code></td><td><strong>Denied</strong></td><td>被 ACL 或 TCP request rule 拒絕</td></tr>
+        <tr><td><code>c</code></td><td>Client <strong>timeout</strong></td><td><code>timeout client</code> 到期</td></tr>
+        <tr><td><code>s</code></td><td>Server <strong>timeout</strong></td><td><code>timeout server</code> 到期</td></tr>
+        <tr><td><code>-</code></td><td>正常完成</td><td>一切正常</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>📋 第二字元 Y：會話狀態（中斷發生在哪個階段）</h3>
+    <div class="tw"><table>
+      <thead><tr><th>碼</th><th>階段</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>R</code></td><td>Request</td><td>接收 request 期間</td></tr>
+        <tr><td><code>Q</code></td><td>Queue</td><td>等待 server 佇列中</td></tr>
+        <tr><td><code>C</code></td><td>Connect</td><td>連線 server 期間</td></tr>
+        <tr><td><code>H</code></td><td>Response Header</td><td>等待 server 回應 header</td></tr>
+        <tr><td><code>D</code></td><td>Data</td><td>傳輸回應 body 期間</td></tr>
+        <tr><td><code>L</code></td><td>Last</td><td>傳輸最後資料</td></tr>
+        <tr><td><code>T</code></td><td>Tarpit</td><td>tarpit 等待期間</td></tr>
+        <tr><td><code>-</code></td><td>完成</td><td>正常結束</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>🔥 最常見組合解讀</h3>
+    <div class="tw"><table>
+      <thead><tr><th>碼</th><th>含義</th><th>對策</th></tr></thead>
+      <tbody>
+        <tr><td><code>----</code></td><td>✅ 正常完成</td><td>無需動作</td></tr>
+        <tr><td><code>CD--</code></td><td>Client 在資料傳輸中斷開</td><td>正常（用戶取消下載等）</td></tr>
+        <tr><td><code>CR--</code></td><td>Client 在送 request 時斷開</td><td>正常（瀏覽器取消）</td></tr>
+        <tr><td><code>SC--</code></td><td>Server 在連線後立即關閉</td><td>⚠️ 檢查 server 健康</td></tr>
+        <tr><td><code>sH--</code></td><td>Server timeout（等 response header）</td><td>⚠️ server 回應太慢，調 timeout server</td></tr>
+        <tr><td><code>sD--</code></td><td>Server timeout（傳資料中）</td><td>⚠️ 長時間傳輸超時</td></tr>
+        <tr><td><code>PR--</code></td><td>HAProxy deny 在 request 階段</td><td>ACL 規則阻擋</td></tr>
+        <tr><td><code>PH--</code></td><td>HAProxy deny 在等 response 階段</td><td>http-response deny</td></tr>
+        <tr><td><code>LR--</code></td><td>本地處理（stats/CLI/redirect）</td><td>正常</td></tr>
+        <tr><td><code>cR--</code></td><td>Client 送 request timeout</td><td>timeout http-request 太短或 Slowloris</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== 04 JSON ===== -->
+<section id="json">
+  <div class="sh"><span class="sn s3">04</span><h2>JSON 日誌</h2></div>
+  <div class="card">
+    <h3>🆕 HAProxy 3.0+ 原生 JSON 編碼（推薦）</h3>
+    <div class="cb">defaults
+    mode http
+    log global
+    option httplog
+    log-format '{"time":"%Tl","client":"%ci:%cp","frontend":"%f","backend":"%b","server":"%s","status":%ST,"bytes":%B,"timers":{"tq":%Tq,"tw":%Tw,"tc":%Tc,"tr":%Tr,"ta":%Ta},"method":"%HM","uri":"%{+Q,+E}HU","termination":"%tsc","retries":%rc,"srv_queue":%sq,"bk_queue":%bq}'</div>
+    <div class="al al-i">
+      <div class="at">💡 3.0+ 的 %{+E} 自動跳脫</div>
+      <code>%{+E}</code> 自動對特殊字元做 JSON 安全跳脫。<code>%{+Q}</code> 加雙引號。兩者組合 <code>%{+Q,+E}</code> 最安全。
+    </div>
+  </div>
+  <div class="card">
+    <h3>⚠️ HAProxy 2.x 手動 JSON（注意跳脫）</h3>
+    <div class="cb"><span class="dm"># 2.x 需手動建構 JSON + 防止用戶輸入破壞格式</span>
+log-format '{"time":"%Tl","client":"%ci","fe":"%f","be":"%b","srv":"%s","st":%ST,"b":%B,"tq":%Tq,"tw":%Tw,"tc":%Tc,"tr":%Tr,"ta":%Ta,"method":"%HM","uri":"%[capture.req.uri,json(utf8s)]","tsc":"%tsc"}'
+
+<span class="dm"># json(utf8s) converter：將非 UTF-8 和特殊字元安全跳脫</span>
+<span class="dm"># 不用它 → 用戶在 URL 中放 " 或 \ 會破壞 JSON</span></div>
+    <div class="al al-w">
+      <div class="at">⚠️ 預設日誌長度僅 1024 字元</div>
+      JSON 日誌容易超限。設定 <code>log 127.0.0.1:514 local0 <strong>len 8192</strong></code> 或更大值。
+    </div>
+  </div>
+</section>
+
+<!-- ===== 05 Filter ===== -->
+<section id="filter">
+  <div class="sh"><span class="sn s1">05</span><h2>日誌過濾與取樣</h2></div>
+  <div class="card">
+    <div class="cb"><span class="dm"># 不記錄健康檢查和空連線</span>
+option dontlognull
+
+<span class="dm"># 不記錄正常請求，僅記錄異常（大幅減少日誌量）</span>
+option dontlog-normal
+
+<span class="dm"># ACL 調整 log level（降噪+提高異常可見度）</span>
+http-request set-log-level silent if { path_beg /healthz }
+http-request set-log-level warning if { status ge 500 }
+
+<span class="dm"># 日誌取樣（僅記錄 1/10 的正常流量）</span>
+http-request set-log-level silent unless { rand(100) lt 10 } || { status ge 400 }
+
+<span class="dm"># 每個 frontend/backend 獨立日誌輸出（多租戶）</span>
+frontend ft_tenant_a
+    log 127.0.0.1:514 local2
+    log-tag tenant-a
+
+frontend ft_tenant_b
+    log 127.0.0.1:514 local3
+    log-tag tenant-b</div>
+  </div>
+</section>
+
+<!-- ===== 06 Prometheus ===== -->
+<section id="prom">
+  <div class="sh"><span class="sn s2">06</span><h2>Prometheus 告警指標</h2></div>
+  <div class="card">
+    <h3>📊 設定</h3>
+    <div class="cb"><span class="dm"># 編譯時需 USE_PROMEX=1</span>
+frontend stats
+    bind *:8404
+    http-request use-service prometheus-exporter if { path /metrics }
+    <span class="dm"># 僅限內網存取</span>
+    http-request deny unless { src 10.0.0.0/8 }</div>
+  </div>
+  <div class="card">
+    <h3>🔔 關鍵告警指標</h3>
+    <div class="tw"><table>
+      <thead><tr><th>指標</th><th>危險閾值</th><th>含義</th></tr></thead>
+      <tbody>
+        <tr><td><code>haproxy_process_idle_time_percent</code></td><td>&lt; 30%</td><td>CPU 即將飽和</td></tr>
+        <tr><td><code>haproxy_backend_current_queue</code></td><td>&gt; 0 持續</td><td>後端容量不足</td></tr>
+        <tr><td><code>haproxy_server_status</code></td><td>非 1</td><td>Server DOWN</td></tr>
+        <tr><td><code>haproxy_backend_http_responses_total{code="5xx"}</code></td><td>突增</td><td>後端錯誤</td></tr>
+        <tr><td><code>haproxy_backend_response_time_average_seconds</code></td><td>&gt; SLA</td><td>回應時間超標</td></tr>
+        <tr><td><code>haproxy_frontend_denied_connections_total</code></td><td>突增</td><td>攻擊或設定問題</td></tr>
+        <tr><td><code>haproxy_backend_retry_warnings_total</code></td><td>突增</td><td>後端不穩定</td></tr>
+        <tr><td><code>haproxy_process_current_connections</code></td><td>接近 maxconn</td><td>容量瓶頸</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>🖥️ CLI 快速查看（免 Prometheus）</h3>
+    <div class="cb"><span class="dm"># CPU 使用率（最重要）</span>
+echo "show info" | socat stdio $SOCK | grep Idle_pct
+
+<span class="dm"># 連線概況</span>
+echo "show info" | socat stdio $SOCK | grep -E "^(CurrConns|MaxConn|ConnRate|SessRate)"
+
+<span class="dm"># 各 backend 狀態總覽</span>
+echo "show stat" | socat stdio $SOCK | cut -d, -f1,2,18,37 | column -t -s,
+
+<span class="dm"># SSL 計數器</span>
+echo "show info" | socat stdio $SOCK | grep -i ssl</div>
+  </div>
+</section>
+
+<!-- ===== 07 halog ===== -->
+<section id="halog">
+  <div class="sh"><span class="sn s1">07</span><h2>halog 日誌分析工具</h2></div>
+  <div class="card">
+    <h3>⚡ 處理速度 1–2 GB/秒</h3>
+    <div class="cb"><span class="dm"># 依回應時間排序 URL（找最慢的）</span>
+halog -srv &lt; /var/log/haproxy.log | sort -k3 -rn | head -20
+
+<span class="dm"># 依請求次數排序 URL（找最熱門的）</span>
+halog -ut &lt; /var/log/haproxy.log | sort -k2 -rn | head -20
+
+<span class="dm"># 依來源 IP 排序（找最活躍的客戶端）</span>
+halog -ic &lt; /var/log/haproxy.log | sort -k2 -rn | head -20
+
+<span class="dm"># 僅篩選 5xx 錯誤</span>
+halog -hs 500-599 &lt; /var/log/haproxy.log
+
+<span class="dm"># 僅篩選回應時間 &gt; 5 秒的請求</span>
+halog -s 5000 &lt; /var/log/haproxy.log
+
+<span class="dm"># 篩選特定終止碼</span>
+halog -tc sH &lt; /var/log/haproxy.log   <span class="dm"># server timeout</span>
+halog -tc SC &lt; /var/log/haproxy.log   <span class="dm"># server close</span>
+halog -tc PR &lt; /var/log/haproxy.log   <span class="dm"># proxy deny</span></div>
+  </div>
+</section>
+
+<!-- ===== 08 Error Pages ===== -->
+<section id="error">
+  <div class="sh"><span class="sn sr">08</span><h2>自訂錯誤頁</h2></div>
+  <div class="card">
+    <div class="g2">
+      <div>
+        <h3>📄 errorfile（靜態檔案）</h3>
+        <div class="cb"><span class="dm"># 檔案須含完整 HTTP 回應</span>
+<span class="dm"># /etc/haproxy/errors/503.http</span>
+HTTP/1.1 503 Service Unavailable
+Content-Type: text/html
+Cache-Control: no-cache
+
+&lt;html&gt;&lt;body&gt;
+&lt;h1&gt;維護中&lt;/h1&gt;
+&lt;/body&gt;&lt;/html&gt;</div>
+        <div class="cb">defaults
+    errorfile 400 /etc/haproxy/errors/400.http
+    errorfile 403 /etc/haproxy/errors/403.http
+    errorfile 408 /etc/haproxy/errors/408.http
+    errorfile 500 /etc/haproxy/errors/500.http
+    errorfile 502 /etc/haproxy/errors/502.http
+    errorfile 503 /etc/haproxy/errors/503.http
+    errorfile 504 /etc/haproxy/errors/504.http</div>
+      </div>
+      <div>
+        <h3>⚡ http-request return（動態）</h3>
+        <div class="cb"><span class="dm"># 內聯字串</span>
+http-request return \
+    status 503 \
+    content-type "text/html" \
+    string "&lt;h1&gt;維護中&lt;/h1&gt;" \
+    if { path_beg /api }
+
+<span class="dm"># 從檔案載入 body</span>
+http-request return \
+    status 503 \
+    content-type "text/html" \
+    file /etc/haproxy/maint.html
+
+<span class="dm"># JSON 回應</span>
+http-request return \
+    status 429 \
+    content-type "application/json" \
+    string '{"error":"too_many"}'
+
+<span class="dm"># 含自訂 header</span>
+http-request return \
+    status 503 \
+    hdr Retry-After "300" \
+    content-type "text/plain" \
+    string "Back in 5 min"</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<div class="footer">
+  HAProxy 3.2 Logging &amp; 監控食譜 ｜ 
+  資料來源：<a href="https://docs.haproxy.org/3.2/configuration.html" target="_blank">docs.haproxy.org</a> ｜ 
+  產製日期：2026-04-04
+</div>
+</body>
+</html>
