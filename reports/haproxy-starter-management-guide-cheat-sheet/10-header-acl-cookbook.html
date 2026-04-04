@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HAProxy 3.2 HTTP Header &amp; ACL 食譜</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap');
+  :root{--bg:#0f1117;--surface:#1a1d27;--surface2:#232733;--border:#2e3345;--accent:#06b6d4;--accent2:#a78bfa;--accent3:#f472b6;--accent4:#34d399;--warn:#fbbf24;--danger:#f87171;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;font-size:15px}
+  .hero{background:linear-gradient(135deg,#001a20 0%,#0f1117 50%,#180020 100%);border-bottom:1px solid var(--border);padding:3rem 2rem 2.5rem;text-align:center}
+  .hero-badge{display:inline-block;background:rgba(6,182,212,0.12);color:var(--accent);font-size:.75rem;font-weight:600;padding:.3rem 1rem;border-radius:100px;border:1px solid rgba(6,182,212,0.25);letter-spacing:.08em;text-transform:uppercase;margin-bottom:1rem}
+  .hero h1{font-size:2rem;font-weight:900;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:.5rem}
+  .hero p{color:var(--text2);font-size:.95rem}
+  .container{max-width:1100px;margin:0 auto;padding:2rem 1.5rem}
+  .toc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.5rem 2rem;margin-bottom:2.5rem}
+  .toc h2{font-size:.85rem;text-transform:uppercase;letter-spacing:.1em;color:var(--accent);margin-bottom:1rem}
+  .toc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:.5rem}
+  .toc a{color:var(--text2);text-decoration:none;font-size:.88rem;padding:.3rem .6rem;border-radius:6px;transition:all .2s;display:block}
+  .toc a:hover{background:var(--surface2);color:var(--accent)}
+  .toc a .n{color:var(--accent2);font-family:'JetBrains Mono',monospace;font-size:.78rem;margin-right:.4rem}
+  section{margin-bottom:2.5rem}
+  .sh{display:flex;align-items:center;gap:.8rem;margin-bottom:1.2rem;padding-bottom:.8rem;border-bottom:2px solid var(--border)}
+  .sn{font-family:'JetBrains Mono',monospace;font-size:.72rem;font-weight:600;color:var(--bg);padding:.22rem .65rem;border-radius:6px;white-space:nowrap}
+  .s1{background:var(--accent)}.s2{background:var(--accent2)}.s3{background:var(--accent3)}.s4{background:var(--accent4)}.sr{background:var(--danger)}.sy{background:var(--warn)}
+  .sh h2{font-size:1.25rem;font-weight:700}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.3rem 1.5rem;margin-bottom:1.1rem}
+  .card h3{font-size:.95rem;font-weight:700;color:var(--accent);margin-bottom:.7rem}
+  .card p{color:var(--text2);margin-bottom:.5rem;font-size:.9rem}
+  .tw{overflow-x:auto;margin:.8rem 0}
+  table{width:100%;border-collapse:collapse;font-size:.82rem}
+  thead th{background:var(--surface2);color:var(--accent);font-weight:600;text-align:left;padding:.55rem .75rem;border-bottom:2px solid var(--border);white-space:nowrap}
+  tbody td{padding:.45rem .75rem;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top}
+  tbody tr:hover{background:rgba(6,182,212,0.04)}
+  td code,p code,li code{font-family:'JetBrains Mono',monospace;font-size:.78em;background:rgba(6,182,212,0.1);color:var(--accent);padding:.1rem .35rem;border-radius:4px}
+  .cb{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.9rem 1.1rem;margin:.7rem 0;font-family:'JetBrains Mono',monospace;font-size:.73rem;line-height:1.85;color:var(--text);overflow-x:auto;white-space:pre}
+  .hc{color:var(--accent);font-weight:600}.hp{color:var(--accent2);font-weight:600}.hk{color:var(--accent3);font-weight:600}.hg{color:var(--accent4);font-weight:600}.hy{color:var(--warn);font-weight:600}.hr{color:var(--danger);font-weight:600}.dm{color:var(--text3)}
+  .al{border-left:4px solid;border-radius:0 8px 8px 0;padding:.8rem 1rem;margin:.8rem 0;font-size:.86rem}
+  .al-w{border-color:var(--warn);background:rgba(251,191,36,0.08)}.al-w .at{color:var(--warn)}
+  .al-d{border-color:var(--danger);background:rgba(248,113,113,0.07)}.al-d .at{color:var(--danger)}
+  .al-i{border-color:var(--accent);background:rgba(6,182,212,0.06)}.al-i .at{color:var(--accent)}
+  .at{font-weight:700;margin-bottom:.3rem;font-size:.8rem}
+  .g2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+  @media(max-width:768px){.g2{grid-template-columns:1fr}}
+  .footer{text-align:center;padding:2rem;color:var(--text3);font-size:.78rem;border-top:1px solid var(--border);margin-top:2rem}
+  .footer a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-badge">HAProxy 3.2 專題速查</div>
+  <h1>HTTP Header &amp; ACL 食譜</h1>
+  <p>XFF 防偽造 ｜ 安全 Header 套裝 ｜ CORS ｜ URL 改寫 ｜ ACL 速查 ｜ Content Switching ｜ 棄用語法遷移</p>
+</div>
+
+<div class="container">
+
+<nav class="toc">
+  <h2>📑 本篇目錄</h2>
+  <div class="toc-grid">
+    <a href="#xff"><span class="n">01</span>X-Forwarded-* &amp; 防偽造</a>
+    <a href="#sec"><span class="n">02</span>安全 Header 套裝</a>
+    <a href="#cors"><span class="n">03</span>CORS 處理</a>
+    <a href="#rewrite"><span class="n">04</span>URL 改寫模式</a>
+    <a href="#hdr"><span class="n">05</span>Header 操作指令速查</a>
+    <a href="#acl"><span class="n">06</span>ACL 完整速查</a>
+    <a href="#switch"><span class="n">07</span>Content Switching 模式</a>
+    <a href="#migrate"><span class="n">08</span>棄用語法遷移對照</a>
+  </div>
+</nav>
+
+<!-- ===== 01 XFF ===== -->
+<section id="xff">
+  <div class="sh"><span class="sn s1">01</span><h2>X-Forwarded-* &amp; XFF 防偽造</h2></div>
+  <div class="card">
+    <h3>🛡️ XFF 防偽造模式（必備安全設定）</h3>
+    <div class="cb"><span class="dm"># ⚠️ 錯誤：僅用 option forwardfor → 客戶端可注入假 XFF</span>
+<span class="hr"># option forwardfor  ← 這會 append，不會替換客戶端送來的值</span>
+
+<span class="dm"># ✅ 正確：先刪除再設定（防止偽造）</span>
+frontend ft_web
+    bind *:443 ssl crt /etc/haproxy/certs/site.pem
+
+    <span class="hc"># 步驟 1：刪除客戶端可能注入的 header</span>
+    http-request del-header X-Forwarded-For
+    http-request del-header X-Real-IP
+    http-request del-header X-Forwarded-Proto
+    http-request del-header X-Forwarded-Host
+
+    <span class="hg"># 步驟 2：設定可信值</span>
+    http-request set-header X-Forwarded-For   %[src]
+    http-request set-header X-Real-IP         %[src]
+    http-request set-header X-Forwarded-Proto %[ssl_fc,iif(https,http)]
+    http-request set-header X-Forwarded-Host  %[req.hdr(Host)]
+    http-request set-header X-Forwarded-Port  %[dst_port]
+
+    default_backend bk_web</div>
+    <div class="al al-d">
+      <div class="at">🚨 option forwardfor 的陷阱</div>
+      <code>option forwardfor</code> 只會 <strong>append</strong>，不會替換。攻擊者送 <code>X-Forwarded-For: 10.0.0.1</code> → 後端看到 <code>10.0.0.1, 真實IP</code> → 若後端取第一個值 = 被偽造。
+    </div>
+  </div>
+  <div class="card">
+    <h3>📋 多層代理的 XFF 處理</h3>
+    <div class="cb"><span class="dm"># 若 HAProxy 前方有可信代理（如 CDN），保留其 XFF 並 append</span>
+frontend ft_behind_cdn
+    bind *:80
+    acl from_cdn src 198.51.100.0/24 203.0.113.0/24  <span class="dm"># CDN IP 範圍</span>
+
+    <span class="dm"># 來自 CDN：信任其 XFF，append 自己的</span>
+    http-request set-header X-Forwarded-For %[req.hdr(X-Forwarded-For)],%[src] if from_cdn
+
+    <span class="dm"># 不來自 CDN：覆寫（防偽造）</span>
+    http-request del-header X-Forwarded-For unless from_cdn
+    http-request set-header X-Forwarded-For %[src] unless from_cdn</div>
+  </div>
+</section>
+
+<!-- ===== 02 安全 Header ===== -->
+<section id="sec">
+  <div class="sh"><span class="sn s4">02</span><h2>安全 Header 套裝（直接複製貼上）</h2></div>
+  <div class="card">
+    <div class="cb"><span class="dm"># ============================================================</span>
+<span class="dm"># 安全 Header 套裝 — 加在 frontend 或 backend</span>
+<span class="dm"># ============================================================</span>
+
+<span class="dm"># HSTS：強制 HTTPS（2 年 + 包含子域 + preload）</span>
+http-response set-header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+
+<span class="dm"># 防止 Clickjacking</span>
+http-response set-header X-Frame-Options "SAMEORIGIN"
+
+<span class="dm"># 防止 MIME type sniffing</span>
+http-response set-header X-Content-Type-Options "nosniff"
+
+<span class="dm"># Referrer 控制</span>
+http-response set-header Referrer-Policy "strict-origin-when-cross-origin"
+
+<span class="dm"># 權限控制（依需求調整）</span>
+http-response set-header Permissions-Policy "camera=(), microphone=(), geolocation=()"
+
+<span class="dm"># CSP（依應用調整 — 以下為嚴格範例）</span>
+http-response set-header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; frame-ancestors 'self'"
+
+<span class="dm"># 移除已棄用的 X-XSS-Protection（現代瀏覽器不需要）</span>
+http-response del-header X-XSS-Protection
+
+<span class="dm"># 移除洩漏伺服器資訊的 header</span>
+http-response del-header Server
+http-response del-header X-Powered-By
+http-response del-header X-AspNet-Version</div>
+    <div class="al al-w">
+      <div class="at">⚠️ CSP 須依應用調整</div>
+      過嚴的 CSP 會破壞功能（如 inline script、CDN 資源）。建議先用 <code>Content-Security-Policy-Report-Only</code> 測試，確認無誤再切換為強制模式。
+    </div>
+  </div>
+</section>
+
+<!-- ===== 03 CORS ===== -->
+<section id="cors">
+  <div class="sh"><span class="sn s3">03</span><h2>CORS 處理</h2></div>
+  <div class="card">
+    <h3>🌐 單一來源 CORS（最簡單）</h3>
+    <div class="cb">frontend ft_api
+    bind *:443 ssl crt /etc/haproxy/certs/api.pem
+    mode http
+
+    <span class="dm"># 處理 preflight OPTIONS</span>
+    acl is_options method OPTIONS
+    http-request return status 204 \
+        hdr Access-Control-Allow-Origin "https://app.example.com" \
+        hdr Access-Control-Allow-Methods "GET,POST,PUT,DELETE,OPTIONS" \
+        hdr Access-Control-Allow-Headers "Authorization,Content-Type" \
+        hdr Access-Control-Max-Age "86400" \
+        if is_options
+
+    <span class="dm"># 正常請求加 CORS header</span>
+    http-response set-header Access-Control-Allow-Origin "https://app.example.com"
+    http-response set-header Access-Control-Allow-Credentials "true"
+
+    default_backend bk_api</div>
+  </div>
+  <div class="card">
+    <h3>🔀 多來源 CORS（用 map 動態匹配）</h3>
+    <div class="cb"><span class="dm"># /etc/haproxy/cors-origins.lst（一行一個允許的 origin）</span>
+<span class="dm"># https://app1.example.com</span>
+<span class="dm"># https://app2.example.com</span>
+<span class="dm"># https://staging.example.com</span>
+
+frontend ft_api
+    bind *:443 ssl crt /etc/haproxy/certs/api.pem
+
+    <span class="dm"># 檢查 Origin 是否在白名單</span>
+    acl is_cors_origin req.hdr(Origin) -f /etc/haproxy/cors-origins.lst
+    acl is_options method OPTIONS
+
+    <span class="dm"># Preflight：動態回傳請求的 Origin（而非 *）</span>
+    http-request return status 204 \
+        hdr Access-Control-Allow-Origin %[req.hdr(Origin)] \
+        hdr Access-Control-Allow-Methods "GET,POST,PUT,DELETE,OPTIONS" \
+        hdr Access-Control-Allow-Headers "Authorization,Content-Type" \
+        hdr Access-Control-Allow-Credentials "true" \
+        hdr Access-Control-Max-Age "86400" \
+        hdr Vary "Origin" \
+        if is_options is_cors_origin
+
+    <span class="dm"># 正常回應</span>
+    http-response set-header Access-Control-Allow-Origin %[req.hdr(Origin)] if is_cors_origin
+    http-response set-header Access-Control-Allow-Credentials "true" if is_cors_origin
+    http-response set-header Vary "Origin" if is_cors_origin
+
+    <span class="dm"># 未在白名單的 OPTIONS → 403</span>
+    http-request deny deny_status 403 if is_options !is_cors_origin
+
+    default_backend bk_api</div>
+    <div class="al al-i">
+      <div class="at">💡 為什麼不用 Access-Control-Allow-Origin: *？</div>
+      <code>*</code> 不能與 <code>Access-Control-Allow-Credentials: true</code> 同時使用。若需要帶 cookie 的跨域請求，必須回傳精確的 origin 值。
+    </div>
+  </div>
+</section>
+
+<!-- ===== 04 URL 改寫 ===== -->
+<section id="rewrite">
+  <div class="sh"><span class="sn s2">04</span><h2>URL 改寫模式</h2></div>
+  <div class="card">
+    <div class="tw"><table>
+      <thead><tr><th>指令</th><th>功能</th><th>範例</th></tr></thead>
+      <tbody>
+        <tr><td><code>set-path</code></td><td>替換路徑（保留 query string）</td><td><code>http-request set-path /v2%[path]</code></td></tr>
+        <tr><td><code>set-uri</code></td><td>替換完整 URI（含 query）</td><td><code>http-request set-uri %[url,regsub(^/old,/new)]</code></td></tr>
+        <tr><td><code>replace-path</code></td><td>正則替換路徑</td><td><code>http-request replace-path ^/api/v1(.*) /api/v2\1</code></td></tr>
+        <tr><td><code>replace-uri</code></td><td>正則替換完整 URI</td><td><code>http-request replace-uri ^/blog/(.*) /articles/\1</code></td></tr>
+        <tr><td><code>set-query</code></td><td>替換 query string</td><td><code>http-request set-query %[query]&source=haproxy</code></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>📋 常用改寫範例</h3>
+    <div class="cb"><span class="dm"># 路徑前綴移除（strip /api prefix）</span>
+http-request replace-path ^/api(/.*)$ \1
+
+<span class="dm"># 路徑前綴添加</span>
+http-request set-path /app%[path]
+
+<span class="dm"># 尾部斜線正規化（加上 /）</span>
+http-request redirect code 301 location %[url]/ if { path_reg ^/[^.]*[^/]$ }
+
+<span class="dm"># 移除重複斜線</span>
+http-request replace-path ^(.*)//+(.*) \1/\2
+
+<span class="dm"># 小寫化路徑</span>
+http-request set-path %[path,lower]
+
+<span class="dm"># 重導 www → non-www</span>
+http-request redirect prefix https://example.com code 301 if { hdr(host) -i www.example.com }</div>
+  </div>
+</section>
+
+<!-- ===== 05 Header 操作 ===== -->
+<section id="hdr">
+  <div class="sh"><span class="sn s1">05</span><h2>Header 操作指令速查</h2></div>
+  <div class="card">
+    <div class="tw"><table>
+      <thead><tr><th>操作</th><th>Request</th><th>Response</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td>設定（覆寫）</td><td><code>http-request set-header</code></td><td><code>http-response set-header</code></td><td>已存在則覆寫，不存在則新增</td></tr>
+        <tr><td>新增（追加）</td><td><code>http-request add-header</code></td><td><code>http-response add-header</code></td><td>永遠新增一行（可能產生重複）</td></tr>
+        <tr><td>刪除</td><td><code>http-request del-header</code></td><td><code>http-response del-header</code></td><td>刪除所有同名 header</td></tr>
+        <tr><td>替換整個值</td><td><code>http-request replace-header</code></td><td><code>http-response replace-header</code></td><td>正則匹配 header 值並替換</td></tr>
+        <tr><td>替換值中的一段</td><td><code>http-request replace-value</code></td><td><code>http-response replace-value</code></td><td>針對逗號分隔的多值 header</td></tr>
+      </tbody>
+    </table></div>
+    <div class="cb"><span class="dm"># 範例：替換 Cookie 中的 domain</span>
+http-response replace-header Set-Cookie (.*) \1;\ SameSite=Strict
+
+<span class="dm"># 範例：在 Via header 追加 HAProxy 資訊</span>
+http-response add-header Via "1.1 haproxy"
+
+<span class="dm"># 範例：條件式 header（僅對特定路徑）</span>
+http-response set-header Cache-Control "no-store" if { path_beg /api }
+http-response set-header Cache-Control "public, max-age=86400" if { path_end .css .js .png }</div>
+  </div>
+</section>
+
+<!-- ===== 06 ACL ===== -->
+<section id="acl">
+  <div class="sh"><span class="sn s2">06</span><h2>ACL 完整速查</h2></div>
+  <div class="card">
+    <h3>🔍 Sample Fetch 分類速查</h3>
+    <div class="tw"><table>
+      <thead><tr><th>層</th><th>Fetch</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td rowspan="4"><strong>L4</strong></td><td><code>src</code></td><td>來源 IP</td></tr>
+        <tr><td><code>dst</code></td><td>目的 IP</td></tr>
+        <tr><td><code>src_port</code></td><td>來源 port</td></tr>
+        <tr><td><code>dst_port</code></td><td>目的 port</td></tr>
+        <tr><td rowspan="3"><strong>L5/SSL</strong></td><td><code>ssl_fc</code></td><td>連線是否 SSL（布林）</td></tr>
+        <tr><td><code>ssl_fc_sni</code></td><td>Client SNI</td></tr>
+        <tr><td><code>ssl_c_verify</code></td><td>Client 憑證驗證結果</td></tr>
+        <tr><td rowspan="8"><strong>L7/HTTP</strong></td><td><code>method</code></td><td>GET / POST / …</td></tr>
+        <tr><td><code>path</code></td><td>URL 路徑（不含 query）</td></tr>
+        <tr><td><code>path_beg / path_end</code></td><td>路徑前綴 / 後綴</td></tr>
+        <tr><td><code>url_param(name)</code></td><td>Query 參數值</td></tr>
+        <tr><td><code>hdr(name)</code></td><td>Request header 值</td></tr>
+        <tr><td><code>req.hdr(name)</code></td><td>同上（明確語法）</td></tr>
+        <tr><td><code>cook(name)</code></td><td>Cookie 值</td></tr>
+        <tr><td><code>req.body</code></td><td>Request body（需 option http-buffer-request）</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>🎯 匹配方法（-m flag）</h3>
+    <div class="tw"><table>
+      <thead><tr><th>Flag</th><th>匹配方式</th><th>範例</th></tr></thead>
+      <tbody>
+        <tr><td><code>-m str</code></td><td>精確字串（預設）</td><td><code>hdr(Host) -m str api.example.com</code></td></tr>
+        <tr><td><code>-m sub</code></td><td>子字串</td><td><code>hdr(User-Agent) -m sub -i bot</code></td></tr>
+        <tr><td><code>-m beg</code></td><td>前綴</td><td><code>path -m beg /api</code> 或 <code>path_beg /api</code></td></tr>
+        <tr><td><code>-m end</code></td><td>後綴</td><td><code>path -m end .php</code></td></tr>
+        <tr><td><code>-m reg</code></td><td>正則</td><td><code>path -m reg ^/user/[0-9]+$</code></td></tr>
+        <tr><td><code>-m found</code></td><td>存在（非空）</td><td><code>req.hdr(Authorization) -m found</code></td></tr>
+        <tr><td><code>-m ip</code></td><td>IP/CIDR 匹配</td><td><code>src -m ip 10.0.0.0/8</code></td></tr>
+        <tr><td><code>-m len</code></td><td>長度比較</td><td><code>req.body -m len gt 1048576</code></td></tr>
+        <tr><td><code>-i</code></td><td>不分大小寫</td><td><code>hdr(Host) -i EXAMPLE.COM</code></td></tr>
+        <tr><td><code>-f file</code></td><td>從檔案載入模式清單</td><td><code>src -f /etc/haproxy/blacklist.lst</code></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>🔗 組合邏輯</h3>
+    <div class="cb"><span class="dm"># AND（預設，空格分隔）</span>
+http-request deny if is_api !has_token
+
+<span class="dm"># OR（用 || ）</span>
+http-request deny if is_blocked_ip || is_blocked_ua
+
+<span class="dm"># NOT（用 ! 前綴）</span>
+http-request deny if !is_whitelisted
+
+<span class="dm"># 複雜組合（用大括號內聯）</span>
+http-request deny if { path_beg /admin } !{ src 10.0.0.0/8 }
+
+<span class="dm"># 命名 ACL vs 匿名 ACL</span>
+acl is_api path_beg /api                       <span class="dm"># 命名（可讀性好）</span>
+http-request deny if { path_beg /admin }        <span class="dm"># 匿名（簡潔，除錯時較直觀）</span></div>
+  </div>
+</section>
+
+<!-- ===== 07 Content Switching ===== -->
+<section id="switch">
+  <div class="sh"><span class="sn s4">07</span><h2>Content Switching 模式</h2></div>
+  <div class="card">
+    <div class="cb"><span class="dm"># ===== Host-based 虛擬主機 =====</span>
+frontend ft_web
+    bind *:443 ssl crt /etc/haproxy/certs/
+    use_backend bk_api    if { hdr(host) -i api.example.com }
+    use_backend bk_admin  if { hdr(host) -i admin.example.com }
+    default_backend bk_web
+
+<span class="dm"># ===== Path-based 路由 =====</span>
+    use_backend bk_static if { path_beg /static /images /css /js }
+    use_backend bk_api    if { path_beg /api /graphql }
+    use_backend bk_ws     if { hdr(Upgrade) -i websocket }
+
+<span class="dm"># ===== Method-based 路由 =====</span>
+    use_backend bk_read   if { method GET HEAD OPTIONS }
+    use_backend bk_write  if { method POST PUT DELETE PATCH }
+
+<span class="dm"># ===== 動態 backend（用 map，免 ACL）=====</span>
+    use_backend %[req.hdr(Host),lower,map(/etc/haproxy/hosts.map,bk_default)]
+
+<span class="dm"># /etc/haproxy/hosts.map：</span>
+<span class="dm"># api.example.com    bk_api</span>
+<span class="dm"># admin.example.com  bk_admin</span>
+<span class="dm"># www.example.com    bk_web</span></div>
+  </div>
+</section>
+
+<!-- ===== 08 棄用語法 ===== -->
+<section id="migrate">
+  <div class="sh"><span class="sn sr">08</span><h2>棄用語法遷移對照表</h2></div>
+  <div class="card">
+    <h3>🔄 1.x → 2.x+ 語法遷移</h3>
+    <div class="tw"><table>
+      <thead><tr><th>舊語法（已棄用）</th><th>新語法</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>reqadd X-Custom:\ val</code></td><td><code>http-request add-header X-Custom val</code></td><td>新增 request header</td></tr>
+        <tr><td><code>rspadd X-Custom:\ val</code></td><td><code>http-response add-header X-Custom val</code></td><td>新增 response header</td></tr>
+        <tr><td><code>reqdel ^X-Bad:</code></td><td><code>http-request del-header X-Bad</code></td><td>刪除 request header</td></tr>
+        <tr><td><code>rspdel ^Server:</code></td><td><code>http-response del-header Server</code></td><td>刪除 response header</td></tr>
+        <tr><td><code>reqrep ^(.*) /new\1</code></td><td><code>http-request replace-path ...</code></td><td>URL 正則替換</td></tr>
+        <tr><td><code>rsprep ^(Set-Cookie:.*) \1;Secure</code></td><td><code>http-response replace-header Set-Cookie ...</code></td><td>Response header 正則替換</td></tr>
+        <tr><td><code>redirect prefix</code></td><td><code>http-request redirect prefix</code></td><td>重導（功能不變）</td></tr>
+        <tr><td><code>block if ...</code></td><td><code>http-request deny if ...</code></td><td>拒絕請求</td></tr>
+      </tbody>
+    </table></div>
+    <div class="al al-w">
+      <div class="at">⚠️ 舊語法仍能用但會產生警告</div>
+      HAProxy 3.x 啟用 <code>-dW</code>（zero-warning）時，舊語法會阻止啟動。建議全面遷移。
+    </div>
+  </div>
+</section>
+
+</div>
+
+<div class="footer">
+  HAProxy 3.2 HTTP Header &amp; ACL 食譜 ｜ 
+  資料來源：<a href="https://docs.haproxy.org/3.2/configuration.html" target="_blank">docs.haproxy.org</a> ｜ 
+  產製日期：2026-04-04
+</div>
+</body>
+</html>

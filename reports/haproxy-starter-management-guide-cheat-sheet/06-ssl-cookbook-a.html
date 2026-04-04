@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HAProxy 3.2 SSL/TLS 食譜 Part A — 三大模式、mTLS、Cipher</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap');
+  :root{--bg:#0f1117;--surface:#1a1d27;--surface2:#232733;--border:#2e3345;--accent:#38bdf8;--accent2:#a78bfa;--accent3:#f472b6;--accent4:#34d399;--warn:#fbbf24;--danger:#f87171;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;font-size:15px}
+  .hero{background:linear-gradient(135deg,#0c1a3a 0%,#0f1117 50%,#1a0c2e 100%);border-bottom:1px solid var(--border);padding:3rem 2rem 2.5rem;text-align:center}
+  .hero-badge{display:inline-block;background:rgba(56,189,248,0.12);color:var(--accent);font-size:.75rem;font-weight:600;padding:.3rem 1rem;border-radius:100px;border:1px solid rgba(56,189,248,0.25);letter-spacing:.08em;text-transform:uppercase;margin-bottom:1rem}
+  .hero h1{font-size:2rem;font-weight:900;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:.5rem}
+  .hero p{color:var(--text2);font-size:.95rem}
+  .container{max-width:1100px;margin:0 auto;padding:2rem 1.5rem}
+  .toc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.5rem 2rem;margin-bottom:2.5rem}
+  .toc h2{font-size:.85rem;text-transform:uppercase;letter-spacing:.1em;color:var(--accent);margin-bottom:1rem}
+  .toc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:.5rem}
+  .toc a{color:var(--text2);text-decoration:none;font-size:.88rem;padding:.3rem .6rem;border-radius:6px;transition:all .2s;display:block}
+  .toc a:hover{background:var(--surface2);color:var(--accent)}
+  .toc a .n{color:var(--accent2);font-family:'JetBrains Mono',monospace;font-size:.78rem;margin-right:.4rem}
+  section{margin-bottom:2.5rem}
+  .sh{display:flex;align-items:center;gap:.8rem;margin-bottom:1.2rem;padding-bottom:.8rem;border-bottom:2px solid var(--border)}
+  .sn{font-family:'JetBrains Mono',monospace;font-size:.72rem;font-weight:600;color:var(--bg);padding:.22rem .65rem;border-radius:6px;white-space:nowrap}
+  .s1{background:var(--accent)}.s2{background:var(--accent2)}.s3{background:var(--accent3)}.s4{background:var(--accent4)}.sr{background:var(--danger)}.sy{background:var(--warn)}
+  .sh h2{font-size:1.25rem;font-weight:700}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.3rem 1.5rem;margin-bottom:1.1rem}
+  .card h3{font-size:.95rem;font-weight:700;color:var(--accent);margin-bottom:.7rem}
+  .card p{color:var(--text2);margin-bottom:.5rem;font-size:.92rem}
+  .tw{overflow-x:auto;margin:.8rem 0}
+  table{width:100%;border-collapse:collapse;font-size:.84rem}
+  thead th{background:var(--surface2);color:var(--accent);font-weight:600;text-align:left;padding:.6rem .8rem;border-bottom:2px solid var(--border);white-space:nowrap}
+  tbody td{padding:.5rem .8rem;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top}
+  tbody tr:hover{background:rgba(56,189,248,0.04)}
+  td code,p code,li code{font-family:'JetBrains Mono',monospace;font-size:.8em;background:rgba(56,189,248,0.1);color:var(--accent);padding:.12rem .4rem;border-radius:4px}
+  .cb{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1rem 1.2rem;margin:.8rem 0;font-family:'JetBrains Mono',monospace;font-size:.76rem;line-height:1.85;color:var(--text);overflow-x:auto;white-space:pre}
+  .dia{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1.5rem;margin:1rem 0;font-family:'JetBrains Mono',monospace;font-size:.78rem;line-height:1.9;color:var(--text);overflow-x:auto;white-space:pre}
+  .hc{color:var(--accent);font-weight:600}.hp{color:var(--accent2);font-weight:600}.hk{color:var(--accent3);font-weight:600}.hg{color:var(--accent4);font-weight:600}.hy{color:var(--warn);font-weight:600}.hr{color:var(--danger);font-weight:600}.dm{color:var(--text3)}
+  .al{border-left:4px solid;border-radius:0 8px 8px 0;padding:.9rem 1.1rem;margin:.9rem 0;font-size:.88rem}
+  .al-w{border-color:var(--warn);background:rgba(251,191,36,0.08)}.al-w .at{color:var(--warn)}
+  .al-d{border-color:var(--danger);background:rgba(248,113,113,0.07)}.al-d .at{color:var(--danger)}
+  .al-i{border-color:var(--accent);background:rgba(56,189,248,0.06)}.al-i .at{color:var(--accent)}
+  .at{font-weight:700;margin-bottom:.3rem;font-size:.82rem}
+  .tags{display:flex;flex-wrap:wrap;gap:.4rem;margin:.6rem 0}
+  .tag{display:inline-block;font-size:.74rem;padding:.2rem .6rem;border-radius:6px;font-weight:500}
+  .tc{background:rgba(56,189,248,0.12);color:var(--accent);border:1px solid rgba(56,189,248,0.2)}
+  .tp{background:rgba(167,139,250,0.12);color:var(--accent2);border:1px solid rgba(167,139,250,0.2)}
+  .tg{background:rgba(52,211,153,0.12);color:var(--accent4);border:1px solid rgba(52,211,153,0.2)}
+  .tr{background:rgba(248,113,113,0.12);color:var(--danger);border:1px solid rgba(248,113,113,0.2)}
+  .g2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+  @media(max-width:768px){.g2{grid-template-columns:1fr}}
+  ul.c{padding-left:1.2rem;color:var(--text2);font-size:.9rem}ul.c li{margin-bottom:.25rem}
+  .footer{text-align:center;padding:2rem;color:var(--text3);font-size:.78rem;border-top:1px solid var(--border);margin-top:2rem}
+  .footer a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-badge">HAProxy 3.2 專題速查</div>
+  <h1>SSL/TLS 設定食譜 — Part A</h1>
+  <p>PEM 準備 ｜ 三大部署模式 ｜ mTLS 雙向驗證 ｜ SNI 多站台 ｜ Cipher 設定陷阱</p>
+</div>
+
+<div class="container">
+
+<nav class="toc">
+  <h2>📑 本篇目錄</h2>
+  <div class="toc-grid">
+    <a href="#pem"><span class="n">01</span>PEM 準備與驗證</a>
+    <a href="#modes"><span class="n">02</span>三大模式架構圖</a>
+    <a href="#term"><span class="n">03</span>SSL Termination 完整設定</a>
+    <a href="#pass"><span class="n">04</span>SSL Passthrough + SNI 路由</a>
+    <a href="#bridge"><span class="n">05</span>SSL Re-encryption (Bridging)</a>
+    <a href="#mtls"><span class="n">06</span>mTLS 雙向驗證</a>
+    <a href="#sni"><span class="n">07</span>SNI 多站台 &amp; crt-list</a>
+    <a href="#cipher"><span class="n">08</span>Cipher 設定（兩套命名陷阱）</a>
+  </div>
+</nav>
+
+<!-- ===== PEM ===== -->
+<section id="pem">
+  <div class="sh"><span class="sn s1">01</span><h2>PEM 檔案準備與驗證</h2></div>
+  <div class="card">
+    <h3>🔑 正確的串接順序</h3>
+    <div class="cb"><span class="dm"># ✅ 正確：伺服器憑證 → 中繼 CA → 私鑰</span>
+cat server.crt intermediate.crt > /etc/haproxy/certs/site.pem
+cat server.key >> /etc/haproxy/certs/site.pem
+chmod 600 /etc/haproxy/certs/site.pem</div>
+    <p>第一個 <code>CERTIFICATE</code> 區塊 = 伺服器憑證，後續 = 中繼 CA。私鑰頭或尾皆可，但<strong>憑證鏈順序必須 leaf → root</strong>。</p>
+  </div>
+  <div class="card">
+    <h3>❌ 常見錯誤</h3>
+    <div class="tw"><table>
+      <thead><tr><th>錯誤</th><th>症狀</th><th>修正</th></tr></thead>
+      <tbody>
+        <tr><td>中繼 CA 排在伺服器憑證前面</td><td>瀏覽器信任但 <code>openssl s_client</code> 報 chain error</td><td>重排：leaf cert 在前</td></tr>
+        <tr><td>遺漏中繼 CA</td><td>部分用戶端 <code>certificate verify failed</code></td><td>加入完整中繼鏈</td></tr>
+        <tr><td>Windows CRLF 換行</td><td><code>unable to load SSL certificate</code></td><td><code>sed -i 's/\r$//' site.pem</code></td></tr>
+        <tr><td>私鑰與憑證不匹配</td><td><code>unable to load SSL private key</code></td><td>比對 modulus（見下方）</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>🔍 驗證指令</h3>
+    <div class="cb"><span class="dm"># 確認私鑰與憑證匹配（MD5 必須相同）</span>
+openssl x509 -noout -modulus -in site.pem | openssl md5
+openssl rsa  -noout -modulus -in site.key | openssl md5
+
+<span class="dm"># 驗證憑證鏈完整性</span>
+openssl verify -CAfile ca-bundle.crt server.crt
+
+<span class="dm"># 測試線上連線</span>
+openssl s_client -connect example.com:443 -servername example.com
+
+<span class="dm"># 檢查到期日</span>
+openssl x509 -in site.pem -noout -enddate</div>
+  </div>
+</section>
+
+<!-- ===== 三大模式 ===== -->
+<section id="modes">
+  <div class="sh"><span class="sn s2">02</span><h2>三大 SSL 部署模式架構圖</h2></div>
+  <div class="card">
+    <div class="dia"><span class="hc">① SSL Termination</span>（最常見 — 最靈活）
+Client ══TLS══▶ <span class="hc">HAProxy 解密</span> ──HTTP 明文──▶ Server
+                 <span class="hg">✅ 可用所有 L7 功能</span>
+
+<span class="hp">② SSL Passthrough</span>（最安全 — 功能最少）
+Client ══TLS══▶ <span class="hp">HAProxy 不解密</span> ══TLS══▶ Server
+                 <span class="hr">❌ 僅 TCP 層功能（SNI 路由可用）</span>
+
+<span class="hk">③ SSL Re-encryption / Bridging</span>（平衡 — 最耗 CPU）
+Client ══TLS══▶ <span class="hk">HAProxy 解密→再加密</span> ══TLS══▶ Server
+                 <span class="hg">✅ L7 功能全開</span> + <span class="hg">端到端加密</span></div>
+  </div>
+  <div class="card">
+    <h3>📋 功能比較表</h3>
+    <div class="tw"><table>
+      <thead><tr><th>功能</th><th>Termination</th><th>Passthrough</th><th>Bridging</th></tr></thead>
+      <tbody>
+        <tr><td>HTTP Header 檢查/修改</td><td>✅</td><td>❌</td><td>✅</td></tr>
+        <tr><td>URL/路徑路由</td><td>✅</td><td>❌</td><td>✅</td></tr>
+        <tr><td>Cookie Stickiness</td><td>✅</td><td>❌</td><td>✅</td></tr>
+        <tr><td>HTTP 日誌（URL、狀態碼）</td><td>✅</td><td>❌</td><td>✅</td></tr>
+        <tr><td>SNI 路由</td><td>✅</td><td>✅</td><td>✅</td></tr>
+        <tr><td>端到端加密</td><td>❌</td><td>✅</td><td>✅</td></tr>
+        <tr><td>後端無需 SSL 憑證</td><td>✅</td><td>❌</td><td>❌</td></tr>
+        <tr><td>CPU 開銷</td><td>中</td><td>低</td><td>高</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== Termination ===== -->
+<section id="term">
+  <div class="sh"><span class="sn s1">03</span><h2>SSL Termination 完整設定</h2></div>
+  <div class="card">
+    <div class="cb">global
+    ssl-default-bind-ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384
+    ssl-default-bind-ciphersuites TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256
+    ssl-default-bind-options prefer-client-ciphers ssl-min-ver TLSv1.2 no-tls-tickets
+    tune.ssl.default-dh-param 2048
+
+defaults
+    mode http
+    option httplog
+    option forwardfor except 127.0.0.0/8
+    timeout connect 5s
+    timeout client 30s
+    timeout server 30s
+
+<span class="hc">frontend ft_web</span>
+    bind *:80
+    bind *:443 ssl crt /etc/haproxy/certs/site.pem <span class="hg">alpn h2,http/1.1</span>
+
+    <span class="dm"># HTTP → HTTPS 強制重導</span>
+    http-request redirect scheme https unless { ssl_fc }
+
+    <span class="dm"># HSTS（2 年）</span>
+    http-response set-header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+
+    <span class="dm"># 傳遞原始協定給後端</span>
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+
+    default_backend bk_web
+
+<span class="hp">backend bk_web</span>
+    balance roundrobin
+    option httpchk GET /healthz
+    http-check expect status 200
+    server web1 10.0.1.10:80 check
+    server web2 10.0.1.11:80 check</div>
+    <p><code>alpn h2,http/1.1</code> 啟用 HTTP/2 ALPN 協商。<code>ssl_fc</code> = 連線使用 SSL 時為 true。</p>
+  </div>
+</section>
+
+<!-- ===== Passthrough ===== -->
+<section id="pass">
+  <div class="sh"><span class="sn s2">04</span><h2>SSL Passthrough + SNI 路由</h2></div>
+  <div class="card">
+    <div class="cb">defaults
+    mode tcp
+    option tcplog
+    timeout connect 5s
+    timeout client 30s
+    timeout server 30s
+
+<span class="hp">frontend ft_ssl_pass</span>
+    bind *:443
+    mode tcp
+
+    <span class="dm"># 等待 ClientHello 到達（最多 5 秒）</span>
+    <span class="hy">tcp-request inspect-delay 5s</span>
+    <span class="hy">tcp-request content accept if { req_ssl_hello_type 1 }</span>
+
+    <span class="dm"># 基於 SNI 路由</span>
+    use_backend bk_app1 if { req.ssl_sni -i app1.example.com }
+    use_backend bk_app2 if { req.ssl_sni -i app2.example.com }
+    default_backend bk_default
+
+backend bk_app1
+    mode tcp
+    server srv1 10.0.1.10:443 check
+
+backend bk_app2
+    mode tcp
+    server srv2 10.0.1.20:443 check</div>
+    <div class="al al-w">
+      <div class="at">⚠️ 必要設定</div>
+      <code>tcp-request inspect-delay</code> 讓 HAProxy 緩衝足夠資料以讀取 SNI。沒有它，封包可能在 SNI 到達前就被轉發。
+    </div>
+  </div>
+</section>
+
+<!-- ===== Bridging ===== -->
+<section id="bridge">
+  <div class="sh"><span class="sn s3">05</span><h2>SSL Re-encryption (Bridging)</h2></div>
+  <div class="card">
+    <div class="cb"><span class="hk">frontend ft_bridge</span>
+    bind *:443 ssl crt /etc/haproxy/certs/public.pem alpn h2,http/1.1
+    http-request redirect scheme https unless { ssl_fc }
+    default_backend bk_reencrypt
+
+<span class="hk">backend bk_reencrypt</span>
+    mode http
+    balance roundrobin
+    option httpchk GET /healthz
+    http-check expect status 200
+
+    <span class="dm"># ✅ 生產環境：驗證後端憑證</span>
+    default-server <span class="hg">ssl verify required ca-file /etc/haproxy/ca/internal-ca.pem</span> check
+
+    server web1 10.0.1.10:443
+    server web2 10.0.1.11:443</div>
+  </div>
+  <div class="card">
+    <h3>verify none vs verify required</h3>
+    <div class="tw"><table>
+      <thead><tr><th></th><th><code>verify none</code></th><th><code>verify required</code></th></tr></thead>
+      <tbody>
+        <tr><td>使用場景</td><td>開發環境、自簽憑證</td><td><strong>生產環境</strong>、合規要求</td></tr>
+        <tr><td>需要 <code>ca-file</code>？</td><td>否</td><td>是</td></tr>
+        <tr><td>風險</td><td>內網中間人攻擊</td><td>後端憑證管理開銷</td></tr>
+      </tbody>
+    </table></div>
+    <div class="al al-d">
+      <div class="at">🚨 不要在生產環境用 verify none</div>
+      這是最常見的「快速修復」變成永久安全漏洞的情況。
+    </div>
+  </div>
+</section>
+
+<!-- ===== mTLS ===== -->
+<section id="mtls">
+  <div class="sh"><span class="sn s4">06</span><h2>mTLS 雙向 TLS 驗證</h2></div>
+  <div class="card">
+    <h3>🔐 核心設定</h3>
+    <div class="cb">frontend ft_mtls
+    bind :443 ssl \
+        crt /etc/haproxy/certs/server.pem \
+        <span class="hg">ca-file /etc/haproxy/certs/client-ca.crt</span> \
+        <span class="hg">verify optional</span> \
+        crl-file /etc/haproxy/certs/revoked.crl
+
+    <span class="dm"># ⚠️ 安全性：清除用戶端可能注入的 Header</span>
+    http-request del-header X-SSL-Client-Verify
+    http-request del-header X-SSL-Client-DN
+    http-request del-header X-SSL-Client-CN
+
+    <span class="dm"># 注入經驗證的用戶端憑證資訊</span>
+    http-request set-header X-SSL-Client-Verify %[ssl_c_verify]
+    http-request set-header X-SSL-Client-DN     %{+Q}[ssl_c_s_dn]
+    http-request set-header X-SSL-Client-CN     %{+Q}[ssl_c_s_dn(cn)]
+
+    <span class="dm"># 公開路徑不需要憑證</span>
+    acl is_public path_beg /health /public /login
+
+    <span class="dm"># ⚠️ 用 ssl_c_used（非 ssl_fc_has_crt）</span>
+    <span class="dm"># ssl_fc_has_crt 在 TLS Session Resume 時會誤報 false</span>
+    http-request deny deny_status 403 if !is_public <span class="hr">!{ ssl_c_used }</span>
+    http-request deny deny_status 403 if !is_public <span class="hr">!{ ssl_c_verify 0 }</span>
+
+    default_backend bk_app</div>
+  </div>
+  <div class="card">
+    <h3>🔑 verify required vs verify optional</h3>
+    <div class="tw"><table>
+      <thead><tr><th></th><th><code>verify required</code></th><th><code>verify optional</code></th></tr></thead>
+      <tbody>
+        <tr><td>TLS 握手時</td><td>無有效憑證 → <strong>直接拒絕連線</strong></td><td>允許無憑證連線建立</td></tr>
+        <tr><td>按路徑控制</td><td>❌ 全部路徑都需要</td><td>✅ 可在 HTTP 層按路徑判斷</td></tr>
+        <tr><td>適用場景</td><td>全站 mTLS（API 對 API）</td><td>混合站台（部分公開、部分需憑證）</td></tr>
+      </tbody>
+    </table></div>
+    <div class="al al-i">
+      <div class="at">💡 按路徑 mTLS 必須用 verify optional</div>
+      TLS 握手發生在 HTTP 路徑解析<strong>之前</strong>，所以 <code>verify required</code> 無法按路徑區分。
+    </div>
+  </div>
+  <div class="card">
+    <h3>📋 Client 憑證 Fetch 速查</h3>
+    <div class="tw"><table>
+      <thead><tr><th>Fetch</th><th>回傳值</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>ssl_c_verify</code></td><td>整數（0=成功）</td><td>驗證結果</td></tr>
+        <tr><td><code>ssl_c_s_dn</code></td><td><code>/CN=user/O=corp</code></td><td>完整主體 DN</td></tr>
+        <tr><td><code>ssl_c_s_dn(cn)</code></td><td><code>user</code></td><td>特定欄位</td></tr>
+        <tr><td><code>ssl_c_i_dn</code></td><td>發行者 DN</td><td>識別 CA</td></tr>
+        <tr><td><code>ssl_c_serial</code></td><td>十六進位序號</td><td>搭配 <code>,hex</code></td></tr>
+        <tr><td><code>ssl_c_used</code></td><td>布林</td><td>✅ 推薦替代 <code>ssl_fc_has_crt</code></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== SNI 多站台 ===== -->
+<section id="sni">
+  <div class="sh"><span class="sn s1">07</span><h2>SNI 多站台 &amp; crt-list</h2></div>
+  <div class="card">
+    <h3>📄 crt-list 檔案格式</h3>
+    <div class="cb"><span class="dm"># /etc/haproxy/crt-list.txt</span>
+
+<span class="dm"># 預設憑證</span>
+/etc/haproxy/certs/default.pem <span class="hc">*</span>
+
+<span class="dm"># 精確 SNI</span>
+/etc/haproxy/certs/api.example.com.pem <span class="hc">api.example.com</span>
+
+<span class="dm"># 萬用字元</span>
+/etc/haproxy/certs/wildcard.example.com.pem <span class="hc">*.example.com</span>
+
+<span class="dm"># 含 SSL 選項</span>
+/etc/haproxy/certs/secure.pem <span class="hp">[ssl-min-ver TLSv1.3]</span> secure.example.com
+
+<span class="dm"># 多 SNI 共用一張憑證</span>
+/etc/haproxy/certs/multi.pem site1.com site2.com site3.com
+
+<span class="dm"># 個別啟用 mTLS</span>
+/etc/haproxy/certs/internal.pem <span class="hp">[verify required ca-file /etc/haproxy/ca/client-ca.crt]</span> internal.example.com</div>
+    <div class="cb"><span class="dm"># 引用方式</span>
+frontend ft_multi
+    bind :443 ssl crt-list /etc/haproxy/crt-list.txt</div>
+    <p><strong>選擇優先順序</strong>：精確 SNI → 萬用字元 → 預設。加 <code>strict-sni</code> 則無匹配時拒絕連線。</p>
+  </div>
+  <div class="card">
+    <h3>🆕 HAProxy 3.2：crt-store + ssl-f-use</h3>
+    <div class="cb"><span class="dm"># 不需要外部 crt-list 檔案</span>
+crt-store mycerts
+    crt-base /etc/haproxy/ssl/certs/
+    key-base /etc/haproxy/ssl/private/
+    load crt "site1.pem" alias "site1"
+    load crt "site2.crt" key "site2.key" alias "site2"
+
+frontend ft_multi
+    bind :443 ssl
+    bind quic4@:443 ssl              <span class="dm"># HTTP/3</span>
+
+    <span class="hg">ssl-f-use</span> crt "@mycerts/site1" ssl-min-ver TLSv1.2 alpn h2,http/1.1
+    <span class="hg">ssl-f-use</span> crt "@mycerts/site2" ssl-min-ver TLSv1.3 alpn h2,http/1.1
+
+    default_backend bk_web</div>
+    <p>優勢：同一份設定同時套用 TCP 和 QUIC bind，且 ECDSA + RSA 雙憑證用 <code>.ecdsa</code>/<code>.rsa</code> 副檔名自動載入。</p>
+  </div>
+</section>
+
+<!-- ===== Cipher ===== -->
+<section id="cipher">
+  <div class="sh"><span class="sn sr">08</span><h2>Cipher 設定 — 兩套命名慣例的陷阱</h2></div>
+  <div class="card">
+    <h3>🚨 這是 HAProxy SSL 最常出錯的地方</h3>
+    <div class="tw"><table>
+      <thead><tr><th></th><th>TLS 1.2<br><code>ssl-default-bind-ciphers</code></th><th>TLS 1.3<br><code>ssl-default-bind-ciphersuites</code></th></tr></thead>
+      <tbody>
+        <tr><td><strong>命名格式</strong></td><td>OpenSSL 簡寫名</td><td>IANA/RFC 標準名</td></tr>
+        <tr><td><strong>分隔符</strong></td><td>連字號 <code>-</code></td><td>底線 <code>_</code></td></tr>
+        <tr><td><strong>前綴</strong></td><td>無</td><td><code>TLS_</code></td></tr>
+        <tr><td><strong>範例</strong></td><td><code>ECDHE-RSA-AES256-GCM-SHA384</code></td><td><code>TLS_AES_256_GCM_SHA384</code></td></tr>
+        <tr><td><strong>可用數量</strong></td><td>數十種</td><td>僅 3 種標準套件</td></tr>
+      </tbody>
+    </table></div>
+    <div class="al al-d">
+      <div class="at">🚨 混用格式 = 啟動失敗</div>
+      把 TLS 1.3 的 <code>TLS_AES_128_GCM_SHA256</code> 放進 <code>ssl-default-bind-ciphers</code>（TLS 1.2 指令）→ 無效。反之亦然。
+    </div>
+  </div>
+  <div class="card">
+    <h3>✅ Mozilla Intermediate 設定（推薦）</h3>
+    <div class="cb">global
+    <span class="dm"># TLS 1.2（OpenSSL 格式，連字號）</span>
+    ssl-default-bind-<span class="hc">ciphers</span> ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384
+
+    <span class="dm"># TLS 1.3（IANA 格式，底線 + TLS_ 前綴！）</span>
+    ssl-default-bind-<span class="hp">ciphersuites</span> TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256
+
+    ssl-default-bind-options prefer-client-ciphers ssl-min-ver TLSv1.2 no-tls-tickets</div>
+  </div>
+  <div class="card">
+    <h3>🔍 確認指令</h3>
+    <div class="cb"><span class="dm"># 確認 HAProxy TLS 支援</span>
+haproxy -vv | grep -E "OpenSSL|TLSv"
+
+<span class="dm"># 列出 TLS 1.2 可用套件</span>
+openssl ciphers -v 'ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM'
+
+<span class="dm"># 列出 TLS 1.3 可用套件</span>
+openssl ciphers -v -s -tls1_3</div>
+  </div>
+</section>
+
+</div>
+
+<div class="footer">
+  HAProxy 3.2 SSL/TLS 食譜 — Part A 三大模式、mTLS、Cipher ｜ 
+  資料來源：<a href="https://docs.haproxy.org/3.2/" target="_blank">docs.haproxy.org</a> &amp; 
+  <a href="https://www.haproxy.com/blog" target="_blank">haproxy.com/blog</a> ｜ 
+  產製日期：2026-04-03
+</div>
+</body>
+</html>

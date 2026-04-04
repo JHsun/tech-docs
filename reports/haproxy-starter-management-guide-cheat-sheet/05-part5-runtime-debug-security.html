@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HAProxy 3.2 速查表 Part 5 — Runtime API、除錯 &amp; 安全</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap');
+  :root{--bg:#0f1117;--surface:#1a1d27;--surface2:#232733;--border:#2e3345;--accent:#ef4444;--accent2:#22d3ee;--accent3:#a78bfa;--accent4:#34d399;--warn:#fbbf24;--danger:#f87171;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;font-size:15px}
+  .hero{background:linear-gradient(135deg,#280a0a 0%,#0f1117 50%,#0a1628 100%);border-bottom:1px solid var(--border);padding:3rem 2rem 2.5rem;text-align:center}
+  .hero-badge{display:inline-block;background:rgba(239,68,68,0.12);color:var(--accent);font-size:.75rem;font-weight:600;padding:.3rem 1rem;border-radius:100px;border:1px solid rgba(239,68,68,0.25);letter-spacing:.08em;text-transform:uppercase;margin-bottom:1rem}
+  .hero h1{font-size:2.1rem;font-weight:900;background:linear-gradient(135deg,var(--accent),var(--accent3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:.5rem}
+  .hero p{color:var(--text2);font-size:1rem}
+  .container{max-width:1100px;margin:0 auto;padding:2rem 1.5rem}
+  .toc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.5rem 2rem;margin-bottom:2.5rem}
+  .toc h2{font-size:.85rem;text-transform:uppercase;letter-spacing:.1em;color:var(--accent);margin-bottom:1rem}
+  .toc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:.5rem}
+  .toc a{color:var(--text2);text-decoration:none;font-size:.9rem;padding:.3rem .6rem;border-radius:6px;transition:all .2s;display:block}
+  .toc a:hover{background:var(--surface2);color:var(--accent2)}
+  .toc a .n{color:var(--accent2);font-family:'JetBrains Mono',monospace;font-size:.8rem;margin-right:.4rem}
+  section{margin-bottom:2.5rem}
+  .sh{display:flex;align-items:center;gap:.8rem;margin-bottom:1.2rem;padding-bottom:.8rem;border-bottom:2px solid var(--border)}
+  .sn{font-family:'JetBrains Mono',monospace;font-size:.75rem;font-weight:600;color:var(--bg);padding:.25rem .7rem;border-radius:6px;white-space:nowrap}
+  .sn1{background:var(--accent2)}.sn2{background:var(--accent3)}.sn3{background:var(--accent4)}.snr{background:var(--accent)}.sny{background:var(--warn)}
+  .sh h2{font-size:1.3rem;font-weight:700}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.4rem 1.6rem;margin-bottom:1.2rem}
+  .card h3{font-size:1rem;font-weight:700;color:var(--accent2);margin-bottom:.8rem;display:flex;align-items:center;gap:.5rem}
+  .card p{color:var(--text2);margin-bottom:.6rem}
+  .tw{overflow-x:auto;margin:1rem 0}
+  table{width:100%;border-collapse:collapse;font-size:.84rem}
+  thead th{background:var(--surface2);color:var(--accent2);font-weight:600;text-align:left;padding:.6rem .8rem;border-bottom:2px solid var(--border);white-space:nowrap}
+  tbody td{padding:.5rem .8rem;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top}
+  tbody tr:hover{background:rgba(34,211,238,0.04)}
+  td code,p code,li code{font-family:'JetBrains Mono',monospace;font-size:.8em;background:rgba(34,211,238,0.1);color:var(--accent2);padding:.12rem .4rem;border-radius:4px}
+  .dia{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1.5rem;margin:1rem 0;font-family:'JetBrains Mono',monospace;font-size:.78rem;line-height:1.85;color:var(--text);overflow-x:auto;white-space:pre}
+  .hc{color:var(--accent2);font-weight:600}.hp{color:var(--accent3);font-weight:600}.hk{color:#f472b6;font-weight:600}.hg{color:var(--accent4);font-weight:600}.hy{color:var(--warn);font-weight:600}.hr{color:var(--danger);font-weight:600}.dm{color:var(--text3)}
+  .al{border-left:4px solid;border-radius:0 8px 8px 0;padding:1rem 1.2rem;margin:1rem 0;font-size:.9rem}
+  .al-w{border-color:var(--warn);background:rgba(251,191,36,0.08)}.al-w .at{color:var(--warn)}
+  .al-d{border-color:var(--danger);background:rgba(248,113,113,0.07)}.al-d .at{color:var(--danger)}
+  .al-i{border-color:var(--accent2);background:rgba(34,211,238,0.06)}.al-i .at{color:var(--accent2)}
+  .at{font-weight:700;margin-bottom:.3rem;font-size:.85rem}
+  .tags{display:flex;flex-wrap:wrap;gap:.5rem;margin:.8rem 0}
+  .tag{display:inline-block;font-size:.76rem;padding:.22rem .65rem;border-radius:6px;font-weight:500}
+  .tc{background:rgba(34,211,238,0.12);color:var(--accent2);border:1px solid rgba(34,211,238,0.2)}
+  .tp{background:rgba(167,139,250,0.12);color:var(--accent3);border:1px solid rgba(167,139,250,0.2)}
+  .tg{background:rgba(52,211,153,0.12);color:var(--accent4);border:1px solid rgba(52,211,153,0.2)}
+  .ty{background:rgba(251,191,36,0.12);color:var(--warn);border:1px solid rgba(251,191,36,0.2)}
+  .tr{background:rgba(248,113,113,0.12);color:var(--danger);border:1px solid rgba(248,113,113,0.2)}
+  .g2{display:grid;grid-template-columns:1fr 1fr;gap:1.2rem}
+  @media(max-width:768px){.g2{grid-template-columns:1fr}}
+  .footer{text-align:center;padding:2rem;color:var(--text3);font-size:.8rem;border-top:1px solid var(--border);margin-top:2rem}
+  .footer a{color:var(--accent2);text-decoration:none}
+  ul.c{padding-left:1.3rem;color:var(--text2)}ul.c li{margin-bottom:.3rem}
+  .cb{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1rem 1.2rem;margin:.8rem 0;font-family:'JetBrains Mono',monospace;font-size:.78rem;line-height:1.8;color:var(--text);overflow-x:auto;white-space:pre}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-badge">HAProxy 3.2 Cheat Sheet</div>
+  <h1>Part 5 — Runtime API、除錯 &amp; 安全</h1>
+  <p>Management Guide：Ch.9 Stats &amp; Runtime API ｜ Ch.10 設定技巧 ｜ Ch.11 常見陷阱 ｜ Ch.12 除錯 ｜ Ch.13 安全</p>
+</div>
+
+<div class="container">
+
+<nav class="toc">
+  <h2>📑 本篇目錄</h2>
+  <div class="toc-grid">
+    <a href="#socket"><span class="n">9.0</span>Stats Socket 設定</a>
+    <a href="#srv"><span class="n">9.3</span>Server 管理指令</a>
+    <a href="#stat"><span class="n">9.3</span>統計與監控指令</a>
+    <a href="#acl-map"><span class="n">9.3</span>ACL / Map / Table 指令</a>
+    <a href="#ssl-cmd"><span class="n">9.3</span>SSL 憑證管理指令</a>
+    <a href="#other-cmd"><span class="n">9.3</span>其他常用指令</a>
+    <a href="#master-cli"><span class="n">9.4</span>Master CLI</a>
+    <a href="#prom"><span class="n">9.5</span>Prometheus &amp; Stats-file</a>
+    <a href="#tricks"><span class="n">CH10</span>設定管理技巧</a>
+    <a href="#traps"><span class="n">CH11</span>常見陷阱</a>
+    <a href="#debug"><span class="n">CH12</span>除錯方法論</a>
+    <a href="#security"><span class="n">CH13</span>安全強化</a>
+  </div>
+</nav>
+
+<!-- ===== 9 Stats Socket ===== -->
+<section id="socket">
+  <div class="sh">
+    <span class="sn sn1">CH 9</span>
+    <h2>Stats Socket 設定 &amp; 連線</h2>
+  </div>
+  <div class="card">
+    <h3>🔌 設定 Runtime API 接口</h3>
+    <div class="cb">global
+    stats socket /var/run/haproxy.sock mode 600 level admin
+    stats socket ipv4@127.0.0.1:9999 level operator
+    stats timeout 2m</div>
+    <p><strong>連線方式</strong>：</p>
+    <div class="cb"><span class="dm"># 互動模式</span>
+socat /var/run/haproxy.sock readline
+
+<span class="dm"># 腳本模式（單一指令）</span>
+echo "show info" | socat stdio /var/run/haproxy.sock
+
+<span class="dm"># 多行輸入</span>
+socat /var/run/haproxy.sock - &lt;&lt;'EOF'
+show stat
+show info
+EOF</div>
+    <div class="al al-w">
+      <div class="at">⚠️ 安全等級</div>
+      <code>level admin</code>：完整控制（變更 server 狀態、清除 stats）。<code>level operator</code>：唯讀 + 有限操作。<code>level user</code>：唯讀。生產環境用 <strong>UNIX socket + mode 600</strong>，絕不公開 TCP。
+    </div>
+  </div>
+</section>
+
+<!-- ===== Server 管理 ===== -->
+<section id="srv">
+  <div class="sh">
+    <span class="sn sn1">§ 9.3</span>
+    <h2>Server 管理指令（18 個）</h2>
+  </div>
+  <div class="card">
+    <div class="tw"><table>
+      <thead><tr><th>指令</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>disable server &lt;be&gt;/&lt;srv&gt;</code></td><td>進入維護模式（不接新連線，現有連線依設定處理）</td></tr>
+        <tr><td><code>enable server &lt;be&gt;/&lt;srv&gt;</code></td><td>退出維護模式</td></tr>
+        <tr><td><code>set server &lt;be&gt;/&lt;srv&gt; state ready|drain|maint</code></td><td>變更運作狀態</td></tr>
+        <tr><td><code>set server &lt;be&gt;/&lt;srv&gt; weight &lt;val&gt;[%]</code></td><td>變更權重（0–256 或百分比）</td></tr>
+        <tr><td><code>set server &lt;be&gt;/&lt;srv&gt; addr &lt;ip&gt; port &lt;port&gt;</code></td><td>執行期變更 server 位址</td></tr>
+        <tr><td><code>set server &lt;be&gt;/&lt;srv&gt; health up|stopping|down</code></td><td>強制健康狀態</td></tr>
+        <tr><td><code>get weight &lt;be&gt;/&lt;srv&gt;</code></td><td>查詢目前/初始權重</td></tr>
+        <tr><td><code>add server &lt;be&gt;/&lt;srv&gt; [options]</code></td><td>動態新增 server（不需 reload）</td></tr>
+        <tr><td><code>del server &lt;be&gt;/&lt;srv&gt;</code></td><td>移除動態 server（必須先進入 maint）</td></tr>
+        <tr><td><code>disable/enable health &lt;be&gt;/&lt;srv&gt;</code></td><td>停止/恢復健康檢查</td></tr>
+        <tr><td><code>disable/enable agent &lt;be&gt;/&lt;srv&gt;</code></td><td>停止/恢復 agent 檢查</td></tr>
+        <tr><td><code>shutdown sessions server &lt;be&gt;/&lt;srv&gt;</code></td><td>終止該 server 所有 session</td></tr>
+        <tr><td><code>show servers state [&lt;be&gt;]</code></td><td>dump server 狀態（持久化用）</td></tr>
+        <tr><td><code>show servers conn [&lt;be&gt;]</code></td><td>各 server 連線數</td></tr>
+      </tbody>
+    </table></div>
+    <div class="cb"><span class="dm"># 常用維運操作範例</span>
+echo "set server be_web/web1 state drain" | socat stdio /var/run/haproxy.sock
+echo "set server be_web/web1 weight 0" | socat stdio /var/run/haproxy.sock
+echo "disable server be_web/web2" | socat stdio /var/run/haproxy.sock
+echo "set server be_web/web3 addr 10.0.1.50 port 8080" | socat stdio /var/run/haproxy.sock</div>
+  </div>
+</section>
+
+<!-- ===== 統計 ===== -->
+<section id="stat">
+  <div class="sh">
+    <span class="sn sn1">§ 9.3</span>
+    <h2>統計與監控指令</h2>
+  </div>
+  <div class="card">
+    <div class="tw"><table>
+      <thead><tr><th>指令</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>show stat [typed|json]</code></td><td>dump 所有統計（CSV / typed / JSON 格式）。<strong>112+ 欄位</strong></td></tr>
+        <tr><td><code>show info [typed|json]</code></td><td>行程級資訊：uptime、記憶體、連線數、<strong>Idle_pct</strong></td></tr>
+        <tr><td><code>show backend</code></td><td>列出所有 backend</td></tr>
+        <tr><td><code>clear counters</code></td><td>清除最大值（operator 等級）</td></tr>
+        <tr><td><code>clear counters all</code></td><td>清除所有統計（admin 限定）</td></tr>
+        <tr><td><code>show errors [&lt;proxy&gt;]</code></td><td>最後一次錯誤請求/回應（含 hex dump）</td></tr>
+        <tr><td><code>show sess [&lt;id&gt;]</code></td><td>dump 活躍 session</td></tr>
+        <tr><td><code>shutdown session &lt;id&gt;</code></td><td>終止指定 session</td></tr>
+        <tr><td><code>show resolvers</code></td><td>DNS resolver 狀態</td></tr>
+        <tr><td><code>show peers</code></td><td>Peers 複寫狀態</td></tr>
+        <tr><td><code>show cache</code></td><td>快取狀態</td></tr>
+      </tbody>
+    </table></div>
+    <div class="al al-i">
+      <div class="at">💡 CSV 格式關鍵欄位（show stat）</div>
+      <code>scur</code>(4)=目前連線, <code>stot</code>(7)=總連線, <code>bin/bout</code>(8,9)=流量, <code>status</code>(17)=狀態, <code>hrsp_5xx</code>(43)=5xx 計數, <code>req_rate</code>(46)=請求速率, <code>qtime/ctime/rtime/ttime</code>(58-61)=各階段耗時。
+    </div>
+  </div>
+</section>
+
+<!-- ===== ACL / Map / Table ===== -->
+<section id="acl-map">
+  <div class="sh">
+    <span class="sn sn2">§ 9.3</span>
+    <h2>ACL / Map / Stick-table 指令</h2>
+  </div>
+  <div class="card">
+    <h3>📋 ACL &amp; Map CRUD</h3>
+    <div class="tw"><table>
+      <thead><tr><th>ACL</th><th>Map</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>show acl [&lt;id&gt;]</code></td><td><code>show map [&lt;id&gt;]</code></td><td>列出所有 ACL/Map 或指定內容</td></tr>
+        <tr><td><code>get acl &lt;id&gt; &lt;val&gt;</code></td><td><code>get map &lt;id&gt; &lt;key&gt;</code></td><td>查詢特定值</td></tr>
+        <tr><td><code>add acl &lt;id&gt; &lt;val&gt;</code></td><td><code>add map &lt;id&gt; &lt;key&gt; &lt;val&gt;</code></td><td>新增項目</td></tr>
+        <tr><td><code>del acl &lt;id&gt; &lt;val&gt;</code></td><td><code>del map &lt;id&gt; &lt;key&gt;</code></td><td>刪除項目</td></tr>
+        <tr><td><code>clear acl &lt;id&gt;</code></td><td><code>clear map &lt;id&gt;</code></td><td>清空全部</td></tr>
+        <tr><td><code>prepare acl</code></td><td><code>prepare map</code></td><td>原子替換：建立新版本</td></tr>
+        <tr><td><code>commit acl</code></td><td><code>commit map</code></td><td>原子替換：提交新版本</td></tr>
+      </tbody>
+    </table></div>
+    <div class="al al-d">
+      <div class="at">🚨 CLI 新增的 ACL/Map 項目不會寫入檔案</div>
+      透過 <code>add acl</code> / <code>add map</code> 新增的項目只存在記憶體，<strong>reload 後消失</strong>。需要持久化必須手動更新檔案。
+    </div>
+  </div>
+  <div class="card">
+    <h3>🗄️ Stick-table 指令</h3>
+    <div class="tw"><table>
+      <thead><tr><th>指令</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>show table [&lt;name&gt;] [data.&lt;type&gt; &lt;op&gt; &lt;val&gt;]</code></td><td>顯示 table 內容，可依資料欄位過濾</td></tr>
+        <tr><td><code>set table &lt;name&gt; key &lt;key&gt; [data.&lt;type&gt; &lt;val&gt;]*</code></td><td>新增/更新 table 項目</td></tr>
+        <tr><td><code>clear table &lt;name&gt; [key &lt;key&gt; | data.&lt;type&gt; &lt;op&gt; &lt;val&gt;]</code></td><td>清除項目（可按 key 或條件）</td></tr>
+      </tbody>
+    </table></div>
+    <div class="cb"><span class="dm"># 範例：查看 http_req_rate > 100 的來源</span>
+echo "show table st_abuse data.http_req_rate gt 100" | socat stdio /var/run/haproxy.sock
+
+<span class="dm"># 手動封鎖 IP（設 gpc0=1 作為封鎖標記）</span>
+echo "set table st_abuse key 192.168.1.100 data.gpc0 1" | socat stdio /var/run/haproxy.sock</div>
+  </div>
+</section>
+
+<!-- ===== SSL 指令 ===== -->
+<section id="ssl-cmd">
+  <div class="sh">
+    <span class="sn sn2">§ 9.3</span>
+    <h2>SSL 憑證管理指令（25+）</h2>
+  </div>
+  <div class="card">
+    <h3>🔒 憑證生命週期</h3>
+    <div class="dia"><span class="hc">new ssl cert</span> &lt;path&gt;           建立空憑證插槽
+     │
+<span class="hp">set ssl cert</span> &lt;path&gt; &lt;&lt;payload   上傳新憑證內容（PEM）
+     │
+<span class="hg">commit ssl cert</span> &lt;path&gt;          套用到所有使用該憑證的 bind
+     │
+<span class="dm">（若需取消）</span>
+<span class="hr">abort ssl cert</span> &lt;path&gt;           撤銷尚未 commit 的變更</div>
+    <p>相同模式適用於 CA 檔 (<code>ssl ca-file</code>)、CRL 檔 (<code>ssl crl-file</code>)。</p>
+    <div class="cb"><span class="dm"># 完整更新憑證範例</span>
+echo -e "set ssl cert /etc/ssl/site.pem &lt;&lt;\n$(cat new-cert.pem)\n" | \
+  socat stdio /var/run/haproxy.sock
+echo "commit ssl cert /etc/ssl/site.pem" | socat stdio /var/run/haproxy.sock
+
+<span class="dm"># 查詢憑證資訊</span>
+echo "show ssl cert /etc/ssl/site.pem" | socat stdio /var/run/haproxy.sock
+
+<span class="dm"># CRT-list 管理</span>
+echo "show ssl crt-list /etc/ssl/crt-list.txt" | socat stdio /var/run/haproxy.sock
+echo "add ssl crt-list /etc/ssl/crt-list.txt /etc/ssl/newsite.pem" | socat stdio /var/run/haproxy.sock</div>
+  </div>
+</section>
+
+<!-- ===== 其他指令 ===== -->
+<section id="other-cmd">
+  <div class="sh">
+    <span class="sn sn1">§ 9.3</span>
+    <h2>其他常用 CLI 指令</h2>
+  </div>
+  <div class="card">
+    <div class="g2">
+      <div>
+        <h3 style="color:var(--accent3)">Frontend 管理</h3>
+        <div class="tw"><table>
+          <tbody>
+            <tr><td><code>disable frontend &lt;fe&gt;</code></td><td>停止前端</td></tr>
+            <tr><td><code>enable frontend &lt;fe&gt;</code></td><td>恢復前端</td></tr>
+            <tr><td><code>set maxconn frontend &lt;fe&gt; &lt;n&gt;</code></td><td>變更 maxconn</td></tr>
+            <tr><td><code>shutdown frontend &lt;fe&gt;</code></td><td>永久停止</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+      <div>
+        <h3 style="color:var(--accent4)">速率限制</h3>
+        <div class="tw"><table>
+          <tbody>
+            <tr><td><code>set rate-limit connections global &lt;n&gt;</code></td><td>全域連線速率</td></tr>
+            <tr><td><code>set rate-limit sessions global &lt;n&gt;</code></td><td>全域 session 速率</td></tr>
+            <tr><td><code>set rate-limit ssl-sessions global &lt;n&gt;</code></td><td>SSL session 速率</td></tr>
+            <tr><td><code>set maxconn global &lt;n&gt;</code></td><td>全域 maxconn</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>🔧 系統 / 行程 / 除錯指令</h3>
+    <div class="tags">
+      <span class="tag tc"><code>show env</code></span>
+      <span class="tag tc"><code>show version</code></span>
+      <span class="tag tc"><code>show libs</code></span>
+      <span class="tag tp"><code>show threads</code></span>
+      <span class="tag tp"><code>show pools</code></span>
+      <span class="tag tp"><code>show profiling</code></span>
+      <span class="tag tg"><code>show tasks</code></span>
+      <span class="tag tg"><code>show events</code></span>
+      <span class="tag tg"><code>show fd</code></span>
+      <span class="tag ty"><code>show activity</code></span>
+      <span class="tag ty"><code>show startup-logs</code></span>
+      <span class="tag ty"><code>show trace</code></span>
+      <span class="tag tr"><code>set/get var</code></span>
+      <span class="tag tr"><code>set profiling tasks on|off</code></span>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Master CLI ===== -->
+<section id="master-cli">
+  <div class="sh">
+    <span class="sn sn2">§ 9.4</span>
+    <h2>Master CLI（僅 Master-Worker 模式）</h2>
+  </div>
+  <div class="card">
+    <div class="tw"><table>
+      <thead><tr><th>指令</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>show proc</code></td><td>列出所有行程（PID、類型、reload 次數、uptime）</td></tr>
+        <tr><td><code>reload</code></td><td>觸發 reload（= <code>kill -USR2 &lt;master&gt;</code>）</td></tr>
+        <tr><td><code>hard-reload</code></td><td>Hard reload</td></tr>
+        <tr><td><code>@&lt;id&gt;</code></td><td>切換到指定 worker（依相對 PID）</td></tr>
+        <tr><td><code>@!&lt;pid&gt;</code></td><td>切換到指定 worker（依絕對 PID）</td></tr>
+        <tr><td><code>@</code></td><td>回到 master context</td></tr>
+      </tbody>
+    </table></div>
+    <div class="cb"><span class="dm"># 透過 Master CLI reload</span>
+echo "reload" | socat stdio /var/run/haproxy-master.sock
+
+<span class="dm"># 查看所有 worker</span>
+echo "show proc" | socat stdio /var/run/haproxy-master.sock
+
+<span class="dm"># 對特定 worker 執行指令</span>
+echo "@1 show info" | socat stdio /var/run/haproxy-master.sock</div>
+  </div>
+</section>
+
+<!-- ===== Prometheus & Stats-file ===== -->
+<section id="prom">
+  <div class="sh">
+    <span class="sn sn1">§ 9.5</span>
+    <h2>Prometheus Exporter &amp; Stats-file</h2>
+  </div>
+  <div class="card">
+    <div class="g2">
+      <div>
+        <h3 style="color:var(--accent4)">📈 Prometheus（內建）</h3>
+        <div class="cb">frontend stats
+    bind *:8404
+    http-request use-service \
+      prometheus-exporter \
+      if { path /metrics }</div>
+        <p>輸出 <strong>150+ 指標</strong>。編譯時加 <code>USE_PROMEX=1</code>。</p>
+      </div>
+      <div>
+        <h3 style="color:var(--warn)">💾 Stats-file（計數器持久化）</h3>
+        <div class="cb"><span class="dm"># 1. 設定中加 GUID</span>
+<span class="dm"># 2. dump</span>
+echo "dump stats-file" | \
+  socat stdio haproxy.sock \
+  > /etc/haproxy/stats-file
+<span class="dm"># 3. global 加入</span>
+stats-file /etc/haproxy/stats-file</div>
+        <p>Reload 後計數器從檔案初始化。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== CH10 ===== -->
+<section id="tricks">
+  <div class="sh">
+    <span class="sn sn3">CH 10</span>
+    <h2>設定管理技巧</h2>
+  </div>
+  <div class="card">
+    <h3>🔧 三大技巧</h3>
+    <div class="tw"><table>
+      <thead><tr><th>技巧</th><th>說明</th><th>範例</th></tr></thead>
+      <tbody>
+        <tr><td><strong>環境變數</strong></td><td>雙引號中用 <code>${VAR}</code>。跨節點共享設定、隱藏密碼</td><td><code>bind "${BIND_ADDR}:${PORT}"</code></td></tr>
+        <tr><td><strong>多檔案分割</strong></td><td><code>-f</code> 多次或 <code>--</code> + wildcard。每檔必須以 section boundary 開頭</td><td><code>-f global.cfg -f backends/</code></td></tr>
+        <tr><td><strong>條件區塊</strong></td><td><code>.if</code> / <code>.elif</code> / <code>.else</code> / <code>.endif</code>。可用環境變數與內建 predicate</td><td><code>.if defined(USE_SSL)</code></td></tr>
+      </tbody>
+    </table></div>
+    <div class="cb"><span class="dm"># 條件設定範例</span>
+.if defined(ENABLE_STATS)
+listen stats
+    bind :8404
+    stats enable
+.endif
+
+<span class="dm"># 驗證條件</span>
+haproxy -cc 'defined(ENABLE_STATS)'  <span class="dm"># exit 0=true, 1=false</span></div>
+  </div>
+</section>
+
+<!-- ===== CH11 ===== -->
+<section id="traps">
+  <div class="sh">
+    <span class="sn snr">CH 11</span>
+    <h2>常見陷阱（Well-known Traps）</h2>
+  </div>
+  <div class="card">
+    <div class="tw"><table>
+      <thead><tr><th>陷阱</th><th>症狀</th><th>修正</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>VIP 綁定失敗</strong></td>
+          <td>重開機時 HAProxy 先於 keepalived 啟動 → 無法綁定 VIP → 啟動失敗</td>
+          <td><code>sysctl -w net.ipv4.ip_nonlocal_bind=1</code></td>
+        </tr>
+        <tr>
+          <td><strong>幽靈舊行程</strong></td>
+          <td><code>SO_REUSEPORT</code> 允許多行程監聽同 port。未停止的舊行程接收部分連線 → 設定變更「不生效」</td>
+          <td><code>netstat -lntp</code> 找到並殺掉 rogue process</td>
+        </tr>
+        <tr>
+          <td><strong>CLI ACL 不持久</strong></td>
+          <td>用 <code>add acl</code> 新增的項目 reload 後消失</td>
+          <td>同步更新磁碟檔案</td>
+        </tr>
+        <tr>
+          <td><strong>多行程 source port 衝突</strong></td>
+          <td>多行程用同一 source port range → 高負載下隨機失敗</td>
+          <td>改用 <code>nbthread</code>，棄用 <code>nbproc</code></td>
+        </tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== CH12 ===== -->
+<section id="debug">
+  <div class="sh">
+    <span class="sn sny">CH 12</span>
+    <h2>除錯方法論</h2>
+  </div>
+  <div class="card">
+    <h3>🔬 三工具延遲診斷法</h3>
+    <div class="dia"><span class="dm">同時使用三個工具，對比時間戳找瓶頸：</span>
+
+<span class="hc">① tcpdump（本地端）</span>
+   tcpdump -nvvttSs0 -i eth0 port 80
+   <span class="dm">→ 看資料何時到達網路介面</span>
+
+<span class="hp">② strace</span>
+   strace -tts200 -p &lt;haproxy_pid&gt;
+   <span class="dm">→ 看 HAProxy 何時處理資料</span>
+   <span class="hy">⚠️ 必須加 -dS 停用 splice() 否則看不到轉發資料</span>
+
+<span class="hg">③ tcpdump（遠端）</span>
+   <span class="dm">→ 看資料何時到達/離開 server 端</span></div>
+  </div>
+  <div class="card">
+    <h3>🔎 常見延遲模式</h3>
+    <div class="tw"><table>
+      <thead><tr><th>症狀</th><th>原因</th><th>修正</th></tr></thead>
+      <tbody>
+        <tr><td>資料收到但未送出</td><td>Output buffer 滿（接收端太慢）</td><td>檢查 server 或 client 端瓶頸</td></tr>
+        <tr><td>40ms 或 200ms 延遲</td><td>Nagle 演算法（idle 流量）</td><td><code>option http-no-delay</code></td></tr>
+        <tr><td>本地送出但遠端未收到</td><td>WAN 壅塞、LAN flow control、或<strong>虛擬化延遲</strong>（VM 中幾乎一定是此原因）</td><td>檢查 hypervisor</td></tr>
+        <tr><td>TCP SACK segment</td><td>偵測到封包遺失</td><td>檢查網路品質</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>📊 netstat -i 介面診斷</h3>
+    <div class="tw"><table>
+      <thead><tr><th>計數器增長</th><th>意義</th></tr></thead>
+      <tbody>
+        <tr><td><code>Rx-Ovr</code></td><td>系統資源不足以接收封包</td></tr>
+        <tr><td><code>Rx-Drp</code></td><td>封包在 network stack 中遺失（應用太慢）</td></tr>
+        <tr><td><code>Tx-Drp</code></td><td>輸出佇列滿（出站鏈路飽和）</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== CH13 ===== -->
+<section id="security">
+  <div class="sh">
+    <span class="sn snr">CH 13</span>
+    <h2>安全強化</h2>
+  </div>
+  <div class="card">
+    <h3>🛡️ 安全架構原則</h3>
+    <p>HAProxy 設計為「<strong>以 root 啟動，以非 root 運行</strong>」。啟動需 root 的原因：調整 FD 限制、綁定特權 port（&lt;1024）、設定 chroot、降權到非特權 UID。運行時需 root 的場景極少（出站特權 source port、transparent bind — 大多數用戶不需要）。</p>
+  </div>
+  <div class="card">
+    <h3>🔧 建議安全設定</h3>
+    <div class="cb">global
+    <span class="hc">chroot</span> /var/empty              <span class="dm"># 空目錄 chmod 0</span>
+    <span class="hc">user</span> haproxy
+    <span class="hc">group</span> haproxy
+    stats socket /var/run/haproxy.sock uid hatop gid hatop mode 600
+
+<span class="dm"># 建立 chroot 目錄</span>
+mkdir /var/empty && chmod 0 /var/empty</div>
+  </div>
+  <div class="card">
+    <h3>🐧 Linux Capabilities（§13.1）</h3>
+    <div class="tw"><table>
+      <thead><tr><th>Capability</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>CAP_NET_BIND_SERVICE</code></td><td>綁定特權 port（&lt;1024）免 root</td></tr>
+        <tr><td><code>CAP_SYS_CHROOT</code></td><td>執行 chroot() 免 root</td></tr>
+        <tr><td><code>CAP_SETUID</code> / <code>CAP_SETGID</code></td><td>降權</td></tr>
+        <tr><td><code>CAP_NET_RAW</code></td><td>Transparent proxying（TPROXY）</td></tr>
+        <tr><td><code>CAP_NET_ADMIN</code></td><td>特定網路操作</td></tr>
+      </tbody>
+    </table></div>
+    <div class="cb"><span class="dm"># 設定 capabilities（免 root 綁定特權 port）</span>
+setcap 'cap_net_bind_service=+ep' /usr/sbin/haproxy</div>
+  </div>
+  <div class="card">
+    <h3>🔒 額外強化要點</h3>
+    <ul class="c">
+      <li>Stats socket 永遠用 <strong>UNIX socket + mode 600</strong>，絕不公開 TCP</li>
+      <li>日誌可能含機密資訊 — 與未授權存取日誌分開</li>
+      <li><code>harden.reject-privileged-ports.tcp</code> / <code>.quic</code> — 拒絕來自特權 source port 的連線</li>
+      <li><code>set-dumpable</code> — 降權後重新啟用 core dump（除錯用）</li>
+    </ul>
+  </div>
+</section>
+
+</div>
+
+<div class="footer">
+  HAProxy 3.2 中文速查表 — Part 5/5 Runtime API、除錯 &amp; 安全 ｜ 
+  資料來源：<a href="https://docs.haproxy.org/3.2/management.html" target="_blank">docs.haproxy.org</a> ｜ 
+  產製日期：2026-04-03
+</div>
+</body>
+</html>

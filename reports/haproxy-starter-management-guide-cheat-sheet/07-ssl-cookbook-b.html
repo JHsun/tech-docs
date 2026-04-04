@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HAProxy 3.2 SSL/TLS 食譜 Part B — OCSP、憑證熱更新、ACME、效能、除錯</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap');
+  :root{--bg:#0f1117;--surface:#1a1d27;--surface2:#232733;--border:#2e3345;--accent:#38bdf8;--accent2:#a78bfa;--accent3:#f472b6;--accent4:#34d399;--warn:#fbbf24;--danger:#f87171;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;font-size:15px}
+  .hero{background:linear-gradient(135deg,#1a0c2e 0%,#0f1117 50%,#0c1a3a 100%);border-bottom:1px solid var(--border);padding:3rem 2rem 2.5rem;text-align:center}
+  .hero-badge{display:inline-block;background:rgba(167,139,250,0.12);color:var(--accent2);font-size:.75rem;font-weight:600;padding:.3rem 1rem;border-radius:100px;border:1px solid rgba(167,139,250,0.25);letter-spacing:.08em;text-transform:uppercase;margin-bottom:1rem}
+  .hero h1{font-size:2rem;font-weight:900;background:linear-gradient(135deg,var(--accent2),var(--accent3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:.5rem}
+  .hero p{color:var(--text2);font-size:.95rem}
+  .container{max-width:1100px;margin:0 auto;padding:2rem 1.5rem}
+  .toc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.5rem 2rem;margin-bottom:2.5rem}
+  .toc h2{font-size:.85rem;text-transform:uppercase;letter-spacing:.1em;color:var(--accent2);margin-bottom:1rem}
+  .toc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:.5rem}
+  .toc a{color:var(--text2);text-decoration:none;font-size:.88rem;padding:.3rem .6rem;border-radius:6px;transition:all .2s;display:block}
+  .toc a:hover{background:var(--surface2);color:var(--accent2)}
+  .toc a .n{color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:.78rem;margin-right:.4rem}
+  section{margin-bottom:2.5rem}
+  .sh{display:flex;align-items:center;gap:.8rem;margin-bottom:1.2rem;padding-bottom:.8rem;border-bottom:2px solid var(--border)}
+  .sn{font-family:'JetBrains Mono',monospace;font-size:.72rem;font-weight:600;color:var(--bg);padding:.22rem .65rem;border-radius:6px;white-space:nowrap}
+  .s1{background:var(--accent)}.s2{background:var(--accent2)}.s3{background:var(--accent3)}.s4{background:var(--accent4)}.sr{background:var(--danger)}.sy{background:var(--warn)}
+  .sh h2{font-size:1.25rem;font-weight:700}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.3rem 1.5rem;margin-bottom:1.1rem}
+  .card h3{font-size:.95rem;font-weight:700;color:var(--accent2);margin-bottom:.7rem}
+  .card p{color:var(--text2);margin-bottom:.5rem;font-size:.92rem}
+  .tw{overflow-x:auto;margin:.8rem 0}
+  table{width:100%;border-collapse:collapse;font-size:.84rem}
+  thead th{background:var(--surface2);color:var(--accent2);font-weight:600;text-align:left;padding:.6rem .8rem;border-bottom:2px solid var(--border);white-space:nowrap}
+  tbody td{padding:.5rem .8rem;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top}
+  tbody tr:hover{background:rgba(167,139,250,0.04)}
+  td code,p code,li code{font-family:'JetBrains Mono',monospace;font-size:.8em;background:rgba(56,189,248,0.1);color:var(--accent);padding:.12rem .4rem;border-radius:4px}
+  .cb{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1rem 1.2rem;margin:.8rem 0;font-family:'JetBrains Mono',monospace;font-size:.76rem;line-height:1.85;color:var(--text);overflow-x:auto;white-space:pre}
+  .dia{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1.5rem;margin:1rem 0;font-family:'JetBrains Mono',monospace;font-size:.78rem;line-height:1.9;color:var(--text);overflow-x:auto;white-space:pre}
+  .hc{color:var(--accent);font-weight:600}.hp{color:var(--accent2);font-weight:600}.hk{color:var(--accent3);font-weight:600}.hg{color:var(--accent4);font-weight:600}.hy{color:var(--warn);font-weight:600}.hr{color:var(--danger);font-weight:600}.dm{color:var(--text3)}
+  .al{border-left:4px solid;border-radius:0 8px 8px 0;padding:.9rem 1.1rem;margin:.9rem 0;font-size:.88rem}
+  .al-w{border-color:var(--warn);background:rgba(251,191,36,0.08)}.al-w .at{color:var(--warn)}
+  .al-d{border-color:var(--danger);background:rgba(248,113,113,0.07)}.al-d .at{color:var(--danger)}
+  .al-i{border-color:var(--accent2);background:rgba(167,139,250,0.06)}.al-i .at{color:var(--accent2)}
+  .at{font-weight:700;margin-bottom:.3rem;font-size:.82rem}
+  .g2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+  @media(max-width:768px){.g2{grid-template-columns:1fr}}
+  ul.c{padding-left:1.2rem;color:var(--text2);font-size:.9rem}ul.c li{margin-bottom:.25rem}
+  .footer{text-align:center;padding:2rem;color:var(--text3);font-size:.78rem;border-top:1px solid var(--border);margin-top:2rem}
+  .footer a{color:var(--accent2);text-decoration:none}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-badge">HAProxy 3.2 專題速查</div>
+  <h1>SSL/TLS 設定食譜 — Part B</h1>
+  <p>OCSP Stapling ｜ 憑證熱更新 ｜ Let's Encrypt / ACME ｜ TLS 1.3 &amp; 0-RTT ｜ 效能調校 ｜ 除錯速查</p>
+</div>
+
+<div class="container">
+
+<nav class="toc">
+  <h2>📑 本篇目錄</h2>
+  <div class="toc-grid">
+    <a href="#ocsp"><span class="n">09</span>OCSP Stapling</a>
+    <a href="#hotreload"><span class="n">10</span>憑證熱更新（零停機）</a>
+    <a href="#acme"><span class="n">11</span>Let's Encrypt / ACME</a>
+    <a href="#tls13"><span class="n">12</span>TLS 1.3 &amp; 0-RTT</a>
+    <a href="#perf"><span class="n">13</span>效能調校</a>
+    <a href="#debug"><span class="n">14</span>除錯速查</a>
+  </div>
+</nav>
+
+<!-- ===== OCSP ===== -->
+<section id="ocsp">
+  <div class="sh"><span class="sn s4">09</span><h2>OCSP Stapling</h2></div>
+  <div class="card">
+    <h3>📌 作用</h3>
+    <p>HAProxy 預先取得憑證撤銷狀態，在 TLS 握手中附帶 → 免去用戶端另連 CA 的 <strong>100–300ms 延遲</strong>。</p>
+  </div>
+  <div class="card">
+    <h3>✅ 啟用方式（HAProxy 2.8+）</h3>
+    <div class="cb"><span class="dm"># 方法一：crt-list</span>
+<span class="dm"># /etc/haproxy/crt-list.txt</span>
+/etc/haproxy/certs/site.pem <span class="hg">[ocsp-update on]</span>
+
+<span class="dm"># 方法二：crt-store（HAProxy 3.2）</span>
+crt-store web
+    load crt "site.crt" key "site.key" <span class="hg">ocsp-update on</span> alias "site"
+
+<span class="dm"># 全域調校更新間隔</span>
+global
+    ocsp-update.mindelay 300     <span class="dm"># 最小間隔（秒）</span>
+    ocsp-update.maxdelay 3600    <span class="dm"># 最大間隔（秒）</span></div>
+  </div>
+  <div class="card">
+    <h3>🔧 Runtime API 管理</h3>
+    <div class="cb">echo "show ssl ocsp-response" | socat stdio $SOCK     <span class="dm"># 查看所有 OCSP 回應</span>
+echo "show ssl ocsp-updates" | socat stdio $SOCK      <span class="dm"># 查看排程中的更新</span>
+echo "update ssl ocsp-response /path/cert.pem" | socat stdio $SOCK  <span class="dm"># 手動觸發</span>
+
+<span class="dm"># 驗證是否生效</span>
+openssl s_client -connect example.com:443 -status -servername example.com 2>&1 | grep "OCSP Response"
+<span class="dm"># 應看到：OCSP Response Status: successful (0x0)</span></div>
+  </div>
+</section>
+
+<!-- ===== 憑證熱更新 ===== -->
+<section id="hotreload">
+  <div class="sh"><span class="sn s1">10</span><h2>憑證熱更新（零停機）</h2></div>
+  <div class="card">
+    <h3>🔄 完整工作流程</h3>
+    <div class="dia"><span class="hc">set ssl cert</span> ─▶ 建立交易（記憶體中） ─▶ <span class="hg">commit ssl cert</span> ─▶ 立即生效
+                                                              │
+                                                    <span class="hr">abort ssl cert</span> ─▶ 撤銷（若需取消）
+
+<span class="hy">⚠️ Runtime API 變更僅存在記憶體 → 務必同步更新磁碟檔案</span></div>
+  </div>
+  <div class="card">
+    <h3>📋 指令步驟</h3>
+    <div class="cb">SOCK="/var/run/haproxy/admin.sock"
+CERT="/etc/haproxy/certs/site.pem"
+
+<span class="dm"># 1) 查看目前憑證</span>
+echo "show ssl cert $CERT" | socat stdio $SOCK
+
+<span class="dm"># 2) 上傳新憑證（建立交易）</span>
+echo -e "set ssl cert $CERT &lt;&lt;\n$(cat ./new_cert.pem)\n" | socat stdio $SOCK
+
+<span class="dm"># 3) 驗證待定交易（帶 * 前綴）</span>
+echo "show ssl cert *$CERT" | socat stdio $SOCK
+
+<span class="dm"># 4) 提交（立即生效！）</span>
+echo "commit ssl cert $CERT" | socat stdio $SOCK
+
+<span class="dm"># 5) 同步磁碟</span>
+cp ./new_cert.pem $CERT</div>
+  </div>
+  <div class="card">
+    <h3>➕ 動態新增 / 移除 crt-list 條目</h3>
+    <div class="cb"><span class="dm"># 新增</span>
+echo "new ssl cert /etc/haproxy/certs/newsite.pem" | socat stdio $SOCK
+echo -e "set ssl cert /etc/haproxy/certs/newsite.pem &lt;&lt;\n$(cat ./newsite.pem)\n" | socat stdio $SOCK
+echo "commit ssl cert /etc/haproxy/certs/newsite.pem" | socat stdio $SOCK
+echo -e "add ssl crt-list /etc/haproxy/crt-list.txt &lt;&lt;\n/etc/haproxy/certs/newsite.pem newsite.example.com\n" | socat stdio $SOCK
+
+<span class="dm"># 移除</span>
+echo "del ssl crt-list /etc/haproxy/crt-list.txt /etc/haproxy/certs/old.pem" | socat stdio $SOCK</div>
+  </div>
+</section>
+
+<!-- ===== ACME ===== -->
+<section id="acme">
+  <div class="sh"><span class="sn s2">11</span><h2>Let's Encrypt / ACME 整合</h2></div>
+  <div class="card">
+    <h3>🏆 方法 A：acme.sh Stateless 模式（推薦）</h3>
+    <p>HAProxy 直接回應 HTTP-01 challenge，不需額外後端。</p>
+    <div class="cb"><span class="dm"># HAProxy 組態</span>
+frontend ft_web
+    bind :80
+    bind :443 ssl crt /etc/haproxy/certs/ strict-sni
+
+    <span class="dm"># ACME challenge（HAProxy 直接計算 token）</span>
+    http-request return status 200 content-type text/plain \
+        lf-string "%[path,field(-1,/)].<span class="hg">${ACCOUNT_THUMBPRINT}</span>\n" \
+        if { path_beg '/.well-known/acme-challenge/' }
+
+    http-request redirect scheme https unless { ssl_fc }
+    default_backend bk_web</div>
+    <div class="cb"><span class="dm"># 簽發 + 部署</span>
+acme.sh --register-account   <span class="dm"># 記下 ACCOUNT_THUMBPRINT</span>
+acme.sh --issue -d example.com --stateless
+
+<span class="dm"># 自動部署到 HAProxy（含熱更新）</span>
+DEPLOY_HAPROXY_HOT_UPDATE=yes \
+DEPLOY_HAPROXY_STATS_SOCKET=UNIX:/var/run/haproxy/admin.sock \
+DEPLOY_HAPROXY_PEM_PATH=/etc/haproxy/certs \
+acme.sh --deploy -d example.com --deploy-hook haproxy</div>
+  </div>
+  <div class="card">
+    <h3>🆕 方法 B：HAProxy 3.2 原生 ACME（實驗性）</h3>
+    <div class="cb">global
+    master-worker
+    <span class="hr">expose-experimental-directives</span>   <span class="dm"># 必須！</span>
+
+<span class="hp">acme letsencrypt</span>
+    directory https://acme-v02.api.letsencrypt.org/directory
+    account-key /etc/haproxy/account.key
+    contact admin@example.com
+    challenge HTTP-01
+
+crt-store my_certs
+    load crt "example.com.pem" <span class="hg">acme letsencrypt</span> domains "example.com" alias "example"
+
+frontend ft_web
+    bind :80
+    bind :443 ssl
+    http-request return status 200 content-type text/plain \
+        lf-string "%[path,field(-1,/)].%[path,field(-1,/),map(virt@acme)]\n" \
+        if { path_beg '/.well-known/acme-challenge/' }
+    ssl-f-use crt "@my_certs/example"
+    default_backend bk_web</div>
+    <div class="cb"><span class="dm"># Runtime 管理</span>
+echo "acme renew @my_certs/example" | socat stdio $SOCK   <span class="dm"># 手動續約</span>
+echo "acme status" | socat stdio $SOCK                     <span class="dm"># 查看狀態</span></div>
+    <p>到期前 <strong>7 天</strong>自動續約。HAProxy 3.3 新增 DNS-01 challenge 支援。</p>
+  </div>
+</section>
+
+<!-- ===== TLS 1.3 ===== -->
+<section id="tls13">
+  <div class="sh"><span class="sn s3">12</span><h2>TLS 1.3 &amp; 0-RTT 早期資料</h2></div>
+  <div class="card">
+    <h3>🔒 TLS 1.3 Only 模式</h3>
+    <div class="cb">global
+    ssl-default-bind-ciphersuites TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256
+    ssl-default-bind-curves X25519:prime256v1:secp384r1
+    ssl-default-bind-options prefer-client-ciphers ssl-min-ver TLSv1.3 no-tls-tickets
+    <span class="dm"># 不需要 ssl-default-bind-ciphers（TLS 1.2 指令）</span></div>
+    <p>僅支援 Chrome 63+、Firefox 63+、Safari 12.1+、Edge 79+。</p>
+  </div>
+  <div class="card">
+    <h3>⚡ 0-RTT（allow-0rtt）</h3>
+    <p>恢復連線時夾帶加密應用資料 → 零往返建立連線。但有<strong>重播攻擊風險</strong>。</p>
+    <div class="cb">frontend ft_tls13
+    bind :443 ssl crt /path/cert.pem alpn h2,http/1.1 <span class="hg">allow-0rtt</span>
+
+    <span class="dm"># 安全策略：只允許冪等方法使用 0-RTT</span>
+    http-request deny deny_status 425 if { ssl_fc_has_early } !{ method GET HEAD OPTIONS }
+
+    <span class="dm"># 或：等待握手完成（犧牲效能換安全）</span>
+    <span class="dm"># http-request wait-for-handshake if { ssl_fc_has_early }</span></div>
+    <div class="al al-w">
+      <div class="at">⚠️ 已知問題</div>
+      <code>allow-0rtt</code> 在 HAProxy 3.0–3.3 可能無法正常運作（GitHub #3270）。2.8 正常。部署前請充分測試。
+    </div>
+  </div>
+  <div class="card">
+    <h3>🌐 HTTP/2 &amp; HTTP/3</h3>
+    <div class="cb"><span class="dm"># 前端 HTTP/2</span>
+bind :443 ssl crt /cert.pem <span class="hc">alpn h2,http/1.1</span>
+
+<span class="dm"># 後端 HTTP/2</span>
+server web1 10.0.1.10:443 ssl <span class="hc">alpn h2,http/1.1</span> verify required ca-file /ca.pem
+
+<span class="dm"># HTTP/3 over QUIC（HAProxy 3.2+）</span>
+bind quic4@:443 ssl crt /cert.pem <span class="hp">alpn h3</span></div>
+  </div>
+</section>
+
+<!-- ===== 效能 ===== -->
+<section id="perf">
+  <div class="sh"><span class="sn sy">13</span><h2>SSL 效能調校</h2></div>
+  <div class="card">
+    <h3>🚨 OpenSSL 3.0 效能衰退</h3>
+    <p>OpenSSL 3.0 的模組化重構引入嚴重<strong>多執行緒鎖競爭</strong>，TLS 握手效能衰退 <strong>32%+</strong>。</p>
+    <div class="tw"><table>
+      <thead><tr><th>替代方案</th><th>效能</th><th>建議</th></tr></thead>
+      <tbody>
+        <tr><td><strong>AWS-LC</strong></td><td>🟢 最佳</td><td>✅ HAProxy Enterprise 3.2 預設。社群版用 <code>USE_OPENSSL_AWSLC=1</code></td></tr>
+        <tr><td><strong>OpenSSL 3.5 LTS</strong></td><td>🟡 改善</td><td>仍不及 1.1.1</td></tr>
+        <tr><td><strong>BoringSSL / QuicTLS</strong></td><td>🟢 良好</td><td>HAProxy 原生支援</td></tr>
+        <tr><td><strong>OpenSSL 1.1.1</strong></td><td>🟢 最快</td><td>⚠️ 已 EOL</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>📊 ECDSA vs RSA</h3>
+    <p>ECDSA P-256 簽章速度是 RSA 2048 的 <strong>15 倍以上</strong>，CPU 用量約 1/8，憑證鏈更小。</p>
+    <div class="cb"><span class="dm"># 雙憑證自動載入（ECDSA 優先，RSA 後備）</span>
+<span class="dm"># 檔案命名：</span>
+<span class="dm">#   /etc/haproxy/certs/example.pem.ecdsa</span>
+<span class="dm">#   /etc/haproxy/certs/example.pem.rsa</span>
+
+<span class="dm"># 引用時不帶副檔名 → HAProxy 自動載入兩者</span>
+bind :443 ssl crt /etc/haproxy/certs/example.pem alpn h2,http/1.1</div>
+  </div>
+  <div class="card">
+    <h3>⚙️ 效能參數速查</h3>
+    <div class="tw"><table>
+      <thead><tr><th>參數</th><th>預設</th><th>建議</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>tune.ssl.cachesize</code></td><td>20000</td><td>100000</td><td>SSL session 快取條目數</td></tr>
+        <tr><td><code>tune.ssl.lifetime</code></td><td>300</td><td>600</td><td>Session 有效期（秒）</td></tr>
+        <tr><td><code>tune.ssl.default-dh-param</code></td><td>1024</td><td><strong>2048</strong></td><td>DHE 金鑰交換參數（僅 TLS 1.2）</td></tr>
+        <tr><td><code>tune.ssl.maxrecord</code></td><td>16384</td><td>1419</td><td>低延遲場景：限制 record 大小改善 TTFB</td></tr>
+        <tr><td><code>nbthread</code></td><td>自動</td><td>依核心數</td><td>多執行緒分散 SSL 負載</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== 除錯 ===== -->
+<section id="debug">
+  <div class="sh"><span class="sn sr">14</span><h2>SSL 除錯速查</h2></div>
+  <div class="card">
+    <h3>🔍 常見錯誤對照表</h3>
+    <div class="tw"><table>
+      <thead><tr><th>錯誤訊息</th><th>原因</th><th>修正</th></tr></thead>
+      <tbody>
+        <tr><td><code>unable to load SSL certificate</code></td><td>檔案不存在、權限不足、CRLF 換行</td><td>確認路徑、<code>chmod 600</code>、<code>dos2unix</code></td></tr>
+        <tr><td><code>certificate verify failed</code></td><td>CA 鏈不完整、憑證過期</td><td><code>openssl verify -CAfile ca.pem cert.pem</code></td></tr>
+        <tr><td><code>no shared cipher</code></td><td>加密套件不匹配</td><td>放寬 cipher list 或加入雙憑證</td></tr>
+        <tr><td><code>SSL handshake failure</code></td><td>協定版本不匹配、缺少用戶端憑證</td><td>檢查 <code>ssl_fc_err</code> 日誌</td></tr>
+        <tr><td><code>unknown ca</code></td><td>用戶端 CA 不在 <code>ca-file</code> 中</td><td>加入缺少的 CA</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>🧪 openssl 測試指令集</h3>
+    <div class="cb"><span class="dm"># 基本連線</span>
+openssl s_client -connect host:443 -servername www.example.com
+
+<span class="dm"># 指定 TLS 版本</span>
+openssl s_client -connect host:443 -tls1_3
+
+<span class="dm"># mTLS 測試</span>
+openssl s_client -connect host:443 -cert client.crt -key client.key -CAfile ca.crt
+
+<span class="dm"># OCSP 檢查</span>
+openssl s_client -connect host:443 -status
+
+<span class="dm"># Session Resumption 測試</span>
+openssl s_client -connect host:443 -sess_out /tmp/sess.pem
+openssl s_client -connect host:443 -sess_in /tmp/sess.pem
+<span class="dm"># 看到 "Reused, TLSv1.3" = 成功</span></div>
+  </div>
+  <div class="card">
+    <h3>📊 SSL 日誌欄位</h3>
+    <div class="cb"><span class="dm"># 推薦 HTTPS log-format</span>
+log-format "%ci:%cp [%tr] %ft %b/%s %TR/%Tw/%Tc/%Tr/%Ta %ST %B %tsc %{+Q}r <span class="hc">%sslv/%sslc</span> <span class="hp">%[ssl_fc_sni]/%[ssl_c_verify]/%[ssl_fc_is_resumed]</span>"</div>
+    <div class="tw"><table>
+      <thead><tr><th>變數</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>%sslv</code></td><td>TLS 版本</td></tr>
+        <tr><td><code>%sslc</code></td><td>加密套件名稱</td></tr>
+        <tr><td><code>%Th</code></td><td>TLS 握手時間（ms）</td></tr>
+        <tr><td><code>%[ssl_fc_sni]</code></td><td>用戶端 SNI</td></tr>
+        <tr><td><code>%[ssl_fc_err]</code></td><td>SSL 錯誤代碼</td></tr>
+        <tr><td><code>%[ssl_fc_err_str]</code></td><td>SSL 錯誤字串（人類可讀）</td></tr>
+        <tr><td><code>%[ssl_c_verify]</code></td><td>用戶端憑證驗證結果</td></tr>
+        <tr><td><code>%[ssl_fc_is_resumed]</code></td><td>Session 是否被恢復</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>🖥️ Runtime API 除錯</h3>
+    <div class="cb">echo "show ssl cert" | socat stdio $SOCK          <span class="dm"># 列出所有憑證</span>
+echo "show ssl crt-list" | socat stdio $SOCK       <span class="dm"># 列出 crt-list</span>
+echo "show ssl ca-file" | socat stdio $SOCK        <span class="dm"># 列出 CA 檔案</span>
+echo "show ssl ocsp-response" | socat stdio $SOCK  <span class="dm"># OCSP 回應</span>
+echo "show info" | socat stdio $SOCK | grep -i ssl <span class="dm"># SSL 統計計數器</span>
+echo "show errors" | socat stdio $SOCK             <span class="dm"># 含 SSL 握手錯誤</span></div>
+    <div class="al al-i">
+      <div class="at">💡 關鍵 SSL 計數器（show info）</div>
+      <code>SslFrontendKeyRate</code> = 目前 SSL 金鑰協商速率。<code>SslFrontendSessionReuse_pct</code> = Session 重用率。快取命中率 = <code>(CacheLookups - CacheMisses) / CacheLookups</code>。
+    </div>
+  </div>
+</section>
+
+</div>
+
+<div class="footer">
+  HAProxy 3.2 SSL/TLS 食譜 — Part B OCSP、ACME、效能、除錯 ｜ 
+  資料來源：<a href="https://docs.haproxy.org/3.2/" target="_blank">docs.haproxy.org</a> &amp; 
+  <a href="https://www.haproxy.com/blog" target="_blank">haproxy.com/blog</a> ｜ 
+  產製日期：2026-04-03
+</div>
+</body>
+</html>
