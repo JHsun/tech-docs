@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HAProxy 3.0 Cheat Sheet — Ch8 Logging</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="topnav">
+  <a class="brand" href="#">HAProxy 3.0 速查手冊</a>
+  <div class="nav-links">
+    <a href="ch01-02-http-config.html">Ch1-2</a>
+    <a href="ch03-global.html">Ch3</a>
+    <a href="ch04-proxies.html">Ch4</a>
+    <a href="ch05-bind-server.html">Ch5</a>
+    <a href="ch06-09-10-11-misc.html">Ch6,9-11</a>
+    <a href="ch07-acl-samples.html">Ch7</a>
+    <a href="#" class="active">Ch8</a>
+  </div>
+</nav>
+
+<div class="container">
+
+<div class="page-header">
+  <div class="chapter-num">Chapter 8</div>
+  <h1>Logging 日誌</h1>
+  <div class="subtitle">日誌等級、格式、時間欄位、連線狀態 與 自訂 log</div>
+</div>
+
+<!-- ═══════ 8.1 Log Levels ═══════ -->
+<h2><span class="sec-num">8.1</span>Log 等級</h2>
+
+<div class="table-wrap">
+<table>
+<tr><th>等級</th><th>數值</th><th>說明</th></tr>
+<tr><td><code>emerg</code></td><td>0</td><td>系統不可用</td></tr>
+<tr><td><code>alert</code></td><td>1</td><td>需立即處理</td></tr>
+<tr><td><code>crit</code></td><td>2</td><td>嚴重狀況</td></tr>
+<tr><td><code>err</code></td><td>3</td><td>錯誤</td></tr>
+<tr><td><code>warning</code></td><td>4</td><td>警告</td></tr>
+<tr><td><code>notice</code></td><td>5</td><td>正常但值得注意</td></tr>
+<tr><td><code>info</code></td><td>6</td><td>資訊性訊息（預設 access log 等級）</td></tr>
+<tr><td><code>debug</code></td><td>7</td><td>除錯訊息</td></tr>
+</table>
+</div>
+
+<pre><code><span class="section">global</span>
+    <span class="keyword">log</span>  <span class="value">/dev/log  local0  info</span>       <span class="comment"># facility=local0, 最高記錄到 info</span>
+    <span class="keyword">log</span>  <span class="value">/dev/log  local1  notice</span>     <span class="comment"># 第二組日誌</span>
+
+<span class="section">defaults</span>
+    <span class="keyword">log</span>  <span class="value">global</span>                         <span class="comment"># 繼承 global 的日誌設定</span></code></pre>
+
+<!-- ═══════ 8.2 Log Formats ═══════ -->
+<h2><span class="sec-num">8.2</span>日誌格式</h2>
+
+<h3>預設格式</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>格式</th><th>啟用方式</th><th>適用</th></tr>
+<tr><td><strong>Default</strong></td><td>（不設定 option）</td><td>最簡單，僅基本連線資訊</td></tr>
+<tr><td><strong>TCP log</strong></td><td><code>option tcplog</code></td><td>L4 模式，含時間、來源、server 資訊</td></tr>
+<tr><td><strong>HTTP log</strong></td><td><code>option httplog</code></td><td>L7 模式，含 method、URI、status</td></tr>
+<tr><td><strong>HTTPS log</strong></td><td><code>option httpslog</code></td><td>同 HTTP log 再加 SSL 資訊</td></tr>
+<tr><td><strong>Error log</strong></td><td>自動（錯誤時）</td><td>連線錯誤的詳細資訊</td></tr>
+<tr><td><strong>Custom</strong></td><td><code>log-format &lt;string&gt;</code></td><td>完全自訂</td></tr>
+</table>
+</div>
+
+<h3>HTTP log 輸出欄位解析</h3>
+
+<pre><code class="comment"># HTTP log 格式（option httplog 輸出）：
+# client_ip:port [accept_date] frontend_name backend/server
+# Tq/Tw/Tc/Tr/Tt status_code bytes_read
+# captured_request_cookie captured_response_cookie
+# termination_state actconn/feconn/beconn/srv_conn/retries
+# srv_queue/backend_queue {captured_headers} "HTTP_request"
+
+Feb 6 12:14:14 localhost haproxy[14389]:
+  10.0.1.2:33317 [06/Feb/2009:12:14:14.655] http-in app/s1
+  10/0/30/69/109 200 2750
+  - - ---- 1/1/1/1/0 0/0
+  {host.example.com} "GET /index.html HTTP/1.1"</code></pre>
+
+<h3>時間欄位詳解</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>縮寫</th><th>全名</th><th>說明</th></tr>
+<tr><td><strong>Tq</strong></td><td>request time</td><td>完整接收請求 Header 的時間 (ms)</td></tr>
+<tr><td><strong>Tw</strong></td><td>queue time</td><td>在佇列中等待 server 的時間 (ms)</td></tr>
+<tr><td><strong>Tc</strong></td><td>connect time</td><td>TCP 連線到後端的時間 (ms)</td></tr>
+<tr><td><strong>Tr</strong></td><td>response time</td><td>後端回應第一個 byte 的時間 (ms)</td></tr>
+<tr><td><strong>Tt</strong></td><td>total time</td><td>從 accept 到 close 的總時間 (ms)</td></tr>
+</table>
+</div>
+
+<div class="diagram">  Client          HAProxy                 Server
+    │─── Tq ───▶│                          │
+    │           │── Tw ──▶ (queue)         │
+    │           │─── Tc ──▶│               │
+    │           │           │── Tr ──▶     │
+    │◀──────────│◀──────────│◀─────────────│
+    │◀───────── Tt ──────────────────────▶│</code></pre></div>
+
+<!-- ═══════ 8.5 Termination State ═══════ -->
+<h2><span class="sec-num">8.5</span>連線終止狀態 (Termination State)</h2>
+
+<p>日誌中的 4 字元旗標，例如 <code>----</code> 或 <code>cD--</code>：</p>
+
+<div class="table-wrap">
+<table>
+<tr><th>位置</th><th>含義</th><th>常見值</th></tr>
+<tr>
+  <td>第 1 字元</td>
+  <td>第一個事件（誰發起結束）</td>
+  <td>
+    <code>C</code> = 客戶端中止,
+    <code>S</code> = 伺服器中止,
+    <code>P</code> = HAProxy 主動關閉,
+    <code>R</code> = 資源不足,
+    <code>I</code> = 內部錯誤,
+    <code>D</code> = 因安全規則拒絕,
+    <code>-</code> = 正常
+  </td>
+</tr>
+<tr>
+  <td>第 2 字元</td>
+  <td>TCP/會話層狀態</td>
+  <td>
+    <code>R</code> = 請求階段中止,
+    <code>Q</code> = 佇列中中止,
+    <code>C</code> = 連線階段中止,
+    <code>H</code> = 回應 Header 階段中止,
+    <code>D</code> = 資料傳輸中中止,
+    <code>L</code> = 傳輸完最後資料後中止,
+    <code>T</code> = 因 tarpit 中止,
+    <code>-</code> = 正常完成
+  </td>
+</tr>
+<tr>
+  <td>第 3 字元</td>
+  <td>Persistence cookie</td>
+  <td><code>N</code> = 無 cookie, <code>I</code> = 不合法, <code>D</code> = cookie 對應的 server DOWN, <code>V</code> = 有效, <code>-</code> = 不使用</td>
+</tr>
+<tr>
+  <td>第 4 字元</td>
+  <td>Persistence cookie 處理</td>
+  <td><code>N</code> = 未設 cookie, <code>I</code> = 已插入, <code>U</code> = 已更新, <code>P</code> = 已加前綴, <code>D</code> = 已刪除, <code>-</code> = 無動作</td>
+</tr>
+</table>
+</div>
+
+<div class="callout info">
+  <div class="callout-title">常見組合</div>
+  <code>----</code> = 正常完成 |
+  <code>CD--</code> = 客戶端在資料傳輸中斷線 |
+  <code>cD--</code> = 客戶端提前關閉 |
+  <code>sH--</code> = server 在回應 Header 階段錯誤 |
+  <code>PR--</code> = HAProxy 在請求階段拒絕（如 ACL deny）|
+  <code>SC--</code> = server 連線失敗
+</div>
+
+<!-- ═══════ 8.6 Custom log-format ═══════ -->
+<h2><span class="sec-num">8.2.6</span>自訂 log-format</h2>
+
+<pre><code><span class="section">defaults</span>
+    <span class="keyword">log-format</span> <span class="string">"%ci:%cp [%tr] %ft %b/%s %TR/%Tw/%Tc/%Tr/%Ta %ST %B %CC %CS %tsc %ac/%fc/%bc/%sc/%rc %sq/%bq %hr %hs %{+Q}r"</span></code></pre>
+
+<h3>常用 log-format 變數</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>變數</th><th>說明</th></tr>
+<tr><td><code>%ci / %cp</code></td><td>客戶端 IP / Port</td></tr>
+<tr><td><code>%fi / %fp</code></td><td>前端 IP / Port</td></tr>
+<tr><td><code>%si / %sp</code></td><td>後端 server IP / Port</td></tr>
+<tr><td><code>%bi / %bp</code></td><td>後端連線 IP / Port</td></tr>
+<tr><td><code>%ft</code></td><td>frontend 名稱（含 ~ssl 標記）</td></tr>
+<tr><td><code>%b / %s</code></td><td>backend / server 名稱</td></tr>
+<tr><td><code>%t / %tr / %T</code></td><td>accept 時間 / 請求時間 / Unix timestamp</td></tr>
+<tr><td><code>%TR</code></td><td>請求 Header 接收時間 (ms)</td></tr>
+<tr><td><code>%Tw</code></td><td>佇列等待時間 (ms)</td></tr>
+<tr><td><code>%Tc</code></td><td>後端連線時間 (ms)</td></tr>
+<tr><td><code>%Tr</code></td><td>回應時間 (ms)</td></tr>
+<tr><td><code>%Ta / %Tt</code></td><td>活躍時間 / 總時間 (ms)</td></tr>
+<tr><td><code>%ST</code></td><td>HTTP 狀態碼</td></tr>
+<tr><td><code>%B / %U</code></td><td>傳送 bytes / 接收 bytes</td></tr>
+<tr><td><code>%CC / %CS</code></td><td>捕獲的 request / response cookie</td></tr>
+<tr><td><code>%tsc</code></td><td>終止狀態碼（4 字元）</td></tr>
+<tr><td><code>%ac / %fc / %bc / %sc / %rc</code></td><td>活躍/前端/後端/server/重試 連線數</td></tr>
+<tr><td><code>%sq / %bq</code></td><td>server / backend 佇列長度</td></tr>
+<tr><td><code>%hr / %hs</code></td><td>捕獲的 request / response Header</td></tr>
+<tr><td><code>%r / %HM / %HP / %HV</code></td><td>HTTP 請求行 / method / path / version</td></tr>
+<tr><td><code>%{+Q}r</code></td><td>帶引號的 HTTP 請求行</td></tr>
+<tr><td><code>%ID</code></td><td>unique-id</td></tr>
+<tr><td><code>%sslc / %sslv</code></td><td>SSL cipher / SSL version</td></tr>
+<tr><td><code>%[var(txn.xxx)]</code></td><td>自訂變數（任意 sample fetch 均可用）</td></tr>
+</table>
+</div>
+
+<h3>JSON 日誌格式範例</h3>
+
+<pre><code><span class="keyword">log-format</span> <span class="string">'{"timestamp":"%t","client":"%ci:%cp","frontend":"%ft","backend":"%b/%s","status":%ST,"bytes":%B,"timers":{"req":%TR,"queue":%Tw,"conn":%Tc,"resp":%Tr,"total":%Ta},"method":"%HM","path":"%HP","termination":"%tsc"}'</span></code></pre>
+
+<!-- ═══════ 8.3 Advanced Options ═══════ -->
+<h2><span class="sec-num">8.3</span>進階日誌選項</h2>
+
+<div class="table-wrap">
+<table>
+<tr><th>選項</th><th>說明</th></tr>
+<tr><td><code>option dontlognull</code></td><td>不記錄未送資料就斷開的連線（如健康檢查探測）</td></tr>
+<tr><td><code>option dontlog-normal</code></td><td>只記錄異常連線（重試、錯誤、超時等）</td></tr>
+<tr><td><code>option logasap</code></td><td>收到 server 回應 Header 後立即記錄（不等資料傳完）</td></tr>
+<tr><td><code>option log-separate-errors</code></td><td>將錯誤日誌提升等級到 <code>err</code>（分離到不同 facility）</td></tr>
+<tr><td><code>option log-health-checks</code></td><td>記錄健康檢查狀態變化</td></tr>
+<tr><td><code>option http-ignore-probes</code></td><td>完全忽略不像 HTTP 的連線探測（不記錄、不回應）</td></tr>
+<tr><td><code>unique-id-format &lt;fmt&gt;</code></td><td>定義 unique ID 格式</td></tr>
+<tr><td><code>unique-id-header &lt;name&gt;</code></td><td>將 unique ID 放入指定 Header</td></tr>
+</table>
+</div>
+
+<pre><code><span class="section">frontend</span> <span class="string">fe_main</span>
+    <span class="keyword">unique-id-format</span>  <span class="string">%{+X}o_%ci_%cp_%fi_%fp_%Ts_%rt:%pid</span>
+    <span class="keyword">unique-id-header</span>  <span class="string">X-Request-ID</span>
+    <span class="keyword">capture request header</span>  <span class="string">Host</span>           <span class="value">len 40</span>
+    <span class="keyword">capture request header</span>  <span class="string">User-Agent</span>     <span class="value">len 100</span>
+    <span class="keyword">capture response header</span> <span class="string">Content-Type</span>   <span class="value">len 30</span></code></pre>
+
+<!-- ═══════ 8.7-8.8 Capturing ═══════ -->
+<h2><span class="sec-num">8.7–8.8</span>捕獲 Cookie 與 Header</h2>
+
+<pre><code><span class="comment"># 捕獲 Cookie（出現在 %CC / %CS）</span>
+<span class="keyword">capture cookie</span>  <span class="string">JSESSIONID=</span>  <span class="value">len 32</span>
+
+<span class="comment"># 捕獲 Header（出現在 %hr / %hs）</span>
+<span class="keyword">capture request header</span>   <span class="string">X-Forwarded-For</span>  <span class="value">len 45</span>
+<span class="keyword">capture response header</span>  <span class="string">X-Cache</span>           <span class="value">len 10</span>
+
+<span class="comment"># 以 declare capture + action 動態捕獲</span>
+<span class="keyword">declare capture request</span>  <span class="value">len 64</span>         <span class="comment"># slot 0</span>
+<span class="keyword">http-request capture</span> <span class="value">req.hdr(Authorization)</span> <span class="keyword">id</span> <span class="value">0</span></code></pre>
+
+<div class="callout tip">
+  <div class="callout-title">日誌分析建議</div>
+  配合 <code>option httplog</code> + 自訂 <code>log-format</code> 輸出 JSON，可直接對接 ELK / Loki / Splunk 等日誌平台。用 <code>unique-id-header</code> 實現跨服務的請求追蹤串聯。
+</div>
+
+<div class="footer-nav">
+  <a href="ch07-acl-samples.html">← Ch7 ACL & Samples</a>
+  <span style="color:var(--text-dim);">完結 ✓</span>
+</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HAProxy 3.0 Cheat Sheet — Ch7 ACL & Samples</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="topnav">
+  <a class="brand" href="#">HAProxy 3.0 速查手冊</a>
+  <div class="nav-links">
+    <a href="ch01-02-http-config.html">Ch1-2</a>
+    <a href="ch03-global.html">Ch3</a>
+    <a href="ch04-proxies.html">Ch4</a>
+    <a href="ch05-bind-server.html">Ch5</a>
+    <a href="ch06-09-10-11-misc.html">Ch6,9-11</a>
+    <a href="#" class="active">Ch7</a>
+    <a href="ch08-logging.html">Ch8</a>
+  </div>
+</nav>
+
+<div class="container">
+
+<div class="page-header">
+  <div class="chapter-num">Chapter 7</div>
+  <h1>ACL 與 Sample Fetching</h1>
+  <div class="subtitle">條件匹配、資料擷取、轉換器 — HAProxy 路由與決策的核心</div>
+</div>
+
+<!-- ═══════ 7.1 ACL Basics ═══════ -->
+<h2><span class="sec-num">7.1</span>ACL 基礎</h2>
+
+<pre><code><span class="comment"># ACL 語法</span>
+<span class="keyword">acl</span> <span class="string">&lt;name&gt;</span> <span class="value">&lt;criterion&gt;</span> [flags] [operator] <span class="string">&lt;value&gt; ...</span>
+
+<span class="comment"># 範例</span>
+<span class="keyword">acl</span>  <span class="string">is_api</span>       <span class="value">path_beg</span>      <span class="string">/api/</span>
+<span class="keyword">acl</span>  <span class="string">is_post</span>      <span class="value">method</span>        <span class="string">POST</span>
+<span class="keyword">acl</span>  <span class="string">host_blog</span>   <span class="value">hdr(Host)</span> <span class="keyword">-i</span> <span class="string">blog.example.com</span>
+<span class="keyword">acl</span>  <span class="string">rate_abuse</span>  <span class="value">sc_http_req_rate(0)</span> <span class="keyword">gt</span> <span class="value">100</span></code></pre>
+
+<h3>匹配類型</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>類型</th><th>匹配方法</th><th>Flag / 運算子</th></tr>
+<tr>
+  <td><strong>Boolean</strong></td>
+  <td>有值 = true / 無值 = false</td>
+  <td>直接使用，如 <code>{ ssl_fc }</code></td>
+</tr>
+<tr>
+  <td><strong>Integer</strong></td>
+  <td>數值比較</td>
+  <td><code>eq</code> <code>ne</code> <code>lt</code> <code>le</code> <code>gt</code> <code>ge</code>，範圍 <code>1:100</code></td>
+</tr>
+<tr>
+  <td><strong>String</strong></td>
+  <td>字串匹配</td>
+  <td><code>-i</code> (不分大小寫), <code>-f &lt;file&gt;</code> (從檔案讀), <code>-m &lt;method&gt;</code></td>
+</tr>
+<tr>
+  <td><strong>Regex</strong></td>
+  <td>正規表達式</td>
+  <td><code>-m reg</code>，<code>-i</code> 可加</td>
+</tr>
+<tr>
+  <td><strong>IP</strong></td>
+  <td>IP / CIDR 匹配</td>
+  <td><code>-f &lt;file&gt;</code> 可載入 IP 清單</td>
+</tr>
+</table>
+</div>
+
+<h3>字串匹配方法 (<code>-m</code>)</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>方法</th><th>說明</th><th>對應速記 fetch</th></tr>
+<tr><td><code>-m str</code></td><td>完全匹配</td><td><code>path</code></td></tr>
+<tr><td><code>-m beg</code></td><td>前綴匹配</td><td><code>path_beg</code></td></tr>
+<tr><td><code>-m end</code></td><td>後綴匹配</td><td><code>path_end</code></td></tr>
+<tr><td><code>-m sub</code></td><td>子字串匹配</td><td><code>path_sub</code></td></tr>
+<tr><td><code>-m dir</code></td><td>目錄匹配（以 / 分隔）</td><td><code>path_dir</code></td></tr>
+<tr><td><code>-m dom</code></td><td>域名匹配（以 . 分隔）</td><td><code>hdr_dom</code></td></tr>
+<tr><td><code>-m reg</code></td><td>正規表達式</td><td><code>path_reg</code></td></tr>
+<tr><td><code>-m len</code></td><td>字串長度</td><td></td></tr>
+<tr><td><code>-m found</code></td><td>是否存在</td><td></td></tr>
+</table>
+</div>
+
+<!-- ═══════ 7.2 Conditions ═══════ -->
+<h2><span class="sec-num">7.2</span>ACL 條件組合</h2>
+
+<pre><code><span class="comment"># 邏輯運算</span>
+<span class="keyword">use_backend</span> <span class="string">api</span>  <span class="keyword">if</span>  <span class="string">is_api</span> <span class="string">is_post</span>        <span class="comment"># AND（空格 = 且）</span>
+<span class="keyword">use_backend</span> <span class="string">api</span>  <span class="keyword">if</span>  <span class="string">is_api</span> <span class="keyword">||</span> <span class="string">is_post</span>    <span class="comment"># OR</span>
+<span class="keyword">use_backend</span> <span class="string">api</span>  <span class="keyword">if</span>  !<span class="string">is_static</span>              <span class="comment"># NOT</span>
+<span class="keyword">use_backend</span> <span class="string">api</span>  <span class="keyword">if</span>  <span class="string">is_api</span> !<span class="string">is_blocked</span> <span class="keyword">||</span> <span class="string">is_admin</span>
+
+<span class="comment"># 匿名 (inline) ACL — 大括號語法</span>
+<span class="keyword">use_backend</span> <span class="string">api</span>  <span class="keyword">if</span>  { path_beg /api/ } { method POST PUT }
+<span class="keyword">http-request deny</span>  <span class="keyword">if</span>  { src 10.0.0.0/8 } !{ src 10.0.1.0/24 }</code></pre>
+
+<div class="callout tip">
+  <div class="callout-title">優先順序</div>
+  <code>!</code>（NOT）最高 → 空格（AND）→ <code>||</code>（OR）。建議用命名 ACL 保持可讀性，inline ACL 適合簡單條件。
+</div>
+
+<!-- ═══════ 7.3 Sample Fetching ═══════ -->
+<h2><span class="sec-num">7.3</span>Sample Fetching（資料擷取）</h2>
+
+<p>Sample fetch 是 HAProxy 的資料擷取引擎，可用於 ACL、log-format、set-header、set-var 等幾乎所有需要動態值的地方。</p>
+
+<h3>7.3.1 Converters（轉換器）</h3>
+
+<p>轉換器以逗號串接在 fetch 後方，形成處理管線：</p>
+
+<pre><code><span class="comment"># 語法：fetch,converter1,converter2,...</span>
+<span class="value">%[req.hdr(Host),lower,map_str(/etc/haproxy/hosts.map,default_backend)]</span>
+
+<span class="comment"># 常用轉換器範例</span>
+<span class="value">%[src,ipmask(24)]</span>                          <span class="comment"># IP 遮罩</span>
+<span class="value">%[date,ltime(%Y-%m-%d)]</span>                    <span class="comment"># 時間格式化</span>
+<span class="value">%[req.hdr(X-Token),sha1,hex]</span>               <span class="comment"># SHA1 + hex 編碼</span>
+<span class="value">%[path,regsub(^/old/,/new/)]</span>               <span class="comment"># 正規替換</span></code></pre>
+
+<div class="table-wrap">
+<table>
+<tr><th>轉換器</th><th>說明</th></tr>
+<tr><td><code>lower / upper</code></td><td>轉小寫 / 大寫</td></tr>
+<tr><td><code>base64 / b64dec</code></td><td>Base64 編碼 / 解碼</td></tr>
+<tr><td><code>hex / hex2i</code></td><td>Hex 編碼 / hex→整數</td></tr>
+<tr><td><code>json</code></td><td>JSON 跳脫字串</td></tr>
+<tr><td><code>sha1 / sha2(&lt;bits&gt;)</code></td><td>SHA 雜湊</td></tr>
+<tr><td><code>crc32 / djb2 / sdbm</code></td><td>雜湊函式（回傳整數）</td></tr>
+<tr><td><code>map_str(&lt;file&gt;[,&lt;default&gt;])</code></td><td>字串→字串 map 查詢</td></tr>
+<tr><td><code>map_ip / map_int / map_dom / map_beg / map_end / map_reg</code></td><td>不同匹配方式的 map 查詢</td></tr>
+<tr><td><code>regsub(&lt;re&gt;,&lt;sub&gt;[,&lt;flags&gt;])</code></td><td>正規表達式替換</td></tr>
+<tr><td><code>field(&lt;delim&gt;,&lt;n&gt;)</code></td><td>以分隔符取第 n 段</td></tr>
+<tr><td><code>word(&lt;delim&gt;,&lt;n&gt;)</code></td><td>以分隔符取第 n 個字</td></tr>
+<tr><td><code>concat(&lt;pfx&gt;,&lt;sfx&gt;,&lt;delim&gt;)</code></td><td>串接前後綴</td></tr>
+<tr><td><code>ipmask(&lt;bits&gt;)</code></td><td>IP 遮罩運算</td></tr>
+<tr><td><code>ltime(&lt;fmt&gt;) / utime(&lt;fmt&gt;)</code></td><td>Unix timestamp → 本地/UTC 時間字串</td></tr>
+<tr><td><code>add(&lt;n&gt;) / sub / mul / div / mod</code></td><td>整數算術</td></tr>
+<tr><td><code>and(&lt;n&gt;) / or(&lt;n&gt;) / neg</code></td><td>位元運算 / 邏輯否定</td></tr>
+<tr><td><code>nbsrv</code></td><td>取得指定 backend 的活躍 server 數</td></tr>
+<tr><td><code>set-var(&lt;scope&gt;.&lt;name&gt;)</code></td><td>作為 converter 使用，存入變數</td></tr>
+<tr><td><code>iif(&lt;true&gt;,&lt;false&gt;)</code></td><td>三元運算（boolean → 字串）</td></tr>
+<tr><td><code>strcmp(&lt;str&gt;)</code></td><td>字串比較（回傳 -1/0/1）</td></tr>
+<tr><td><code>digest(&lt;algo&gt;)</code></td><td>指定演算法的 digest</td></tr>
+<tr><td><code>hmac(&lt;algo&gt;,&lt;key&gt;)</code></td><td>HMAC 計算</td></tr>
+<tr><td><code>aes_gcm_enc / aes_gcm_dec</code></td><td>AES-GCM 加密/解密</td></tr>
+<tr><td><code>protobuf(&lt;field&gt;)</code></td><td>解析 gRPC/Protobuf 欄位</td></tr>
+<tr><td><code>json_query(&lt;path&gt;)</code></td><td>JSON 路徑查詢</td></tr>
+<tr><td><code>jwt_header_query / jwt_payload_query</code></td><td>JWT 解析</td></tr>
+</table>
+</div>
+
+<h3>7.3.2 Internal State Fetches（內部狀態）</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>Fetch</th><th>說明</th></tr>
+<tr><td><code>be_conn([&lt;backend&gt;])</code></td><td>指定 backend 的當前連線數</td></tr>
+<tr><td><code>be_sess_rate</code></td><td>backend session 速率</td></tr>
+<tr><td><code>connslots</code></td><td>backend 可用連線插槽數</td></tr>
+<tr><td><code>nbsrv([&lt;backend&gt;])</code></td><td>backend 活躍 server 數量</td></tr>
+<tr><td><code>srv_conn(&lt;backend&gt;/&lt;server&gt;)</code></td><td>指定 server 當前連線數</td></tr>
+<tr><td><code>srv_is_up(&lt;backend&gt;/&lt;server&gt;)</code></td><td>server 是否 UP</td></tr>
+<tr><td><code>avg_queue([&lt;backend&gt;])</code></td><td>平均佇列長度</td></tr>
+<tr><td><code>queue([&lt;backend&gt;])</code></td><td>佇列中的請求數</td></tr>
+<tr><td><code>act_conn</code></td><td>全域活躍連線數</td></tr>
+</table>
+</div>
+
+<h3>7.3.3 Layer 4 Fetches（L4 層）</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>Fetch</th><th>說明</th></tr>
+<tr><td><code>src</code></td><td>客戶端來源 IP</td></tr>
+<tr><td><code>src_port</code></td><td>客戶端來源 port</td></tr>
+<tr><td><code>dst</code></td><td>前端目的 IP</td></tr>
+<tr><td><code>dst_port</code></td><td>前端目的 port</td></tr>
+<tr><td><code>fc_src / fc_dst</code></td><td>前端連線的真實來源/目的 IP</td></tr>
+<tr><td><code>bc_src / bc_dst</code></td><td>後端連線的來源/目的 IP</td></tr>
+<tr><td><code>src_conn_cnt / src_conn_cur / src_conn_rate</code></td><td>stick-table 追蹤的來源連線計數</td></tr>
+<tr><td><code>src_http_req_rate / src_http_err_rate</code></td><td>stick-table 追蹤的 HTTP 速率</td></tr>
+<tr><td><code>fc_rtt / fc_rttvar</code></td><td>前端 TCP RTT / 變異值</td></tr>
+</table>
+</div>
+
+<h3>7.3.4-5 Layer 5-6 Fetches（SSL/Buffer）</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>Fetch</th><th>說明</th></tr>
+<tr><td><code>ssl_fc</code></td><td>前端連線是否為 SSL（boolean）</td></tr>
+<tr><td><code>ssl_fc_sni</code></td><td>客戶端 TLS SNI</td></tr>
+<tr><td><code>ssl_fc_protocol</code></td><td>TLS 協議版本</td></tr>
+<tr><td><code>ssl_fc_cipher</code></td><td>使用的加密套件名稱</td></tr>
+<tr><td><code>ssl_fc_alpn</code></td><td>協商的 ALPN 值</td></tr>
+<tr><td><code>ssl_fc_has_crt</code></td><td>客戶端是否提供憑證</td></tr>
+<tr><td><code>ssl_c_s_dn</code></td><td>客戶端憑證 Subject DN</td></tr>
+<tr><td><code>ssl_c_i_dn</code></td><td>客戶端憑證 Issuer DN</td></tr>
+<tr><td><code>ssl_c_verify</code></td><td>客戶端憑證驗證結果（0=OK）</td></tr>
+<tr><td><code>ssl_c_notafter / ssl_c_notbefore</code></td><td>憑證有效期</td></tr>
+<tr><td><code>req.ssl_sni</code></td><td>TCP 模式下從 ClientHello 擷取 SNI</td></tr>
+<tr><td><code>req.len / res.len</code></td><td>buffer 中的資料長度</td></tr>
+<tr><td><code>req.payload(&lt;offset&gt;,&lt;length&gt;)</code></td><td>擷取 buffer 中的原始資料</td></tr>
+</table>
+</div>
+
+<h3>7.3.6 Layer 7 HTTP Fetches</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>Fetch</th><th>說明</th></tr>
+<tr><td><code>method</code></td><td>HTTP method（GET, POST...）</td></tr>
+<tr><td><code>path</code></td><td>URI 路徑（不含查詢字串）</td></tr>
+<tr><td><code>pathq</code></td><td>URI 路徑 + 查詢字串</td></tr>
+<tr><td><code>query</code></td><td>查詢字串（不含 ?）</td></tr>
+<tr><td><code>url</code></td><td>完整 URI</td></tr>
+<tr><td><code>url_param(&lt;name&gt;)</code></td><td>URL 參數值</td></tr>
+<tr><td><code>req.hdr(&lt;name&gt;)</code></td><td>請求 Header（最後一個匹配值）</td></tr>
+<tr><td><code>req.fhdr(&lt;name&gt;)</code></td><td>請求 Header（第一個匹配值）</td></tr>
+<tr><td><code>req.hdr_cnt(&lt;name&gt;)</code></td><td>指定 Header 出現次數</td></tr>
+<tr><td><code>req.cook(&lt;name&gt;)</code></td><td>請求 Cookie 值</td></tr>
+<tr><td><code>req.body</code></td><td>請求 body（需搭配 <code>option http-buffer-request</code>）</td></tr>
+<tr><td><code>req.body_param(&lt;name&gt;)</code></td><td>POST body 的 form 參數值</td></tr>
+<tr><td><code>req.body_len / req.body_size</code></td><td>body 長度 / Content-Length 值</td></tr>
+<tr><td><code>req.ver</code></td><td>HTTP 版本</td></tr>
+<tr><td><code>status</code></td><td>回應狀態碼（僅在 response 階段可用）</td></tr>
+<tr><td><code>res.hdr(&lt;name&gt;)</code></td><td>回應 Header</td></tr>
+<tr><td><code>res.cook(&lt;name&gt;)</code></td><td>回應 Cookie</td></tr>
+<tr><td><code>res.body</code></td><td>回應 body</td></tr>
+<tr><td><code>http_auth(&lt;userlist&gt;)</code></td><td>驗證 HTTP Basic Auth</td></tr>
+<tr><td><code>http_auth_group(&lt;userlist&gt;)</code></td><td>驗證用戶群組</td></tr>
+<tr><td><code>http_first_req</code></td><td>是否為此連線的第一個請求</td></tr>
+<tr><td><code>capture.req.hdr(&lt;n&gt;)</code></td><td>已捕獲的請求 Header</td></tr>
+<tr><td><code>unique-id</code></td><td>唯一請求 ID</td></tr>
+</table>
+</div>
+
+<!-- ═══════ 7.4 Pre-defined ACLs ═══════ -->
+<h2><span class="sec-num">7.4</span>預定義 ACL</h2>
+
+<div class="table-wrap">
+<table>
+<tr><th>預定義 ACL</th><th>等價</th></tr>
+<tr><td><code>HTTP</code></td><td><code>req.proto_http</code></td></tr>
+<tr><td><code>HTTP_1.0</code></td><td><code>req.ver 1.0</code></td></tr>
+<tr><td><code>HTTP_1.1</code></td><td><code>req.ver 1.1</code></td></tr>
+<tr><td><code>HTTP_URL_ABS</code></td><td>URL 是絕對路徑</td></tr>
+<tr><td><code>HTTP_URL_SLASH</code></td><td>URL 以 / 開頭</td></tr>
+<tr><td><code>HTTP_URL_STAR</code></td><td>URL 為 *</td></tr>
+<tr><td><code>LOCALHOST</code></td><td><code>src 127.0.0.1/8</code></td></tr>
+<tr><td><code>METH_CONNECT</code></td><td><code>method CONNECT</code></td></tr>
+<tr><td><code>METH_DELETE / GET / HEAD / OPTIONS / POST / PUT / TRACE</code></td><td>對應 HTTP method</td></tr>
+<tr><td><code>RDP_COOKIE</code></td><td><code>req.rdp_cookie_cnt gt 0</code></td></tr>
+<tr><td><code>REQ_CONTENT</code></td><td><code>req.len gt 0</code></td></tr>
+<tr><td><code>TRUE / FALSE</code></td><td><code>always_true / always_false</code></td></tr>
+<tr><td><code>WAIT_END</code></td><td>等待分析完成</td></tr>
+</table>
+</div>
+
+<h3>實戰範例：多條件路由</h3>
+
+<pre><code><span class="section">frontend</span> <span class="string">fe_main</span>
+    <span class="keyword">bind</span> <span class="value">*:443</span> <span class="keyword">ssl</span> <span class="keyword">crt</span> <span class="string">/etc/ssl/certs/</span>
+
+    <span class="comment"># 以 SNI / Host 路由</span>
+    <span class="keyword">acl</span>  <span class="string">host_api</span>    <span class="value">hdr(Host)</span> <span class="keyword">-i</span>  <span class="string">api.example.com</span>
+    <span class="keyword">acl</span>  <span class="string">host_web</span>    <span class="value">hdr(Host)</span> <span class="keyword">-i</span>  <span class="string">www.example.com</span>
+
+    <span class="comment"># 以路徑路由</span>
+    <span class="keyword">acl</span>  <span class="string">path_ws</span>     <span class="value">path_beg</span>  <span class="string">/ws/</span>
+
+    <span class="comment"># 以 Header 路由</span>
+    <span class="keyword">acl</span>  <span class="string">is_grpc</span>     <span class="value">hdr(Content-Type)</span> <span class="keyword">-i</span>  <span class="string">application/grpc</span>
+
+    <span class="comment"># 速率限制</span>
+    <span class="keyword">stick-table</span> <span class="value">type ip size 100k expire 30s store http_req_rate(10s)</span>
+    <span class="keyword">http-request</span> <span class="value">track-sc0 src</span>
+    <span class="keyword">acl</span>  <span class="string">rate_limit</span>  <span class="value">sc_http_req_rate(0)</span> <span class="keyword">gt</span> <span class="value">50</span>
+    <span class="keyword">http-request deny</span> <span class="value">deny_status 429</span> <span class="keyword">if</span> <span class="string">rate_limit</span>
+
+    <span class="comment"># Map-based 路由（動態，可 runtime 更新）</span>
+    <span class="keyword">use_backend</span>  <span class="value">%[req.hdr(Host),lower,map_str(/etc/haproxy/hosts.map)]</span>
+
+    <span class="comment"># 條件路由</span>
+    <span class="keyword">use_backend</span>  <span class="string">be_websocket</span>  <span class="keyword">if</span>  <span class="string">path_ws</span>
+    <span class="keyword">use_backend</span>  <span class="string">be_grpc</span>       <span class="keyword">if</span>  <span class="string">is_grpc</span>
+    <span class="keyword">use_backend</span>  <span class="string">be_api</span>        <span class="keyword">if</span>  <span class="string">host_api</span>
+    <span class="keyword">default_backend</span>  <span class="string">be_web</span></code></pre>
+
+<div class="callout tip">
+  <div class="callout-title">Map 檔案格式</div>
+  <code>/etc/haproxy/hosts.map</code>：每行 <code>key value</code>（空格分隔）。可透過 Runtime API 動態更新：<br>
+  <code>echo "add map /etc/haproxy/hosts.map new.example.com be_new" | socat stdio /run/haproxy/admin.sock</code>
+</div>
+
+<div class="footer-nav">
+  <a href="ch06-09-10-11-misc.html">← Ch6,9-11 Misc</a>
+  <a href="ch08-logging.html">Ch8 Logging →</a>
+</div>
+
+</div>
+</body>
+</html>

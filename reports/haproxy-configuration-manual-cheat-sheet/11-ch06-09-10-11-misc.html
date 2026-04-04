@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HAProxy 3.0 Cheat Sheet — Ch6, 9, 10, 11</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="topnav">
+  <a class="brand" href="#">HAProxy 3.0 速查手冊</a>
+  <div class="nav-links">
+    <a href="ch01-02-http-config.html">Ch1-2</a>
+    <a href="ch03-global.html">Ch3</a>
+    <a href="ch04-proxies.html">Ch4</a>
+    <a href="ch05-bind-server.html">Ch5</a>
+    <a href="#" class="active">Ch6,9-11</a>
+    <a href="ch07-acl-samples.html">Ch7</a>
+    <a href="ch08-logging.html">Ch8</a>
+  </div>
+</nav>
+
+<div class="container">
+
+<div class="page-header">
+  <div class="chapter-num">Chapter 6 · 9 · 10 · 11</div>
+  <h1>Cache · Filters · FastCGI · 位址格式</h1>
+  <div class="subtitle">內建快取、壓縮、SPOE、頻寬限制、FastCGI 與位址格式速查</div>
+</div>
+
+<!-- ══════════════════════════════════ -->
+<!-- Chapter 6: Cache                   -->
+<!-- ══════════════════════════════════ -->
+<h2><span class="sec-num">6</span>Cache（內建 HTTP 快取）</h2>
+
+<p>HAProxy 3.0 內建輕量級 HTTP 快取，可在記憶體中快取靜態回應，減少後端負擔。</p>
+
+<div class="callout info">
+  <div class="callout-title">限制</div>
+  快取僅支援 GET/HEAD 且回應包含有效 <code>Cache-Control</code> / <code>Expires</code> 的內容。不支援 <code>Vary</code> 以外的條件快取（3.0 支援 <code>Vary</code> + <code>process-vary</code>）。最大物件大小預設 256 KB。
+</div>
+
+<pre><code><span class="comment"># Step 1: 定義 cache 區塊</span>
+<span class="section">cache</span> <span class="string">my_cache</span>
+    <span class="keyword">total-max-size</span>  <span class="value">100</span>          <span class="comment"># MB（共享記憶體）</span>
+    <span class="keyword">max-object-size</span> <span class="value">1048576</span>     <span class="comment"># 單一物件上限 bytes (1MB)</span>
+    <span class="keyword">max-age</span>         <span class="value">3600</span>        <span class="comment"># 預設最大快取秒數</span>
+    <span class="keyword">max-secondary-entries</span> <span class="value">10</span>   <span class="comment"># Vary 變體數上限</span>
+    <span class="keyword">process-vary</span>    <span class="value">on</span>          <span class="comment"># 啟用 Vary header 處理</span>
+
+<span class="comment"># Step 2: 在 proxy 中啟用</span>
+<span class="section">frontend</span> <span class="string">fe_main</span>
+    <span class="keyword">bind</span> <span class="value">*:80</span>
+    <span class="keyword">http-request</span> <span class="value">cache-use my_cache</span>        <span class="comment"># 請求階段查快取</span>
+    <span class="keyword">http-response</span> <span class="value">cache-store my_cache</span>     <span class="comment"># 回應階段存快取</span>
+    <span class="keyword">default_backend</span> <span class="string">web</span></code></pre>
+
+<div class="callout tip">
+  <div class="callout-title">快取命中判斷</div>
+  可用 fetch <code>res.cache_hit</code>（0/1）和 <code>res.cache_name</code> 來判斷是否命中快取，加入 log 或 Header 以便除錯。
+</div>
+
+<!-- ══════════════════════════════════ -->
+<!-- Chapter 9: Filters                 -->
+<!-- ══════════════════════════════════ -->
+<h2><span class="sec-num">9</span>Supported Filters（過濾器）</h2>
+
+<h3>9.1 Trace</h3>
+<p>除錯用，追蹤 proxy 內部事件：</p>
+<pre><code><span class="keyword">filter trace</span> <span class="value">name my_trace random-parsing random-forwarding hexdump</span></code></pre>
+
+<h3>9.2 HTTP Compression（壓縮）</h3>
+
+<pre><code><span class="section">defaults</span>
+    <span class="keyword">compression algo</span>  <span class="value">gzip</span>           <span class="comment"># 或 deflate, raw-deflate, identity</span>
+    <span class="keyword">compression type</span>  <span class="value">text/html text/css text/javascript application/json application/javascript</span>
+    <span class="keyword">compression offload</span>               <span class="comment"># 移除後端的 Accept-Encoding，由 HAProxy 壓縮</span></code></pre>
+
+<div class="table-wrap">
+<table>
+<tr><th>指令</th><th>說明</th></tr>
+<tr><td><code>compression algo &lt;list&gt;</code></td><td>壓縮演算法：<code>gzip</code>, <code>deflate</code>, <code>raw-deflate</code>, <code>identity</code></td></tr>
+<tr><td><code>compression type &lt;list&gt;</code></td><td>要壓縮的 MIME 類型清單</td></tr>
+<tr><td><code>compression offload</code></td><td>HAProxy 負責壓縮，後端送原始資料</td></tr>
+<tr><td><code>compression direction &lt;req|res|both&gt;</code></td><td>壓縮方向（3.0 新增 request 壓縮支援）</td></tr>
+</table>
+</div>
+
+<div class="callout warn">
+  <div class="callout-title">效能注意</div>
+  壓縮會消耗 CPU。可用 <code>maxcompcpuusage &lt;%&gt;</code>（global）限制壓縮的 CPU 使用上限；<code>maxcomprate &lt;kbps&gt;</code> 限制壓縮速率。高流量場景建議由後端或 CDN 處理壓縮。
+</div>
+
+<h3>9.3 SPOE（Stream Processing Offload Engine）</h3>
+
+<p>將請求/回應處理外包給外部 agent（如 ModSecurity、自訂反詐騙引擎）：</p>
+
+<pre><code><span class="section">frontend</span> <span class="string">fe_main</span>
+    <span class="keyword">filter spoe</span> <span class="value">engine modsecurity config /etc/haproxy/spoe-modsecurity.conf</span>
+    <span class="comment"># SPOE agent 會收到請求資訊並回傳決策變數</span></code></pre>
+
+<h3>9.7 Bandwidth Limitation（頻寬限制）</h3>
+
+<pre><code><span class="section">frontend</span> <span class="string">fe_main</span>
+    <span class="keyword">filter bwlim-in</span>  <span class="string">limit_upload</span>   <span class="value">default-limit 1m default-period 1s</span>
+    <span class="keyword">filter bwlim-out</span> <span class="string">limit_download</span> <span class="value">default-limit 10m default-period 1s</span>
+
+    <span class="keyword">http-request</span> <span class="value">set-bandwidth-limit limit_upload</span>
+    <span class="keyword">http-response</span> <span class="value">set-bandwidth-limit limit_download</span></code></pre>
+
+<div class="table-wrap">
+<table>
+<tr><th>Filter</th><th>用途</th></tr>
+<tr><td><code>filter trace</code></td><td>除錯追蹤</td></tr>
+<tr><td><code>filter compression</code></td><td>HTTP 壓縮（通常由 <code>compression</code> 指令隱式啟用）</td></tr>
+<tr><td><code>filter spoe</code></td><td>外部處理引擎整合</td></tr>
+<tr><td><code>filter cache</code></td><td>快取（通常由 <code>cache-use</code>/<code>cache-store</code> 隱式啟用）</td></tr>
+<tr><td><code>filter fcgi-app</code></td><td>FastCGI 應用</td></tr>
+<tr><td><code>filter opentracing</code></td><td>分散式追蹤（OpenTracing / Jaeger）</td></tr>
+<tr><td><code>filter bwlim-in/out</code></td><td>上傳/下載頻寬限制</td></tr>
+</table>
+</div>
+
+<!-- ══════════════════════════════════ -->
+<!-- Chapter 10: FastCGI               -->
+<!-- ══════════════════════════════════ -->
+<h2><span class="sec-num">10</span>FastCGI 應用</h2>
+
+<p>HAProxy 可直接做為 FastCGI gateway，無需 Nginx 中繼。適合 PHP-FPM 等場景：</p>
+
+<pre><code><span class="section">fcgi-app</span> <span class="string">php-fpm</span>
+    <span class="keyword">docroot</span>      <span class="string">/var/www/html</span>
+    <span class="keyword">path-info</span>    <span class="value">^(/.+\.php)(/.*)$</span>
+    <span class="keyword">index</span>        <span class="string">index.php</span>
+    <span class="keyword">pass-header</span>  <span class="string">Authorization</span>
+
+    <span class="keyword">acl</span>  <span class="string">is_php</span>  <span class="value">path_end .php</span>
+    <span class="keyword">set-param</span>  <span class="string">SCRIPT_FILENAME</span>  <span class="value">%[req.hdr(Host),lower,map_str(/etc/haproxy/docroot.map,/var/www/html)]%[path]</span>
+
+<span class="section">backend</span> <span class="string">php_backend</span>
+    <span class="keyword">mode</span>  <span class="value">http</span>
+    <span class="keyword">use-fcgi-app</span>  <span class="string">php-fpm</span>
+    <span class="keyword">server</span>  <span class="string">fpm1</span>  <span class="value">127.0.0.1:9000</span>  <span class="keyword">proto fcgi</span> <span class="keyword">check</span></code></pre>
+
+<div class="callout info">
+  <div class="callout-title">FastCGI 限制</div>
+  HAProxy 的 FastCGI 僅支援 responder 角色（不支援 authorizer/filter）。不支援 FastCGI multiplexing（每連線單一 request）。Server 需指定 <code>proto fcgi</code>。
+</div>
+
+<!-- ══════════════════════════════════ -->
+<!-- Chapter 11: Address Formats        -->
+<!-- ══════════════════════════════════ -->
+<h2><span class="sec-num">11</span>位址格式</h2>
+
+<h3>11.1 位址族前綴 (Address Family)</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>前綴</th><th>說明</th><th>範例</th></tr>
+<tr><td><code>ipv4@</code></td><td>強制 IPv4</td><td><code>ipv4@0.0.0.0:80</code></td></tr>
+<tr><td><code>ipv6@</code></td><td>強制 IPv6</td><td><code>ipv6@:::80</code></td></tr>
+<tr><td><code>unix@</code></td><td>Unix domain socket</td><td><code>unix@/var/run/app.sock</code></td></tr>
+<tr><td><code>abns@</code></td><td>抽象 namespace socket（Linux）</td><td><code>abns@haproxy-stats</code></td></tr>
+<tr><td><code>fd@</code></td><td>繼承的 file descriptor</td><td><code>fd@${FD_NUM}</code></td></tr>
+<tr><td><code>sockpair@</code></td><td>socketpair（master-worker 通訊）</td><td></td></tr>
+<tr><td><code>quic4@</code></td><td>QUIC over IPv4</td><td><code>quic4@:443</code></td></tr>
+<tr><td><code>quic6@</code></td><td>QUIC over IPv6</td><td><code>quic6@:443</code></td></tr>
+</table>
+</div>
+
+<h3>11.2 Socket 類型前綴</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>前綴</th><th>說明</th></tr>
+<tr><td>（預設）</td><td>TCP stream socket</td></tr>
+<tr><td><code>dgram@</code></td><td>UDP datagram（僅用於 log-forward 等場景）</td></tr>
+</table>
+</div>
+
+<h3>11.3 Protocol 前綴</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>前綴</th><th>說明</th></tr>
+<tr><td>（預設）</td><td>raw TCP / HTTP（依 <code>mode</code>）</td></tr>
+<tr><td><code>proto fcgi</code></td><td>FastCGI 協議（於 server 設定）</td></tr>
+</table>
+</div>
+
+<pre><code><span class="comment"># 實用位址範例</span>
+<span class="keyword">bind</span>  <span class="value">*:80</span>                           <span class="comment"># 所有介面 IPv4+IPv6 TCP 80</span>
+<span class="keyword">bind</span>  <span class="value">ipv4@*:80</span>                      <span class="comment"># 僅 IPv4</span>
+<span class="keyword">bind</span>  <span class="value">:::80</span>                           <span class="comment"># IPv6 任意位址</span>
+<span class="keyword">bind</span>  <span class="string">unix@/var/run/haproxy.sock</span>      <span class="comment"># Unix socket</span>
+<span class="keyword">bind</span>  <span class="value">quic4@:443</span> <span class="keyword">ssl</span> <span class="keyword">crt</span> <span class="string">cert.pem</span>  <span class="comment"># HTTP/3 QUIC</span>
+<span class="keyword">server</span> <span class="string">s1</span> <span class="string">unix@/var/run/app.sock</span>      <span class="comment"># 後端用 Unix socket</span></code></pre>
+
+<div class="footer-nav">
+  <a href="ch05-bind-server.html">← Ch5 Bind & Server</a>
+  <a href="ch07-acl-samples.html">Ch7 ACL & Samples →</a>
+</div>
+
+</div>
+</body>
+</html>

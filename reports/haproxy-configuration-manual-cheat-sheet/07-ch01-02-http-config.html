@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HAProxy 3.0 Cheat Sheet — Ch1-2 HTTP 基礎與設定概念</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="topnav">
+  <a class="brand" href="#">HAProxy 3.0 速查手冊</a>
+  <div class="nav-links">
+    <a href="#" class="active">Ch1-2</a>
+    <a href="ch03-global.html">Ch3</a>
+    <a href="ch04-proxies.html">Ch4</a>
+    <a href="ch05-bind-server.html">Ch5</a>
+    <a href="ch06-09-10-11-misc.html">Ch6,9-11</a>
+    <a href="ch07-acl-samples.html">Ch7</a>
+    <a href="ch08-logging.html">Ch8</a>
+  </div>
+</nav>
+
+<div class="container">
+
+<!-- ═══════════════════════════════════════ -->
+<!-- Page Header                            -->
+<!-- ═══════════════════════════════════════ -->
+<div class="page-header">
+  <div class="chapter-num">Chapter 1 &amp; 2</div>
+  <h1>HTTP 基礎回顧 與 設定檔概念</h1>
+  <div class="subtitle">HAProxy 3.0 Configuration Manual — 中文速查 Cheat Sheet</div>
+</div>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- Chapter 1: HTTP Basics                 -->
+<!-- ═══════════════════════════════════════ -->
+
+<h2><span class="sec-num">1</span>HTTP 快速回顧</h2>
+
+<h3>1.1 HTTP 交易模型 (Transaction Model)</h3>
+
+<p>HTTP 是<strong>交易驅動</strong>的協議：每個請求(request)對應恰好一個回應(response)。連線模式的演進如下：</p>
+
+<div class="table-wrap">
+<table>
+<tr>
+  <th>模式</th><th>版本</th><th>說明</th><th>特點</th>
+</tr>
+<tr>
+  <td><code>close</code></td>
+  <td>HTTP/1.0</td>
+  <td>每次交易建立新 TCP 連線，回應後關閉</td>
+  <td>延遲高、開銷大</td>
+</tr>
+<tr>
+  <td><code>keep-alive</code></td>
+  <td>HTTP/1.1</td>
+  <td>多個交易共用同一 TCP 連線</td>
+  <td>減少握手、須標示 Content-Length</td>
+</tr>
+<tr>
+  <td><code>pipelining</code></td>
+  <td>HTTP/1.1</td>
+  <td>客戶端不等回應即送下一筆請求</td>
+  <td>順序回應、實務少用</td>
+</tr>
+<tr>
+  <td><code>multiplexed</code></td>
+  <td>HTTP/2, HTTP/3</td>
+  <td>多個 stream 透過同一連線平行傳輸</td>
+  <td>stream ID 標識、亂序回應</td>
+</tr>
+</table>
+</div>
+
+<div class="diagram">Client                        HAProxy                       Server
+  │──── TCP/TLS ──────────────▶│                               │
+  │  stream 1: GET /index.html │──── connection pool ────────▶│
+  │  stream 2: GET /style.css  │  (keep-alive / multiplex)    │
+  │◀──── response 2 ──────────│◀──────────────────────────────│
+  │◀──── response 1 ──────────│◀──────────────────────────────│</div>
+
+<div class="callout info">
+  <div class="callout-title">觀念重點</div>
+  HAProxy 預設使用 <code>keep-alive</code> 模式。HTTP/2 連線預設會與同一客戶端綁定，避免 head-of-line blocking。HTTP/3 基於 QUIC (UDP) 實現，stream 之間互不影響。
+</div>
+
+<h3>1.2 HAProxy 術語對照</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>術語</th><th>定義</th><th>對應範圍</th></tr>
+<tr>
+  <td><strong>connection</strong></td>
+  <td>L4 層 TCP/QUIC 雙向連線</td>
+  <td>一條 socket</td>
+</tr>
+<tr>
+  <td><strong>session</strong></td>
+  <td>端對端傳輸層連線的生命週期</td>
+  <td>在 TCP 中 = connection；勿混淆 application session (cookie)</td>
+</tr>
+<tr>
+  <td><strong>stream</strong></td>
+  <td>應用層雙向通訊單元；可做分析和轉換</td>
+  <td>HTTP 中 1 stream = 1 request + 1 response</td>
+</tr>
+<tr>
+  <td><strong>transaction (txn)</strong></td>
+  <td>request + response 的配對</td>
+  <td>與 stream 為 1:1，變數作用域 <code>txn.</code></td>
+</tr>
+<tr>
+  <td><strong>request</strong></td>
+  <td>客戶端→伺服器的流量</td>
+  <td>計量單位、規則掛載點</td>
+</tr>
+<tr>
+  <td><strong>response</strong></td>
+  <td>伺服器→客戶端的流量（含 HAProxy 自產）</td>
+  <td>如 errorfile、deny 頁面等</td>
+</tr>
+</table>
+</div>
+
+<h3>1.3 HTTP Request 結構</h3>
+
+<pre><code><span class="keyword">GET</span> <span class="string">/path/page?query=value</span> <span class="value">HTTP/1.1</span>    <span class="comment"># Request line: Method SP URI SP Version</span>
+<span class="keyword">Host:</span> <span class="string">www.example.com</span>                     <span class="comment"># 必要 Header</span>
+<span class="keyword">User-Agent:</span> <span class="string">Mozilla/5.0 ...</span>
+<span class="keyword">Accept:</span> <span class="string">text/html, application/json</span>
+<span class="keyword">Cookie:</span> <span class="string">sessionid=abc123</span>
+                                               <span class="comment"># 空行 = Header 結束</span>
+(optional body)                                <span class="comment"># POST/PUT 才有 body</span></code></pre>
+
+<div class="card">
+<h4>🔑 Request Line 三要素</h4>
+<ul>
+  <li><strong>Method</strong>：<code>GET</code> <code>POST</code> <code>PUT</code> <code>DELETE</code> <code>HEAD</code> <code>OPTIONS</code> <code>PATCH</code> 等</li>
+  <li><strong>URI</strong>：路徑 + 查詢字串，HAProxy 可用 <code>path</code> / <code>query</code> / <code>url</code> 等 fetch 取得</li>
+  <li><strong>Version</strong>：<code>HTTP/1.0</code>、<code>HTTP/1.1</code>（HTTP/2+ 內部以偽 header 表示）</li>
+</ul>
+</div>
+
+<h3>1.4 HTTP Response 結構</h3>
+
+<pre><code><span class="value">HTTP/1.1</span> <span class="keyword">200</span> <span class="string">OK</span>                  <span class="comment"># Status line: Version SP Code SP Reason</span>
+<span class="keyword">Content-Type:</span> <span class="string">text/html</span>
+<span class="keyword">Content-Length:</span> <span class="string">5842</span>
+<span class="keyword">Set-Cookie:</span> <span class="string">sid=xyz; Path=/</span>
+<span class="keyword">Cache-Control:</span> <span class="string">max-age=3600</span>
+                                          <span class="comment"># 空行</span>
+&lt;html&gt;...&lt;/html&gt;                          <span class="comment"># Response body</span></code></pre>
+
+<div class="callout tip">
+  <div class="callout-title">HAProxy 注意事項</div>
+  HAProxy 會將多行 Header 合併為單行（依 RFC 7231）。HTTP/2+ 的 Header 名稱一律轉為小寫。在設定 <code>req.hdr()</code> 等 fetch 時，Header 名稱不區分大小寫。
+</div>
+
+<p>相關 RFC 參考：</p>
+<ul>
+  <li><strong>RFC 9110</strong> — HTTP Semantics</li>
+  <li><strong>RFC 9112</strong> — HTTP/1.1</li>
+  <li><strong>RFC 9113</strong> — HTTP/2</li>
+  <li><strong>RFC 9114</strong> — HTTP/3</li>
+</ul>
+
+
+<!-- ═══════════════════════════════════════ -->
+<!-- Chapter 2: Configuring HAProxy         -->
+<!-- ═══════════════════════════════════════ -->
+
+<h2><span class="sec-num">2</span>設定 HAProxy</h2>
+
+<h3>2.1 設定檔格式</h3>
+
+<p>HAProxy 的設定來源（優先級由高到低）：</p>
+<ol>
+  <li>命令列參數（最高優先）</li>
+  <li>設定檔（<code>/etc/haproxy/haproxy.cfg</code>）</li>
+  <li>環境變數（以 <code>"$ENV(VAR)"</code> 引用）</li>
+</ol>
+
+<div class="card">
+<h4>📝 設定檔基本規則</h4>
+<ul>
+  <li>設定檔是<strong>有序陳述</strong>的序列</li>
+  <li>每一行（到 <code>#</code> 之前）為一條陳述</li>
+  <li>以空白或 Tab 分隔 token（詞）</li>
+  <li>第一個詞 = 關鍵字，後續詞 = 參數</li>
+  <li>支援以 <code>\</code> 在行尾續行</li>
+  <li><code>#</code> 開頭的為註解</li>
+</ul>
+</div>
+
+<p>設定檔分為以下主要區塊（section）：</p>
+
+<div class="table-wrap">
+<table>
+<tr><th>區塊</th><th>用途</th><th>可出現次數</th></tr>
+<tr><td><code>global</code></td><td>全域參數：行程管理、效能調校、安全性</td><td>0..1</td></tr>
+<tr><td><code>defaults</code></td><td>後續 proxy 的預設值，可多段覆蓋</td><td>0..N</td></tr>
+<tr><td><code>frontend</code></td><td>前端：定義監聽位址和請求接收規則</td><td>0..N</td></tr>
+<tr><td><code>backend</code></td><td>後端：定義伺服器群和負載平衡策略</td><td>0..N</td></tr>
+<tr><td><code>listen</code></td><td>同時扮演 frontend + backend 的簡寫</td><td>0..N</td></tr>
+</table>
+</div>
+
+<pre><code><span class="section">global</span>
+    <span class="keyword">daemon</span>
+    <span class="keyword">maxconn</span>  <span class="value">4096</span>
+
+<span class="section">defaults</span>
+    <span class="keyword">mode</span>    <span class="value">http</span>
+    <span class="keyword">timeout</span> <span class="value">connect  5s</span>
+    <span class="keyword">timeout</span> <span class="value">client  30s</span>
+    <span class="keyword">timeout</span> <span class="value">server  30s</span>
+
+<span class="section">frontend</span> <span class="string">web_front</span>
+    <span class="keyword">bind</span>  <span class="value">*:80</span>
+    <span class="keyword">default_backend</span>  <span class="string">web_servers</span>
+
+<span class="section">backend</span> <span class="string">web_servers</span>
+    <span class="keyword">balance</span>  <span class="value">roundrobin</span>
+    <span class="keyword">server</span>   <span class="string">srv1</span>  <span class="value">10.0.0.1:8080</span>  <span class="keyword">check</span>
+    <span class="keyword">server</span>   <span class="string">srv2</span>  <span class="value">10.0.0.2:8080</span>  <span class="keyword">check</span></code></pre>
+
+<h3>2.2 引號與跳脫</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>語法</th><th>效果</th><th>範例</th></tr>
+<tr>
+  <td><code>'single quotes'</code></td>
+  <td>保留空白、特殊字元原樣（不做任何跳脫）</td>
+  <td><code>reqadd 'X-Hdr: some value'</code></td>
+</tr>
+<tr>
+  <td><code>"double quotes"</code></td>
+  <td>保留空白，支援 <code>\n \t \\ \"</code> 跳脫</td>
+  <td><code>log-format "%ci:%cp [%t]"</code></td>
+</tr>
+<tr>
+  <td><code>\</code> (行尾)</td>
+  <td>續行</td>
+  <td>長規則拆成多行</td>
+</tr>
+<tr>
+  <td><code>\x41</code></td>
+  <td>十六進位 byte</td>
+  <td>傳送特殊字元</td>
+</tr>
+</table>
+</div>
+
+<h3>2.3 環境變數</h3>
+
+<pre><code><span class="comment"># 設定檔中引用環境變數</span>
+<span class="section">global</span>
+    <span class="keyword">log</span>  <span class="string">"$ENV(SYSLOG_SERVER)"</span>  <span class="value">local0</span>
+
+<span class="section">frontend</span> <span class="string">fe_main</span>
+    <span class="keyword">bind</span>  <span class="string">"$ENV(BIND_ADDR)"</span>:<span class="string">"$ENV(BIND_PORT)"</span></code></pre>
+
+<div class="callout info">
+  <div class="callout-title">相關指令</div>
+  <code>setenv</code>、<code>presetenv</code>（不覆蓋已有）、<code>resetenv</code>（清空後只留指定變數）皆在 <code>global</code> 區塊使用。
+</div>
+
+<h3>2.4 條件式區塊</h3>
+
+<p>HAProxy 支援編譯期條件判斷，適合多環境共用一份設定檔：</p>
+
+<pre><code><span class="comment"># .if / .elif / .else / .endif</span>
+<span class="keyword">.if</span> streq(<span class="string">"$ENV(ENV_NAME)"</span>,<span class="string">"production"</span>)
+    <span class="keyword">maxconn</span>  <span class="value">50000</span>
+<span class="keyword">.elif</span> streq(<span class="string">"$ENV(ENV_NAME)"</span>,<span class="string">"staging"</span>)
+    <span class="keyword">maxconn</span>  <span class="value">10000</span>
+<span class="keyword">.else</span>
+    <span class="keyword">maxconn</span>  <span class="value">2000</span>
+<span class="keyword">.endif</span>
+
+<span class="comment"># 可用判斷函式</span>
+<span class="comment"># defined(ENV_VAR)   — 變數是否存在</span>
+<span class="comment"># feature(OPENSSL)   — 是否編譯了某功能</span>
+<span class="comment"># streq(A,B)         — 字串相等</span>
+<span class="comment"># version_atleast(X) — 版本 >= X</span></code></pre>
+
+<h3>2.5 時間格式</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>後綴</th><th>單位</th><th>範例</th><th>等價</th></tr>
+<tr><td><code>us</code></td><td>微秒 (μs)</td><td><code>500us</code></td><td>0.5 ms</td></tr>
+<tr><td><code>ms</code></td><td>毫秒</td><td><code>100ms</code></td><td>100 ms</td></tr>
+<tr><td>（無後綴）</td><td>毫秒（預設）</td><td><code>5000</code></td><td>5 s</td></tr>
+<tr><td><code>s</code></td><td>秒</td><td><code>30s</code></td><td>30,000 ms</td></tr>
+<tr><td><code>m</code></td><td>分鐘</td><td><code>5m</code></td><td>300 s</td></tr>
+<tr><td><code>h</code></td><td>小時</td><td><code>1h</code></td><td>3600 s</td></tr>
+<tr><td><code>d</code></td><td>天</td><td><code>1d</code></td><td>86400 s</td></tr>
+</table>
+</div>
+
+<div class="callout tip">
+  <div class="callout-title">常用 Timeout 建議</div>
+  <code>timeout connect 5s</code>（後端連線建立）、<code>timeout client 30s</code>（前端閒置）、<code>timeout server 30s</code>（後端閒置）。生產環境可視需求調整，WebSocket 場景需加 <code>timeout tunnel</code>。
+</div>
+
+<h3>2.6 大小格式</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>後綴</th><th>單位</th><th>範例</th></tr>
+<tr><td>（無後綴）</td><td>bytes</td><td><code>16384</code></td></tr>
+<tr><td><code>k</code></td><td>KiB (×1024)</td><td><code>16k</code> = 16384</td></tr>
+<tr><td><code>m</code></td><td>MiB (×1024²)</td><td><code>256m</code></td></tr>
+<tr><td><code>g</code></td><td>GiB (×1024³)</td><td><code>1g</code></td></tr>
+</table>
+</div>
+
+<h3>2.7 Map 與 ACL 命名規則</h3>
+
+<p>Map 和 ACL 檔案的命名可包含路徑，但需注意：</p>
+<ul>
+  <li>名稱用於在 runtime CLI 中引用：<code>show acl @0</code> 或 <code>show map /etc/haproxy/map/hosts.map</code></li>
+  <li>若同一檔案在多處引用，會共享同一份記憶體資料</li>
+  <li>可透過 <code>-f</code> 指定多個設定檔時注意相對路徑解析</li>
+</ul>
+
+<h3>2.8 完整設定範例</h3>
+
+<pre><code><span class="section">global</span>
+    <span class="keyword">log</span>          <span class="value">/dev/log  local0</span>
+    <span class="keyword">chroot</span>       <span class="string">/var/lib/haproxy</span>
+    <span class="keyword">user</span>         <span class="string">haproxy</span>
+    <span class="keyword">group</span>        <span class="string">haproxy</span>
+    <span class="keyword">daemon</span>
+    <span class="keyword">maxconn</span>      <span class="value">50000</span>
+    <span class="keyword">stats socket</span> <span class="string">/run/haproxy/admin.sock</span> <span class="keyword">mode</span> <span class="value">660</span> <span class="keyword">level</span> <span class="value">admin</span>
+
+<span class="section">defaults</span>
+    <span class="keyword">log</span>      <span class="value">global</span>
+    <span class="keyword">mode</span>     <span class="value">http</span>
+    <span class="keyword">option</span>   <span class="value">httplog</span>
+    <span class="keyword">option</span>   <span class="value">dontlognull</span>
+    <span class="keyword">timeout</span>  <span class="value">connect  5s</span>
+    <span class="keyword">timeout</span>  <span class="value">client  30s</span>
+    <span class="keyword">timeout</span>  <span class="value">server  30s</span>
+    <span class="keyword">retries</span>  <span class="value">3</span>
+
+<span class="section">frontend</span> <span class="string">http_in</span>
+    <span class="keyword">bind</span>             <span class="value">*:80</span>
+    <span class="keyword">bind</span>             <span class="value">*:443</span> <span class="keyword">ssl</span> <span class="keyword">crt</span> <span class="string">/etc/ssl/certs/site.pem</span>
+    <span class="keyword">redirect</span>         <span class="value">scheme https</span> <span class="keyword">if</span> !{ ssl_fc }
+    <span class="keyword">default_backend</span>  <span class="string">app_servers</span>
+
+<span class="section">backend</span> <span class="string">app_servers</span>
+    <span class="keyword">balance</span>  <span class="value">roundrobin</span>
+    <span class="keyword">option</span>   <span class="value">httpchk GET /health</span>
+    <span class="keyword">server</span>   <span class="string">app1</span>  <span class="value">10.0.1.1:8080</span>  <span class="keyword">check</span> <span class="keyword">inter</span> <span class="value">3s</span> <span class="keyword">fall</span> <span class="value">3</span> <span class="keyword">rise</span> <span class="value">2</span>
+    <span class="keyword">server</span>   <span class="string">app2</span>  <span class="value">10.0.1.2:8080</span>  <span class="keyword">check</span> <span class="keyword">inter</span> <span class="value">3s</span> <span class="keyword">fall</span> <span class="value">3</span> <span class="keyword">rise</span> <span class="value">2</span>
+
+<span class="section">listen</span> <span class="string">stats</span>
+    <span class="keyword">bind</span>          <span class="value">*:8404</span>
+    <span class="keyword">stats</span>         <span class="value">enable</span>
+    <span class="keyword">stats uri</span>     <span class="string">/stats</span>
+    <span class="keyword">stats refresh</span> <span class="value">10s</span></code></pre>
+
+<div class="callout warn">
+  <div class="callout-title">安全提醒</div>
+  生產環境務必設定 <code>chroot</code>、降權執行（<code>user</code>/<code>group</code>），並限制 stats socket 的存取權限。<code>stats</code> 頁面建議加上 <code>stats auth</code> 帳密或 ACL 限制。
+</div>
+
+<!-- Footer nav -->
+<div class="footer-nav">
+  <span></span>
+  <a href="ch03-global.html">下一篇：Ch3 全域參數 →</a>
+</div>
+
+</div><!-- /container -->
+</body>
+</html>

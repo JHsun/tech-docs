@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HAProxy 3.0 Cheat Sheet — Ch4 Proxies</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="topnav">
+  <a class="brand" href="#">HAProxy 3.0 速查手冊</a>
+  <div class="nav-links">
+    <a href="ch01-02-http-config.html">Ch1-2</a>
+    <a href="ch03-global.html">Ch3</a>
+    <a href="#" class="active">Ch4</a>
+    <a href="ch05-bind-server.html">Ch5</a>
+    <a href="ch06-09-10-11-misc.html">Ch6,9-11</a>
+    <a href="ch07-acl-samples.html">Ch7</a>
+    <a href="ch08-logging.html">Ch8</a>
+  </div>
+</nav>
+
+<div class="container">
+
+<div class="page-header">
+  <div class="chapter-num">Chapter 4</div>
+  <h1>Proxies 代理設定</h1>
+  <div class="subtitle">frontend / backend / listen / defaults — 核心關鍵字與 Actions 速查</div>
+</div>
+
+<!-- ═══════ Proxy types ═══════ -->
+<h2><span class="sec-num">4.0</span>Proxy 區塊類型</h2>
+
+<div class="table-wrap">
+<table>
+<tr><th>區塊</th><th>角色</th><th>何時用</th></tr>
+<tr><td><code>defaults</code></td><td>為後續 proxy 設定預設值</td><td>統一 timeout、mode、log 等</td></tr>
+<tr><td><code>frontend &lt;name&gt;</code></td><td>接收客戶端連線（bind）</td><td>定義監聽位址、ACL 路由</td></tr>
+<tr><td><code>backend &lt;name&gt;</code></td><td>伺服器群、負載均衡</td><td>定義 server、balance 策略</td></tr>
+<tr><td><code>listen &lt;name&gt;</code></td><td>frontend + backend 合一</td><td>簡單場景如 stats、TCP proxy</td></tr>
+</table>
+</div>
+
+<!-- ═══════ 4.1-4.2 Key Proxy Keywords ═══════ -->
+<h2><span class="sec-num">4.1</span>核心 Proxy 關鍵字速查</h2>
+
+<h3>模式與路由</h3>
+
+<div class="kw-list">
+<div class="kw-item">
+  <div class="kw-name">mode &lt;http|tcp&gt;</div>
+  <div class="kw-meta"><span class="tag">defaults</span><span class="tag">frontend</span><span class="tag">backend</span><span class="tag">listen</span></div>
+  <div class="kw-desc">運作模式。<code>http</code> = L7 完整 HTTP 解析；<code>tcp</code> = L4 純 TCP 轉發。</div>
+</div>
+
+<div class="kw-item">
+  <div class="kw-name">default_backend &lt;name&gt;</div>
+  <div class="kw-meta"><span class="tag">defaults</span><span class="tag">frontend</span></div>
+  <div class="kw-desc">未命中任何 <code>use_backend</code> 規則時的預設後端。</div>
+</div>
+
+<div class="kw-item">
+  <div class="kw-name">use_backend &lt;name&gt; [if|unless &lt;cond&gt;]</div>
+  <div class="kw-meta"><span class="tag">frontend</span></div>
+  <div class="kw-desc">依條件路由到指定後端。規則由上而下匹配。</div>
+</div>
+</div>
+
+<pre><code><span class="section">frontend</span> <span class="string">http_in</span>
+    <span class="keyword">bind</span>  <span class="value">*:80</span>
+    <span class="keyword">mode</span>  <span class="value">http</span>
+
+    <span class="keyword">acl</span>  <span class="string">is_api</span>     <span class="value">path_beg /api/</span>
+    <span class="keyword">acl</span>  <span class="string">is_static</span>  <span class="value">path_end .css .js .png .jpg</span>
+
+    <span class="keyword">use_backend</span>  <span class="string">api_servers</span>     <span class="keyword">if</span> <span class="string">is_api</span>
+    <span class="keyword">use_backend</span>  <span class="string">static_servers</span>  <span class="keyword">if</span> <span class="string">is_static</span>
+    <span class="keyword">default_backend</span>  <span class="string">web_servers</span></code></pre>
+
+<h3>負載均衡 (balance)</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>演算法</th><th>說明</th><th>適用場景</th></tr>
+<tr><td><code>roundrobin</code></td><td>加權輪詢（動態權重，預設）</td><td>通用，最常用</td></tr>
+<tr><td><code>static-rr</code></td><td>靜態輪詢（不支援動態權重調整）</td><td>server 數極大時</td></tr>
+<tr><td><code>leastconn</code></td><td>最少連線優先</td><td>長連線（DB、WebSocket）</td></tr>
+<tr><td><code>source</code></td><td>來源 IP 雜湊</td><td>簡易 IP 黏著</td></tr>
+<tr><td><code>uri</code></td><td>URI 雜湊</td><td>快取伺服器</td></tr>
+<tr><td><code>url_param &lt;p&gt;</code></td><td>URL 參數雜湊</td><td>如 <code>?sessionid=xxx</code></td></tr>
+<tr><td><code>hdr(&lt;name&gt;)</code></td><td>指定 Header 雜湊</td><td>如 <code>hdr(X-Tenant-ID)</code></td></tr>
+<tr><td><code>rdp-cookie(&lt;n&gt;)</code></td><td>RDP cookie 雜湊</td><td>遠端桌面</td></tr>
+<tr><td><code>random</code></td><td>隨機（加權）</td><td>大量 server 均勻分佈</td></tr>
+<tr><td><code>random(&lt;draws&gt;)</code></td><td>power-of-N-choices 隨機</td><td>兼顧均勻與低延遲</td></tr>
+</table>
+</div>
+
+<pre><code><span class="section">backend</span> <span class="string">cache_servers</span>
+    <span class="keyword">balance</span>  <span class="value">uri</span>             <span class="comment"># 同一 URI 固定到同一台</span>
+    <span class="keyword">hash-type</span>  <span class="value">consistent</span>    <span class="comment"># 一致性雜湊，減少 server 增減的影響</span>
+    <span class="keyword">server</span>  <span class="string">cache1</span>  <span class="value">10.0.0.1:80</span>  <span class="keyword">check</span>
+    <span class="keyword">server</span>  <span class="string">cache2</span>  <span class="value">10.0.0.2:80</span>  <span class="keyword">check</span></code></pre>
+
+<h3>連線管理與超時</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>關鍵字</th><th>適用</th><th>說明</th></tr>
+<tr><td><code>timeout connect &lt;t&gt;</code></td><td>B/D</td><td>連到後端的 TCP 握手超時</td></tr>
+<tr><td><code>timeout client &lt;t&gt;</code></td><td>F/D</td><td>前端連線閒置超時</td></tr>
+<tr><td><code>timeout server &lt;t&gt;</code></td><td>B/D</td><td>後端連線閒置超時</td></tr>
+<tr><td><code>timeout tunnel &lt;t&gt;</code></td><td>B/D</td><td>WebSocket / CONNECT 隧道超時</td></tr>
+<tr><td><code>timeout http-request &lt;t&gt;</code></td><td>F/D</td><td>完整接收 HTTP 請求的超時（防 Slowloris）</td></tr>
+<tr><td><code>timeout http-keep-alive &lt;t&gt;</code></td><td>F/D</td><td>keep-alive 間隙的閒置超時</td></tr>
+<tr><td><code>timeout queue &lt;t&gt;</code></td><td>B/D</td><td>請求在佇列中等候 server 的最長時間</td></tr>
+<tr><td><code>timeout check &lt;t&gt;</code></td><td>B</td><td>健康檢查的額外等待時間</td></tr>
+<tr><td><code>retries &lt;n&gt;</code></td><td>B/D</td><td>連線失敗的重試次數（預設 3）</td></tr>
+<tr><td><code>retry-on &lt;conditions&gt;</code></td><td>B/D</td><td>L7 重試條件，如 <code>conn-failure empty-response 0rtt-rejected</code></td></tr>
+</table>
+</div>
+
+<p><em>F = frontend, B = backend, D = defaults</em></p>
+
+<h3>HTTP 連線模式</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>選項</th><th>前端→後端</th><th>說明</th></tr>
+<tr><td><code>option http-keep-alive</code></td><td>keep-alive ↔ keep-alive</td><td>預設。兩端都維持長連線</td></tr>
+<tr><td><code>option http-server-close</code></td><td>keep-alive ↔ close</td><td>後端連線用完即關。適合不支援 keep-alive 的後端</td></tr>
+<tr><td><code>option httpclose</code></td><td>close ↔ close</td><td>兩端都用短連線</td></tr>
+<tr><td><code>http-reuse &lt;mode&gt;</code></td><td colspan="2"><code>safe</code>（預設）/ <code>always</code> / <code>never</code>。控制後端連線重用策略</td></tr>
+</table>
+</div>
+
+<h3>健康檢查 (Health Check)</h3>
+
+<pre><code><span class="section">backend</span> <span class="string">web</span>
+    <span class="comment"># HTTP 健康檢查</span>
+    <span class="keyword">option httpchk</span>
+    <span class="keyword">http-check send</span> <span class="value">meth GET uri /health ver HTTP/1.1 hdr Host www.example.com</span>
+    <span class="keyword">http-check expect</span> <span class="value">status 200</span>
+
+    <span class="keyword">server</span>  <span class="string">s1</span>  <span class="value">10.0.0.1:80</span>  <span class="keyword">check</span> <span class="keyword">inter</span> <span class="value">5s</span> <span class="keyword">fall</span> <span class="value">3</span> <span class="keyword">rise</span> <span class="value">2</span>
+    <span class="comment"># inter = 檢查間隔  fall = 連續失敗幾次標記 DOWN  rise = 連續成功幾次標記 UP</span></code></pre>
+
+<div class="table-wrap">
+<table>
+<tr><th>檢查類型</th><th>關鍵字</th><th>用途</th></tr>
+<tr><td>TCP 預設</td><td><code>check</code></td><td>僅測試 TCP 連線是否成功</td></tr>
+<tr><td>HTTP</td><td><code>option httpchk</code></td><td>送 HTTP 請求判斷狀態碼/body</td></tr>
+<tr><td>MySQL</td><td><code>option mysql-check</code></td><td>MySQL 協議握手</td></tr>
+<tr><td>PostgreSQL</td><td><code>option pgsql-check</code></td><td>PgSQL 協議握手</td></tr>
+<tr><td>Redis</td><td><code>option redis-check</code></td><td>Redis PING/PONG</td></tr>
+<tr><td>LDAP</td><td><code>option ldap-check</code></td><td>LDAP bind</td></tr>
+<tr><td>SMTP</td><td><code>option smtpchk</code></td><td>SMTP EHLO</td></tr>
+<tr><td>Agent</td><td><code>agent-check</code></td><td>外部 agent 回報狀態/權重</td></tr>
+</table>
+</div>
+
+<h3>Session Persistence（黏著）</h3>
+
+<pre><code><span class="section">backend</span> <span class="string">app</span>
+    <span class="keyword">balance</span>  <span class="value">roundrobin</span>
+
+    <span class="comment"># 方法 1：Cookie-based persistence</span>
+    <span class="keyword">cookie</span>  <span class="string">SRVID</span>  <span class="value">insert indirect nocache httponly secure</span>
+    <span class="keyword">server</span>  <span class="string">s1</span>  <span class="value">10.0.0.1:80</span>  <span class="keyword">check</span> <span class="keyword">cookie</span> <span class="string">s1</span>
+    <span class="keyword">server</span>  <span class="string">s2</span>  <span class="value">10.0.0.2:80</span>  <span class="keyword">check</span> <span class="keyword">cookie</span> <span class="string">s2</span>
+
+    <span class="comment"># 方法 2：Stick-table persistence</span>
+    <span class="keyword">stick-table</span>  <span class="value">type ip size 200k expire 30m</span>
+    <span class="keyword">stick on</span>     <span class="value">src</span></code></pre>
+
+<div class="table-wrap">
+<table>
+<tr><th>Cookie 選項</th><th>說明</th></tr>
+<tr><td><code>insert</code></td><td>HAProxy 自動插入 cookie</td></tr>
+<tr><td><code>indirect</code></td><td>回傳時移除 HAProxy 的 cookie（對應用透明）</td></tr>
+<tr><td><code>nocache</code></td><td>加 <code>Cache-Control: private</code> 避免快取</td></tr>
+<tr><td><code>httponly</code></td><td>設定 <code>HttpOnly</code> flag</td></tr>
+<tr><td><code>secure</code></td><td>設定 <code>Secure</code> flag（僅 HTTPS）</td></tr>
+<tr><td><code>maxidle &lt;t&gt;</code></td><td>cookie 閒置最長時間</td></tr>
+<tr><td><code>maxlife &lt;t&gt;</code></td><td>cookie 最大生命週期</td></tr>
+<tr><td><code>dynamic</code></td><td>動態 cookie（搭配 <code>dynamic-cookie-key</code>）</td></tr>
+</table>
+</div>
+
+<!-- ═══════ 4.3-4.4 Actions ═══════ -->
+<h2><span class="sec-num">4.3</span>Actions 動作速查</h2>
+
+<h3>http-request actions（前端/後端請求階段）</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>Action</th><th>說明</th><th>範例</th></tr>
+<tr><td><code>deny [status &lt;n&gt;]</code></td><td>拒絕請求，回傳錯誤碼</td><td><code>http-request deny status 403 if bad_ip</code></td></tr>
+<tr><td><code>allow</code></td><td>允許請求（停止後續 deny 規則）</td><td><code>http-request allow if whitelist</code></td></tr>
+<tr><td><code>redirect</code></td><td>HTTP 重導向</td><td><code>http-request redirect scheme https if !{ ssl_fc }</code></td></tr>
+<tr><td><code>set-header &lt;n&gt; &lt;v&gt;</code></td><td>設定/覆蓋 Header</td><td><code>http-request set-header X-Forwarded-Proto https</code></td></tr>
+<tr><td><code>add-header &lt;n&gt; &lt;v&gt;</code></td><td>新增 Header（不覆蓋）</td><td><code>http-request add-header X-Request-ID %[unique-id]</code></td></tr>
+<tr><td><code>del-header &lt;n&gt;</code></td><td>刪除 Header</td><td><code>http-request del-header X-Powered-By</code></td></tr>
+<tr><td><code>replace-header &lt;n&gt; &lt;re&gt; &lt;v&gt;</code></td><td>正規表達式替換</td><td><code>http-request replace-header Cookie foo=([^;]*) foo=xxx</code></td></tr>
+<tr><td><code>set-path &lt;v&gt;</code></td><td>改寫 URI path</td><td><code>http-request set-path /v2%[path]</code></td></tr>
+<tr><td><code>set-uri &lt;v&gt;</code></td><td>改寫整個 URI</td><td></td></tr>
+<tr><td><code>set-query &lt;v&gt;</code></td><td>改寫查詢字串</td><td></td></tr>
+<tr><td><code>set-method &lt;m&gt;</code></td><td>改寫 HTTP Method</td><td></td></tr>
+<tr><td><code>set-var(&lt;scope&gt;.&lt;n&gt;) &lt;expr&gt;</code></td><td>設定變數</td><td><code>http-request set-var(txn.host) req.hdr(Host)</code></td></tr>
+<tr><td><code>set-src &lt;expr&gt;</code></td><td>覆寫來源 IP（如取自 X-Forwarded-For）</td><td><code>http-request set-src hdr(X-Real-IP)</code></td></tr>
+<tr><td><code>auth [realm &lt;r&gt;]</code></td><td>要求 HTTP Basic Auth</td><td></td></tr>
+<tr><td><code>tarpit [status &lt;n&gt;]</code></td><td>延遲回應（消耗攻擊者資源）</td><td></td></tr>
+<tr><td><code>silent-drop</code></td><td>靜默丟棄（不回應，不送 RST）</td><td></td></tr>
+<tr><td><code>return &lt;status&gt; [content-type &lt;t&gt;] [body &lt;b&gt;]</code></td><td>自訂回應</td><td><code>http-request return status 200 content-type "application/json" string '{"ok":true}'</code></td></tr>
+<tr><td><code>do-resolve(&lt;var&gt;,&lt;resolver&gt;) &lt;expr&gt;</code></td><td>動態 DNS 解析</td><td></td></tr>
+<tr><td><code>track-sc&lt;n&gt; &lt;key&gt; [table &lt;t&gt;]</code></td><td>追蹤 stick-table 計數器</td><td><code>http-request track-sc0 src</code></td></tr>
+<tr><td><code>sc-inc-gpc0(&lt;n&gt;)</code></td><td>遞增 stick-table 通用計數器</td><td></td></tr>
+<tr><td><code>use-service &lt;svc&gt;</code></td><td>使用 Lua 或內建服務</td><td><code>http-request use-service lua.myhandler</code></td></tr>
+</table>
+</div>
+
+<h3>http-response actions（回應階段）</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>Action</th><th>說明</th></tr>
+<tr><td><code>set-header / add-header / del-header / replace-header</code></td><td>同 request，但作用於回應 Header</td></tr>
+<tr><td><code>set-status &lt;n&gt; [reason &lt;r&gt;]</code></td><td>改寫回應狀態碼</td></tr>
+<tr><td><code>allow / deny</code></td><td>放行或阻擋回應</td></tr>
+<tr><td><code>set-var / set-var-fmt</code></td><td>設定變數供後續 log 或規則使用</td></tr>
+</table>
+</div>
+
+<h3>http-after-response actions（回應完成後）</h3>
+
+<p>在回應 Header 即將送出前最後修改。適合加安全 Header：</p>
+
+<pre><code><span class="section">frontend</span> <span class="string">fe_main</span>
+    <span class="keyword">http-after-response set-header</span> <span class="string">Strict-Transport-Security</span> <span class="value">"max-age=31536000; includeSubDomains"</span>
+    <span class="keyword">http-after-response set-header</span> <span class="string">X-Content-Type-Options</span>    <span class="value">nosniff</span>
+    <span class="keyword">http-after-response set-header</span> <span class="string">X-Frame-Options</span>            <span class="value">DENY</span>
+    <span class="keyword">http-after-response del-header</span> <span class="string">Server</span></code></pre>
+
+<h3>redirect 完整語法</h3>
+
+<pre><code><span class="comment"># 重導向到 HTTPS</span>
+<span class="keyword">redirect</span> <span class="value">scheme https</span> <span class="keyword">code</span> <span class="value">301</span> <span class="keyword">if</span> !{ ssl_fc }
+
+<span class="comment"># 重導向到不同路徑</span>
+<span class="keyword">redirect</span> <span class="value">prefix /new-site</span> <span class="keyword">code</span> <span class="value">302</span>
+
+<span class="comment"># 重導向到完整 URL</span>
+<span class="keyword">redirect</span> <span class="value">location https://new.example.com/</span> <span class="keyword">code</span> <span class="value">301</span>
+
+<span class="comment"># append-slash 範例</span>
+<span class="keyword">redirect</span> <span class="value">code 301 prefix /</span> <span class="keyword">if</span> { path_reg ^/[^/.]+$ } <span class="keyword">append-slash</span></code></pre>
+
+<h3>常用 Proxy 選項速查</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>選項</th><th>說明</th></tr>
+<tr><td><code>option forwardfor [header &lt;n&gt;]</code></td><td>自動加入 <code>X-Forwarded-For</code> Header</td></tr>
+<tr><td><code>option httplog</code></td><td>使用 HTTP 格式記錄日誌（含 URI、狀態碼等）</td></tr>
+<tr><td><code>option httpslog</code></td><td>同上，額外記錄 SSL 資訊</td></tr>
+<tr><td><code>option dontlognull</code></td><td>不記錄未送資料就斷開的連線</td></tr>
+<tr><td><code>option http-buffer-request</code></td><td>完整緩衝請求 body 後才轉發（ACL 需要 body 時用）</td></tr>
+<tr><td><code>option abortonclose</code></td><td>客戶端斷線時，中止佇列中的等待請求</td></tr>
+<tr><td><code>option redispatch</code></td><td>session persistence 失敗時，重新分配到其他 server</td></tr>
+<tr><td><code>option log-health-checks</code></td><td>記錄健康檢查狀態變化</td></tr>
+<tr><td><code>option tcp-smart-connect</code></td><td>延遲 SYN，直到有資料要送時才建立連線</td></tr>
+<tr><td><code>compression algo gzip</code></td><td>啟用 gzip 壓縮（搭配 <code>compression type</code>）</td></tr>
+</table>
+</div>
+
+<h3>Stick-Table 速查</h3>
+
+<pre><code><span class="section">backend</span> <span class="string">rate_limit</span>
+    <span class="keyword">stick-table</span> <span class="value">type ip size 100k expire 30s store http_req_rate(10s),conn_cur,gpc0</span>
+    <span class="keyword">http-request</span> <span class="value">track-sc0 src</span>
+    <span class="keyword">http-request</span> <span class="value">deny deny_status 429</span> <span class="keyword">if</span> { sc_http_req_rate(0) gt 100 }</code></pre>
+
+<div class="table-wrap">
+<table>
+<tr><th>table type</th><th>說明</th></tr>
+<tr><td><code>ip</code></td><td>IPv4 位址</td></tr>
+<tr><td><code>ipv6</code></td><td>IPv6 位址</td></tr>
+<tr><td><code>integer</code></td><td>整數</td></tr>
+<tr><td><code>string [len &lt;n&gt;]</code></td><td>字串（可限長度）</td></tr>
+<tr><td><code>binary [len &lt;n&gt;]</code></td><td>二進位</td></tr>
+</table>
+</div>
+
+<div class="table-wrap">
+<table>
+<tr><th>store 計數器</th><th>說明</th></tr>
+<tr><td><code>conn_cnt</code></td><td>連線總數</td></tr>
+<tr><td><code>conn_cur</code></td><td>當前連線數</td></tr>
+<tr><td><code>conn_rate(&lt;period&gt;)</code></td><td>連線速率</td></tr>
+<tr><td><code>http_req_cnt</code></td><td>HTTP 請求總數</td></tr>
+<tr><td><code>http_req_rate(&lt;period&gt;)</code></td><td>HTTP 請求速率</td></tr>
+<tr><td><code>http_err_cnt / http_err_rate</code></td><td>HTTP 錯誤計數/速率</td></tr>
+<tr><td><code>bytes_in_rate / bytes_out_rate</code></td><td>流量速率</td></tr>
+<tr><td><code>gpc0 / gpc1 / gpc_rate</code></td><td>通用計數器</td></tr>
+<tr><td><code>gpt0</code></td><td>通用標記</td></tr>
+</table>
+</div>
+
+<div class="callout tip">
+  <div class="callout-title">速率限制實戰模板</div>
+  上方範例實現了：追蹤每個來源 IP 在 10 秒內的 HTTP 請求數；超過 100 次即返回 429 Too Many Requests。結合 <code>gpc0</code> 可進一步實現黑名單機制。
+</div>
+
+<div class="footer-nav">
+  <a href="ch03-global.html">← Ch3 全域參數</a>
+  <a href="ch05-bind-server.html">Ch5 Bind &amp; Server →</a>
+</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HAProxy 3.0 Cheat Sheet — Ch5 Bind & Server</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="topnav">
+  <a class="brand" href="#">HAProxy 3.0 速查手冊</a>
+  <div class="nav-links">
+    <a href="ch01-02-http-config.html">Ch1-2</a>
+    <a href="ch03-global.html">Ch3</a>
+    <a href="ch04-proxies.html">Ch4</a>
+    <a href="#" class="active">Ch5</a>
+    <a href="ch06-09-10-11-misc.html">Ch6,9-11</a>
+    <a href="ch07-acl-samples.html">Ch7</a>
+    <a href="ch08-logging.html">Ch8</a>
+  </div>
+</nav>
+
+<div class="container">
+
+<div class="page-header">
+  <div class="chapter-num">Chapter 5</div>
+  <h1>Bind 與 Server 選項</h1>
+  <div class="subtitle">前端監聽設定、後端伺服器參數、SSL/TLS 與 DNS 解析</div>
+</div>
+
+<!-- ═══════ 5.1 Bind Options ═══════ -->
+<h2><span class="sec-num">5.1</span>Bind 選項（前端監聽）</h2>
+
+<pre><code><span class="comment"># 基本語法</span>
+<span class="keyword">bind</span> <span class="value">[&lt;addr&gt;]:&lt;port&gt;</span> [param...]
+
+<span class="comment"># 範例</span>
+<span class="keyword">bind</span>  <span class="value">*:80</span>                                          <span class="comment"># 所有介面 TCP 80</span>
+<span class="keyword">bind</span>  <span class="value">*:443</span> <span class="keyword">ssl</span> <span class="keyword">crt</span> <span class="string">/etc/ssl/site.pem</span>              <span class="comment"># HTTPS</span>
+<span class="keyword">bind</span>  <span class="value">*:443</span> <span class="keyword">ssl</span> <span class="keyword">crt</span> <span class="string">/etc/ssl/certs/</span>               <span class="comment"># 目錄下所有憑證（SNI）</span>
+<span class="keyword">bind</span>  <span class="string">unix@/var/run/haproxy.sock</span> <span class="keyword">mode</span> <span class="value">660</span>          <span class="comment"># Unix socket</span>
+<span class="keyword">bind</span>  <span class="value">quic4@:443</span> <span class="keyword">ssl</span> <span class="keyword">crt</span> <span class="string">/etc/ssl/site.pem</span>        <span class="comment"># QUIC/HTTP3</span>
+<span class="keyword">bind</span>  <span class="value">*:8443</span> <span class="keyword">ssl</span> <span class="keyword">crt</span> <span class="string">/etc/ssl/site.pem</span> <span class="keyword">alpn</span> <span class="string">h2,http/1.1</span>  <span class="comment"># 指定 ALPN</span></code></pre>
+
+<h3>常用 Bind 參數</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>參數</th><th>說明</th></tr>
+<tr><td><code>ssl</code></td><td>啟用 SSL/TLS 終止</td></tr>
+<tr><td><code>crt &lt;path&gt;</code></td><td>憑證（PEM 檔或目錄）。PEM 含 cert + key [+ chain]</td></tr>
+<tr><td><code>crt-list &lt;file&gt;</code></td><td>憑證清單檔（支援 SNI 對應不同憑證）</td></tr>
+<tr><td><code>ca-file &lt;path&gt;</code></td><td>CA 憑證（用於驗證客戶端憑證 mTLS）</td></tr>
+<tr><td><code>verify [none|optional|required]</code></td><td>客戶端憑證驗證模式</td></tr>
+<tr><td><code>alpn &lt;list&gt;</code></td><td>ALPN 協商清單，如 <code>h2,http/1.1</code></td></tr>
+<tr><td><code>ssl-min-ver &lt;ver&gt;</code></td><td>最低 TLS 版本：<code>TLSv1.2</code>, <code>TLSv1.3</code></td></tr>
+<tr><td><code>ssl-max-ver &lt;ver&gt;</code></td><td>最高 TLS 版本</td></tr>
+<tr><td><code>ciphers &lt;list&gt;</code></td><td>TLS 1.2 加密套件</td></tr>
+<tr><td><code>ciphersuites &lt;list&gt;</code></td><td>TLS 1.3 加密套件</td></tr>
+<tr><td><code>maxconn &lt;n&gt;</code></td><td>此 listener 的最大連線數</td></tr>
+<tr><td><code>accept-proxy</code></td><td>接受 PROXY Protocol v1/v2</td></tr>
+<tr><td><code>accept-netscaler-cip</code></td><td>接受 NetScaler Client IP 插入</td></tr>
+<tr><td><code>defer-accept</code></td><td>Linux TCP_DEFER_ACCEPT（等到有資料才 accept）</td></tr>
+<tr><td><code>backlog &lt;n&gt;</code></td><td>listen backlog 大小</td></tr>
+<tr><td><code>tfo</code></td><td>啟用 TCP Fast Open</td></tr>
+<tr><td><code>interface &lt;name&gt;</code></td><td>綁定到特定網卡</td></tr>
+<tr><td><code>namespace &lt;name&gt;</code></td><td>Linux network namespace</td></tr>
+<tr><td><code>shards &lt;n&gt;</code></td><td>socket 分片數（搭配 <code>SO_REUSEPORT</code>）</td></tr>
+<tr><td><code>no-tls-tickets</code></td><td>停用 TLS session tickets</td></tr>
+<tr><td><code>generate-certificates</code></td><td>動態產生 SSL 憑證（SSL bumping）</td></tr>
+<tr><td><code>strict-sni</code></td><td>未匹配 SNI 的連線直接拒絕</td></tr>
+</table>
+</div>
+
+<h3>mTLS 雙向認證範例</h3>
+
+<pre><code><span class="section">frontend</span> <span class="string">fe_mtls</span>
+    <span class="keyword">bind</span> <span class="value">*:443</span> <span class="keyword">ssl</span> \
+        <span class="keyword">crt</span>     <span class="string">/etc/ssl/server.pem</span> \
+        <span class="keyword">ca-file</span> <span class="string">/etc/ssl/ca.pem</span> \
+        <span class="keyword">verify</span>  <span class="value">required</span> \
+        <span class="keyword">crl-file</span> <span class="string">/etc/ssl/crl.pem</span>
+
+    <span class="comment"># 取得客戶端憑證資訊</span>
+    <span class="keyword">http-request set-header</span> <span class="string">X-SSL-Client-DN</span>     <span class="value">%[ssl_c_s_dn]</span>
+    <span class="keyword">http-request set-header</span> <span class="string">X-SSL-Client-Verify</span> <span class="value">%[ssl_c_verify]</span></code></pre>
+
+<!-- ═══════ 5.2 Server Options ═══════ -->
+<h2><span class="sec-num">5.2</span>Server 與 default-server 選項</h2>
+
+<pre><code><span class="comment"># 基本語法</span>
+<span class="keyword">server</span> <span class="string">&lt;name&gt;</span> <span class="value">&lt;addr&gt;:&lt;port&gt;</span> [param...]
+<span class="keyword">default-server</span> [param...]       <span class="comment"># 設定此 backend 所有 server 的預設值</span>
+<span class="keyword">server-template</span> <span class="string">&lt;prefix&gt;</span> <span class="value">&lt;num&gt; &lt;fqdn&gt;:&lt;port&gt;</span> [param...]  <span class="comment"># 動態 server 模板</span></code></pre>
+
+<h3>常用 Server 參數</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>參數</th><th>說明</th></tr>
+<tr><td><code>check</code></td><td>啟用健康檢查</td></tr>
+<tr><td><code>inter &lt;t&gt;</code></td><td>檢查間隔（預設 2s）</td></tr>
+<tr><td><code>fastinter &lt;t&gt;</code></td><td>狀態變化中的加速檢查間隔</td></tr>
+<tr><td><code>downinter &lt;t&gt;</code></td><td>server DOWN 時的檢查間隔</td></tr>
+<tr><td><code>fall &lt;n&gt;</code></td><td>連續失敗 n 次標記為 DOWN（預設 3）</td></tr>
+<tr><td><code>rise &lt;n&gt;</code></td><td>連續成功 n 次標記為 UP（預設 2）</td></tr>
+<tr><td><code>weight &lt;0-256&gt;</code></td><td>負載權重（預設 1）。0 = 不接收新連線</td></tr>
+<tr><td><code>maxconn &lt;n&gt;</code></td><td>此 server 的最大連線數</td></tr>
+<tr><td><code>maxqueue &lt;n&gt;</code></td><td>佇列中等待此 server 的最大請求數</td></tr>
+<tr><td><code>minconn &lt;n&gt;</code></td><td>搭配 <code>fullconn</code>，動態調整的最小連線數</td></tr>
+<tr><td><code>backup</code></td><td>備援伺服器（僅當主 server 全部 DOWN 才啟用）</td></tr>
+<tr><td><code>disabled</code></td><td>初始為停用狀態</td></tr>
+<tr><td><code>slowstart &lt;t&gt;</code></td><td>恢復後逐漸增加權重的時間</td></tr>
+<tr><td><code>on-error &lt;action&gt;</code></td><td>檢查失敗時的動作：<code>fastinter</code> / <code>fail-check</code> / <code>sudden-death</code> / <code>mark-down</code></td></tr>
+<tr><td><code>on-marked-down &lt;action&gt;</code></td><td>標記 DOWN 時的動作：<code>shutdown-sessions</code></td></tr>
+<tr><td><code>error-limit &lt;n&gt;</code></td><td>連續錯誤數上限，觸發 <code>on-error</code></td></tr>
+<tr><td><code>observe &lt;layer&gt;</code></td><td>被動觀測：<code>layer4</code>（連線失敗）/ <code>layer7</code>（5xx 回應）</td></tr>
+</table>
+</div>
+
+<h3>Server SSL 連線（後端加密）</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>參數</th><th>說明</th></tr>
+<tr><td><code>ssl</code></td><td>以 SSL/TLS 連接後端</td></tr>
+<tr><td><code>verify [none|required]</code></td><td>驗證後端憑證（預設 none）</td></tr>
+<tr><td><code>ca-file &lt;path&gt;</code></td><td>驗證後端憑證的 CA</td></tr>
+<tr><td><code>sni &lt;expr&gt;</code></td><td>動態設定 SNI，如 <code>sni req.hdr(Host)</code></td></tr>
+<tr><td><code>alpn &lt;list&gt;</code></td><td>ALPN 協商</td></tr>
+<tr><td><code>check-ssl</code></td><td>健康檢查也走 SSL</td></tr>
+<tr><td><code>check-sni &lt;name&gt;</code></td><td>健康檢查的 SNI</td></tr>
+<tr><td><code>crt &lt;path&gt;</code></td><td>客戶端憑證（mTLS 到後端）</td></tr>
+</table>
+</div>
+
+<pre><code><span class="section">backend</span> <span class="string">secure_upstream</span>
+    <span class="keyword">default-server</span> <span class="keyword">ssl</span> <span class="keyword">verify</span> <span class="value">required</span> <span class="keyword">ca-file</span> <span class="string">/etc/ssl/ca-bundle.crt</span> \
+                   <span class="keyword">check</span> <span class="keyword">check-ssl</span> <span class="keyword">inter</span> <span class="value">5s</span>
+    <span class="keyword">server</span>  <span class="string">s1</span>  <span class="value">backend1.example.com:443</span> <span class="keyword">sni</span> <span class="value">str(backend1.example.com)</span>
+    <span class="keyword">server</span>  <span class="string">s2</span>  <span class="value">backend2.example.com:443</span> <span class="keyword">sni</span> <span class="value">str(backend2.example.com)</span></code></pre>
+
+<h3>PROXY Protocol（傳遞真實 IP）</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>參數</th><th>說明</th></tr>
+<tr><td><code>send-proxy</code></td><td>傳送 PROXY Protocol v1 到後端</td></tr>
+<tr><td><code>send-proxy-v2</code></td><td>傳送 PROXY Protocol v2（二進位格式）</td></tr>
+<tr><td><code>send-proxy-v2-ssl</code></td><td>v2 含 SSL 連線資訊</td></tr>
+<tr><td><code>send-proxy-v2-ssl-cn</code></td><td>v2 含客戶端憑證 CN</td></tr>
+</table>
+</div>
+
+<!-- ═══════ 5.3 DNS Resolution ═══════ -->
+<h2><span class="sec-num">5.3</span>Server DNS 解析</h2>
+
+<p>HAProxy 可動態解析 server 的 FQDN，實現服務發現和自動更新後端 IP：</p>
+
+<pre><code><span class="section">resolvers</span> <span class="string">mydns</span>
+    <span class="keyword">nameserver</span>  <span class="string">dns1</span>  <span class="value">8.8.8.8:53</span>
+    <span class="keyword">nameserver</span>  <span class="string">dns2</span>  <span class="value">8.8.4.4:53</span>
+    <span class="keyword">resolve_retries</span>  <span class="value">3</span>
+    <span class="keyword">timeout</span>  <span class="value">resolve  1s</span>
+    <span class="keyword">timeout</span>  <span class="value">retry    1s</span>
+    <span class="keyword">hold</span>     <span class="value">valid    10s</span>     <span class="comment"># 解析結果有效期</span>
+    <span class="keyword">hold</span>     <span class="value">other    30s</span>
+    <span class="keyword">hold</span>     <span class="value">refused  30s</span>
+    <span class="keyword">hold</span>     <span class="value">nx       30s</span>
+    <span class="keyword">hold</span>     <span class="value">timeout  30s</span>
+    <span class="keyword">hold</span>     <span class="value">obsolete 30s</span>
+
+<span class="section">backend</span> <span class="string">dynamic_backend</span>
+    <span class="keyword">balance</span>  <span class="value">roundrobin</span>
+    <span class="keyword">server-template</span> <span class="string">srv</span>  <span class="value">5</span>  <span class="string">_http._tcp.myservice.consul</span>  <span class="keyword">resolvers</span> <span class="string">mydns</span> \
+        <span class="keyword">resolve-prefer</span> <span class="value">ipv4</span> <span class="keyword">check</span> <span class="keyword">init-addr</span> <span class="value">none</span></code></pre>
+
+<div class="table-wrap">
+<table>
+<tr><th>Server 解析參數</th><th>說明</th></tr>
+<tr><td><code>resolvers &lt;name&gt;</code></td><td>指定 DNS resolver 區塊</td></tr>
+<tr><td><code>resolve-prefer &lt;ipv4|ipv6&gt;</code></td><td>偏好的 IP 版本</td></tr>
+<tr><td><code>resolve-net &lt;cidr&gt;</code></td><td>只接受特定網段的解析結果</td></tr>
+<tr><td><code>resolve-opts &lt;opts&gt;</code></td><td>如 <code>allow-dup-ip</code>, <code>prevent-dup-ip</code></td></tr>
+<tr><td><code>init-addr &lt;methods&gt;</code></td><td>啟動時 IP 初始化方式：<code>last</code>, <code>libc</code>, <code>none</code></td></tr>
+</table>
+</div>
+
+<div class="callout tip">
+  <div class="callout-title">Consul / SRV 服務發現</div>
+  使用 <code>server-template</code> + SRV 記錄可實現自動化服務發現。<code>server-template srv 5</code> 表示最多 5 個動態 server 實例，DNS 回應幾筆就啟用幾台。
+</div>
+
+<div class="footer-nav">
+  <a href="ch04-proxies.html">← Ch4 Proxies</a>
+  <a href="ch06-09-10-11-misc.html">Ch6,9-11 Cache / Filters / FastCGI / Address →</a>
+</div>
+
+</div>
+</body>
+</html>
