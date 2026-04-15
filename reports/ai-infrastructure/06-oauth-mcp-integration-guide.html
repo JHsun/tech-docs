@@ -1,0 +1,2651 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OAuth Provider 整合非 OAuth 服務：完整實作指南</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@300;400;600;700&family=JetBrains+Mono:wght@300;400;600&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #1a1a2e;
+    --ink-light: #2d2d4e;
+    --paper: #f8f6f0;
+    --paper-warm: #f2ede3;
+    --accent: #c0392b;
+    --accent-dim: #e74c3c;
+    --gold: #d4a017;
+    --teal: #0d7377;
+    --teal-light: #14a085;
+    --purple: #6c3483;
+    --green: #1e8449;
+    --blue: #1a5276;
+    --orange: #ca6f1e;
+    --border: #d4c9b0;
+    --code-bg: #1e1e2e;
+    --shadow: 0 4px 24px rgba(26,26,46,0.12);
+    --shadow-deep: 0 8px 40px rgba(26,26,46,0.2);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Noto Sans TC', sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    line-height: 1.8;
+    font-size: 15px;
+  }
+
+  /* HEADER */
+  .site-header {
+    background: var(--ink);
+    color: var(--paper);
+    padding: 60px 0 50px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .site-header::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 40px,
+      rgba(255,255,255,0.02) 40px,
+      rgba(255,255,255,0.02) 80px
+    );
+  }
+  .site-header h1 {
+    font-family: 'Noto Serif TC', serif;
+    font-size: 2.4rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    position: relative;
+    margin-bottom: 12px;
+  }
+  .site-header h1 span { color: var(--gold); }
+  .site-header .subtitle {
+    font-size: 1rem;
+    color: rgba(248,246,240,0.65);
+    font-weight: 300;
+    letter-spacing: 0.08em;
+    position: relative;
+  }
+  .header-tags {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 20px;
+    position: relative;
+    flex-wrap: wrap;
+    padding: 0 20px;
+  }
+  .header-tag {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: rgba(248,246,240,0.8);
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.05em;
+  }
+
+  /* NAV */
+  .toc {
+    background: var(--ink-light);
+    color: var(--paper);
+    padding: 30px 40px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+  }
+  .toc-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  .toc-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--gold);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .toc-links {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .toc-link {
+    color: rgba(248,246,240,0.75);
+    text-decoration: none;
+    font-size: 0.78rem;
+    padding: 3px 10px;
+    border-radius: 4px;
+    transition: all 0.2s;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .toc-link:hover {
+    background: rgba(255,255,255,0.1);
+    color: var(--paper);
+    border-color: rgba(255,255,255,0.2);
+  }
+
+  /* MAIN */
+  .main { max-width: 1200px; margin: 0 auto; padding: 0 40px 80px; }
+
+  /* OVERVIEW SECTION */
+  .overview {
+    background: var(--ink);
+    color: var(--paper);
+    margin: 0 -40px;
+    padding: 50px 80px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    align-items: center;
+  }
+  .overview-text h2 {
+    font-family: 'Noto Serif TC', serif;
+    font-size: 1.6rem;
+    margin-bottom: 16px;
+    color: var(--gold);
+  }
+  .overview-text p { color: rgba(248,246,240,0.8); line-height: 1.9; margin-bottom: 12px; }
+  .overview-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .overview-card {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .overview-card .num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.6rem;
+    font-weight: 600;
+    color: var(--gold);
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .overview-card .label { font-size: 0.8rem; color: rgba(248,246,240,0.6); }
+
+  /* SECTION TITLES */
+  .section-divider {
+    text-align: center;
+    padding: 60px 0 10px;
+    position: relative;
+  }
+  .section-divider::before {
+    content: '';
+    position: absolute;
+    left: 0; right: 0;
+    top: 50%;
+    height: 1px;
+    background: var(--border);
+  }
+  .section-divider span {
+    background: var(--paper);
+    padding: 0 24px;
+    position: relative;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  /* PATTERN CARDS */
+  .pattern {
+    margin: 50px 0;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border);
+  }
+  .pattern-header {
+    padding: 28px 36px;
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+  }
+  .pattern-badge {
+    width: 56px;
+    height: 56px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: white;
+    flex-shrink: 0;
+  }
+  .pattern-meta h2 {
+    font-family: 'Noto Serif TC', serif;
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .pattern-meta .eng-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82rem;
+    opacity: 0.65;
+    letter-spacing: 0.05em;
+  }
+  .pattern-tags { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .ptag {
+    font-size: 0.72rem;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+  }
+
+  .pattern-body { background: white; }
+  .pattern-section { padding: 28px 36px; border-bottom: 1px solid #f0ece4; }
+  .pattern-section:last-child { border-bottom: none; }
+
+  .ps-title {
+    font-size: 0.75rem;
+    font-family: 'JetBrains Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--accent);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ps-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #e8e2d8;
+  }
+
+  /* STEPS */
+  .steps { display: flex; flex-direction: column; gap: 0; }
+  .step {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 0;
+    position: relative;
+  }
+  .step:not(:last-child) .step-num::after {
+    content: '';
+    position: absolute;
+    left: 27px;
+    top: 52px;
+    bottom: -16px;
+    width: 2px;
+    background: linear-gradient(to bottom, var(--step-color, #ccc), transparent);
+    z-index: 0;
+  }
+  .step-num {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 4px;
+  }
+  .step-circle {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--step-color, #888);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 0.85rem;
+    z-index: 1;
+    flex-shrink: 0;
+  }
+  .step-content {
+    padding: 2px 0 24px 8px;
+  }
+  .step-title {
+    font-weight: 700;
+    font-size: 0.95rem;
+    margin-bottom: 6px;
+    color: var(--ink);
+  }
+  .step-desc {
+    font-size: 0.88rem;
+    color: #444;
+    line-height: 1.75;
+  }
+  .step-code {
+    margin-top: 10px;
+    background: var(--code-bg);
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    color: #cdd6f4;
+    overflow-x: auto;
+    line-height: 1.6;
+  }
+  .step-code .kw { color: #cba6f7; }
+  .step-code .str { color: #a6e3a1; }
+  .step-code .cmt { color: #6c7086; font-style: italic; }
+  .step-code .key { color: #89b4fa; }
+  .step-code .val { color: #fab387; }
+
+  /* PROS/CONS */
+  .pros-cons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  .pros, .cons {
+    border-radius: 8px;
+    padding: 18px 20px;
+  }
+  .pros { background: #f0faf4; border: 1px solid #b8dfc8; }
+  .cons { background: #fdf4f4; border: 1px solid #e8c0c0; }
+  .pros h4 { color: var(--green); margin-bottom: 12px; font-size: 0.88rem; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+  .cons h4 { color: var(--accent); margin-bottom: 12px; font-size: 0.88rem; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+  .pros ul, .cons ul { list-style: none; }
+  .pros li, .cons li { font-size: 0.85rem; padding: 4px 0; line-height: 1.6; display: flex; gap: 8px; }
+  .pros li::before { content: '✓'; color: var(--green); font-weight: 700; flex-shrink: 0; }
+  .cons li::before { content: '✗'; color: var(--accent); font-weight: 700; flex-shrink: 0; }
+
+  /* SECURITY */
+  .security-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .sec-item {
+    border-radius: 8px;
+    padding: 14px 16px;
+    border: 1px solid;
+  }
+  .sec-high { background: #fef9f0; border-color: #f5cba7; }
+  .sec-med { background: #fdfaf4; border-color: #f9e79f; }
+  .sec-low { background: #f0faf4; border-color: #b8dfc8; }
+  .sec-critical { background: #fdf4f4; border-color: #e8c0c0; }
+  .sec-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; margin-bottom: 4px; }
+  .sec-high .sec-label { color: var(--orange); }
+  .sec-med .sec-label { color: #9a7d0a; }
+  .sec-low .sec-label { color: var(--green); }
+  .sec-critical .sec-label { color: var(--accent); }
+  .sec-text { font-size: 0.84rem; line-height: 1.6; }
+
+  /* SEQUENCE DIAGRAM */
+  .diagram-container {
+    background: #fafaf8;
+    border-radius: 8px;
+    padding: 24px;
+    overflow-x: auto;
+  }
+  svg.seq-diagram {
+    font-family: 'Noto Sans TC', sans-serif;
+    display: block;
+    margin: 0 auto;
+  }
+
+  /* COLOR THEMES PER PATTERN */
+  .p-a .pattern-header { background: linear-gradient(135deg, #1a3a5c 0%, #1a5276 100%); color: white; }
+  .p-a .pattern-meta h2 { color: white; }
+  .p-a .pattern-meta .eng-name { color: rgba(255,255,255,0.65); }
+  .p-a .pattern-badge { background: #c0392b; }
+
+  .p-b .pattern-header { background: linear-gradient(135deg, #1a4a3a 0%, #1e8449 100%); color: white; }
+  .p-b .pattern-meta h2 { color: white; }
+  .p-b .pattern-meta .eng-name { color: rgba(255,255,255,0.65); }
+  .p-b .pattern-badge { background: #d4a017; }
+
+  .p-c .pattern-header { background: linear-gradient(135deg, #4a1a3a 0%, #6c3483 100%); color: white; }
+  .p-c .pattern-meta h2 { color: white; }
+  .p-c .pattern-meta .eng-name { color: rgba(255,255,255,0.65); }
+  .p-c .pattern-badge { background: #e74c3c; }
+
+  .p-d .pattern-header { background: linear-gradient(135deg, #1a3a4a 0%, #0d7377 100%); color: white; }
+  .p-d .pattern-meta h2 { color: white; }
+  .p-d .pattern-meta .eng-name { color: rgba(255,255,255,0.65); }
+  .p-d .pattern-badge { background: #ca6f1e; }
+
+  .p-e .pattern-header { background: linear-gradient(135deg, #2a1a4a 0%, #512e5f 100%); color: white; }
+  .p-e .pattern-meta h2 { color: white; }
+  .p-e .pattern-meta .eng-name { color: rgba(255,255,255,0.65); }
+  .p-e .pattern-badge { background: #117a65; }
+
+  .p-f .pattern-header { background: linear-gradient(135deg, #3a2a1a 0%, #784212 100%); color: white; }
+  .p-f .pattern-meta h2 { color: white; }
+  .p-f .pattern-meta .eng-name { color: rgba(255,255,255,0.65); }
+  .p-f .pattern-badge { background: #1a5276; }
+
+  .p-g .pattern-header { background: linear-gradient(135deg, #1a2a3a 0%, #283747 100%); color: white; }
+  .p-g .pattern-meta h2 { color: white; }
+  .p-g .pattern-meta .eng-name { color: rgba(255,255,255,0.65); }
+  .p-g .pattern-badge { background: #7f8c8d; }
+
+  .p-anti .pattern-header { background: linear-gradient(135deg, #3a1a1a 0%, #641e16 100%); color: white; }
+  .p-anti .pattern-meta h2 { color: white; }
+  .p-anti .pattern-meta .eng-name { color: rgba(255,255,255,0.65); }
+  .p-anti .pattern-badge { background: #922b21; }
+
+  /* COMPARISON TABLE */
+  .comparison-wrap { overflow-x: auto; margin-top: 16px; }
+  table.comparison {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+  }
+  table.comparison th {
+    background: var(--ink);
+    color: var(--gold);
+    padding: 10px 14px;
+    text-align: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+  }
+  table.comparison td {
+    padding: 9px 14px;
+    border-bottom: 1px solid #ede8de;
+    vertical-align: top;
+    line-height: 1.5;
+  }
+  table.comparison tr:nth-child(even) td { background: #faf7f0; }
+  table.comparison tr:hover td { background: #f0ece0; }
+  .badge-good { background: #d5f5e3; color: #1e8449; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; }
+  .badge-ok { background: #fdebd0; color: #ca6f1e; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; }
+  .badge-bad { background: #fadbd8; color: #922b21; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; }
+  .badge-na { background: #eaecee; color: #626567; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; }
+
+  /* CALLOUT */
+  .callout {
+    border-left: 4px solid;
+    padding: 14px 18px;
+    border-radius: 0 8px 8px 0;
+    margin: 16px 0;
+    font-size: 0.88rem;
+    line-height: 1.7;
+  }
+  .callout-warn { border-color: var(--orange); background: #fef9f0; }
+  .callout-info { border-color: var(--teal); background: #f0fafb; }
+  .callout-danger { border-color: var(--accent); background: #fdf4f4; }
+  .callout-title { font-weight: 700; margin-bottom: 4px; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.08em; }
+  .callout-warn .callout-title { color: var(--orange); }
+  .callout-info .callout-title { color: var(--teal); }
+  .callout-danger .callout-title { color: var(--accent); }
+
+  footer {
+    background: var(--ink);
+    color: rgba(248,246,240,0.5);
+    text-align: center;
+    padding: 30px;
+    font-size: 0.8rem;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.05em;
+  }
+
+  @media (max-width: 768px) {
+    .main { padding: 0 20px 60px; }
+    .overview { grid-template-columns: 1fr; padding: 40px 30px; margin: 0 -20px; }
+    .pros-cons { grid-template-columns: 1fr; }
+    .toc { padding: 16px 20px; }
+    .site-header h1 { font-size: 1.6rem; }
+    .pattern-section { padding: 20px; }
+    .pattern-header { padding: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <h1>OAuth Provider 整合<span>非 OAuth 服務</span><br>完整實作指南</h1>
+  <p class="subtitle">以 OAuth + MCP Server + Redmine 為核心案例，涵蓋七種實作模式與兩種反模式</p>
+  <div class="header-tags">
+    <span class="header-tag">OAuth 2.1</span>
+    <span class="header-tag">MCP Protocol</span>
+    <span class="header-tag">Redmine Integration</span>
+    <span class="header-tag">Token Exchange</span>
+    <span class="header-tag">API Gateway</span>
+    <span class="header-tag">繁體中文</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="toc-inner">
+    <span class="toc-label">快速導覽</span>
+    <div class="toc-links">
+      <a class="toc-link" href="#overview">概覽</a>
+      <a class="toc-link" href="#pa">A · 雙 Key</a>
+      <a class="toc-link" href="#pb">B · 單 Key 延遲</a>
+      <a class="toc-link" href="#pc">C · OAuth Proxy</a>
+      <a class="toc-link" href="#pd">D · Token Vault</a>
+      <a class="toc-link" href="#pe">E · Token Exchange</a>
+      <a class="toc-link" href="#pf">F · API Gateway</a>
+      <a class="toc-link" href="#pg">G · 子進程隔離</a>
+      <a class="toc-link" href="#anti">⚠ 反模式</a>
+      <a class="toc-link" href="#isolation">隔離層級解說</a>
+      <a class="toc-link" href="#compare">比較表</a>
+    </div>
+  </div>
+</nav>
+
+<div class="main">
+
+  <!-- OVERVIEW -->
+  <div id="overview" class="overview">
+    <div class="overview-text">
+      <h2>問題背景與設計動機</h2>
+      <p>當 MCP Server 需要代表使用者存取 Redmine 這類<strong>僅支援 API Key 驗證</strong>的服務時，OAuth 的標準「委派授權」流程無法直接套用，需要額外的橋接機制。</p>
+      <p>核心問題在於：如何讓 OAuth Provider 端的身份驗證，安全地映射到目標服務的 API Key，同時保持使用者身份的追蹤與最小權限原則。</p>
+      <p>本文整理了七種實作方式與兩種應避免的反模式，每種均包含完整步驟與時序圖。</p>
+    </div>
+    <div class="overview-grid">
+      <div class="overview-card">
+        <div class="num">7</div>
+        <div class="label">正式實作模式</div>
+      </div>
+      <div class="overview-card">
+        <div class="num">2</div>
+        <div class="label">需避免的反模式</div>
+      </div>
+      <div class="overview-card">
+        <div class="num">RFC<br>8693</div>
+        <div class="label">最佳實踐規範</div>
+      </div>
+      <div class="overview-card">
+        <div class="num">∞</div>
+        <div class="label">可延伸的服務類型</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-divider"><span>正式實作模式</span></div>
+
+  <!-- ===== PATTERN A ===== -->
+  <div id="pa" class="pattern p-a">
+    <div class="pattern-header">
+      <div class="pattern-badge">A</div>
+      <div class="pattern-meta">
+        <h2>雙 API Key 架構</h2>
+        <div class="eng-name">Dual API Key — Server Init Key + Per-User Key</div>
+        <div class="pattern-tags">
+          <span class="ptag" style="background:rgba(255,255,255,0.15);color:white">低複雜度</span>
+          <span class="ptag" style="background:rgba(192,57,43,0.3);color:#ffb3ae">靜態工具清單</span>
+          <span class="ptag" style="background:rgba(212,160,23,0.3);color:#fde68a">職責分離</span>
+        </div>
+      </div>
+    </div>
+    <div class="pattern-body">
+
+      <div class="pattern-section">
+        <div class="ps-title">架構說明</div>
+        <p style="font-size:0.9rem;line-height:1.8;color:#333">使用<strong>兩組不同用途的 API Key</strong>：一組由 Server 管理員設定在環境變數中（Server Key），用於 MCP Server 啟動時向 Redmine 探索可用工具；另一組由每位使用者在 OAuth 驗證流程中提供（User Key），用於實際的 Redmine 資料操作。兩組 Key 職責完全分離。</p>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">詳細步驟</div>
+        <div class="steps">
+          <div class="step" style="--step-color: #1a5276">
+            <div class="step-num"><div class="step-circle">1</div></div>
+            <div class="step-content">
+              <div class="step-title">Server 啟動時使用 Server Key 初始化</div>
+              <div class="step-desc">MCP Server 啟動時，從環境變數讀取 <code>REDMINE_SERVER_API_KEY</code>，向 Redmine 發起 GET /issues.json 等探索請求，確認連線並載入可用的工具 schema（如 create_issue、list_projects 等）。</div>
+              <div class="step-code"><span class="cmt"># 環境變數設定（OAuth Provider 側）</span>
+<span class="key">REDMINE_SERVER_API_KEY</span>=<span class="str">"admin-readonly-xxxx"</span>
+<span class="key">REDMINE_BASE_URL</span>=<span class="str">"https://redmine.example.com"</span>
+
+<span class="cmt"># MCP Server 初始化邏輯</span>
+<span class="kw">const</span> <span class="key">tools</span> = <span class="kw">await</span> loadRedmineTools({
+  apiKey: process.env.<span class="key">REDMINE_SERVER_API_KEY</span>,
+  baseUrl: process.env.<span class="key">REDMINE_BASE_URL</span>
+});</div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #1a5276">
+            <div class="step-num"><div class="step-circle">2</div></div>
+            <div class="step-content">
+              <div class="step-title">OAuth Provider 暴露工具清單（靜態）</div>
+              <div class="step-desc">MCP Server 將載入的工具清單快取，對所有連入的 MCP Client 提供相同的工具 schema，不需要每次重新探索。</div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #c0392b">
+            <div class="step-num"><div class="step-circle">3</div></div>
+            <div class="step-content">
+              <div class="step-title">使用者完成 OAuth 驗證並提交 Redmine User Key</div>
+              <div class="step-desc">使用者在 OAuth 授權頁面輸入個人 Redmine API Key。OAuth Provider 驗證使用者身份後，將 User Key 加密儲存，並與 OAuth session 關聯。</div>
+              <div class="step-code"><span class="cmt">// OAuth 授權流程中的額外參數</span>
+POST /oauth/authorize
+{
+  <span class="key">response_type</span>: <span class="str">"code"</span>,
+  <span class="key">client_id</span>: <span class="str">"mcp-client"</span>,
+  <span class="key">redmine_api_key</span>: <span class="str">"user-personal-key-yyyy"</span>  <span class="cmt">// 加密後儲存</span>
+}</div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #c0392b">
+            <div class="step-num"><div class="step-circle">4</div></div>
+            <div class="step-content">
+              <div class="step-title">MCP Client 取得 OAuth Token 並連線</div>
+              <div class="step-desc">OAuth 標準流程完成後，MCP Client 持有 OAuth access token，以此連線至 MCP Server。</div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #d4a017">
+            <div class="step-num"><div class="step-circle">5</div></div>
+            <div class="step-content">
+              <div class="step-title">MCP Server 驗證 OAuth Token 並注入 User Key</div>
+              <div class="step-desc">每次工具呼叫時，MCP Server 驗證 OAuth access token，解析出對應的使用者身份，從加密儲存取得該使用者的 Redmine User Key，注入實際的 API 請求中。</div>
+              <div class="step-code"><span class="kw">async function</span> <span class="key">handleToolCall</span>(oauthToken, toolName, params) {
+  <span class="kw">const</span> userId = <span class="kw">await</span> validateOAuthToken(oauthToken);
+  <span class="kw">const</span> redmineKey = <span class="kw">await</span> getUserApiKey(userId); <span class="cmt">// 從加密儲存取得</span>
+  <span class="kw">return</span> callRedmineApi(toolName, params, redmineKey);
+}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">時序圖</div>
+        <div class="diagram-container">
+          <svg class="seq-diagram" width="860" height="440" viewBox="0 0 860 440">
+            <defs>
+              <marker id="arr-a" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#1a5276"/>
+              </marker>
+              <marker id="arr-a2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#c0392b"/>
+              </marker>
+              <marker id="arr-a3" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#1e8449"/>
+              </marker>
+            </defs>
+            <!-- Actors -->
+            <rect x="30" y="20" width="110" height="36" rx="6" fill="#1a5276"/>
+            <text x="85" y="43" text-anchor="middle" fill="white" font-size="12" font-weight="600">MCP Client</text>
+            <rect x="210" y="20" width="130" height="36" rx="6" fill="#6c3483"/>
+            <text x="275" y="38" text-anchor="middle" fill="white" font-size="12" font-weight="600">OAuth Provider</text>
+            <text x="275" y="51" text-anchor="middle" fill="white" font-size="10">(MCP Server)</text>
+            <rect x="430" y="20" width="120" height="36" rx="6" fill="#c0392b"/>
+            <text x="490" y="43" text-anchor="middle" fill="white" font-size="12" font-weight="600">Redmine (MCP)</text>
+            <rect x="640" y="20" width="110" height="36" rx="6" fill="#1e8449"/>
+            <text x="695" y="43" text-anchor="middle" fill="white" font-size="12" font-weight="600">Redmine API</text>
+
+            <!-- Lifelines -->
+            <line x1="85" y1="56" x2="85" y2="430" stroke="#1a5276" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="275" y1="56" x2="275" y2="430" stroke="#6c3483" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="490" y1="56" x2="490" y2="430" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="695" y1="56" x2="695" y2="430" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+
+            <!-- Phase 1: Server Init -->
+            <rect x="20" y="68" width="830" height="20" rx="3" fill="#eaf0fb" opacity="0.7"/>
+            <text x="435" y="82" text-anchor="middle" fill="#1a5276" font-size="11" font-weight="600">① 伺服器啟動階段（使用 Server Key）</text>
+
+            <line x1="275" y1="98" x2="483" y2="98" stroke="#1a5276" stroke-width="1.5" marker-end="url(#arr-a)"/>
+            <text x="379" y="92" text-anchor="middle" fill="#1a5276" font-size="11">GET /projects.json (Server Key)</text>
+
+            <line x1="483" y1="116" x2="687" y2="116" stroke="#1a5276" stroke-width="1.5" marker-end="url(#arr-a)"/>
+            <text x="585" y="110" text-anchor="middle" fill="#1a5276" font-size="11">驗證 Server Key</text>
+
+            <line x1="687" y1="134" x2="497" y2="134" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-a3)"/>
+            <text x="592" y="128" text-anchor="middle" fill="#1e8449" font-size="11">回傳 Projects / Schemas</text>
+
+            <line x1="483" y1="152" x2="281" y2="152" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-a3)"/>
+            <text x="382" y="146" text-anchor="middle" fill="#1e8449" font-size="11">快取工具清單（靜態）</text>
+
+            <!-- Phase 2: OAuth -->
+            <rect x="20" y="164" width="830" height="20" rx="3" fill="#f5eafb" opacity="0.7"/>
+            <text x="435" y="178" text-anchor="middle" fill="#6c3483" font-size="11" font-weight="600">② OAuth 授權階段（使用者提交 User Key）</text>
+
+            <line x1="85" y1="196" x2="268" y2="196" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-a2)"/>
+            <text x="176" y="190" text-anchor="middle" fill="#c0392b" font-size="11">OAuth authorize (+ Redmine UserKey)</text>
+
+            <line x1="268" y1="216" x2="85" y2="216" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-a3)"/>
+            <text x="176" y="210" text-anchor="middle" fill="#1e8449" font-size="11">auth_code（UserKey 加密存入 KV）</text>
+
+            <line x1="85" y1="236" x2="268" y2="236" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-a2)"/>
+            <text x="176" y="230" text-anchor="middle" fill="#c0392b" font-size="11">POST /token (auth_code)</text>
+
+            <line x1="268" y1="256" x2="85" y2="256" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-a3)"/>
+            <text x="176" y="250" text-anchor="middle" fill="#1e8449" font-size="11">OAuth access_token</text>
+
+            <!-- Phase 3: Tool Call -->
+            <rect x="20" y="268" width="830" height="20" rx="3" fill="#eafbf0" opacity="0.7"/>
+            <text x="435" y="282" text-anchor="middle" fill="#1e8449" font-size="11" font-weight="600">③ 工具呼叫階段</text>
+
+            <line x1="85" y1="298" x2="268" y2="298" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-a2)"/>
+            <text x="176" y="292" text-anchor="middle" fill="#c0392b" font-size="11">tool_call: create_issue (Bearer Token)</text>
+
+            <text x="275" y="320" text-anchor="middle" fill="#6c3483" font-size="10.5" font-style="italic">驗證 OAuth Token → 查找 UserKey</text>
+
+            <line x1="275" y1="332" x2="483" y2="332" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-a2)"/>
+            <text x="379" y="326" text-anchor="middle" fill="#c0392b" font-size="11">POST /issues.json (User Key)</text>
+
+            <line x1="483" y1="352" x2="687" y2="352" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-a2)"/>
+            <text x="590" y="346" text-anchor="middle" fill="#c0392b" font-size="11">驗證 User Key → 建立 Issue</text>
+
+            <line x1="687" y1="372" x2="497" y2="372" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-a3)"/>
+            <text x="590" y="366" text-anchor="middle" fill="#1e8449" font-size="11">{ id: 42, ... }</text>
+
+            <line x1="483" y1="392" x2="281" y2="392" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-a3)"/>
+            <line x1="281" y1="412" x2="91" y2="412" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-a3)"/>
+            <text x="379" y="406" text-anchor="middle" fill="#1e8449" font-size="11">回傳工具結果</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">優劣分析</div>
+        <div class="pros-cons">
+          <div class="pros">
+            <h4>✦ 優點</h4>
+            <ul>
+              <li>Server Key 與 User Key 職責完全分離，可獨立輪換</li>
+              <li>工具清單在啟動時快取，響應速度快，無冷啟動延遲</li>
+              <li>Server Key 即使洩漏，攻擊者也無法操作任何使用者資料</li>
+              <li>架構直覺清晰，適合大多數中小型部署</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h4>✦ 缺點</h4>
+            <ul>
+              <li>需要維護兩組不同的 credential，運維負擔稍增</li>
+              <li>工具清單是靜態的，無法依據使用者權限動態過濾</li>
+              <li>使用者在 OAuth 流程中需額外提交 Redmine Key，UX 多一步驟</li>
+              <li>User Key 需在 OAuth Provider 端加密存放，引入存儲責任</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">安全性分析</div>
+        <div class="security-grid">
+          <div class="sec-item sec-low">
+            <div class="sec-label">身份隔離</div>
+            <div class="sec-text">User Key 與 Server Key 完全分開，使用者操作不會影響系統層</div>
+          </div>
+          <div class="sec-item sec-med">
+            <div class="sec-label">Key 洩漏影響</div>
+            <div class="sec-text">Server Key 洩漏：只影響工具探索；User Key 洩漏：僅影響單一使用者</div>
+          </div>
+          <div class="sec-item sec-high">
+            <div class="sec-label">儲存風險</div>
+            <div class="sec-text">User Key 必須在 OAuth Provider 端加密儲存，需使用 AES-256-GCM 或等級以上</div>
+          </div>
+          <div class="sec-item sec-low">
+            <div class="sec-label">Token 轉傳</div>
+            <div class="sec-text">OAuth Token 不直接轉傳給 Redmine，符合安全最佳實踐</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ===== PATTERN B ===== -->
+  <div id="pb" class="pattern p-b">
+    <div class="pattern-header">
+      <div class="pattern-badge">B</div>
+      <div class="pattern-meta">
+        <h2>單一 User Key 延遲初始化</h2>
+        <div class="eng-name">Single User Key with Lazy Initialization</div>
+        <div class="pattern-tags">
+          <span class="ptag" style="background:rgba(255,255,255,0.15);color:white">最低複雜度</span>
+          <span class="ptag" style="background:rgba(212,160,23,0.3);color:#fde68a">動態工具清單</span>
+          <span class="ptag" style="background:rgba(192,57,43,0.3);color:#ffb3ae">首次連線延遲</span>
+        </div>
+      </div>
+    </div>
+    <div class="pattern-body">
+
+      <div class="pattern-section">
+        <div class="ps-title">架構說明</div>
+        <p style="font-size:0.9rem;line-height:1.8;color:#333">完全移除 Server-level Key，<strong>僅使用使用者在 OAuth 驗證時提供的個人 API Key</strong>。MCP Server 在每位使用者首次連線時才進行初始化，用該使用者的 Key 探索工具清單，可依據使用者實際的 Redmine 權限動態載入可用工具。</p>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">詳細步驟</div>
+        <div class="steps">
+          <div class="step" style="--step-color: #1e8449">
+            <div class="step-num"><div class="step-circle">1</div></div>
+            <div class="step-content">
+              <div class="step-title">使用者完成 OAuth 驗證並提交 Redmine User Key</div>
+              <div class="step-desc">與模式 A 相同，使用者在 OAuth 授權時提供個人 Redmine API Key。差異是這是<strong>唯一一組 Key</strong>，後續所有操作都依賴它。</div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #1e8449">
+            <div class="step-num"><div class="step-circle">2</div></div>
+            <div class="step-content">
+              <div class="step-title">MCP Client 首次連線觸發 Per-User 初始化</div>
+              <div class="step-desc">當 MCP Client 使用 OAuth Token 第一次連線到 MCP Server 時，Server 檢查是否已有該使用者的工具快取。若無，立即開始初始化流程。</div>
+              <div class="step-code"><span class="kw">async function</span> <span class="key">onClientConnect</span>(oauthToken) {
+  <span class="kw">const</span> userId = <span class="kw">await</span> validateOAuthToken(oauthToken);
+  
+  <span class="kw">if</span> (!toolCache.has(userId)) {
+    <span class="kw">const</span> userKey = <span class="kw">await</span> getUserApiKey(userId);
+    <span class="kw">const</span> tools = <span class="kw">await</span> discoverUserTools(userKey); <span class="cmt">// 依權限動態載入</span>
+    toolCache.set(userId, { tools, key: userKey, ttl: Date.now() + 3600000 });
+  }
+  
+  <span class="kw">return</span> toolCache.get(userId).tools;
+}</div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #1e8449">
+            <div class="step-num"><div class="step-circle">3</div></div>
+            <div class="step-content">
+              <div class="step-title">用 User Key 探索該使用者的可用 Redmine 工具</div>
+              <div class="step-desc">MCP Server 使用 User Key 呼叫 Redmine API，確認使用者可存取哪些 Projects、哪些操作有權限。依此動態生成工具 schema，無管理員權限的使用者不會看到管理員工具。</div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #d4a017">
+            <div class="step-num"><div class="step-circle">4</div></div>
+            <div class="step-content">
+              <div class="step-title">工具呼叫：直接使用快取的 User Key</div>
+              <div class="step-desc">後續工具呼叫直接使用快取的 User Key，不需要再次查詢。快取有 TTL，到期後重新初始化。</div>
+              <div class="step-code"><span class="kw">async function</span> <span class="key">handleToolCall</span>(oauthToken, toolName, params) {
+  <span class="kw">const</span> userId = <span class="kw">await</span> validateOAuthToken(oauthToken);
+  <span class="kw">const</span> { key } = toolCache.get(userId); <span class="cmt">// 已快取，直接取用</span>
+  <span class="kw">return</span> callRedmineApi(toolName, params, key);
+}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">時序圖</div>
+        <div class="diagram-container">
+          <svg class="seq-diagram" width="820" height="400" viewBox="0 0 820 400">
+            <defs>
+              <marker id="arr-b" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#1a5276"/>
+              </marker>
+              <marker id="arr-b2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#c0392b"/>
+              </marker>
+              <marker id="arr-b3" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#1e8449"/>
+              </marker>
+            </defs>
+            <rect x="30" y="20" width="110" height="36" rx="6" fill="#1a5276"/>
+            <text x="85" y="43" text-anchor="middle" fill="white" font-size="12" font-weight="600">MCP Client</text>
+            <rect x="210" y="20" width="130" height="36" rx="6" fill="#1e8449"/>
+            <text x="275" y="38" text-anchor="middle" fill="white" font-size="12" font-weight="600">OAuth Provider</text>
+            <text x="275" y="51" text-anchor="middle" fill="white" font-size="10">(MCP Server)</text>
+            <rect x="450" y="20" width="130" height="36" rx="6" fill="#c0392b"/>
+            <text x="515" y="43" text-anchor="middle" fill="white" font-size="12" font-weight="600">Redmine API</text>
+
+            <line x1="85" y1="56" x2="85" y2="390" stroke="#1a5276" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="275" y1="56" x2="275" y2="390" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="515" y1="56" x2="515" y2="390" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+
+            <rect x="20" y="68" width="620" height="20" rx="3" fill="#f5eafb" opacity="0.7"/>
+            <text x="330" y="82" text-anchor="middle" fill="#6c3483" font-size="11" font-weight="600">① OAuth 授權：使用者提供唯一 User Key</text>
+
+            <line x1="85" y1="100" x2="268" y2="100" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-b2)"/>
+            <text x="176" y="94" text-anchor="middle" fill="#c0392b" font-size="11">authorize (+ Redmine API Key)</text>
+
+            <line x1="268" y1="120" x2="85" y2="120" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-b3)"/>
+            <text x="176" y="114" text-anchor="middle" fill="#1e8449" font-size="11">access_token（Key 加密存入）</text>
+
+            <rect x="20" y="132" width="620" height="20" rx="3" fill="#fef9f0" opacity="0.7"/>
+            <text x="330" y="146" text-anchor="middle" fill="#ca6f1e" font-size="11" font-weight="600">② 首次連線：Lazy 初始化</text>
+
+            <line x1="85" y1="164" x2="268" y2="164" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-b2)"/>
+            <text x="176" y="158" text-anchor="middle" fill="#c0392b" font-size="11">MCP connect (Bearer Token)</text>
+
+            <text x="275" y="184" text-anchor="middle" fill="#1e8449" font-size="10.5" font-style="italic">查無快取 → 開始初始化</text>
+
+            <line x1="275" y1="196" x2="508" y2="196" stroke="#1a5276" stroke-width="1.5" marker-end="url(#arr-b)"/>
+            <text x="391" y="190" text-anchor="middle" fill="#1a5276" font-size="11">GET /projects.json (User Key)</text>
+
+            <line x1="508" y1="216" x2="281" y2="216" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-b3)"/>
+            <text x="391" y="210" text-anchor="middle" fill="#1e8449" font-size="11">回傳可用 Projects（依使用者權限）</text>
+
+            <text x="275" y="236" text-anchor="middle" fill="#1e8449" font-size="10.5" font-style="italic">動態生成工具 Schema → 存入快取</text>
+
+            <line x1="268" y1="250" x2="85" y2="250" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-b3)"/>
+            <text x="176" y="244" text-anchor="middle" fill="#1e8449" font-size="11">tools/list（依權限動態）</text>
+
+            <rect x="20" y="262" width="620" height="20" rx="3" fill="#eafbf0" opacity="0.7"/>
+            <text x="330" y="276" text-anchor="middle" fill="#1e8449" font-size="11" font-weight="600">③ 後續工具呼叫（使用快取 User Key）</text>
+
+            <line x1="85" y1="294" x2="268" y2="294" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-b2)"/>
+            <text x="176" y="288" text-anchor="middle" fill="#c0392b" font-size="11">tool_call: list_issues</text>
+
+            <line x1="275" y1="314" x2="508" y2="314" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-b2)"/>
+            <text x="391" y="308" text-anchor="middle" fill="#c0392b" font-size="11">GET /issues.json (快取 User Key)</text>
+
+            <line x1="508" y1="334" x2="281" y2="334" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-b3)"/>
+            <line x1="281" y1="354" x2="91" y2="354" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-b3)"/>
+            <text x="391" y="348" text-anchor="middle" fill="#1e8449" font-size="11">Issues 列表</text>
+            <text x="176" y="368" text-anchor="middle" fill="#1e8449" font-size="11">回傳結果</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">優劣分析</div>
+        <div class="pros-cons">
+          <div class="pros">
+            <h4>✦ 優點</h4>
+            <ul>
+              <li>架構最簡單，無需管理任何 server-level credential</li>
+              <li>工具清單依使用者權限動態生成，低權限使用者看不到高權限工具</li>
+              <li>部署環境 env variable 設定最少，易於維護</li>
+              <li>每位使用者 session 完全獨立，資料隔離最徹底</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h4>✦ 缺點</h4>
+            <ul>
+              <li>首次連線有初始化延遲（需等待 Redmine API 探索完成）</li>
+              <li>每位使用者各有獨立 session，memory 消耗隨使用者數線性增長</li>
+              <li>同一把 Key 同時用於 init 和操作，安全邊界稍模糊</li>
+              <li>User Key 需要安全儲存在 OAuth Provider 端</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ===== PATTERN C ===== -->
+  <div id="pc" class="pattern p-c">
+    <div class="pattern-header">
+      <div class="pattern-badge">C</div>
+      <div class="pattern-meta">
+        <h2>OAuth Proxy（Cloudflare Workers 模式）</h2>
+        <div class="eng-name">OAuth Authorization Proxy / Custom Delegation Grant</div>
+        <div class="pattern-tags">
+          <span class="ptag" style="background:rgba(255,255,255,0.15);color:white">高複雜度</span>
+          <span class="ptag" style="background:rgba(192,57,43,0.3);color:#ffb3ae">完全符合 MCP OAuth 規範</span>
+          <span class="ptag" style="background:rgba(212,160,23,0.3);color:#fde68a">Token 映射</span>
+        </div>
+      </div>
+    </div>
+    <div class="pattern-body">
+
+      <div class="pattern-section">
+        <div class="ps-title">架構說明</div>
+        <p style="font-size:0.9rem;line-height:1.8;color:#333">在 MCP Client 與真實 OAuth Provider 之間建立一個<strong>完整的 OAuth 授權伺服器 Proxy</strong>。Proxy 對外暴露完整的 OAuth 2.1 端點（含 Dynamic Client Registration），MCP Client 只與 Proxy 互動；Proxy 對內持有固定的 client_id/secret，並在 KV Store 中維護「Proxy Token ↔ User Key」的映射關係。這是 Cloudflare Workers 最常見的實作方式。</p>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">詳細步驟</div>
+        <div class="steps">
+          <div class="step" style="--step-color: #6c3483">
+            <div class="step-num"><div class="step-circle">1</div></div>
+            <div class="step-content">
+              <div class="step-title">部署 OAuth Proxy（實作完整 OAuth 2.1 端點）</div>
+              <div class="step-desc">Proxy 需實作以下端點：<code>/.well-known/oauth-authorization-server</code>、<code>/register</code>（DCR）、<code>/authorize</code>、<code>/token</code>。使用 Cloudflare workers-oauth-provider library 可大幅簡化。</div>
+              <div class="step-code"><span class="cmt">// Cloudflare Worker (wrangler.toml)</span>
+<span class="key">[[kv_namespaces]]</span>
+<span class="val">binding</span> = <span class="str">"OAUTH_KV"</span>    <span class="cmt"># 儲存 token 映射</span>
+<span class="val">id</span> = <span class="str">"xxxxxxxx"</span>
+
+<span class="cmt">// workers-oauth-provider 設定</span>
+<span class="kw">import</span> { OAuthProvider } <span class="kw">from</span> <span class="str">"workers-oauth-provider"</span>;
+<span class="kw">const</span> provider = <span class="kw">new</span> OAuthProvider({
+  <span class="key">apiRoute</span>: <span class="str">"/sse"</span>,
+  <span class="key">tokenStore</span>: env.<span class="key">OAUTH_KV</span>, <span class="cmt"># token 僅存 hash</span>
+});</div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #6c3483">
+            <div class="step-num"><div class="step-circle">2</div></div>
+            <div class="step-content">
+              <div class="step-title">MCP Client 向 Proxy 進行 Dynamic Client Registration</div>
+              <div class="step-desc">MCP Client 發現 Proxy 的 OAuth metadata，自動完成 DCR，取得 client_id（每次連線可不同）。Proxy 內部始終使用同一組固定 credentials 對接真實後端。</div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #6c3483">
+            <div class="step-num"><div class="step-circle">3</div></div>
+            <div class="step-content">
+              <div class="step-title">使用者在 Proxy 的自訂授權頁面輸入 Redmine Key</div>
+              <div class="step-desc">Proxy 提供自訂的授權 UI（非標準 OAuth UI），讓使用者輸入個人 Redmine API Key。Proxy 驗證 Key 是否有效後，生成授權碼（auth code），並在 KV Store 中建立映射。</div>
+              <div class="step-code"><span class="cmt">// Proxy 授權頁 submit 處理</span>
+<span class="kw">async function</span> <span class="key">handleAuthorize</span>(req, env) {
+  <span class="kw">const</span> { redmine_api_key, state } = <span class="kw">await</span> req.json();
+  
+  <span class="cmt">// 驗證 key 有效性</span>
+  <span class="kw">const</span> valid = <span class="kw">await</span> verifyRedmineKey(redmine_api_key);
+  <span class="kw">if</span> (!valid) <span class="kw">return</span> error(<span class="str">"Invalid API Key"</span>);
+  
+  <span class="cmt">// 生成 proxy token，儲存映射（只存 hash）</span>
+  <span class="kw">const</span> proxyToken = generateSecureToken();
+  <span class="kw">await</span> env.<span class="key">OAUTH_KV</span>.put(
+    hash(proxyToken),
+    encrypt(redmine_api_key),
+    { expirationTtl: 3600 }
+  );
+  <span class="kw">return</span> redirect(<span class="str">`/callback?code=${authCode}&state=${state}`</span>);
+}</div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #c0392b">
+            <div class="step-num"><div class="step-circle">4</div></div>
+            <div class="step-content">
+              <div class="step-title">MCP Client 用 auth code 換取 Proxy Token</div>
+              <div class="step-desc">標準 OAuth token endpoint 流程。MCP Client 取得的 access token 是 Proxy 自行生成的「假 token」，與真實的 Redmine Key 在 KV Store 中維持映射。</div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #c0392b">
+            <div class="step-num"><div class="step-circle">5</div></div>
+            <div class="step-content">
+              <div class="step-title">工具呼叫：Proxy 解映射並注入真實 Key</div>
+              <div class="step-desc">每次工具呼叫，Proxy 用 hash(proxy_token) 查 KV Store，解密取得 Redmine Key，注入後端請求。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">時序圖</div>
+        <div class="diagram-container">
+          <svg class="seq-diagram" width="900" height="460" viewBox="0 0 900 460">
+            <defs>
+              <marker id="arr-c" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#6c3483"/>
+              </marker>
+              <marker id="arr-c2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#c0392b"/>
+              </marker>
+              <marker id="arr-c3" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#1e8449"/>
+              </marker>
+            </defs>
+            <rect x="20" y="20" width="100" height="36" rx="6" fill="#1a5276"/>
+            <text x="70" y="43" text-anchor="middle" fill="white" font-size="12" font-weight="600">MCP Client</text>
+            <rect x="190" y="20" width="110" height="36" rx="6" fill="#6c3483"/>
+            <text x="245" y="38" text-anchor="middle" fill="white" font-size="12" font-weight="600">OAuth Proxy</text>
+            <text x="245" y="51" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="10">(Cloudflare KV)</text>
+            <rect x="380" y="20" width="110" height="36" rx="6" fill="#0d7377"/>
+            <text x="435" y="38" text-anchor="middle" fill="white" font-size="12" font-weight="600">MCP Server</text>
+            <text x="435" y="51" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="10">(Redmine MCP)</text>
+            <rect x="590" y="20" width="100" height="36" rx="6" fill="#c0392b"/>
+            <text x="640" y="43" text-anchor="middle" fill="white" font-size="12" font-weight="600">Redmine API</text>
+            <rect x="760" y="20" width="120" height="36" rx="6" fill="#283747"/>
+            <text x="820" y="38" text-anchor="middle" fill="white" font-size="12" font-weight="600">User Browser</text>
+            <text x="820" y="51" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="10">(授權頁面)</text>
+
+            <line x1="70" y1="56" x2="70" y2="450" stroke="#1a5276" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="245" y1="56" x2="245" y2="450" stroke="#6c3483" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="435" y1="56" x2="435" y2="450" stroke="#0d7377" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="640" y1="56" x2="640" y2="450" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="820" y1="56" x2="820" y2="450" stroke="#283747" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+
+            <!-- Phase 1 -->
+            <rect x="10" y="68" width="880" height="18" rx="3" fill="#f5eafb" opacity="0.7"/>
+            <text x="450" y="81" text-anchor="middle" fill="#6c3483" font-size="11" font-weight="600">① DCR + 授權流程</text>
+
+            <line x1="70" y1="96" x2="238" y2="96" stroke="#6c3483" stroke-width="1.5" marker-end="url(#arr-c)"/>
+            <text x="154" y="90" text-anchor="middle" fill="#6c3483" font-size="10.5">GET /.well-known + DCR</text>
+
+            <line x1="238" y1="114" x2="76" y2="114" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-c3)"/>
+            <text x="154" y="108" text-anchor="middle" fill="#1e8449" font-size="10.5">client_id</text>
+
+            <line x1="70" y1="132" x2="238" y2="132" stroke="#6c3483" stroke-width="1.5" marker-end="url(#arr-c)"/>
+            <text x="154" y="126" text-anchor="middle" fill="#6c3483" font-size="10.5">GET /authorize (PKCE)</text>
+
+            <line x1="238" y1="150" x2="814" y2="150" stroke="#6c3483" stroke-width="1.5" marker-end="url(#arr-c)"/>
+            <text x="526" y="144" text-anchor="middle" fill="#6c3483" font-size="10.5">重導至自訂授權頁面</text>
+
+            <line x1="814" y1="170" x2="251" y2="170" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-c3)"/>
+            <text x="532" y="164" text-anchor="middle" fill="#1e8449" font-size="10.5">POST 表單 (Redmine API Key)</text>
+
+            <text x="245" y="190" text-anchor="middle" fill="#6c3483" font-size="10" font-style="italic">驗證 Key → 存入 KV (only hash)</text>
+
+            <line x1="238" y1="202" x2="76" y2="202" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-c3)"/>
+            <text x="157" y="196" text-anchor="middle" fill="#1e8449" font-size="10.5">redirect: auth_code + state</text>
+
+            <!-- Phase 2 -->
+            <rect x="10" y="212" width="880" height="18" rx="3" fill="#eaf0fb" opacity="0.7"/>
+            <text x="450" y="225" text-anchor="middle" fill="#1a5276" font-size="11" font-weight="600">② Token Exchange</text>
+
+            <line x1="70" y1="242" x2="238" y2="242" stroke="#6c3483" stroke-width="1.5" marker-end="url(#arr-c)"/>
+            <text x="154" y="236" text-anchor="middle" fill="#6c3483" font-size="10.5">POST /token (auth_code, PKCE verifier)</text>
+
+            <line x1="238" y1="262" x2="76" y2="262" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-c3)"/>
+            <text x="157" y="256" text-anchor="middle" fill="#1e8449" font-size="10.5">Proxy access_token（假 token）</text>
+
+            <!-- Phase 3 -->
+            <rect x="10" y="274" width="880" height="18" rx="3" fill="#eafbf0" opacity="0.7"/>
+            <text x="450" y="287" text-anchor="middle" fill="#1e8449" font-size="11" font-weight="600">③ 工具呼叫：Proxy 解映射注入真實 Key</text>
+
+            <line x1="70" y1="304" x2="238" y2="304" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-c2)"/>
+            <text x="154" y="298" text-anchor="middle" fill="#c0392b" font-size="10.5">tool_call (Bearer: Proxy Token)</text>
+
+            <text x="245" y="322" text-anchor="middle" fill="#6c3483" font-size="10" font-style="italic">KV.get(hash(token)) → decrypt → Redmine Key</text>
+
+            <line x1="245" y1="334" x2="428" y2="334" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-c2)"/>
+            <text x="336" y="328" text-anchor="middle" fill="#c0392b" font-size="10.5">轉發請求 (Redmine Key 注入)</text>
+
+            <line x1="428" y1="354" x2="633" y2="354" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-c2)"/>
+            <text x="531" y="348" text-anchor="middle" fill="#c0392b" font-size="10.5">呼叫 Redmine REST API</text>
+
+            <line x1="633" y1="374" x2="441" y2="374" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-c3)"/>
+            <line x1="441" y1="394" x2="251" y2="394" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-c3)"/>
+            <line x1="251" y1="414" x2="76" y2="414" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-c3)"/>
+            <text x="537" y="368" text-anchor="middle" fill="#1e8449" font-size="10.5">API 結果</text>
+            <text x="345" y="388" text-anchor="middle" fill="#1e8449" font-size="10.5">轉發結果</text>
+            <text x="163" y="408" text-anchor="middle" fill="#1e8449" font-size="10.5">tool result</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">優劣分析</div>
+        <div class="pros-cons">
+          <div class="pros">
+            <h4>✦ 優點</h4>
+            <ul>
+              <li>MCP Client 完全感知不到後端的複雜度，體驗最佳</li>
+              <li>完全符合 MCP OAuth 2.1 規範，支援 DCR</li>
+              <li>Proxy Token 可隨時撤銷，不影響真實 Redmine Key</li>
+              <li>可同時支援多個 OAuth Provider 統一入口</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h4>✦ 缺點</h4>
+            <ul>
+              <li>本質上是建立一個完整的分散式授權伺服器，複雜度高</li>
+              <li>每次 auth check 都有額外的 KV 查詢 hop，延遲增加</li>
+              <li>需要維護 Proxy 基礎設施（Cloudflare KV 等），成本增加</li>
+              <li>Token 映射安全性完全依賴 KV Store 保護</li>
+            </ul>
+          </div>
+        </div>
+        <div class="callout callout-danger" style="margin-top:16px">
+          <div class="callout-title">⚠ 安全警告</div>
+          Proxy 的 OAuth state 參數必須使用密碼學強亂數，並在 redirect 前綁定到 session。2025 年 7-8 月已有多起生產環境 MCP Server 因 state 未驗證而遭到 session fixation 攻擊。Token 請務必只存 hash，明文絕不持久化。
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ===== PATTERN D ===== -->
+  <div id="pd" class="pattern p-d">
+    <div class="pattern-header">
+      <div class="pattern-badge">D</div>
+      <div class="pattern-meta">
+        <h2>Token Vault（Credential Manager）</h2>
+        <div class="eng-name">Token Vault / Centralized Credential Lifecycle Management</div>
+        <div class="pattern-tags">
+          <span class="ptag" style="background:rgba(255,255,255,0.15);color:white">中複雜度</span>
+          <span class="ptag" style="background:rgba(20,160,133,0.3);color:#a8f0e0">最完整稽核</span>
+          <span class="ptag" style="background:rgba(202,111,30,0.3);color:#fde68a">自動輪換</span>
+        </div>
+      </div>
+    </div>
+    <div class="pattern-body">
+
+      <div class="pattern-section">
+        <div class="ps-title">架構說明</div>
+        <p style="font-size:0.9rem;line-height:1.8;color:#333">引入專用的 <strong>Credential Vault</strong>（如 HashiCorp Vault、Auth0 Token Vault、Azure Key Vault）集中管理所有使用者的 Redmine API Key。MCP Server 完全不持有任何 credential，每次工具呼叫前向 Vault 請求有效的 Key。Vault 自動處理加密、輪換、審計、TTL。</p>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">詳細步驟</div>
+        <div class="steps">
+          <div class="step" style="--step-color: #0d7377">
+            <div class="step-num"><div class="step-circle">1</div></div>
+            <div class="step-content">
+              <div class="step-title">使用者首次授權：OAuth + Redmine Key 存入 Vault</div>
+              <div class="step-desc">使用者完成 OAuth 後，OAuth Provider 將 Redmine API Key 透過 Vault API 安全存入，以 <code>userId</code> 作為索引鍵。Vault 使用 envelope encryption（AES-256-GCM + KMS）存儲。</div>
+              <div class="step-code"><span class="cmt"># 使用 HashiCorp Vault 存入 user secret</span>
+POST https://vault.example.com/v1/secret/redmine/<span class="val">{userId}</span>
+Authorization: <span class="str">Bearer {vault-service-token}</span>
+{
+  <span class="key">"api_key"</span>: <span class="str">"user-redmine-key"</span>,
+  <span class="key">"ttl"</span>: <span class="str">"24h"</span>,
+  <span class="key">"created_by"</span>: <span class="str">"oauth-provider"</span>
+}</div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #0d7377">
+            <div class="step-num"><div class="step-circle">2</div></div>
+            <div class="step-content">
+              <div class="step-title">MCP Server 向 Vault 進行服務驗證</div>
+              <div class="step-desc">MCP Server 以自身的 service token（或 Kubernetes service account）向 Vault 驗證身份，取得存取特定路徑的授權。此 token 與使用者完全無關。</div>
+              <div class="step-code"><span class="cmt"># MCP Server 取得 Vault token（使用 K8s Service Account）</span>
+<span class="kw">const</span> vaultToken = <span class="kw">await</span> vault.auth.kubernetes({
+  <span class="key">role</span>: <span class="str">"mcp-server"</span>,
+  <span class="key">jwt</span>: fs.readFileSync(<span class="str">"/var/run/secrets/kubernetes.io/serviceaccount/token"</span>)
+});</div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #0d7377">
+            <div class="step-num"><div class="step-circle">3</div></div>
+            <div class="step-content">
+              <div class="step-title">工具呼叫前向 Vault 請求使用者 Key</div>
+              <div class="step-desc">每次工具呼叫，MCP Server 先解析 OAuth Token 取得 userId，然後向 Vault 請求該使用者的 Redmine Key。Vault 回傳永遠是有效的（自動處理輪換/refresh）。</div>
+              <div class="step-code"><span class="kw">async function</span> <span class="key">handleToolCall</span>(oauthToken, toolName, params) {
+  <span class="kw">const</span> userId = <span class="kw">await</span> validateOAuthToken(oauthToken);
+  
+  <span class="cmt">// 向 Vault 請求，永遠是 fresh credential</span>
+  <span class="kw">const</span> { api_key } = <span class="kw">await</span> vault.secrets.get(
+    <span class="str">`secret/redmine/${userId}`</span>
+  );
+  
+  <span class="kw">return</span> callRedmineApi(toolName, params, api_key);
+}</div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #ca6f1e">
+            <div class="step-num"><div class="step-circle">4</div></div>
+            <div class="step-content">
+              <div class="step-title">Vault 自動管理 Key 輪換（可選）</div>
+              <div class="step-desc">Vault 可設定定期輪換 Redmine API Key（若 Redmine 支援 key rotation API）。MCP Server 不感知這個過程，始終取得最新有效 Key。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">時序圖</div>
+        <div class="diagram-container">
+          <svg class="seq-diagram" width="880" height="420" viewBox="0 0 880 420">
+            <defs>
+              <marker id="arr-d" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#0d7377"/>
+              </marker>
+              <marker id="arr-d2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#c0392b"/>
+              </marker>
+              <marker id="arr-d3" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#1e8449"/>
+              </marker>
+            </defs>
+            <rect x="20" y="20" width="100" height="36" rx="6" fill="#1a5276"/>
+            <text x="70" y="43" text-anchor="middle" fill="white" font-size="12" font-weight="600">MCP Client</text>
+            <rect x="185" y="20" width="110" height="36" rx="6" fill="#6c3483"/>
+            <text x="240" y="38" text-anchor="middle" fill="white" font-size="12" font-weight="600">OAuth Provider</text>
+            <text x="240" y="51" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="10">(MCP Server)</text>
+            <rect x="370" y="20" width="100" height="36" rx="6" fill="#0d7377"/>
+            <text x="420" y="38" text-anchor="middle" fill="white" font-size="12" font-weight="600">Token Vault</text>
+            <text x="420" y="51" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="10">(HashiCorp / Auth0)</text>
+            <rect x="570" y="20" width="100" height="36" rx="6" fill="#c0392b"/>
+            <text x="620" y="43" text-anchor="middle" fill="white" font-size="12" font-weight="600">Redmine API</text>
+            <rect x="750" y="20" width="110" height="36" rx="6" fill="#ca6f1e"/>
+            <text x="805" y="43" text-anchor="middle" fill="white" font-size="12" font-weight="600">Audit Log</text>
+
+            <line x1="70" y1="56" x2="70" y2="410" stroke="#1a5276" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="240" y1="56" x2="240" y2="410" stroke="#6c3483" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="420" y1="56" x2="420" y2="410" stroke="#0d7377" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="620" y1="56" x2="620" y2="410" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="805" y1="56" x2="805" y2="410" stroke="#ca6f1e" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+
+            <rect x="10" y="68" width="870" height="18" rx="3" fill="#f5eafb" opacity="0.7"/>
+            <text x="445" y="81" text-anchor="middle" fill="#6c3483" font-size="11" font-weight="600">① OAuth 授權：User Key 存入 Vault</text>
+
+            <line x1="70" y1="100" x2="233" y2="100" stroke="#0d7377" stroke-width="1.5" marker-end="url(#arr-d)"/>
+            <text x="151" y="94" text-anchor="middle" fill="#0d7377" font-size="10.5">authorize + Redmine Key</text>
+            <line x1="233" y1="118" x2="413" y2="118" stroke="#0d7377" stroke-width="1.5" marker-end="url(#arr-d)"/>
+            <text x="326" y="112" text-anchor="middle" fill="#0d7377" font-size="10.5">Vault.set(userId, encrypt(Key))</text>
+            <line x1="413" y1="136" x2="247" y2="136" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-d3)"/>
+            <text x="330" y="130" text-anchor="middle" fill="#1e8449" font-size="10.5">stored OK</text>
+            <line x1="233" y1="154" x2="76" y2="154" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-d3)"/>
+            <text x="155" y="148" text-anchor="middle" fill="#1e8449" font-size="10.5">access_token</text>
+
+            <rect x="10" y="165" width="870" height="18" rx="3" fill="#eafbf0" opacity="0.7"/>
+            <text x="445" y="178" text-anchor="middle" fill="#1e8449" font-size="11" font-weight="600">② 工具呼叫：MCP Server 向 Vault 取 Key</text>
+
+            <line x1="70" y1="196" x2="233" y2="196" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-d2)"/>
+            <text x="151" y="190" text-anchor="middle" fill="#c0392b" font-size="10.5">tool_call (Bearer token)</text>
+
+            <text x="240" y="215" text-anchor="middle" fill="#6c3483" font-size="10" font-style="italic">validateToken → userId</text>
+
+            <line x1="240" y1="226" x2="413" y2="226" stroke="#0d7377" stroke-width="1.5" marker-end="url(#arr-d)"/>
+            <text x="326" y="220" text-anchor="middle" fill="#0d7377" font-size="10.5">Vault.get(secret/redmine/{userId})</text>
+
+            <line x1="413" y1="246" x2="795" y2="246" stroke="#ca6f1e" stroke-width="1.5" marker-end="url(#arr-d2)"/>
+            <text x="604" y="240" text-anchor="middle" fill="#ca6f1e" font-size="10.5">記錄存取日誌（userId, tool, time）</text>
+
+            <line x1="413" y1="264" x2="247" y2="264" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-d3)"/>
+            <text x="330" y="258" text-anchor="middle" fill="#1e8449" font-size="10.5">{ api_key: "decrypted-key" }</text>
+
+            <line x1="240" y1="284" x2="613" y2="284" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-d2)"/>
+            <text x="426" y="278" text-anchor="middle" fill="#c0392b" font-size="10.5">呼叫 Redmine API（注入 Key）</text>
+
+            <line x1="613" y1="304" x2="247" y2="304" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-d3)"/>
+            <text x="430" y="298" text-anchor="middle" fill="#1e8449" font-size="10.5">API 結果</text>
+
+            <line x1="240" y1="330" x2="76" y2="330" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-d3)"/>
+            <text x="158" y="324" text-anchor="middle" fill="#1e8449" font-size="10.5">tool result</text>
+
+            <rect x="10" y="342" width="870" height="18" rx="3" fill="#fef9f0" opacity="0.7"/>
+            <text x="445" y="355" text-anchor="middle" fill="#ca6f1e" font-size="11" font-weight="600">③ Vault 自動輪換（背景排程）</text>
+
+            <line x1="420" y1="374" x2="613" y2="374" stroke="#ca6f1e" stroke-width="1.5" marker-end="url(#arr-d2)" stroke-dasharray="8,4"/>
+            <text x="516" y="368" text-anchor="middle" fill="#ca6f1e" font-size="10.5">定期更新 Redmine Key（若支援）</text>
+            <line x1="613" y1="392" x2="427" y2="392" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-d3)"/>
+            <text x="520" y="386" text-anchor="middle" fill="#1e8449" font-size="10.5">輪換成功，更新 Vault</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">優劣分析</div>
+        <div class="pros-cons">
+          <div class="pros">
+            <h4>✦ 優點</h4>
+            <ul>
+              <li>所有 credential 集中管理，最完整的稽核追蹤（誰、何時、存取什麼）</li>
+              <li>MCP Server 完全無狀態，不持有任何 credential，blast radius 最小</li>
+              <li>支援 Key 自動輪換，到期不影響任何 MCP Server 程式碼</li>
+              <li>可用於所有類型的 API Key / credential，不限於 Redmine</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h4>✦ 缺點</h4>
+            <ul>
+              <li>需要額外的 Vault 基礎設施，增加運維依賴與成本</li>
+              <li>Vault 成為 single point of failure，可用性需要額外保障</li>
+              <li>每次工具呼叫都有一次額外的 Vault API round-trip，延遲增加</li>
+              <li>Redmine API Key 本身通常不支援自動輪換，輪換功能受限</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ===== PATTERN E ===== -->
+  <div id="pe" class="pattern p-e">
+    <div class="pattern-header">
+      <div class="pattern-badge">E</div>
+      <div class="pattern-meta">
+        <h2>Token Exchange / 身份鏈傳遞</h2>
+        <div class="eng-name">OAuth Token Exchange · RFC 8693 · On-Behalf-Of Pattern</div>
+        <div class="pattern-tags">
+          <span class="ptag" style="background:rgba(255,255,255,0.15);color:white">最高複雜度</span>
+          <span class="ptag" style="background:rgba(17,122,101,0.3);color:#a8f0e0">使用者身份全鏈路</span>
+          <span class="ptag" style="background:rgba(192,57,43,0.3);color:#ffb3ae">需 OIDC/SAML 支援</span>
+        </div>
+      </div>
+    </div>
+    <div class="pattern-body">
+
+      <div class="pattern-section">
+        <div class="ps-title">架構說明</div>
+        <p style="font-size:0.9rem;line-height:1.8;color:#333">依循 RFC 8693 標準，MCP Server 持有代表使用者的 JWT identity assertion，向內部 IdP 換取 <strong>JWT Identity Assertion Grant (id-jag)</strong>，再向外部服務的 IdP（若 Redmine 有 OIDC SSO）換取有範圍限制的 access token。這是最符合企業零信任架構的方式，使用者身份在整條鏈路中完整保留。<br><br>⚠️ 注意：原生 Redmine 不支援 OIDC，此模式需要 Redmine 有 SSO 外掛或企業版配置。</p>
+        <div class="callout callout-info">
+          <div class="callout-title">ℹ 適用場景</div>
+          企業內部部署、已有 SAML/OIDC SSO 的 Redmine 環境、或需要完整使用者稽核軌跡的合規要求（SOC2、ISO27001）。
+        </div>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">詳細步驟</div>
+        <div class="steps">
+          <div class="step" style="--step-color: #512e5f">
+            <div class="step-num"><div class="step-circle">1</div></div>
+            <div class="step-content">
+              <div class="step-title">使用者完成 OAuth 驗證，MCP Server 取得 JWT</div>
+              <div class="step-desc">標準 OAuth 流程，MCP Server 取得代表使用者的 JWT access token（含使用者 sub、email 等 claims）。</div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #512e5f">
+            <div class="step-num"><div class="step-circle">2</div></div>
+            <div class="step-content">
+              <div class="step-title">MCP Server 向內部 IdP 執行 Token Exchange（RFC 8693）</div>
+              <div class="step-desc">MCP Server 持使用者 JWT，向內部 IdP 執行 <code>urn:ietf:params:oauth:grant-type:token-exchange</code> grant type，換取 id-jag（Identity Assertion Grant）token。</div>
+              <div class="step-code">POST /token HTTP/1.1
+Host: internal-idp.example.com
+
+<span class="key">grant_type</span>=<span class="str">urn:ietf:params:oauth:grant-type:token-exchange</span>
+&<span class="key">subject_token</span>=<span class="val">&lt;user-jwt&gt;</span>
+&<span class="key">subject_token_type</span>=<span class="str">urn:ietf:params:oauth:token-type:jwt</span>
+&<span class="key">requested_token_type</span>=<span class="str">urn:ietf:params:oauth:token-type:id-jag</span>
+&<span class="key">audience</span>=<span class="str">https://redmine-idp.example.com</span>
+&<span class="key">scope</span>=<span class="str">redmine:issues:write</span></div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #512e5f">
+            <div class="step-num"><div class="step-circle">3</div></div>
+            <div class="step-content">
+              <div class="step-title">用 id-jag 向 Redmine IdP 換取 Redmine 存取 Token</div>
+              <div class="step-desc">MCP Server 持 id-jag 向 Redmine 端的 IdP（需事先建立 federation 信任）換取 Redmine 專用的 access token，audience 精確限定為 Redmine 服務。</div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #117a65">
+            <div class="step-num"><div class="step-circle">4</div></div>
+            <div class="step-content">
+              <div class="step-title">用 Redmine-scoped Token 呼叫 API</div>
+              <div class="step-desc">MCP Server 持 Redmine-scoped token 呼叫 Redmine API。整條鏈路的每個 token 都攜帶完整的使用者 identity + delegation chain，稽核日誌可追蹤到原始使用者。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">時序圖</div>
+        <div class="diagram-container">
+          <svg class="seq-diagram" width="920" height="400" viewBox="0 0 920 400">
+            <defs>
+              <marker id="arr-e" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#512e5f"/>
+              </marker>
+              <marker id="arr-e2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#117a65"/>
+              </marker>
+              <marker id="arr-e3" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#1e8449"/>
+              </marker>
+            </defs>
+            <rect x="15" y="20" width="95" height="36" rx="6" fill="#1a5276"/>
+            <text x="62" y="43" text-anchor="middle" fill="white" font-size="11" font-weight="600">MCP Client</text>
+            <rect x="170" y="20" width="110" height="36" rx="6" fill="#512e5f"/>
+            <text x="225" y="38" text-anchor="middle" fill="white" font-size="11" font-weight="600">MCP Server</text>
+            <text x="225" y="51" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="10">(OAuth Resource)</text>
+            <rect x="345" y="20" width="110" height="36" rx="6" fill="#1a5276"/>
+            <text x="400" y="38" text-anchor="middle" fill="white" font-size="11" font-weight="600">Internal IdP</text>
+            <text x="400" y="51" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="10">(Token Exchange)</text>
+            <rect x="520" y="20" width="110" height="36" rx="6" fill="#0d7377"/>
+            <text x="575" y="38" text-anchor="middle" fill="white" font-size="11" font-weight="600">Redmine IdP</text>
+            <text x="575" y="51" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="10">(OIDC/SAML)</text>
+            <rect x="700" y="20" width="100" height="36" rx="6" fill="#c0392b"/>
+            <text x="750" y="43" text-anchor="middle" fill="white" font-size="11" font-weight="600">Redmine API</text>
+            <rect x="810" y="20" width="100" height="36" rx="6" fill="#ca6f1e"/>
+            <text x="860" y="43" text-anchor="middle" fill="white" font-size="11" font-weight="600">Audit Log</text>
+
+            <line x1="62" y1="56" x2="62" y2="390" stroke="#1a5276" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="225" y1="56" x2="225" y2="390" stroke="#512e5f" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="400" y1="56" x2="400" y2="390" stroke="#1a5276" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="575" y1="56" x2="575" y2="390" stroke="#0d7377" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="750" y1="56" x2="750" y2="390" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="860" y1="56" x2="860" y2="390" stroke="#ca6f1e" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+
+            <rect x="10" y="68" width="900" height="18" rx="3" fill="#f5eafb" opacity="0.7"/>
+            <text x="460" y="81" text-anchor="middle" fill="#512e5f" font-size="11" font-weight="600">① 標準 OAuth 流程</text>
+
+            <line x1="62" y1="100" x2="218" y2="100" stroke="#512e5f" stroke-width="1.5" marker-end="url(#arr-e)"/>
+            <text x="140" y="94" text-anchor="middle" fill="#512e5f" font-size="10">tool_call (Bearer: user-JWT)</text>
+
+            <rect x="10" y="112" width="900" height="18" rx="3" fill="#eafbf5" opacity="0.7"/>
+            <text x="460" y="125" text-anchor="middle" fill="#117a65" font-size="11" font-weight="600">② RFC 8693 Token Exchange: user-JWT → id-jag</text>
+
+            <line x1="225" y1="142" x2="393" y2="142" stroke="#512e5f" stroke-width="1.5" marker-end="url(#arr-e)"/>
+            <text x="309" y="136" text-anchor="middle" fill="#512e5f" font-size="10">token-exchange(user-JWT, audience=Redmine-IdP)</text>
+
+            <line x1="393" y1="162" x2="850" y2="162" stroke="#ca6f1e" stroke-width="1.5" marker-end="url(#arr-e2)"/>
+            <text x="621" y="156" text-anchor="middle" fill="#ca6f1e" font-size="10">記錄交換：userId, scope, audience</text>
+
+            <line x1="393" y1="180" x2="231" y2="180" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-e3)"/>
+            <text x="312" y="174" text-anchor="middle" fill="#1e8449" font-size="10">id-jag (delegation_chain 含 user claims)</text>
+
+            <rect x="10" y="192" width="900" height="18" rx="3" fill="#eaf0fb" opacity="0.7"/>
+            <text x="460" y="205" text-anchor="middle" fill="#1a5276" font-size="11" font-weight="600">③ id-jag → Redmine-scoped Token（跨 IdP 聯邦）</text>
+
+            <line x1="225" y1="222" x2="568" y2="222" stroke="#512e5f" stroke-width="1.5" marker-end="url(#arr-e)"/>
+            <text x="396" y="216" text-anchor="middle" fill="#512e5f" font-size="10">token-exchange(id-jag, audience=redmine)</text>
+
+            <line x1="568" y1="242" x2="231" y2="242" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-e3)"/>
+            <text x="399" y="236" text-anchor="middle" fill="#1e8449" font-size="10">Redmine-scoped access token (TTL: 1h)</text>
+
+            <rect x="10" y="254" width="900" height="18" rx="3" fill="#eafbf0" opacity="0.7"/>
+            <text x="460" y="267" text-anchor="middle" fill="#1e8449" font-size="11" font-weight="600">④ 呼叫 Redmine API（含完整 delegation chain）</text>
+
+            <line x1="225" y1="284" x2="743" y2="284" stroke="#117a65" stroke-width="1.5" marker-end="url(#arr-e2)"/>
+            <text x="484" y="278" text-anchor="middle" fill="#117a65" font-size="10">POST /issues.json (redmine-scoped token, delegation_chain)</text>
+
+            <line x1="743" y1="304" x2="850" y2="304" stroke="#ca6f1e" stroke-width="1.5" marker-end="url(#arr-e2)"/>
+            <text x="797" y="298" text-anchor="middle" fill="#ca6f1e" font-size="9.5">記錄：原始 userId, MCP Server, scope</text>
+
+            <line x1="743" y1="322" x2="231" y2="322" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-e3)"/>
+            <line x1="231" y1="342" x2="68" y2="342" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-e3)"/>
+            <text x="487" y="316" text-anchor="middle" fill="#1e8449" font-size="10">Issue 建立結果</text>
+            <text x="149" y="336" text-anchor="middle" fill="#1e8449" font-size="10">tool result</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">優劣分析</div>
+        <div class="pros-cons">
+          <div class="pros">
+            <h4>✦ 優點</h4>
+            <ul>
+              <li>使用者身份在整條調用鏈完整保留，稽核日誌最精確</li>
+              <li>每個 token 都有精確的 audience 限制，防止 token 被誤用</li>
+              <li>完全符合 OAuth 2.0 Token Exchange 標準（RFC 8693）</li>
+              <li>最適合企業零信任架構與合規需求</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h4>✦ 缺點</h4>
+            <ul>
+              <li>實作複雜度最高，需要 Redmine 有 OIDC/SAML SSO</li>
+              <li>需要事先建立跨 IdP 的 federation 信任關係</li>
+              <li>原生 Redmine 不支援，需要額外外掛或企業版本</li>
+              <li>多次 token exchange 引入較高的延遲</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ===== PATTERN F ===== -->
+  <div id="pf" class="pattern p-f">
+    <div class="pattern-header">
+      <div class="pattern-badge">F</div>
+      <div class="pattern-meta">
+        <h2>API Gateway Credential Injection</h2>
+        <div class="eng-name">API Gateway as Credential Manager (Azure APIM / Kong / AWS)</div>
+        <div class="pattern-tags">
+          <span class="ptag" style="background:rgba(255,255,255,0.15);color:white">企業級</span>
+          <span class="ptag" style="background:rgba(26,82,118,0.3);color:#aed6f1">MCP Server 零 Credential</span>
+          <span class="ptag" style="background:rgba(202,111,30,0.3);color:#fde68a">集中流量控制</span>
+        </div>
+      </div>
+    </div>
+    <div class="pattern-body">
+
+      <div class="pattern-section">
+        <div class="ps-title">架構說明</div>
+        <p style="font-size:0.9rem;line-height:1.8;color:#333">在 MCP Server 與 Redmine API 之間部署 <strong>API Gateway</strong>（Azure APIM、Kong、AWS API Gateway 等），並利用 Gateway 的 Credential Manager 功能自動管理所有 API Key 的取得、快取、注入與輪換。MCP Server 呼叫 Gateway 端點時完全不需攜帶任何 credential，Gateway 的 Policy 層自動注入對應的 Redmine API Key。</p>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">詳細步驟（以 Azure APIM 為例）</div>
+        <div class="steps">
+          <div class="step" style="--step-color: #784212">
+            <div class="step-num"><div class="step-circle">1</div></div>
+            <div class="step-content">
+              <div class="step-title">在 API Gateway 設定 Credential Provider</div>
+              <div class="step-desc">在 APIM Credential Manager 中為每位使用者建立 Connection，存入對應的 Redmine API Key。Gateway 使用 envelope encryption 儲存，支援多種驗證流程。</div>
+              <div class="step-code"><span class="cmt"># Azure APIM Bicep 設定</span>
+resource credentialProvider <span class="str">'Microsoft.ApiManagement/service/credentials@2023-05-01'</span> = {
+  <span class="key">name</span>: <span class="str">'redmine-credential'</span>
+  <span class="key">properties</span>: {
+    <span class="key">authorizationMethods</span>: [<span class="str">'GET'</span>]
+    <span class="key">credentials</span>: {
+      <span class="key">header</span>: {
+        <span class="key">X-Redmine-API-Key</span>: <span class="str">'{{user-api-key}}'</span>  <span class="cmt"># 由 Policy 動態解析</span>
+      }
+    }
+  }
+}</div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #784212">
+            <div class="step-num"><div class="step-circle">2</div></div>
+            <div class="step-content">
+              <div class="step-title">設定 Gateway Policy：驗證 OAuth Token 並注入 Key</div>
+              <div class="step-desc">Gateway inbound policy 驗證 Bearer token，從 token claims 取得 userId，從 Credential Manager 取對應 Key，注入至後端請求 header。</div>
+              <div class="step-code"><span class="cmt">&lt;!-- APIM Policy (XML) --&gt;</span>
+&lt;<span class="key">inbound</span>&gt;
+  &lt;<span class="key">validate-jwt</span> header-name=<span class="str">"Authorization"</span>
+    failed-validation-httpcode=<span class="str">"401"</span>&gt;
+    &lt;<span class="key">openid-config</span> url=<span class="str">"https://oauth.example.com/.well-known"</span>/&gt;
+  &lt;/<span class="key">validate-jwt</span>&gt;
+  
+  &lt;<span class="key">get-authorization-context</span>
+    provider-id=<span class="str">"redmine-credential"</span>
+    authorization-id=<span class="str">"@(context.User.Id)"</span>
+    context-variable-name=<span class="str">"redmineAuth"</span>/&gt;
+  
+  &lt;<span class="key">set-header</span> name=<span class="str">"X-Redmine-API-Key"</span>&gt;
+    &lt;<span class="key">value</span>&gt;@(((Authorization)context.Variables[<span class="str">"redmineAuth"</span>]).Parameters[<span class="str">"apiKey"</span>])&lt;/<span class="key">value</span>&gt;
+  &lt;/<span class="key">set-header</span>&gt;
+&lt;/<span class="key">inbound</span>&gt;</div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #784212">
+            <div class="step-num"><div class="step-circle">3</div></div>
+            <div class="step-content">
+              <div class="step-title">MCP Server 直接呼叫 Gateway，不附帶任何 Redmine Credential</div>
+              <div class="step-desc">MCP Server 只需要 OAuth access token，呼叫 Gateway 暴露的 Redmine 端點。Gateway 全程處理所有 credential 邏輯，MCP Server 程式碼完全不涉及 Key 管理。</div>
+              <div class="step-code"><span class="cmt">// MCP Server 呼叫（無需 Redmine Key）</span>
+<span class="kw">const</span> response = <span class="kw">await</span> fetch(<span class="str">`${gatewayUrl}/redmine/issues`</span>, {
+  headers: {
+    <span class="str">'Authorization'</span>: <span class="str">`Bearer ${oauthToken}`</span>  <span class="cmt">// 只需 OAuth token</span>
+    <span class="cmt">// Redmine Key 由 Gateway 自動注入</span>
+  }
+});</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">時序圖</div>
+        <div class="diagram-container">
+          <svg class="seq-diagram" width="860" height="360" viewBox="0 0 860 360">
+            <defs>
+              <marker id="arr-f" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#784212"/>
+              </marker>
+              <marker id="arr-f2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#c0392b"/>
+              </marker>
+              <marker id="arr-f3" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#1e8449"/>
+              </marker>
+            </defs>
+            <rect x="20" y="20" width="100" height="36" rx="6" fill="#1a5276"/>
+            <text x="70" y="43" text-anchor="middle" fill="white" font-size="12" font-weight="600">MCP Client</text>
+            <rect x="180" y="20" width="110" height="36" rx="6" fill="#512e5f"/>
+            <text x="235" y="43" text-anchor="middle" fill="white" font-size="12" font-weight="600">MCP Server</text>
+            <rect x="355" y="20" width="130" height="36" rx="6" fill="#784212"/>
+            <text x="420" y="38" text-anchor="middle" fill="white" font-size="12" font-weight="600">API Gateway</text>
+            <text x="420" y="51" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="10">(Credential Manager)</text>
+            <rect x="570" y="20" width="110" height="36" rx="6" fill="#0d7377"/>
+            <text x="625" y="38" text-anchor="middle" fill="white" font-size="12" font-weight="600">Credential Store</text>
+            <text x="625" y="51" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="10">(encrypted KV)</text>
+            <rect x="730" y="20" width="110" height="36" rx="6" fill="#c0392b"/>
+            <text x="785" y="43" text-anchor="middle" fill="white" font-size="12" font-weight="600">Redmine API</text>
+
+            <line x1="70" y1="56" x2="70" y2="350" stroke="#1a5276" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="235" y1="56" x2="235" y2="350" stroke="#512e5f" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="420" y1="56" x2="420" y2="350" stroke="#784212" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="625" y1="56" x2="625" y2="350" stroke="#0d7377" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="785" y1="56" x2="785" y2="350" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+
+            <rect x="10" y="68" width="840" height="18" rx="3" fill="#fef9f0" opacity="0.7"/>
+            <text x="430" y="81" text-anchor="middle" fill="#784212" font-size="11" font-weight="600">① 使用者初次設定：Redmine Key 存入 Gateway</text>
+
+            <line x1="70" y1="100" x2="413" y2="100" stroke="#784212" stroke-width="1.5" marker-end="url(#arr-f)"/>
+            <text x="241" y="94" text-anchor="middle" fill="#784212" font-size="10.5">POST /credentials (userId, Redmine Key)</text>
+            <line x1="413" y1="118" x2="618" y2="118" stroke="#784212" stroke-width="1.5" marker-end="url(#arr-f)"/>
+            <text x="516" y="112" text-anchor="middle" fill="#784212" font-size="10.5">encrypt & store(userId → Key)</text>
+            <line x1="618" y1="136" x2="427" y2="136" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-f3)"/>
+            <text x="522" y="130" text-anchor="middle" fill="#1e8449" font-size="10.5">stored OK</text>
+
+            <rect x="10" y="148" width="840" height="18" rx="3" fill="#eafbf0" opacity="0.7"/>
+            <text x="430" y="161" text-anchor="middle" fill="#1e8449" font-size="11" font-weight="600">② 工具呼叫：Gateway 自動注入 Key</text>
+
+            <line x1="70" y1="178" x2="228" y2="178" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-f2)"/>
+            <text x="149" y="172" text-anchor="middle" fill="#c0392b" font-size="10.5">tool_call (OAuth Bearer)</text>
+
+            <line x1="228" y1="198" x2="413" y2="198" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-f2)"/>
+            <text x="320" y="192" text-anchor="middle" fill="#c0392b" font-size="10.5">GET /redmine/issues (Bearer: OAuthToken)</text>
+
+            <text x="420" y="218" text-anchor="middle" fill="#784212" font-size="10" font-style="italic">validate JWT → userId</text>
+
+            <line x1="420" y1="228" x2="618" y2="228" stroke="#784212" stroke-width="1.5" marker-end="url(#arr-f)"/>
+            <text x="519" y="222" text-anchor="middle" fill="#784212" font-size="10.5">get(userId) → decrypt Key</text>
+
+            <line x1="618" y1="248" x2="427" y2="248" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-f3)"/>
+            <text x="522" y="242" text-anchor="middle" fill="#1e8449" font-size="10.5">Redmine API Key</text>
+
+            <text x="420" y="268" text-anchor="middle" fill="#784212" font-size="10" font-style="italic">移除 Authorization Header，注入 X-Redmine-API-Key</text>
+
+            <line x1="420" y1="280" x2="778" y2="280" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-f2)"/>
+            <text x="599" y="274" text-anchor="middle" fill="#c0392b" font-size="10.5">GET /issues.json (X-Redmine-API-Key: xxx)</text>
+
+            <line x1="778" y1="300" x2="427" y2="300" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-f3)"/>
+            <line x1="427" y1="318" x2="241" y2="318" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-f3)"/>
+            <line x1="241" y1="336" x2="76" y2="336" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-f3)"/>
+            <text x="602" y="294" text-anchor="middle" fill="#1e8449" font-size="10.5">Issues JSON</text>
+            <text x="334" y="312" text-anchor="middle" fill="#1e8449" font-size="10.5">轉發結果</text>
+            <text x="158" y="330" text-anchor="middle" fill="#1e8449" font-size="10.5">tool result</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">優劣分析</div>
+        <div class="pros-cons">
+          <div class="pros">
+            <h4>✦ 優點</h4>
+            <ul>
+              <li>MCP Server 程式碼完全不接觸任何 credential，最乾淨的分離</li>
+              <li>API Gateway 統一提供限流、日誌、監控、WAF 等安全功能</li>
+              <li>最適合已有 API Gateway 基礎設施的企業部署</li>
+              <li>水平擴展能力最強，Gateway 層可獨立擴展</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h4>✦ 缺點</h4>
+            <ul>
+              <li>需要 API Gateway 基礎設施，成本較高</li>
+              <li>Gateway 成為 critical path，可用性要求高</li>
+              <li>Gateway Policy 配置複雜，學習曲線陡峭</li>
+              <li>per-user credential 管理需要 Gateway 支援此功能</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ===== PATTERN G ===== -->
+  <div id="pg" class="pattern p-g">
+    <div class="pattern-header">
+      <div class="pattern-badge">G</div>
+      <div class="pattern-meta">
+        <h2>Per-User Subprocess 隔離</h2>
+        <div class="eng-name">Per-User Isolated Subprocess (mcp-front Pattern)</div>
+        <div class="pattern-tags">
+          <span class="ptag" style="background:rgba(255,255,255,0.15);color:white">隔離最徹底</span>
+          <span class="ptag" style="background:rgba(127,140,141,0.3);color:#e0e0e0">不修改 MCP Server</span>
+          <span class="ptag" style="background:rgba(192,57,43,0.3);color:#ffb3ae">擴展性受限</span>
+        </div>
+      </div>
+    </div>
+    <div class="pattern-body">
+
+      <div class="pattern-section">
+        <div class="ps-title">架構說明</div>
+        <p style="font-size:0.9rem;line-height:1.8;color:#333">為每位使用者啟動一個<strong>獨立的 MCP Server 子進程</strong>（stdio 模式），透過閘道（mcp-front）管理所有使用者的 OAuth 驗證，並將個人 API Key 注入對應的子進程環境變數。隔離在作業系統進程層，任何一位使用者的操作完全無法影響其他使用者。不需修改任何 MCP Server 程式碼。</p>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">詳細步驟</div>
+        <div class="steps">
+          <div class="step" style="--step-color: #5d6d7e">
+            <div class="step-num"><div class="step-circle">1</div></div>
+            <div class="step-content">
+              <div class="step-title">mcp-front 部署：設定 OAuth Provider 連接</div>
+              <div class="step-desc">部署 mcp-front 閘道，設定 OIDC provider（Google、Azure AD、GitHub 等），指定 MCP Server 的執行路徑與允許的 domain/organization。</div>
+              <div class="step-code"><span class="cmt"># mcp-front config.yaml</span>
+<span class="key">identity_provider</span>:
+  <span class="key">type</span>: <span class="str">google</span>
+  <span class="key">client_id</span>: <span class="str">"xxxx"</span>
+  <span class="key">allowed_domains</span>: [<span class="str">"example.com"</span>]
+
+<span class="key">services</span>:
+  <span class="key">redmine</span>:
+    <span class="key">command</span>: <span class="str">"npx redmine-mcp"</span>
+    <span class="key">per_user_subprocess</span>: <span class="val">true</span>
+    <span class="key">env_inject</span>:
+      <span class="key">REDMINE_API_KEY</span>: <span class="str">"{{user.redmine_key}}"</span>  <span class="cmt"># 從 user profile 注入</span>
+      <span class="key">REDMINE_URL</span>: <span class="str">"https://redmine.example.com"</span></div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #5d6d7e">
+            <div class="step-num"><div class="step-circle">2</div></div>
+            <div class="step-content">
+              <div class="step-title">使用者透過 Web UI 設定個人 Redmine API Key</div>
+              <div class="step-desc">使用者登入 mcp-front 提供的 Web UI，輸入個人 Redmine API Key，mcp-front 以 AES-256-GCM 加密後存入自身的 encrypted store，與使用者 profile 關聯。</div>
+            </div>
+          </div>
+          <div class="step" style="--step-color: #5d6d7e">
+            <div class="step-num"><div class="step-circle">3</div></div>
+            <div class="step-content">
+              <div class="step-title">使用者連線：mcp-front 為其啟動獨立子進程</div>
+              <div class="step-desc">當使用者的 MCP Client 連線時，mcp-front 驗證 OAuth Token，然後為該使用者 fork 一個新的 MCP Server 子進程，並將使用者的 Redmine Key 作為環境變數注入，子進程間完全隔離。</div>
+              <div class="step-code"><span class="cmt">// mcp-front 內部邏輯（簡化版）</span>
+<span class="kw">async function</span> <span class="key">onUserConnect</span>(oauthToken) {
+  <span class="kw">const</span> user = <span class="kw">await</span> verifyToken(oauthToken);
+  <span class="kw">const</span> redmineKey = <span class="kw">await</span> getEncryptedKey(user.id);
+  
+  <span class="cmt">// 為此使用者啟動獨立子進程</span>
+  <span class="kw">const</span> process = spawn(<span class="str">'npx'</span>, [<span class="str">'redmine-mcp'</span>], {
+    env: {
+      ...process.env,
+      <span class="key">REDMINE_API_KEY</span>: decrypt(redmineKey),  <span class="cmt">// 僅此進程可見</span>
+      <span class="key">REDMINE_URL</span>: config.redmineUrl
+    }
+  });
+  
+  userProcessMap.set(user.id, process);
+  <span class="kw">return</span> proxyStdio(user, process);
+}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">時序圖</div>
+        <div class="diagram-container">
+          <svg class="seq-diagram" width="840" height="360" viewBox="0 0 840 360">
+            <defs>
+              <marker id="arr-g" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#5d6d7e"/>
+              </marker>
+              <marker id="arr-g2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#c0392b"/>
+              </marker>
+              <marker id="arr-g3" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#1e8449"/>
+              </marker>
+            </defs>
+            <rect x="20" y="20" width="100" height="36" rx="6" fill="#1a5276"/>
+            <text x="70" y="43" text-anchor="middle" fill="white" font-size="12" font-weight="600">MCP Client</text>
+            <rect x="190" y="20" width="110" height="36" rx="6" fill="#5d6d7e"/>
+            <text x="245" y="38" text-anchor="middle" fill="white" font-size="12" font-weight="600">mcp-front</text>
+            <text x="245" y="51" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="10">(Gateway)</text>
+            <rect x="380" y="20" width="110" height="36" rx="6" fill="#6c3483"/>
+            <text x="435" y="38" text-anchor="middle" fill="white" font-size="12" font-weight="600">OAuth Provider</text>
+            <text x="435" y="51" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="10">(OIDC)</text>
+            <rect x="560" y="20" width="130" height="36" rx="6" fill="#117a65"/>
+            <text x="625" y="38" text-anchor="middle" fill="white" font-size="12" font-weight="600">User MCP Process</text>
+            <text x="625" y="51" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="10">(stdio, per-user)</text>
+            <rect x="715" y="20" width="110" height="36" rx="6" fill="#c0392b"/>
+            <text x="770" y="43" text-anchor="middle" fill="white" font-size="12" font-weight="600">Redmine API</text>
+
+            <line x1="70" y1="56" x2="70" y2="350" stroke="#1a5276" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="245" y1="56" x2="245" y2="350" stroke="#5d6d7e" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="435" y1="56" x2="435" y2="350" stroke="#6c3483" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="625" y1="56" x2="625" y2="350" stroke="#117a65" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="770" y1="56" x2="770" y2="350" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+
+            <rect x="10" y="68" width="820" height="18" rx="3" fill="#f5eafb" opacity="0.7"/>
+            <text x="420" y="81" text-anchor="middle" fill="#6c3483" font-size="11" font-weight="600">① OAuth 認證 + Web UI 設定 Redmine Key</text>
+
+            <line x1="70" y1="100" x2="238" y2="100" stroke="#5d6d7e" stroke-width="1.5" marker-end="url(#arr-g)"/>
+            <text x="154" y="94" text-anchor="middle" fill="#5d6d7e" font-size="10.5">OAuth redirect</text>
+            <line x1="238" y1="118" x2="428" y2="118" stroke="#5d6d7e" stroke-width="1.5" marker-end="url(#arr-g)"/>
+            <text x="333" y="112" text-anchor="middle" fill="#5d6d7e" font-size="10.5">OAuth flow</text>
+            <line x1="428" y1="136" x2="251" y2="136" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-g3)"/>
+            <text x="339" y="130" text-anchor="middle" fill="#1e8449" font-size="10.5">access_token</text>
+
+            <line x1="70" y1="154" x2="238" y2="154" stroke="#5d6d7e" stroke-width="1.5" marker-end="url(#arr-g)"/>
+            <text x="154" y="148" text-anchor="middle" fill="#5d6d7e" font-size="10.5">Web UI: input Redmine Key</text>
+            <text x="245" y="172" text-anchor="middle" fill="#5d6d7e" font-size="10" font-style="italic">AES-256-GCM 加密存入 user profile</text>
+
+            <rect x="10" y="183" width="820" height="18" rx="3" fill="#eafbf0" opacity="0.7"/>
+            <text x="420" y="196" text-anchor="middle" fill="#1e8449" font-size="11" font-weight="600">② 首次連線：為使用者 Spawn 獨立子進程</text>
+
+            <line x1="70" y1="214" x2="238" y2="214" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-g2)"/>
+            <text x="154" y="208" text-anchor="middle" fill="#c0392b" font-size="10.5">MCP connect (Bearer)</text>
+            <text x="245" y="232" text-anchor="middle" fill="#5d6d7e" font-size="10" font-style="italic">驗證 token → 解密 Key</text>
+
+            <line x1="245" y1="244" x2="558" y2="244" stroke="#5d6d7e" stroke-width="1.5" marker-end="url(#arr-g)"/>
+            <text x="401" y="238" text-anchor="middle" fill="#5d6d7e" font-size="10.5">spawn(redmine-mcp, env={REDMINE_API_KEY: key})</text>
+
+            <line x1="558" y1="264" x2="251" y2="264" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-g3)"/>
+            <text x="404" y="258" text-anchor="middle" fill="#1e8449" font-size="10.5">進程已就緒</text>
+
+            <rect x="10" y="276" width="820" height="18" rx="3" fill="#eaf0fb" opacity="0.7"/>
+            <text x="420" y="289" text-anchor="middle" fill="#1a5276" font-size="11" font-weight="600">③ 工具呼叫（透過 stdio 轉發至專屬子進程）</text>
+
+            <line x1="70" y1="306" x2="238" y2="306" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-g2)"/>
+            <text x="154" y="300" text-anchor="middle" fill="#c0392b" font-size="10.5">tool_call: create_issue</text>
+            <line x1="238" y1="324" x2="558" y2="324" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-g2)"/>
+            <text x="398" y="318" text-anchor="middle" fill="#c0392b" font-size="10.5">轉發至 user 專屬進程 (stdio)</text>
+            <line x1="558" y1="342" x2="763" y2="342" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-g2)"/>
+            <text x="660" y="336" text-anchor="middle" fill="#c0392b" font-size="10.5">使用 env 中的 Key 呼叫 API</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="pattern-section">
+        <div class="ps-title">優劣分析</div>
+        <div class="pros-cons">
+          <div class="pros">
+            <h4>✦ 優點</h4>
+            <ul>
+              <li>進程層隔離，安全性最徹底，一個使用者無法影響其他使用者</li>
+              <li>完全不需修改 MCP Server 程式碼（符合任何 stdio MCP Server）</li>
+              <li>子進程崩潰不影響其他使用者</li>
+              <li>適合需要隔離的小型內部工具部署</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <h4>✦ 缺點</h4>
+            <ul>
+              <li>每位使用者各一個進程，記憶體與 CPU 消耗高，擴展性差</li>
+              <li>不適合大量使用者的公開部署</li>
+              <li>進程管理複雜（崩潰重啟、健康檢查、清理 zombie 進程）</li>
+              <li>首次連線有子進程啟動的冷啟動時間</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ===== ANTI-PATTERNS ===== -->
+  <div class="section-divider" id="anti"><span>⚠ 應避免的反模式</span></div>
+
+  <div class="pattern p-anti">
+    <div class="pattern-header">
+      <div class="pattern-badge" style="background:#641e16">✗</div>
+      <div class="pattern-meta">
+        <h2>反模式一：Token Passthrough（直接轉傳 Token）</h2>
+        <div class="eng-name">Poor-Man's Delegation · Token Forwarding Anti-Pattern</div>
+        <div class="pattern-tags">
+          <span class="ptag" style="background:rgba(192,57,43,0.4);color:#ffb3ae">⚠ 嚴重安全問題</span>
+          <span class="ptag" style="background:rgba(255,255,255,0.15);color:white">授權模型破壞</span>
+        </div>
+      </div>
+    </div>
+    <div class="pattern-body">
+      <div class="pattern-section">
+        <div class="ps-title">問題說明</div>
+        <div class="callout callout-danger">
+          <div class="callout-title">⛔ 嚴禁使用</div>
+          MCP Server 取得 OAuth access token 後，直接將此 token 傳遞給 Redmine（或任何下游 API）。雖然程式碼最簡單，但破壞了整個授權模型，是嚴重的安全反模式。
+        </div>
+
+        <div class="diagram-container" style="margin-top:16px">
+          <svg class="seq-diagram" width="700" height="250" viewBox="0 0 700 250">
+            <defs>
+              <marker id="arr-x" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#922b21"/>
+              </marker>
+              <marker id="arr-xg" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="#1e8449"/>
+              </marker>
+            </defs>
+            <rect x="20" y="20" width="100" height="36" rx="6" fill="#1a5276"/>
+            <text x="70" y="43" text-anchor="middle" fill="white" font-size="12" font-weight="600">MCP Client</text>
+            <rect x="200" y="20" width="110" height="36" rx="6" fill="#512e5f"/>
+            <text x="255" y="43" text-anchor="middle" fill="white" font-size="12" font-weight="600">MCP Server</text>
+            <rect x="420" y="20" width="110" height="36" rx="6" fill="#922b21"/>
+            <text x="475" y="43" text-anchor="middle" fill="white" font-size="12" font-weight="600">Redmine API</text>
+
+            <line x1="70" y1="56" x2="70" y2="240" stroke="#1a5276" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="255" y1="56" x2="255" y2="240" stroke="#512e5f" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+            <line x1="475" y1="56" x2="475" y2="240" stroke="#922b21" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.4"/>
+
+            <line x1="70" y1="90" x2="248" y2="90" stroke="#922b21" stroke-width="1.5" marker-end="url(#arr-x)"/>
+            <text x="159" y="84" text-anchor="middle" fill="#922b21" font-size="11">tool_call (Bearer: OAuth_Token for API1)</text>
+
+            <line x1="255" y1="120" x2="468" y2="120" stroke="#922b21" stroke-width="2" marker-end="url(#arr-x)" stroke-dasharray="none"/>
+            <text x="361" y="114" text-anchor="middle" fill="#922b21" font-size="11" font-weight="700">⛔ Bearer: OAuth_Token 直接轉發！</text>
+
+            <rect x="280" y="128" width="300" height="50" rx="6" fill="#fadbd8" stroke="#c0392b" stroke-width="1.5"/>
+            <text x="430" y="149" text-anchor="middle" fill="#922b21" font-size="11" font-weight="700">問題 1：Token audience 是 API1，非 Redmine</text>
+            <text x="430" y="165" text-anchor="middle" fill="#922b21" font-size="11">問題 2：API2 (Redmine) 可被直接存取，繞過 API1</text>
+
+            <line x1="468" y1="188" x2="261" y2="188" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-xg)"/>
+            <text x="364" y="182" text-anchor="middle" fill="#922b21" font-size="10.5">Redmine 不認識此 Token → 401 或安全漏洞</text>
+          </svg>
+        </div>
+
+        <div class="pros-cons" style="margin-top:16px">
+          <div class="cons" style="grid-column: span 2">
+            <h4>✦ 為何危險</h4>
+            <ul>
+              <li>OAuth access token 的 audience（aud claim）是 MCP Server，不是 Redmine。轉傳給 Redmine 時，Redmine 收到的 token 的受眾不是自己，正確的 Redmine 實作應拒絕此 token</li>
+              <li>若 Redmine 不嚴格驗證 audience，攻擊者只需取得一個有效的 OAuth token，就可以直接繞過 MCP Server 存取 Redmine，完全破壞存取控制</li>
+              <li>這種模式本質是「冒充（Impersonation）」而非「委派（Delegation）」，違反 OAuth 的設計原則</li>
+              <li>一旦 Redmine 可公開存取，任何持有 MCP token 的人都能直接存取 Redmine</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pattern p-anti" style="margin-top: 24px">
+    <div class="pattern-header">
+      <div class="pattern-badge" style="background:#7b241c">✗</div>
+      <div class="pattern-meta">
+        <h2>反模式二：Client Credentials 喪失 User Context</h2>
+        <div class="eng-name">Client Credentials Grant for User-Context Operations</div>
+        <div class="pattern-tags">
+          <span class="ptag" style="background:rgba(192,57,43,0.3);color:#ffb3ae">⚠ 授權邊界問題</span>
+          <span class="ptag" style="background:rgba(255,255,255,0.15);color:white">使用者身份遺失</span>
+        </div>
+      </div>
+    </div>
+    <div class="pattern-body">
+      <div class="pattern-section">
+        <div class="ps-title">問題說明</div>
+        <div class="callout callout-warn">
+          <div class="callout-title">⚠ 有限度可用，但有明確限制</div>
+          MCP Server 收到使用者的工具呼叫後，用自己的 client_id/secret 向 Auth Server 申請新的 token 來呼叫 Redmine。技術上可以運作，但<strong>喪失了使用者身份追蹤</strong>，並引入過度授權的風險。
+        </div>
+        <div class="pros-cons" style="margin-top:16px">
+          <div class="cons">
+            <h4>✦ 問題點</h4>
+            <ul>
+              <li>新 token 的 resource owner 是 MCP Server（client application），不是使用者</li>
+              <li>Redmine 收到的請求看起來像是 MCP Server 本身的操作，無法區分是哪個使用者發起的</li>
+              <li>為讓 Redmine 允許 MCP Server 存取所有使用者的資料，需要給予 MCP Server 過度廣泛的權限</li>
+              <li>稽核日誌完全喪失使用者維度，合規需求無法滿足</li>
+            </ul>
+          </div>
+          <div class="pros">
+            <h4>✦ 有限適用場景</h4>
+            <ul>
+              <li>完全信任的內部服務之間的 server-to-server 呼叫</li>
+              <li>不需要使用者身份追蹤的背景任務（如排程報告）</li>
+              <li>Redmine 不對外開放，只有 MCP Server 能存取的封閉環境</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== COMPARISON ===== -->
+  <!-- ===== PER-USER ISOLATION DEEP DIVE ===== -->
+  <div class="section-divider" id="isolation"><span>Per-User 隔離層級深度解說</span></div>
+
+  <div style="background: white; border-radius: 12px; border: 1px solid var(--border); overflow: hidden; box-shadow: var(--shadow); margin-top: 24px;">
+    <div style="background: linear-gradient(135deg, #1a1a2e 0%, #2d2d4e 100%); padding: 28px 36px;">
+      <h2 style="color: var(--gold); font-family: 'Noto Serif TC', serif; font-size: 1.35rem; margin-bottom: 8px;">Per-User 隔離的四個層級</h2>
+      <p style="color: rgba(248,246,240,0.65); font-size: 0.88rem;">比較表中的「隔離類型」欄位涉及四種本質不同的隔離機制，以下逐一深度解說其原理、邊界與適用場景。</p>
+    </div>
+
+    <!-- OVERVIEW STRIP -->
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; border-bottom: 1px solid var(--border);">
+      <div style="padding: 18px 20px; border-right: 1px solid var(--border); background: #f8f4ee;">
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; color: #1a5276; margin-bottom: 6px;">① 資料層</div>
+        <div style="font-size: 0.82rem; font-weight: 700; margin-bottom: 4px;">Data-layer Isolation</div>
+        <div style="font-size: 0.78rem; color: #666;">強制者：應用邏輯</div>
+        <div style="font-size: 0.78rem; color: #666;">模式：A · C · D · F</div>
+      </div>
+      <div style="padding: 18px 20px; border-right: 1px solid var(--border); background: #f4f8ee;">
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; color: #1e8449; margin-bottom: 6px;">② Session+資料</div>
+        <div style="font-size: 0.82rem; font-weight: 700; margin-bottom: 4px;">Session + Data Isolation</div>
+        <div style="font-size: 0.78rem; color: #666;">強制者：應用邏輯</div>
+        <div style="font-size: 0.78rem; color: #666;">模式：B</div>
+      </div>
+      <div style="padding: 18px 20px; border-right: 1px solid var(--border); background: #f4eef8;">
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; color: #6c3483; margin-bottom: 6px;">③ 身份鏈</div>
+        <div style="font-size: 0.82rem; font-weight: 700; margin-bottom: 4px;">Identity Chain Isolation</div>
+        <div style="font-size: 0.78rem; color: #666;">強制者：密碼學 / IdP</div>
+        <div style="font-size: 0.78rem; color: #666;">模式：E</div>
+      </div>
+      <div style="padding: 18px 20px; background: #eef4f8;">
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; color: #117a65; margin-bottom: 6px;">④ 進程層</div>
+        <div style="font-size: 0.82rem; font-weight: 700; margin-bottom: 4px;">Process-layer Isolation</div>
+        <div style="font-size: 0.78rem; color: #666;">強制者：作業系統</div>
+        <div style="font-size: 0.78rem; color: #666;">模式：G</div>
+      </div>
+    </div>
+
+    <!-- ISOLATION TYPE 1: DATA LAYER -->
+    <div style="padding: 32px 36px; border-bottom: 2px solid #f0ece4;">
+      <div style="display: flex; align-items: flex-start; gap: 20px; margin-bottom: 20px;">
+        <div style="width: 48px; height: 48px; border-radius: 10px; background: #1a5276; color: white; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 1rem; flex-shrink: 0;">①</div>
+        <div>
+          <h3 style="font-family: 'Noto Serif TC', serif; font-size: 1.15rem; margin-bottom: 4px;">資料層隔離（Data-layer Isolation）</h3>
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: #888; letter-spacing: 0.04em;">適用於模式 A · C · D · F ── 最普遍的隔離方式</div>
+        </div>
+      </div>
+
+      <p style="font-size: 0.9rem; line-height: 1.85; color: #333; margin-bottom: 16px;">架構上只有<strong>一個共用的 MCP Server 進程</strong>持續運行，隔離發生在「每次 API 呼叫時注入哪把 Key」這個應用邏輯上。記憶體空間、工具清單（模式 A）、執行環境均為所有使用者共享，僅資料存取結果因 Key 不同而隔離。</p>
+
+      <!-- Architecture diagram -->
+      <div style="background: #f8f6f0; border-radius: 8px; padding: 20px; margin-bottom: 20px; overflow-x: auto;">
+        <svg width="680" height="180" viewBox="0 0 680 180" style="display:block;margin:0 auto;font-family:'Noto Sans TC',sans-serif;">
+          <defs>
+            <marker id="iso1-arr" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0, 7 2.5, 0 5" fill="#1a5276"/></marker>
+            <marker id="iso1-arr2" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0, 7 2.5, 0 5" fill="#1e8449"/></marker>
+          </defs>
+          <!-- Users -->
+          <rect x="10" y="20" width="90" height="28" rx="5" fill="#e8f4fb" stroke="#1a5276" stroke-width="1.5"/>
+          <text x="55" y="38" text-anchor="middle" fill="#1a5276" font-size="12" font-weight="600">Alice</text>
+          <rect x="10" y="62" width="90" height="28" rx="5" fill="#e8f8f1" stroke="#1e8449" stroke-width="1.5"/>
+          <text x="55" y="80" text-anchor="middle" fill="#1e8449" font-size="12" font-weight="600">Bob</text>
+          <rect x="10" y="104" width="90" height="28" rx="5" fill="#f5eafb" stroke="#6c3483" stroke-width="1.5"/>
+          <text x="55" y="122" text-anchor="middle" fill="#6c3483" font-size="12" font-weight="600">Carol</text>
+
+          <!-- Shared MCP Server -->
+          <rect x="160" y="30" width="180" height="90" rx="8" fill="#1a1a2e" stroke="#3d3d6e" stroke-width="2"/>
+          <text x="250" y="55" text-anchor="middle" fill="rgba(248,246,240,0.9)" font-size="12" font-weight="700">MCP Server</text>
+          <text x="250" y="72" text-anchor="middle" fill="rgba(248,246,240,0.5)" font-size="10">（共用進程，共用記憶體）</text>
+          <rect x="175" y="82" width="150" height="22" rx="4" fill="rgba(212,160,23,0.25)" stroke="rgba(212,160,23,0.5)" stroke-width="1"/>
+          <text x="250" y="97" text-anchor="middle" fill="#d4a017" font-size="10">每次呼叫查詢 userId→Key 映射</text>
+
+          <!-- Key Store -->
+          <rect x="390" y="30" width="130" height="90" rx="8" fill="#f8f4ee" stroke="#d4a017" stroke-width="1.5"/>
+          <text x="455" y="52" text-anchor="middle" fill="#784212" font-size="11" font-weight="700">Credential Store</text>
+          <text x="455" y="68" text-anchor="middle" fill="#333" font-size="10">alice → key_A</text>
+          <text x="455" y="83" text-anchor="middle" fill="#333" font-size="10">bob   → key_B</text>
+          <text x="455" y="98" text-anchor="middle" fill="#333" font-size="10">carol → key_C</text>
+
+          <!-- Redmine -->
+          <rect x="570" y="50" width="100" height="50" rx="8" fill="#fadbd8" stroke="#c0392b" stroke-width="1.5"/>
+          <text x="620" y="72" text-anchor="middle" fill="#922b21" font-size="12" font-weight="700">Redmine</text>
+          <text x="620" y="87" text-anchor="middle" fill="#922b21" font-size="10">API</text>
+
+          <!-- Arrows users -> MCP -->
+          <line x1="100" y1="34" x2="158" y2="60" stroke="#1a5276" stroke-width="1.2" marker-end="url(#iso1-arr)"/>
+          <line x1="100" y1="76" x2="158" y2="76" stroke="#1e8449" stroke-width="1.2" marker-end="url(#iso1-arr)"/>
+          <line x1="100" y1="118" x2="158" y2="92" stroke="#6c3483" stroke-width="1.2" marker-end="url(#iso1-arr)"/>
+
+          <!-- MCP -> Store -->
+          <line x1="340" y1="76" x2="388" y2="76" stroke="#d4a017" stroke-width="1.2" marker-end="url(#iso1-arr)"/>
+
+          <!-- MCP -> Redmine with key -->
+          <line x1="340" y1="62" x2="568" y2="68" stroke="#c0392b" stroke-width="1.2" marker-end="url(#iso1-arr)"/>
+          <text x="454" y="52" text-anchor="middle" fill="#c0392b" font-size="10">注入對應 Key 後呼叫</text>
+
+          <!-- Risk label -->
+          <rect x="160" y="140" width="350" height="28" rx="5" fill="#fdf4f4" stroke="#e8c0c0" stroke-width="1"/>
+          <text x="335" y="158" text-anchor="middle" fill="#922b21" font-size="11">⚠ 記憶體共用：程式錯誤可能導致 Key 交叉洩漏</text>
+        </svg>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+        <div style="background: #f0faf4; border: 1px solid #b8dfc8; border-radius: 8px; padding: 16px;">
+          <div style="font-size: 0.8rem; font-weight: 700; color: #1e8449; margin-bottom: 10px;">✦ 有效隔離的範圍</div>
+          <ul style="list-style:none;font-size:0.84rem;line-height:1.75;color:#333;">
+            <li style="display:flex;gap:8px;"><span style="color:#1e8449;font-weight:700;">✓</span>Redmine 資料存取（Alice 看不到 Bob 的 Issues）</li>
+            <li style="display:flex;gap:8px;"><span style="color:#1e8449;font-weight:700;">✓</span>API Key 本身不在請求鏈路上外露</li>
+            <li style="display:flex;gap:8px;"><span style="color:#1e8449;font-weight:700;">✓</span>使用者不需知道其他使用者的存在</li>
+          </ul>
+        </div>
+        <div style="background: #fdf4f4; border: 1px solid #e8c0c0; border-radius: 8px; padding: 16px;">
+          <div style="font-size: 0.8rem; font-weight: 700; color: #c0392b; margin-bottom: 10px;">✦ 沒有隔離的範圍</div>
+          <ul style="list-style:none;font-size:0.84rem;line-height:1.75;color:#333;">
+            <li style="display:flex;gap:8px;"><span style="color:#c0392b;font-weight:700;">✗</span>記憶體空間共享，有 bug 可能交叉讀取</li>
+            <li style="display:flex;gap:8px;"><span style="color:#c0392b;font-weight:700;">✗</span>一人的記憶體洩漏影響全體效能</li>
+            <li style="display:flex;gap:8px;"><span style="color:#c0392b;font-weight:700;">✗</span>工具清單靜態共用（模式 A）</li>
+            <li style="display:flex;gap:8px;"><span style="color:#c0392b;font-weight:700;">✗</span>進程崩潰影響所有使用者</li>
+          </ul>
+        </div>
+      </div>
+      <div style="background: #fef9f0; border-left: 4px solid #d4a017; border-radius: 0 6px 6px 0; padding: 12px 16px; margin-top: 14px; font-size: 0.86rem; color: #784212; line-height: 1.7;">
+        <strong>核心安全前提：</strong>credential lookup 邏輯的正確性是唯一防線。MCP Server 的 <code>getUserApiKey(userId)</code> 函式絕對不能發生「把 Alice 的 Key 回傳給 Bob 的 session」的 mapping 錯誤。
+      </div>
+    </div>
+
+    <!-- ISOLATION TYPE 2: SESSION + DATA -->
+    <div style="padding: 32px 36px; border-bottom: 2px solid #f0ece4;">
+      <div style="display: flex; align-items: flex-start; gap: 20px; margin-bottom: 20px;">
+        <div style="width: 48px; height: 48px; border-radius: 10px; background: #1e8449; color: white; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 1rem; flex-shrink: 0;">②</div>
+        <div>
+          <h3 style="font-family: 'Noto Serif TC', serif; font-size: 1.15rem; margin-bottom: 4px;">Session + 資料層隔離（Session + Data-layer Isolation）</h3>
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: #888; letter-spacing: 0.04em;">適用於模式 B ── 在資料層之上，額外為每人建立獨立 in-memory session</div>
+        </div>
+      </div>
+
+      <p style="font-size: 0.9rem; line-height: 1.85; color: #333; margin-bottom: 16px;">與純資料層的差異在於：每位使用者在同一進程內擁有<strong>獨立的 in-memory session 物件</strong>，包含該使用者的工具清單快取、Key 快取、狀態、TTL 等。工具清單不再靜態共用，而是依每位使用者在 Redmine 的實際權限動態生成後存入 session。進程本身依然共享。</p>
+
+      <!-- Architecture diagram -->
+      <div style="background: #f8f6f0; border-radius: 8px; padding: 20px; margin-bottom: 20px; overflow-x: auto;">
+        <svg width="680" height="200" viewBox="0 0 680 200" style="display:block;margin:0 auto;font-family:'Noto Sans TC',sans-serif;">
+          <defs>
+            <marker id="iso2-arr" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0, 7 2.5, 0 5" fill="#1e8449"/></marker>
+          </defs>
+          <!-- Shared process boundary -->
+          <rect x="120" y="10" width="440" height="175" rx="10" fill="#1a1a2e" stroke="#3d3d6e" stroke-width="2" stroke-dasharray="none"/>
+          <text x="340" y="30" text-anchor="middle" fill="rgba(248,246,240,0.45)" font-size="11">同一個 MCP Server 進程（共用記憶體）</text>
+
+          <!-- Session objects inside -->
+          <rect x="140" y="42" width="180" height="60" rx="6" fill="rgba(26,82,118,0.3)" stroke="#1a5276" stroke-width="1.5"/>
+          <text x="230" y="61" text-anchor="middle" fill="#aed6f1" font-size="11" font-weight="700">sessionMap["alice"]</text>
+          <text x="230" y="76" text-anchor="middle" fill="rgba(248,246,240,0.7)" font-size="9.5">tools: [create_issue, list_projects]</text>
+          <text x="230" y="90" text-anchor="middle" fill="rgba(248,246,240,0.7)" font-size="9.5">key: "alice-key" · ttl: 3540s</text>
+
+          <rect x="140" y="114" width="180" height="60" rx="6" fill="rgba(30,132,73,0.3)" stroke="#1e8449" stroke-width="1.5"/>
+          <text x="230" y="133" text-anchor="middle" fill="#a9dfbf" font-size="11" font-weight="700">sessionMap["bob"]</text>
+          <text x="230" y="148" text-anchor="middle" fill="rgba(248,246,240,0.7)" font-size="9.5">tools: [list_issues]  ← Bob 權限少</text>
+          <text x="230" y="162" text-anchor="middle" fill="rgba(248,246,240,0.7)" font-size="9.5">key: "bob-key" · ttl: 1820s</text>
+
+          <!-- Arrow between sessions + isolation label -->
+          <text x="340" y="100" text-anchor="middle" fill="#d4a017" font-size="11" font-weight="700">⟵ 邏輯分離 ⟶</text>
+          <text x="340" y="116" text-anchor="middle" fill="rgba(248,246,240,0.4)" font-size="9.5">（無 OS 強制邊界）</text>
+
+          <!-- Session for carol (partial) -->
+          <rect x="370" y="42" width="170" height="132" rx="6" fill="rgba(108,52,131,0.25)" stroke="#6c3483" stroke-width="1.5"/>
+          <text x="455" y="64" text-anchor="middle" fill="#d7bde2" font-size="11" font-weight="700">sessionMap["carol"]</text>
+          <text x="455" y="80" text-anchor="middle" fill="rgba(248,246,240,0.6)" font-size="9.5">tools: [create_issue,</text>
+          <text x="455" y="95" text-anchor="middle" fill="rgba(248,246,240,0.6)" font-size="9.5">list_projects,</text>
+          <text x="455" y="110" text-anchor="middle" fill="rgba(248,246,240,0.6)" font-size="9.5">manage_users]</text>
+          <text x="455" y="126" text-anchor="middle" fill="rgba(248,246,240,0.5)" font-size="9.5">← Carol 是管理員</text>
+          <text x="455" y="142" text-anchor="middle" fill="rgba(248,246,240,0.6)" font-size="9.5">key: "carol-key"</text>
+          <text x="455" y="158" text-anchor="middle" fill="rgba(248,246,240,0.6)" font-size="9.5">ttl: 2100s</text>
+        </svg>
+      </div>
+
+      <div style="background: #f0faf4; border: 1px solid #b8dfc8; border-radius: 8px; padding: 16px; margin-bottom: 12px;">
+        <div style="font-size: 0.8rem; font-weight: 700; color: #1e8449; margin-bottom: 10px;">✦ 與純資料層相比，多了哪些隔離</div>
+        <ul style="list-style:none;font-size:0.86rem;line-height:1.8;color:#333;">
+          <li style="display:flex;gap:8px;"><span style="color:#1e8449;font-weight:700;">✓</span><span>工具清單是 per-user 動態生成的：Bob 只有 <code>list_issues</code> 而看不到 <code>manage_users</code>，Carol 的管理員工具不會出現在 Bob 的清單中</span></li>
+          <li style="display:flex;gap:8px;"><span style="color:#1e8449;font-weight:700;">✓</span><span>Key 快取在 session 物件內，減少每次工具呼叫都查加密 store 的延遲</span></li>
+          <li style="display:flex;gap:8px;"><span style="color:#1e8449;font-weight:700;">✓</span><span>Session TTL 個別管理，Alice 的 session 過期不影響 Bob 的 session</span></li>
+          <li style="display:flex;gap:8px;"><span style="color:#1e8449;font-weight:700;">✓</span><span>首次連線時依使用者實際 Redmine 權限初始化，後續呼叫直接從 session 讀取，無冷查詢</span></li>
+        </ul>
+      </div>
+      <div style="background: #fdf4f4; border: 1px solid #e8c0c0; border-radius: 8px; padding: 16px;">
+        <div style="font-size: 0.8rem; font-weight: 700; color: #c0392b; margin-bottom: 10px;">✦ 仍然沒有隔離的部分（與純資料層相同）</div>
+        <ul style="list-style:none;font-size:0.86rem;line-height:1.8;color:#333;">
+          <li style="display:flex;gap:8px;"><span style="color:#c0392b;font-weight:700;">✗</span>記憶體空間依然共享，session 物件之間無 OS 強制邊界</li>
+          <li style="display:flex;gap:8px;"><span style="color:#c0392b;font-weight:700;">✗</span>進程崩潰依然影響所有使用者</li>
+          <li style="display:flex;gap:8px;"><span style="color:#c0392b;font-weight:700;">✗</span>使用者數量增加，session 物件線性佔用記憶體（這是模式 B 擴展性差的根本原因）</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ISOLATION TYPE 3: IDENTITY CHAIN -->
+    <div style="padding: 32px 36px; border-bottom: 2px solid #f0ece4;">
+      <div style="display: flex; align-items: flex-start; gap: 20px; margin-bottom: 20px;">
+        <div style="width: 48px; height: 48px; border-radius: 10px; background: #6c3483; color: white; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 1rem; flex-shrink: 0;">③</div>
+        <div>
+          <h3 style="font-family: 'Noto Serif TC', serif; font-size: 1.15rem; margin-bottom: 4px;">身份鏈隔離（Identity Chain Isolation）</h3>
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: #888; letter-spacing: 0.04em;">適用於模式 E（RFC 8693 Token Exchange）── 概念上最不同的隔離方式</div>
+        </div>
+      </div>
+
+      <p style="font-size: 0.9rem; line-height: 1.85; color: #333; margin-bottom: 16px;">前兩種隔離依賴「把不同的 Key 分開存放和查找」，而身份鏈隔離的核心思路完全不同——<strong>隔離由密碼學強制執行</strong>，而非由應用程式邏輯維持。每個 token 本身攜帶完整的使用者身份與委派鏈路，整個系統任何節點都能驗證「這個請求究竟代表哪位使用者、經過哪些合法委派路徑發出的」。</p>
+
+      <!-- Token chain diagram -->
+      <div style="background: #f8f6f0; border-radius: 8px; padding: 24px; margin-bottom: 20px; overflow-x: auto;">
+        <svg width="700" height="210" viewBox="0 0 700 210" style="display:block;margin:0 auto;font-family:'Noto Sans TC',sans-serif;">
+          <defs>
+            <marker id="iso3-arr" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0, 7 2.5, 0 5" fill="#6c3483"/></marker>
+          </defs>
+
+          <!-- Token 1 -->
+          <rect x="10" y="20" width="160" height="90" rx="8" fill="#f5eafb" stroke="#6c3483" stroke-width="2"/>
+          <text x="90" y="42" text-anchor="middle" fill="#6c3483" font-size="11" font-weight="700">OAuth JWT</text>
+          <text x="90" y="58" text-anchor="middle" fill="#333" font-size="9.5">sub: "alice"</text>
+          <text x="90" y="72" text-anchor="middle" fill="#333" font-size="9.5">iss: "auth.example.com"</text>
+          <text x="90" y="86" text-anchor="middle" fill="#333" font-size="9.5">aud: "mcp-server"</text>
+          <text x="90" y="108" text-anchor="middle" fill="#6c3483" font-size="9" font-style="italic">Alice 登入後取得</text>
+
+          <!-- Arrow -->
+          <line x1="170" y1="65" x2="215" y2="65" stroke="#6c3483" stroke-width="2" marker-end="url(#iso3-arr)"/>
+          <text x="192" y="58" text-anchor="middle" fill="#6c3483" font-size="9">exchange</text>
+
+          <!-- Token 2 -->
+          <rect x="215" y="20" width="160" height="90" rx="8" fill="#eaf0fb" stroke="#1a5276" stroke-width="2"/>
+          <text x="295" y="42" text-anchor="middle" fill="#1a5276" font-size="11" font-weight="700">id-jag Token</text>
+          <text x="295" y="58" text-anchor="middle" fill="#333" font-size="9.5">sub: "alice"</text>
+          <text x="295" y="72" text-anchor="middle" fill="#333" font-size="9.5">act: "mcp-server"</text>
+          <text x="295" y="86" text-anchor="middle" fill="#333" font-size="9.5">delegation_chain: [...]</text>
+          <text x="295" y="108" text-anchor="middle" fill="#1a5276" font-size="9" font-style="italic">Internal IdP 簽發</text>
+
+          <!-- Arrow -->
+          <line x1="375" y1="65" x2="415" y2="65" stroke="#6c3483" stroke-width="2" marker-end="url(#iso3-arr)"/>
+          <text x="395" y="58" text-anchor="middle" fill="#6c3483" font-size="9">exchange</text>
+
+          <!-- Token 3 -->
+          <rect x="415" y="20" width="165" height="90" rx="8" fill="#eafbf5" stroke="#117a65" stroke-width="2"/>
+          <text x="497" y="42" text-anchor="middle" fill="#117a65" font-size="11" font-weight="700">Redmine Token</text>
+          <text x="497" y="58" text-anchor="middle" fill="#333" font-size="9.5">sub: "alice"</text>
+          <text x="497" y="72" text-anchor="middle" fill="#333" font-size="9.5">aud: "redmine.example.com"</text>
+          <text x="497" y="86" text-anchor="middle" fill="#333" font-size="9.5">scope: "issues:write"</text>
+          <text x="497" y="108" text-anchor="middle" fill="#117a65" font-size="9" font-style="italic">Redmine IdP 簽發</text>
+
+          <!-- Audit trail row -->
+          <rect x="10" y="130" width="670" height="60" rx="8" fill="#1a1a2e"/>
+          <text x="345" y="150" text-anchor="middle" fill="rgba(248,246,240,0.5)" font-size="10" font-style="italic">Redmine 收到請求後記錄的稽核日誌：</text>
+          <text x="345" y="168" text-anchor="middle" fill="#d4a017" font-size="11" font-weight="600">「alice 透過 mcp-server (delegated) 於 14:32:05 建立了 Issue #42，scope: issues:write」</text>
+          <text x="345" y="184" text-anchor="middle" fill="rgba(248,246,240,0.5)" font-size="9.5">每一層 token 都有 IdP 數位簽章 ── 偽造或替換任何使用者身份都會立刻被驗證失敗</text>
+        </svg>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 14px;">
+        <div style="background: #f0faf4; border: 1px solid #b8dfc8; border-radius: 8px; padding: 16px;">
+          <div style="font-size: 0.8rem; font-weight: 700; color: #1e8449; margin-bottom: 10px;">✦ 身份鏈隔離的核心優勢</div>
+          <ul style="list-style:none;font-size:0.84rem;line-height:1.8;color:#333;">
+            <li style="display:flex;gap:8px;"><span style="color:#1e8449;font-weight:700;">✓</span>隔離由 IdP 密碼學強制，而非依賴應用程式邏輯</li>
+            <li style="display:flex;gap:8px;"><span style="color:#1e8449;font-weight:700;">✓</span>即使 MCP Server 被 compromise，也無法偽造其他使用者的 token</li>
+            <li style="display:flex;gap:8px;"><span style="color:#1e8449;font-weight:700;">✓</span>稽核日誌不依賴應用層 logging，token claims 本身就是不可篡改的記錄</li>
+            <li style="display:flex;gap:8px;"><span style="color:#1e8449;font-weight:700;">✓</span>每個 token 的 audience 精確限定，Redmine token 只能用在 Redmine</li>
+          </ul>
+        </div>
+        <div style="background: #fdf4f4; border: 1px solid #e8c0c0; border-radius: 8px; padding: 16px;">
+          <div style="font-size: 0.8rem; font-weight: 700; color: #c0392b; margin-bottom: 10px;">✦ 限制與代價</div>
+          <ul style="list-style:none;font-size:0.84rem;line-height:1.8;color:#333;">
+            <li style="display:flex;gap:8px;"><span style="color:#c0392b;font-weight:700;">✗</span>需要 Redmine 端有 OIDC/SAML SSO（原生 Redmine 不支援）</li>
+            <li style="display:flex;gap:8px;"><span style="color:#c0392b;font-weight:700;">✗</span>需要事先建立跨 IdP 的 federation 信任關係</li>
+            <li style="display:flex;gap:8px;"><span style="color:#c0392b;font-weight:700;">✗</span>多次 token exchange 引入較高延遲</li>
+            <li style="display:flex;gap:8px;"><span style="color:#c0392b;font-weight:700;">✗</span>實作複雜度最高</li>
+          </ul>
+        </div>
+      </div>
+      <div style="background: #f0faf4; border-left: 4px solid #117a65; border-radius: 0 6px 6px 0; padding: 12px 16px; font-size: 0.86rem; color: #0e6251; line-height: 1.7;">
+        <strong>與其他隔離的本質差異：</strong>前兩種隔離的安全性依賴「程式邏輯不出錯」，身份鏈隔離的安全性依賴「密碼學不被破解」。在零信任架構與高合規要求（SOC2 Type II、ISO 27001）的場景下，後者是唯一真正可驗證的方式。
+      </div>
+    </div>
+
+    <!-- ISOLATION TYPE 4: PROCESS -->
+    <div style="padding: 32px 36px; border-bottom: 2px solid #f0ece4;">
+      <div style="display: flex; align-items: flex-start; gap: 20px; margin-bottom: 20px;">
+        <div style="width: 48px; height: 48px; border-radius: 10px; background: #117a65; color: white; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 1rem; flex-shrink: 0;">④</div>
+        <div>
+          <h3 style="font-family: 'Noto Serif TC', serif; font-size: 1.15rem; margin-bottom: 4px;">進程層隔離（Process-layer Isolation）</h3>
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: #888; letter-spacing: 0.04em;">適用於模式 G（Per-user Subprocess）── 作業系統強制的最強硬性邊界</div>
+        </div>
+      </div>
+
+      <p style="font-size: 0.9rem; line-height: 1.85; color: #333; margin-bottom: 16px;">為每位使用者分配一個完全獨立的 OS 進程，進程間由作業系統的記憶體保護機制（virtual memory, page table isolation）強制隔離。沒有任何應用層的邏輯可以跨越這個邊界——除非存在作業系統層級的漏洞。Key 作為環境變數存在於進程私有的 env 空間，其他進程根本無法讀取。</p>
+
+      <!-- Process diagram -->
+      <div style="background: #f8f6f0; border-radius: 8px; padding: 20px; margin-bottom: 20px; overflow-x: auto;">
+        <svg width="700" height="200" viewBox="0 0 700 200" style="display:block;margin:0 auto;font-family:'Noto Sans TC',sans-serif;">
+          <defs>
+            <marker id="iso4-arr" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0, 7 2.5, 0 5" fill="#117a65"/></marker>
+            <marker id="iso4-arr2" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto"><polygon points="0 0, 7 2.5, 0 5" fill="#c0392b"/></marker>
+          </defs>
+
+          <!-- mcp-front box -->
+          <rect x="10" y="60" width="120" height="80" rx="8" fill="#283747" stroke="#5d6d7e" stroke-width="2"/>
+          <text x="70" y="90" text-anchor="middle" fill="rgba(248,246,240,0.9)" font-size="12" font-weight="700">mcp-front</text>
+          <text x="70" y="106" text-anchor="middle" fill="rgba(248,246,240,0.5)" font-size="10">Gateway</text>
+          <text x="70" y="122" text-anchor="middle" fill="rgba(248,246,240,0.5)" font-size="10">OAuth + spawn</text>
+
+          <!-- OS boundary label -->
+          <text x="390" y="14" text-anchor="middle" fill="#888" font-size="10.5" font-style="italic">作業系統強制的進程邊界（Virtual Memory 隔離）</text>
+          <line x1="220" y1="18" x2="560" y2="18" stroke="#aaa" stroke-width="1" stroke-dasharray="4,3"/>
+
+          <!-- Process 1 -->
+          <rect x="220" y="28" width="150" height="90" rx="8" fill="#1a5276" stroke="#1a5276" stroke-width="0"/>
+          <text x="295" y="50" text-anchor="middle" fill="white" font-size="11" font-weight="700">PID 1024 (Alice)</text>
+          <rect x="235" y="58" width="120" height="18" rx="3" fill="rgba(255,255,255,0.12)"/>
+          <text x="295" y="71" text-anchor="middle" fill="rgba(255,255,255,0.8)" font-size="9.5">env: KEY=alice-key</text>
+          <rect x="235" y="82" width="120" height="18" rx="3" fill="rgba(255,255,255,0.12)"/>
+          <text x="295" y="95" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="9.5">tools: [per-alice schema]</text>
+          <text x="295" y="115" text-anchor="middle" fill="rgba(255,255,255,0.4)" font-size="9">✓ 獨立記憶體空間</text>
+
+          <!-- Process 2 -->
+          <rect x="390" y="28" width="150" height="90" rx="8" fill="#1e8449" stroke="#1e8449" stroke-width="0"/>
+          <text x="465" y="50" text-anchor="middle" fill="white" font-size="11" font-weight="700">PID 1025 (Bob)</text>
+          <rect x="405" y="58" width="120" height="18" rx="3" fill="rgba(255,255,255,0.12)"/>
+          <text x="465" y="71" text-anchor="middle" fill="rgba(255,255,255,0.8)" font-size="9.5">env: KEY=bob-key</text>
+          <rect x="405" y="82" width="120" height="18" rx="3" fill="rgba(255,255,255,0.12)"/>
+          <text x="465" y="95" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="9.5">tools: [per-bob schema]</text>
+          <text x="465" y="115" text-anchor="middle" fill="rgba(255,255,255,0.4)" font-size="9">✓ 獨立記憶體空間</text>
+
+          <!-- Process 3 collapsed -->
+          <rect x="560" y="28" width="130" height="90" rx="8" fill="#6c3483" stroke="#6c3483" stroke-width="0" opacity="0.7"/>
+          <text x="625" y="75" text-anchor="middle" fill="white" font-size="11" font-weight="700">PID 1026 (Carol)</text>
+          <text x="625" y="92" text-anchor="middle" fill="rgba(255,255,255,0.6)" font-size="9.5">env: KEY=carol-key</text>
+
+          <!-- Arrows from mcp-front -->
+          <line x1="130" y1="90" x2="218" y2="90" stroke="#117a65" stroke-width="1.5" marker-end="url(#iso4-arr)"/>
+          <line x1="130" y1="100" x2="388" y2="80" stroke="#117a65" stroke-width="1.5" marker-end="url(#iso4-arr)"/>
+          <line x1="130" y1="105" x2="558" y2="72" stroke="#117a65" stroke-width="1.5" marker-end="url(#iso4-arr)"/>
+
+          <!-- crash indicator -->
+          <text x="295" y="148" text-anchor="middle" fill="#c0392b" font-size="11" font-weight="700">💥 PID 1024 崩潰</text>
+          <text x="465" y="148" text-anchor="middle" fill="#1e8449" font-size="11" font-weight="700">✓ PID 1025 不受影響</text>
+          <text x="625" y="148" text-anchor="middle" fill="#6c3483" font-size="11" font-weight="700">✓ PID 1026 不受影響</text>
+
+          <!-- OS wall visual -->
+          <line x1="370" y1="22" x2="370" y2="140" stroke="#d4a017" stroke-width="1.5" stroke-dasharray="3,3"/>
+          <line x1="545" y1="22" x2="545" y2="140" stroke="#d4a017" stroke-width="1.5" stroke-dasharray="3,3"/>
+
+          <!-- Resource cost indicator -->
+          <rect x="10" y="162" width="680" height="28" rx="5" fill="#fef9f0" stroke="#f5cba7" stroke-width="1"/>
+          <text x="350" y="181" text-anchor="middle" fill="#784212" font-size="11">⚠ 成本：n 位使用者 = n 個 OS 進程 ── 記憶體與 CPU 線性增長，不適合大量使用者</text>
+        </svg>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+        <div style="background: #f0faf4; border: 1px solid #b8dfc8; border-radius: 8px; padding: 16px;">
+          <div style="font-size: 0.8rem; font-weight: 700; color: #1e8449; margin-bottom: 10px;">✦ 進程層隔離的獨特優勢</div>
+          <ul style="list-style:none;font-size:0.84rem;line-height:1.8;color:#333;">
+            <li style="display:flex;gap:8px;"><span style="color:#1e8449;font-weight:700;">✓</span>作業系統強制邊界，不依賴任何應用程式邏輯</li>
+            <li style="display:flex;gap:8px;"><span style="color:#1e8449;font-weight:700;">✓</span>即使 MCP Server 程式碼有嚴重記憶體漏洞，最壞只影響一個使用者</li>
+            <li style="display:flex;gap:8px;"><span style="color:#1e8449;font-weight:700;">✓</span>Alice 的進程崩潰完全不影響 Bob 和 Carol</li>
+            <li style="display:flex;gap:8px;"><span style="color:#1e8449;font-weight:700;">✓</span>不需修改任何 MCP Server 程式碼（stdio 進程直接 spawn）</li>
+            <li style="display:flex;gap:8px;"><span style="color:#1e8449;font-weight:700;">✓</span>工具清單 per-process 動態初始化，真正依照使用者權限</li>
+          </ul>
+        </div>
+        <div style="background: #fdf4f4; border: 1px solid #e8c0c0; border-radius: 8px; padding: 16px;">
+          <div style="font-size: 0.8rem; font-weight: 700; color: #c0392b; margin-bottom: 10px;">✦ 代價與限制</div>
+          <ul style="list-style:none;font-size:0.84rem;line-height:1.8;color:#333;">
+            <li style="display:flex;gap:8px;"><span style="color:#c0392b;font-weight:700;">✗</span>n 位同時在線使用者 = n 個 OS 進程，無法用於大量使用者</li>
+            <li style="display:flex;gap:8px;"><span style="color:#c0392b;font-weight:700;">✗</span>進程管理複雜（崩潰重啟、zombie 清理、健康檢查）</li>
+            <li style="display:flex;gap:8px;"><span style="color:#c0392b;font-weight:700;">✗</span>首次連線有子進程啟動的冷啟動時間</li>
+            <li style="display:flex;gap:8px;"><span style="color:#c0392b;font-weight:700;">✗</span>水平擴展困難（進程與 session 綁定在同一台主機）</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- ANALOGY SECTION -->
+    <div style="padding: 32px 36px; border-bottom: 2px solid #f0ece4; background: #fafaf8;">
+      <div class="ps-title" style="font-size: 0.75rem; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 18px; display: flex; align-items: center; gap: 8px;">直觀比喻：辦公室場景<span style="flex:1;height:1px;background:#e8e2d8;display:block;"></span></div>
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;">
+        <div style="background: #e8f4fb; border-radius: 8px; padding: 16px; border-top: 3px solid #1a5276;">
+          <div style="font-size: 0.82rem; font-weight: 700; color: #1a5276; margin-bottom: 8px;">① 資料層</div>
+          <p style="font-size: 0.83rem; line-height: 1.7; color: #333;">大家在<strong>同一間辦公室</strong>工作，桌上各有鎖著的抽屜。只要不亂開別人的抽屜，資料就是分開的。但若有人失手把文件掉在走道上，別人可能撿到。</p>
+        </div>
+        <div style="background: #e8f8f1; border-radius: 8px; padding: 16px; border-top: 3px solid #1e8449;">
+          <div style="font-size: 0.82rem; font-weight: 700; color: #1e8449; margin-bottom: 8px;">② Session + 資料</div>
+          <p style="font-size: 0.83rem; line-height: 1.7; color: #333;">同一間辦公室，但每個人多了<strong>個人的鎖碼文件夾</strong>，自己的工作清單也放在裡面。安全性稍強，但辦公室本身還是共用的。</p>
+        </div>
+        <div style="background: #f5eafb; border-radius: 8px; padding: 16px; border-top: 3px solid #6c3483;">
+          <div style="font-size: 0.82rem; font-weight: 700; color: #6c3483; margin-bottom: 8px;">③ 身份鏈</div>
+          <p style="font-size: 0.83rem; line-height: 1.7; color: #333;">同一間辦公室，但每份文件都蓋上<strong>防偽的個人印章</strong>並記錄完整傳遞路徑。即使文件出了辦公室，任何人都能驗證「這是 Alice 授權的」，偽造立刻被發現。</p>
+        </div>
+        <div style="background: #eafbf5; border-radius: 8px; padding: 16px; border-top: 3px solid #117a65;">
+          <div style="font-size: 0.82rem; font-weight: 700; color: #117a65; margin-bottom: 8px;">④ 進程層</div>
+          <p style="font-size: 0.83rem; line-height: 1.7; color: #333;">每個人有<strong>完全獨立的辦公室</strong>，連走廊都不共用。一間辦公室失火不影響隔壁。隔離最強，但租金最貴（每人一間房）。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SUMMARY TABLE -->
+    <div style="padding: 28px 36px;">
+      <div class="ps-title" style="font-size: 0.75rem; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">四種隔離層級全面比較<span style="flex:1;height:1px;background:#e8e2d8;display:block;"></span></div>
+      <div class="comparison-wrap">
+        <table class="comparison">
+          <thead>
+            <tr>
+              <th>維度</th>
+              <th>① 資料層</th>
+              <th>② Session+資料</th>
+              <th>③ 身份鏈</th>
+              <th>④ 進程層</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>隔離強制者</strong></td>
+              <td>應用程式邏輯</td>
+              <td>應用程式邏輯</td>
+              <td><span class="badge-good">密碼學 / IdP</span></td>
+              <td><span class="badge-good">作業系統</span></td>
+            </tr>
+            <tr>
+              <td><strong>記憶體是否共享</strong></td>
+              <td><span class="badge-bad">是</span></td>
+              <td><span class="badge-bad">是</span></td>
+              <td><span class="badge-bad">是</span></td>
+              <td><span class="badge-good">否</span></td>
+            </tr>
+            <tr>
+              <td><strong>工具清單是否共用</strong></td>
+              <td>靜態共用（A）<br>或個別（C/D/F）</td>
+              <td><span class="badge-good">動態 per-user</span></td>
+              <td><span class="badge-good">動態 per-user</span></td>
+              <td><span class="badge-good">動態 per-user</span></td>
+            </tr>
+            <tr>
+              <td><strong>一人崩潰影響他人</strong></td>
+              <td><span class="badge-bad">可能</span></td>
+              <td><span class="badge-bad">可能</span></td>
+              <td><span class="badge-bad">可能</span></td>
+              <td><span class="badge-good">不會</span></td>
+            </tr>
+            <tr>
+              <td><strong>應用層 bug 可跨使用者</strong></td>
+              <td><span class="badge-bad">可能</span></td>
+              <td><span class="badge-bad">可能</span></td>
+              <td><span class="badge-ok">極難</span></td>
+              <td><span class="badge-good">幾乎不可能</span></td>
+            </tr>
+            <tr>
+              <td><strong>稽核追蹤深度</strong></td>
+              <td>應用層 log</td>
+              <td>應用層 log</td>
+              <td><span class="badge-good">Token claims 本身</span></td>
+              <td>應用層 log</td>
+            </tr>
+            <tr>
+              <td><strong>水平擴展性</strong></td>
+              <td><span class="badge-good">好</span></td>
+              <td><span class="badge-ok">中</span></td>
+              <td><span class="badge-good">好</span></td>
+              <td><span class="badge-bad">差</span></td>
+            </tr>
+            <tr>
+              <td><strong>適合使用者數</strong></td>
+              <td>大量</td>
+              <td>中等</td>
+              <td>大量</td>
+              <td><span class="badge-bad">少量</span></td>
+            </tr>
+            <tr>
+              <td><strong>需要 Redmine 修改</strong></td>
+              <td><span class="badge-good">否</span></td>
+              <td><span class="badge-good">否</span></td>
+              <td><span class="badge-bad">是（OIDC SSO）</span></td>
+              <td><span class="badge-good">否</span></td>
+            </tr>
+            <tr>
+              <td><strong>適用模式</strong></td>
+              <td>A · C · D · F</td>
+              <td>B</td>
+              <td>E</td>
+              <td>G</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-divider" id="compare"><span>綜合比較表</span></div>
+
+  <div style="background: white; border-radius: 12px; border: 1px solid var(--border); overflow: hidden; box-shadow: var(--shadow); margin-top: 24px;">
+    <div style="background: var(--ink); padding: 20px 30px;">
+      <h2 style="color: var(--gold); font-family: 'Noto Serif TC', serif; font-size: 1.2rem;">七種實作方式全面比較</h2>
+    </div>
+    <div class="comparison-wrap">
+      <table class="comparison">
+        <thead>
+          <tr>
+            <th>模式</th>
+            <th>實作難度</th>
+            <th>安全邊界</th>
+            <th>Per-user 隔離</th>
+            <th>動態工具清單</th>
+            <th>需要額外基礎設施</th>
+            <th>水平擴展</th>
+            <th>稽核追蹤</th>
+            <th>適合規模</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>A · 雙 API Key</strong></td>
+            <td><span class="badge-ok">低</span></td>
+            <td><span class="badge-good">清晰</span></td>
+            <td>資料層</td>
+            <td><span class="badge-bad">✗</span></td>
+            <td><span class="badge-good">無</span></td>
+            <td><span class="badge-good">好</span></td>
+            <td><span class="badge-ok">有限</span></td>
+            <td>小～中</td>
+          </tr>
+          <tr>
+            <td><strong>B · 單 Key 延遲</strong></td>
+            <td><span class="badge-good">最低</span></td>
+            <td><span class="badge-ok">稍模糊</span></td>
+            <td>Session+資料</td>
+            <td><span class="badge-good">✓</span></td>
+            <td><span class="badge-good">無</span></td>
+            <td><span class="badge-ok">中</span></td>
+            <td><span class="badge-ok">有限</span></td>
+            <td>小</td>
+          </tr>
+          <tr>
+            <td><strong>C · OAuth Proxy</strong></td>
+            <td><span class="badge-bad">高</span></td>
+            <td><span class="badge-good">清晰</span></td>
+            <td>資料層</td>
+            <td><span class="badge-bad">✗</span></td>
+            <td>Cloudflare KV</td>
+            <td><span class="badge-good">好</span></td>
+            <td><span class="badge-ok">中</span></td>
+            <td>中～大</td>
+          </tr>
+          <tr>
+            <td><strong>D · Token Vault</strong></td>
+            <td><span class="badge-ok">中</span></td>
+            <td><span class="badge-good">最清晰</span></td>
+            <td>資料層</td>
+            <td><span class="badge-bad">✗</span></td>
+            <td>Vault Server</td>
+            <td><span class="badge-good">好</span></td>
+            <td><span class="badge-good">完整</span></td>
+            <td>中～大</td>
+          </tr>
+          <tr>
+            <td><strong>E · Token Exchange</strong></td>
+            <td><span class="badge-bad">最高</span></td>
+            <td><span class="badge-good">最清晰</span></td>
+            <td>身份鏈</td>
+            <td><span class="badge-good">✓</span></td>
+            <td>OIDC IdP Federation</td>
+            <td><span class="badge-good">好</span></td>
+            <td><span class="badge-good">完整</span></td>
+            <td>大企業</td>
+          </tr>
+          <tr>
+            <td><strong>F · API Gateway</strong></td>
+            <td><span class="badge-ok">中</span></td>
+            <td><span class="badge-good">清晰</span></td>
+            <td>資料層</td>
+            <td><span class="badge-bad">✗</span></td>
+            <td>API Gateway</td>
+            <td><span class="badge-good">最好</span></td>
+            <td><span class="badge-good">完整</span></td>
+            <td>大企業</td>
+          </tr>
+          <tr>
+            <td><strong>G · Subprocess</strong></td>
+            <td><span class="badge-ok">中</span></td>
+            <td><span class="badge-good">最徹底</span></td>
+            <td>進程層</td>
+            <td><span class="badge-good">✓</span></td>
+            <td><span class="badge-good">無</span></td>
+            <td><span class="badge-bad">差</span></td>
+            <td><span class="badge-ok">有限</span></td>
+            <td>小型內部</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Decision Guide -->
+  <div style="background: var(--ink); color: var(--paper); border-radius: 12px; padding: 36px; margin-top: 40px;">
+    <h2 style="font-family: 'Noto Serif TC', serif; color: var(--gold); margin-bottom: 20px; font-size: 1.3rem;">選擇指南</h2>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+      <div style="background: rgba(255,255,255,0.06); border-radius: 8px; padding: 18px;">
+        <div style="color: var(--gold); font-size: 0.8rem; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.1em; margin-bottom: 10px;">快速驗證 / PoC</div>
+        <p style="font-size: 0.88rem; color: rgba(248,246,240,0.85); line-height: 1.7;">→ <strong>模式 B</strong>（單 Key 延遲初始化）最省事，10 分鐘可上線</p>
+      </div>
+      <div style="background: rgba(255,255,255,0.06); border-radius: 8px; padding: 18px;">
+        <div style="color: var(--gold); font-size: 0.8rem; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.1em; margin-bottom: 10px;">正式生產 / 中型</div>
+        <p style="font-size: 0.88rem; color: rgba(248,246,240,0.85); line-height: 1.7;">→ <strong>模式 A</strong>（雙 Key）+ 輕量加密儲存，安全與複雜度最佳平衡</p>
+      </div>
+      <div style="background: rgba(255,255,255,0.06); border-radius: 8px; padding: 18px;">
+        <div style="color: var(--gold); font-size: 0.8rem; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.1em; margin-bottom: 10px;">企業 / 合規需求</div>
+        <p style="font-size: 0.88rem; color: rgba(248,246,240,0.85); line-height: 1.7;">→ <strong>模式 D + F</strong>（Token Vault + API Gateway），完整稽核與集中管控</p>
+      </div>
+      <div style="background: rgba(255,255,255,0.06); border-radius: 8px; padding: 18px;">
+        <div style="color: var(--gold); font-size: 0.8rem; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.1em; margin-bottom: 10px;">零信任 / 大型企業</div>
+        <p style="font-size: 0.88rem; color: rgba(248,246,240,0.85); line-height: 1.7;">→ <strong>模式 E</strong>（Token Exchange RFC 8693），需 Redmine OIDC SSO 支援</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  OAuth Provider 整合非 OAuth 服務完整實作指南 · 涵蓋 A/B/C/D/E/F/G 七種模式與兩種反模式 · 2026
+</footer>
+
+</body>
+</html>
