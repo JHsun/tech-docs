@@ -108,11 +108,16 @@ def scan_reports():
     if not REPORTS_DIR.exists():
         return groups
 
+    # 排除 mnt/ 等非報告子目錄
+    EXCLUDE_DIRS = {"mnt"}
     html_files = sorted(REPORTS_DIR.rglob("*.html"), key=lambda f: f.name)
 
     for f in html_files:
         rel = f.relative_to(REPORTS_DIR)
         parts = rel.parts
+        # 跳過排除目錄下的檔案
+        if any(p in EXCLUDE_DIRS for p in parts):
+            continue
         if len(parts) >= 2:
             category = parts[0]
         else:
