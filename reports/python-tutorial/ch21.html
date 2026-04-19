@@ -1,0 +1,1493 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CH 21 · 效能優化與 JIT — Python 3.14 快速學習</title>
+<style>
+/* ============================================
+   Python 3.14 快速學習 — 共用樣式表
+   明亮技術文件風 · 繁體中文優化
+   ============================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,500&family=IBM+Plex+Sans+TC:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+  /* 色彩系統 — 明亮系 */
+  --bg-primary: #fdfcfa;
+  --bg-secondary: #f7f5f0;
+  --bg-tertiary: #eef2f6;
+  --bg-code: #f5f7fa;
+  --bg-card: #ffffff;
+
+  --text-primary: #1a1d24;
+  --text-secondary: #4a5161;
+  --text-muted: #8a92a3;
+
+  --accent-blue: #3b82f6;
+  --accent-blue-soft: #dbeafe;
+  --accent-mint: #10b981;
+  --accent-mint-soft: #d1fae5;
+  --accent-pink: #ec4899;
+  --accent-pink-soft: #fce7f3;
+  --accent-amber: #f59e0b;
+  --accent-amber-soft: #fef3c7;
+  --accent-purple: #8b5cf6;
+  --accent-purple-soft: #ede9fe;
+
+  --border-soft: #e5e7eb;
+  --border-medium: #d1d5db;
+
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.06);
+  --shadow-lg: 0 12px 32px rgba(16, 24, 40, 0.08);
+
+  /* 字型 */
+  --font-display: 'Fraunces', 'Noto Serif TC', Georgia, serif;
+  --font-body: 'IBM Plex Sans TC', -apple-system, BlinkMacSystemFont, 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, Menlo, monospace;
+
+  /* 尺寸 */
+  --sidebar-width: 280px;
+  --content-max: 920px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 24px;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.75;
+  font-size: 16px;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+}
+
+/* 背景裝飾 */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(circle at 10% 0%, var(--accent-blue-soft) 0%, transparent 40%),
+    radial-gradient(circle at 90% 100%, var(--accent-mint-soft) 0%, transparent 40%);
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* ============= 版面佈局 ============= */
+.layout {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  gap: 0;
+  max-width: 1400px;
+  margin: 0 auto;
+  min-height: 100vh;
+}
+
+/* ============= 側邊目錄 ============= */
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  padding: 32px 24px;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  border-right: 1px solid var(--border-soft);
+}
+
+.sidebar-header {
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.sidebar-title {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.sidebar-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.sidebar-nav {
+  list-style: none;
+}
+
+.sidebar-nav li {
+  margin: 2px 0;
+}
+
+.sidebar-nav a {
+  display: block;
+  padding: 8px 12px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  border-left: 2px solid transparent;
+}
+
+.sidebar-nav a:hover {
+  background: var(--accent-blue-soft);
+  color: var(--accent-blue);
+  border-left-color: var(--accent-blue);
+}
+
+.sidebar-nav a.active {
+  background: var(--accent-blue-soft);
+  color: var(--accent-blue);
+  font-weight: 600;
+  border-left-color: var(--accent-blue);
+}
+
+.sidebar-section {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 16px 12px 8px;
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-blue);
+  font-size: 13px;
+  text-decoration: none;
+  margin-bottom: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--accent-blue-soft);
+  transition: all 0.2s ease;
+}
+
+.back-link:hover {
+  background: var(--accent-blue);
+  color: white;
+}
+
+/* ============= 主內容區 ============= */
+.main {
+  padding: 48px 56px;
+  max-width: calc(var(--content-max) + 112px);
+}
+
+/* ============= Hero 區塊 ============= */
+.hero {
+  margin-bottom: 48px;
+  padding-bottom: 32px;
+  border-bottom: 2px solid var(--border-soft);
+}
+
+.hero-label {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent-blue);
+  background: var(--accent-blue-soft);
+  padding: 4px 12px;
+  border-radius: 999px;
+  letter-spacing: 0.05em;
+  margin-bottom: 16px;
+}
+
+.hero-title {
+  font-family: var(--font-display);
+  font-size: clamp(36px, 5vw, 52px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+  margin-bottom: 16px;
+  font-variation-settings: "opsz" 144, "SOFT" 40;
+}
+
+.hero-title em {
+  font-style: italic;
+  color: var(--accent-blue);
+  font-weight: 500;
+}
+
+.hero-description {
+  font-size: 18px;
+  color: var(--text-secondary);
+  max-width: 720px;
+  line-height: 1.7;
+}
+
+.hero-meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 24px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.hero-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hero-meta span::before {
+  content: '';
+  width: 4px;
+  height: 4px;
+  background: var(--accent-mint);
+  border-radius: 50%;
+}
+
+/* ============= 章節結構 ============= */
+section {
+  margin-bottom: 48px;
+  scroll-margin-top: 32px;
+}
+
+h2 {
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 48px 0 20px;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+h2 .section-num {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--accent-blue);
+  background: var(--accent-blue-soft);
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+h3 {
+  font-family: var(--font-body);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 32px 0 12px;
+  letter-spacing: -0.01em;
+}
+
+h4 {
+  font-family: var(--font-body);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 24px 0 8px;
+}
+
+p {
+  margin-bottom: 16px;
+  color: var(--text-secondary);
+}
+
+strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* ============= 行內程式碼 ============= */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-code);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--accent-pink);
+  border: 1px solid var(--border-soft);
+  font-weight: 500;
+}
+
+/* ============= 程式碼區塊 ============= */
+.code-block {
+  position: relative;
+  margin: 20px 0;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  box-shadow: var(--shadow-sm);
+  background: #fbfcfd;
+}
+
+.code-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-soft);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
+.code-header .lang {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.code-header .lang::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-mint);
+}
+
+.copy-btn {
+  background: transparent;
+  border: 1px solid var(--border-medium);
+  color: var(--text-secondary);
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  transition: all 0.2s ease;
+}
+
+.copy-btn:hover {
+  background: var(--accent-blue);
+  color: white;
+  border-color: var(--accent-blue);
+}
+
+.copy-btn.copied {
+  background: var(--accent-mint);
+  color: white;
+  border-color: var(--accent-mint);
+}
+
+.code-block pre {
+  margin: 0;
+  padding: 18px 20px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.65;
+  background: #fbfcfd;
+}
+
+.code-block pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--text-primary);
+  font-size: inherit;
+}
+
+/* 簡易語法高亮 */
+.tok-kw { color: #8b5cf6; font-weight: 600; }
+.tok-str { color: #059669; }
+.tok-num { color: #d97706; }
+.tok-com { color: #94a3b8; font-style: italic; }
+.tok-fn { color: #3b82f6; }
+.tok-cls { color: #db2777; font-weight: 500; }
+.tok-op { color: #64748b; }
+.tok-dec { color: #f59e0b; }
+
+/* ============= 表格 ============= */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 20px 0;
+  font-size: 14px;
+  background: var(--bg-card);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-soft);
+}
+
+thead {
+  background: var(--bg-tertiary);
+}
+
+th {
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid var(--border-medium);
+}
+
+td {
+  padding: 12px 16px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: top;
+}
+
+tbody tr:last-child td { border-bottom: none; }
+
+tbody tr:hover {
+  background: var(--accent-blue-soft);
+}
+
+td code, th code {
+  font-size: 12.5px;
+}
+
+/* ============= 資訊卡片 ============= */
+.info-box {
+  padding: 16px 20px;
+  margin: 20px 0;
+  border-radius: 10px;
+  border-left: 4px solid;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+}
+
+.info-box-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+
+.info-box p:last-child { margin-bottom: 0; }
+
+.info-box.tip {
+  border-color: var(--accent-mint);
+  background: linear-gradient(to right, var(--accent-mint-soft), var(--bg-card) 40%);
+}
+.info-box.tip .info-box-title { color: #047857; }
+
+.info-box.warn {
+  border-color: var(--accent-amber);
+  background: linear-gradient(to right, var(--accent-amber-soft), var(--bg-card) 40%);
+}
+.info-box.warn .info-box-title { color: #b45309; }
+
+.info-box.new {
+  border-color: var(--accent-pink);
+  background: linear-gradient(to right, var(--accent-pink-soft), var(--bg-card) 40%);
+}
+.info-box.new .info-box-title { color: #be185d; }
+
+.info-box.note {
+  border-color: var(--accent-blue);
+  background: linear-gradient(to right, var(--accent-blue-soft), var(--bg-card) 40%);
+}
+.info-box.note .info-box-title { color: #1d4ed8; }
+
+/* ============= 列表 ============= */
+ul, ol { padding-left: 24px; margin-bottom: 16px; }
+li { color: var(--text-secondary); margin-bottom: 6px; }
+li::marker { color: var(--accent-blue); }
+
+/* ============= 速查表樣式 ============= */
+.cheatsheet {
+  margin-top: 64px;
+  padding: 40px;
+  background: linear-gradient(135deg, #fef3c7 0%, #fed7aa 20%, #fecaca 50%, #ddd6fe 80%, #dbeafe 100%);
+  border-radius: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.cheatsheet::before {
+  content: '📋';
+  position: absolute;
+  top: -40px;
+  right: -20px;
+  font-size: 200px;
+  opacity: 0.08;
+  transform: rotate(-15deg);
+}
+
+.cheatsheet-header {
+  margin-bottom: 28px;
+  position: relative;
+}
+
+.cheatsheet-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: #78350f;
+  font-weight: 600;
+}
+
+.cheatsheet-title {
+  font-family: var(--font-display);
+  font-size: 36px;
+  font-weight: 700;
+  color: #1a1d24;
+  letter-spacing: -0.02em;
+  margin-top: 6px;
+}
+
+.cheatsheet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  position: relative;
+}
+
+.cheat-card {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(8px);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.cheat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+.cheat-card-title {
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--accent-blue);
+  display: inline-block;
+}
+
+.cheat-card pre {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cheat-card ul {
+  list-style: none;
+  padding: 0;
+}
+
+.cheat-card li {
+  font-size: 13px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--border-soft);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-secondary);
+}
+
+.cheat-card li:last-child { border-bottom: none; }
+.cheat-card li code {
+  font-size: 11.5px;
+  background: var(--bg-code);
+  color: var(--accent-pink);
+  padding: 1px 5px;
+}
+
+/* ============= 頁尾 ============= */
+.footer {
+  margin-top: 80px;
+  padding: 32px 0 24px;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.nav-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+.nav-btn {
+  padding: 10px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  color: var(--text-primary);
+  text-decoration: none;
+  font-size: 14px;
+  transition: all 0.2s ease;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: var(--shadow-sm);
+}
+
+.nav-btn:hover {
+  background: var(--accent-blue);
+  color: white;
+  border-color: var(--accent-blue);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+/* ============= 首頁特殊樣式 ============= */
+.index-hero {
+  text-align: center;
+  padding: 80px 24px 60px;
+  position: relative;
+}
+
+.index-hero .hero-title {
+  font-size: clamp(48px, 8vw, 88px);
+  line-height: 1;
+  margin-bottom: 24px;
+}
+
+.index-hero .hero-description {
+  margin: 0 auto;
+  font-size: 19px;
+}
+
+.version-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 6px 14px;
+  background: white;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 24px;
+  color: var(--text-secondary);
+}
+
+.version-badge .dot {
+  width: 8px;
+  height: 8px;
+  background: var(--accent-mint);
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.2); }
+}
+
+.parts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+  margin: 48px 0;
+}
+
+.part-card {
+  background: var(--bg-card);
+  border-radius: 16px;
+  padding: 28px;
+  border: 1px solid var(--border-soft);
+  box-shadow: var(--shadow-sm);
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.part-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, var(--bg-color-soft, var(--accent-blue-soft)) 0%, transparent 70%);
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.part-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--bg-color, var(--accent-blue));
+}
+
+.part-card .part-num {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.part-card h3 {
+  font-family: var(--font-display);
+  font-size: 24px;
+  margin: 6px 0 10px;
+  color: var(--text-primary);
+  position: relative;
+}
+
+.part-card p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 14px;
+  position: relative;
+}
+
+.part-card .chapters {
+  list-style: none;
+  padding: 0;
+  position: relative;
+}
+
+.part-card .chapters li {
+  padding: 0;
+  margin: 0;
+}
+
+.part-card .chapters a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 13px;
+  border-bottom: 1px dashed var(--border-soft);
+  transition: all 0.2s ease;
+}
+
+.part-card .chapters a:last-child { border-bottom: none; }
+
+.part-card .chapters a:hover {
+  color: var(--accent-blue);
+  padding-left: 8px;
+}
+
+.part-card .chapters a .ch-num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 30px;
+}
+
+.part-card .chapters a.pending {
+  color: var(--text-muted);
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* Part 配色 */
+.part-1 { --bg-color: #3b82f6; --bg-color-soft: #dbeafe; }
+.part-2 { --bg-color: #10b981; --bg-color-soft: #d1fae5; }
+.part-3 { --bg-color: #8b5cf6; --bg-color-soft: #ede9fe; }
+.part-4 { --bg-color: #f59e0b; --bg-color-soft: #fef3c7; }
+.part-5 { --bg-color: #ec4899; --bg-color-soft: #fce7f3; }
+.part-6 { --bg-color: #06b6d4; --bg-color-soft: #cffafe; }
+.part-7 { --bg-color: #ef4444; --bg-color-soft: #fee2e2; }
+.part-8 { --bg-color: #14b8a6; --bg-color-soft: #ccfbf1; }
+.part-9 { --bg-color: #84cc16; --bg-color-soft: #ecfccb; }
+
+/* ============= 響應式 ============= */
+@media (max-width: 960px) {
+  .layout { grid-template-columns: 1fr; }
+  .sidebar {
+    position: relative;
+    height: auto;
+    max-height: 300px;
+    border-right: none;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .main { padding: 32px 24px; }
+  h2 { font-size: 26px; }
+  .cheatsheet { padding: 24px; }
+}
+
+/* ============= 淡入動畫 ============= */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.hero, section { animation: fadeInUp 0.5s ease backwards; }
+section:nth-of-type(1) { animation-delay: 0.1s; }
+section:nth-of-type(2) { animation-delay: 0.15s; }
+section:nth-of-type(3) { animation-delay: 0.2s; }
+section:nth-of-type(4) { animation-delay: 0.25s; }
+section:nth-of-type(5) { animation-delay: 0.3s; }
+
+/* 列印優化 */
+@media print {
+  .sidebar, .nav-buttons, .copy-btn { display: none; }
+  .layout { grid-template-columns: 1fr; }
+  body::before { display: none; }
+}
+
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <aside class="sidebar">
+    <a href="ch00-index.html" class="back-link">← 回到首頁</a>
+    <div class="sidebar-header">
+      <div class="sidebar-title">效能優化與 JIT</div>
+      <div class="sidebar-subtitle">Chapter 21 · Part 6</div>
+    </div>
+    <div class="sidebar-section">本章導覽</div>
+    <ul class="sidebar-nav">
+      <li><a href="#intro">章節導論</a></li>
+      <li><a href="#measure">21.1 測量先於優化</a></li>
+      <li><a href="#profile">21.2 Profiling 工具</a></li>
+      <li><a href="#py-tips">21.3 Python 層級優化</a></li>
+      <li><a href="#datastruct">21.4 選對資料結構</a></li>
+      <li><a href="#memory">21.5 記憶體優化</a></li>
+      <li><a href="#jit">21.6 3.14 Tail-call Interpreter 🆕</a></li>
+      <li><a href="#experimental-jit">21.7 實驗 JIT 編譯器 🆕</a></li>
+      <li><a href="#alternatives">21.8 外部工具</a></li>
+      <li><a href="#cheatsheet">📋 速查表</a></li>
+    </ul>
+  </aside>
+
+  <main class="main">
+
+    <div class="hero">
+      <div class="hero-label">CHAPTER 21 · PART 6</div>
+      <h1 class="hero-title">效能優化與<em>JIT</em></h1>
+      <p class="hero-description">
+        Python 一向被嘲笑「慢」—— 但 Faster CPython 專案從 3.11 起連續為 CPython 注入活力，3.14 更帶來 <strong>Tail-call Interpreter</strong>（尾呼叫直譯器）。本章講優化心法、測量工具、Python 技巧，以及 3.14 與 3.15 的效能新引擎。
+      </p>
+      <div class="hero-meta">
+        <span>Python 3.14</span>
+        <span>Profiling · JIT · 優化</span>
+        <span>預估閱讀 22 分鐘</span>
+      </div>
+    </div>
+
+    <section id="intro">
+      <h2><span class="section-num">§0</span>章節導論</h2>
+      <p>本章的核心信念：</p>
+
+      <div class="info-box tip">
+        <div class="info-box-title">💡 Donald Knuth 的名言</div>
+        <p><em>「過早優化是萬惡之源」—— 先寫清楚、正確的程式；測量熱點後才優化；改完再測量是否真的變快。</em></p>
+      </div>
+
+      <ul>
+        <li>95% 的程式碼不需要「優化」，只需要「選對工具、選對資料結構」</li>
+        <li>剩下 5% 的熱點，才值得花時間調校</li>
+        <li>最大的效能倍率通常來自：<strong>演算法選擇 &gt; 資料結構 &gt; Python 技巧 &gt; 編譯優化</strong></li>
+      </ul>
+    </section>
+
+    <section id="measure">
+      <h2><span class="section-num">§21.1</span>測量先於優化</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">python</span>
+          <button class="copy-btn">複製</button>
+        </div>
+<pre><code><span class="tok-com"># 1. timeit — 簡易計時（小段程式碼）</span>
+<span class="tok-kw">import</span> timeit
+
+<span class="tok-com"># 比較兩種寫法</span>
+timeit.<span class="tok-fn">timeit</span>(<span class="tok-str">"'-'.join([str(i) for i in range(100)])"</span>, number<span class="tok-op">=</span><span class="tok-num">10000</span>)
+timeit.<span class="tok-fn">timeit</span>(<span class="tok-str">"'-'.join(str(i) for i in range(100))"</span>, number<span class="tok-op">=</span><span class="tok-num">10000</span>)
+timeit.<span class="tok-fn">timeit</span>(<span class="tok-str">"'-'.join(map(str, range(100)))"</span>, number<span class="tok-op">=</span><span class="tok-num">10000</span>)
+
+<span class="tok-com"># 命令列快速比較</span>
+<span class="tok-com"># python -m timeit "'-'.join(str(i) for i in range(100))"
+
+# 2. time.perf_counter — 精確計時（一般測量）</span>
+<span class="tok-kw">import</span> time
+
+t0 <span class="tok-op">=</span> time.<span class="tok-fn">perf_counter</span>()
+<span class="tok-fn">do_work</span>()
+elapsed <span class="tok-op">=</span> time.<span class="tok-fn">perf_counter</span>() <span class="tok-op">-</span> t0
+<span class="tok-fn">print</span>(<span class="tok-str">f"耗時 {elapsed:.3f}s"</span>)
+
+<span class="tok-com"># 3. context manager 封裝</span>
+<span class="tok-kw">from</span> contextlib <span class="tok-kw">import</span> contextmanager
+
+<span class="tok-dec">@contextmanager</span>
+<span class="tok-kw">def</span> <span class="tok-fn">timer</span>(label<span class="tok-op">=</span><span class="tok-str">""</span>):
+    t0 <span class="tok-op">=</span> time.<span class="tok-fn">perf_counter</span>()
+    <span class="tok-kw">try</span>:
+        <span class="tok-kw">yield</span>
+    <span class="tok-kw">finally</span>:
+        <span class="tok-fn">print</span>(<span class="tok-str">f"{label}: {time.perf_counter()-t0:.3f}s"</span>)
+
+<span class="tok-kw">with</span> <span class="tok-fn">timer</span>(<span class="tok-str">"讀檔"</span>):
+    <span class="tok-fn">load_data</span>()
+<span class="tok-kw">with</span> <span class="tok-fn">timer</span>(<span class="tok-str">"處理"</span>):
+    <span class="tok-fn">process</span>()</code></pre>
+      </div>
+    </section>
+
+    <section id="profile">
+      <h2><span class="section-num">§21.2</span>Profiling —— 找熱點</h2>
+
+      <h3>cProfile（標準庫）</h3>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">bash</span>
+          <button class="copy-btn">複製</button>
+        </div>
+<pre><code><span class="tok-com"># 命令列用法</span>
+python <span class="tok-op">-</span>m cProfile <span class="tok-op">-</span>s cumulative myscript.py
+
+<span class="tok-com"># 輸出到檔案後用 snakeviz 視覺化</span>
+python <span class="tok-op">-</span>m cProfile <span class="tok-op">-</span>o profile.dat myscript.py
+uvx snakeviz profile.dat</code></pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">python</span>
+          <button class="copy-btn">複製</button>
+        </div>
+<pre><code><span class="tok-kw">import</span> cProfile, pstats
+
+<span class="tok-com"># 程式內 profiling</span>
+profiler <span class="tok-op">=</span> cProfile.<span class="tok-fn">Profile</span>()
+profiler.<span class="tok-fn">enable</span>()
+<span class="tok-fn">run_my_code</span>()
+profiler.<span class="tok-fn">disable</span>()
+
+stats <span class="tok-op">=</span> pstats.<span class="tok-fn">Stats</span>(profiler).<span class="tok-fn">sort_stats</span>(<span class="tok-str">"cumulative"</span>)
+stats.<span class="tok-fn">print_stats</span>(<span class="tok-num">20</span>)    <span class="tok-com"># 前 20 個熱點</span></code></pre>
+      </div>
+
+      <h3>第三方工具</h3>
+      <table>
+        <thead><tr><th>工具</th><th>特色</th></tr></thead>
+        <tbody>
+          <tr><td><strong>snakeviz</strong></td><td>cProfile 結果的互動式視覺化（瀏覽器）</td></tr>
+          <tr><td><strong>py-spy</strong></td><td>取樣式 profiler，可 attach 到執行中進程（生產環境友善）</td></tr>
+          <tr><td><strong>scalene</strong></td><td>CPU + GPU + 記憶體 + 指出哪些行可用 C 取代</td></tr>
+          <tr><td><strong>line_profiler</strong></td><td>逐行計時（適合精準分析某函式）</td></tr>
+          <tr><td><strong>memray</strong></td><td>Meta 出品的記憶體 profiler</td></tr>
+        </tbody>
+      </table>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">bash</span>
+          <button class="copy-btn">複製</button>
+        </div>
+<pre><code><span class="tok-com"># py-spy — 對執行中進程取樣（生產環境好用）</span>
+uv tool install py<span class="tok-op">-</span>spy
+py<span class="tok-op">-</span>spy top <span class="tok-op">--</span>pid <span class="tok-num">12345</span>        <span class="tok-com"># 即時 top-like 介面</span>
+py<span class="tok-op">-</span>spy record <span class="tok-op">-</span>o flame.svg <span class="tok-op">--</span>pid <span class="tok-num">12345</span>   <span class="tok-com"># 火焰圖
+
+# scalene — 智能多面向分析</span>
+uvx scalene myscript.py
+
+<span class="tok-com"># memray — 記憶體 profiler</span>
+uvx memray run myscript.py
+uvx memray flamegraph output.bin</code></pre>
+      </div>
+    </section>
+
+    <section id="py-tips">
+      <h2><span class="section-num">§21.3</span>Python 層級優化技巧</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">python</span>
+          <button class="copy-btn">複製</button>
+        </div>
+<pre><code><span class="tok-com"># 1. 內建函式 / 內建型別快於手刻</span>
+<span class="tok-com"># ❌</span>
+total <span class="tok-op">=</span> <span class="tok-num">0</span>
+<span class="tok-kw">for</span> x <span class="tok-kw">in</span> nums: total <span class="tok-op">+=</span> x
+<span class="tok-com"># ✅</span>
+total <span class="tok-op">=</span> <span class="tok-fn">sum</span>(nums)          <span class="tok-com"># 快很多
+
+# 2. 推導式 / 生成器運算式 快於 map + lambda</span>
+[x<span class="tok-op">*</span><span class="tok-num">2</span> <span class="tok-kw">for</span> x <span class="tok-kw">in</span> nums <span class="tok-kw">if</span> x<span class="tok-op">&gt;</span><span class="tok-num">0</span>]    <span class="tok-com"># ✅ 最快</span>
+<span class="tok-fn">list</span>(<span class="tok-fn">map</span>(<span class="tok-kw">lambda</span> x: x<span class="tok-op">*</span><span class="tok-num">2</span>, <span class="tok-fn">filter</span>(<span class="tok-kw">lambda</span> x: x<span class="tok-op">&gt;</span><span class="tok-num">0</span>, nums)))
+
+<span class="tok-com"># 3. 字串連接用 join，不是 += </span>
+<span class="tok-com"># ❌</span>
+s <span class="tok-op">=</span> <span class="tok-str">""</span>
+<span class="tok-kw">for</span> word <span class="tok-kw">in</span> words: s <span class="tok-op">+=</span> word    <span class="tok-com"># O(n²)！字串不可變，每次都複製</span>
+<span class="tok-com"># ✅</span>
+s <span class="tok-op">=</span> <span class="tok-str">""</span>.<span class="tok-fn">join</span>(words)             <span class="tok-com"># O(n)
+
+# 4. 避免重複屬性查找（放區域變數）</span>
+<span class="tok-com"># ❌</span>
+<span class="tok-kw">for</span> i <span class="tok-kw">in</span> <span class="tok-fn">range</span>(<span class="tok-num">10000</span>):
+    result.<span class="tok-fn">append</span>(obj.method(i))
+<span class="tok-com"># ✅（提升 ~10-20%）</span>
+append <span class="tok-op">=</span> result.append
+method <span class="tok-op">=</span> obj.method
+<span class="tok-kw">for</span> i <span class="tok-kw">in</span> <span class="tok-fn">range</span>(<span class="tok-num">10000</span>):
+    <span class="tok-fn">append</span>(<span class="tok-fn">method</span>(i))
+
+<span class="tok-com"># 5. 用 set / dict 做成員檢查（O(1) vs list 的 O(n)）</span>
+valid_ids <span class="tok-op">=</span> {<span class="tok-num">1</span>, <span class="tok-num">2</span>, <span class="tok-num">3</span>, <span class="tok-num">4</span>, <span class="tok-num">5</span>}      <span class="tok-com"># set</span>
+<span class="tok-kw">if</span> user_id <span class="tok-kw">in</span> valid_ids: ...      <span class="tok-com"># O(1)
+
+# 6. 盡早退出（short-circuit）</span>
+<span class="tok-kw">if</span> cheap_check() <span class="tok-kw">and</span> <span class="tok-fn">expensive_check</span>():
+    ...                             <span class="tok-com"># expensive 只在 cheap 通過後執行
+
+# 7. 使用內建快取</span>
+<span class="tok-kw">from</span> functools <span class="tok-kw">import</span> cache, lru_cache
+
+<span class="tok-dec">@cache</span>
+<span class="tok-kw">def</span> <span class="tok-fn">fib</span>(n):
+    <span class="tok-kw">return</span> n <span class="tok-kw">if</span> n <span class="tok-op">&lt;</span> <span class="tok-num">2</span> <span class="tok-kw">else</span> <span class="tok-fn">fib</span>(n<span class="tok-op">-</span><span class="tok-num">1</span>) <span class="tok-op">+</span> <span class="tok-fn">fib</span>(n<span class="tok-op">-</span><span class="tok-num">2</span>)
+
+<span class="tok-fn">fib</span>(<span class="tok-num">100</span>)                           <span class="tok-com"># 瞬間，沒快取會當機</span></code></pre>
+      </div>
+    </section>
+
+    <section id="datastruct">
+      <h2><span class="section-num">§21.4</span>選對資料結構</h2>
+
+      <table>
+        <thead><tr><th>操作</th><th>list</th><th>tuple</th><th>set</th><th>dict</th><th>deque</th></tr></thead>
+        <tbody>
+          <tr><td>末端新增</td><td>O(1)</td><td>—</td><td>O(1)</td><td>O(1)</td><td>O(1)</td></tr>
+          <tr><td>頭部新增</td><td>O(n)</td><td>—</td><td>—</td><td>—</td><td>O(1)</td></tr>
+          <tr><td>隨機存取</td><td>O(1)</td><td>O(1)</td><td>—</td><td>—</td><td>O(n)</td></tr>
+          <tr><td>搜尋（in）</td><td>O(n)</td><td>O(n)</td><td><strong>O(1)</strong></td><td><strong>O(1)</strong></td><td>O(n)</td></tr>
+          <tr><td>記憶體</td><td>中</td><td>小</td><td>大</td><td>大</td><td>中</td></tr>
+        </tbody>
+      </table>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">python</span>
+          <button class="copy-btn">複製</button>
+        </div>
+<pre><code><span class="tok-com"># 常見「選錯結構」陷阱</span>
+
+<span class="tok-com"># ❌ 在大 list 裡檢查成員</span>
+<span class="tok-kw">if</span> item <span class="tok-kw">in</span> big_list:     <span class="tok-com"># O(n)，1 萬筆資料超慢</span>
+    ...
+
+<span class="tok-com"># ✅ 轉成 set 一次</span>
+big_set <span class="tok-op">=</span> <span class="tok-fn">set</span>(big_list)
+<span class="tok-kw">if</span> item <span class="tok-kw">in</span> big_set:      <span class="tok-com"># O(1)
+
+# ❌ list 頭部插入</span>
+lst.<span class="tok-fn">insert</span>(<span class="tok-num">0</span>, x)          <span class="tok-com"># O(n)</span>
+
+<span class="tok-com"># ✅ 雙端佇列</span>
+<span class="tok-kw">from</span> collections <span class="tok-kw">import</span> deque
+dq.<span class="tok-fn">appendleft</span>(x)          <span class="tok-com"># O(1)
+
+# ❌ 用 list 當 queue</span>
+q <span class="tok-op">=</span> []
+q.<span class="tok-fn">append</span>(x); q.<span class="tok-fn">pop</span>(<span class="tok-num">0</span>)      <span class="tok-com"># pop(0) O(n)
+
+# ✅ deque</span>
+q <span class="tok-op">=</span> <span class="tok-fn">deque</span>()
+q.<span class="tok-fn">append</span>(x); q.<span class="tok-fn">popleft</span>()    <span class="tok-com"># O(1)
+
+# ❌ 手動維護排序 list</span>
+<span class="tok-kw">for</span> x <span class="tok-kw">in</span> stream:
+    sorted_list.<span class="tok-fn">append</span>(x)
+    sorted_list.<span class="tok-fn">sort</span>()        <span class="tok-com"># O(n log n) 每次！
+
+# ✅ heapq（優先佇列）</span>
+<span class="tok-kw">import</span> heapq
+heapq.<span class="tok-fn">heappush</span>(heap, x)    <span class="tok-com"># O(log n)</span>
+heapq.<span class="tok-fn">heappop</span>(heap)        <span class="tok-com"># 取最小 O(log n)
+
+# ❌ 用 dict 找「最近 N 筆」</span>
+<span class="tok-com"># ✅ 用 deque(maxlen=N)</span>
+recent <span class="tok-op">=</span> <span class="tok-fn">deque</span>(maxlen<span class="tok-op">=</span><span class="tok-num">100</span>)
+recent.<span class="tok-fn">append</span>(event)        <span class="tok-com"># 超過 100 自動丟棄最舊的</span></code></pre>
+      </div>
+    </section>
+
+    <section id="memory">
+      <h2><span class="section-num">§21.5</span>記憶體優化</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">python</span>
+          <button class="copy-btn">複製</button>
+        </div>
+<pre><code><span class="tok-com"># 1. 生成器代替 list（處理大資料）</span>
+<span class="tok-fn">sum</span>([x<span class="tok-op">**</span><span class="tok-num">2</span> <span class="tok-kw">for</span> x <span class="tok-kw">in</span> <span class="tok-fn">range</span>(<span class="tok-num">10</span><span class="tok-op">**</span><span class="tok-num">8</span>)])    <span class="tok-com"># ❌ 建一大 list 才 sum</span>
+<span class="tok-fn">sum</span>(x<span class="tok-op">**</span><span class="tok-num">2</span> <span class="tok-kw">for</span> x <span class="tok-kw">in</span> <span class="tok-fn">range</span>(<span class="tok-num">10</span><span class="tok-op">**</span><span class="tok-num">8</span>))      <span class="tok-com"># ✅ 生成器，省記憶體
+
+# 2. __slots__ 大量實例時省 40-50%</span>
+<span class="tok-kw">class</span> <span class="tok-cls">Point</span>:
+    __slots__ <span class="tok-op">=</span> (<span class="tok-str">"x"</span>, <span class="tok-str">"y"</span>)
+    <span class="tok-kw">def</span> <span class="tok-fn">__init__</span>(self, x, y):
+        self.x, self.y <span class="tok-op">=</span> x, y
+
+<span class="tok-com"># 3. array 代替 list（純數字資料）</span>
+<span class="tok-kw">from</span> array <span class="tok-kw">import</span> array
+a <span class="tok-op">=</span> <span class="tok-fn">array</span>(<span class="tok-str">"i"</span>, <span class="tok-fn">range</span>(<span class="tok-num">1_000_000</span>))   <span class="tok-com"># 比 list 省 4-8 倍記憶體
+
+# 4. numpy 對數值運算是殺手級</span>
+<span class="tok-kw">import</span> numpy <span class="tok-kw">as</span> np
+arr <span class="tok-op">=</span> np.<span class="tok-fn">arange</span>(<span class="tok-num">1_000_000</span>)
+arr <span class="tok-op">**</span> <span class="tok-num">2</span>                   <span class="tok-com"># 比 Python list 快 50-100 倍
+
+# 5. 檢查物件大小</span>
+<span class="tok-kw">import</span> sys
+sys.<span class="tok-fn">getsizeof</span>(obj)
+
+<span class="tok-com"># 6. 大物件用完後主動釋放</span>
+<span class="tok-kw">del</span> large_dict
+<span class="tok-kw">import</span> gc
+gc.<span class="tok-fn">collect</span>()                <span class="tok-com"># 手動觸發垃圾回收</span></code></pre>
+      </div>
+    </section>
+
+    <!-- ============ 3.14 JIT 重點 ============ -->
+    <section id="jit">
+      <h2><span class="section-num">§21.6</span>🆕 Python 3.14 Tail-call Interpreter</h2>
+
+      <div class="info-box new">
+        <div class="info-box-title">🆕 Faster CPython 專案的最新成果</div>
+        <p>Python 3.14 導入了新的<strong>尾呼叫直譯器</strong>（Tail-call Interpreter），利用 Clang 19+ 的 <code>__attribute__((musttail))</code> 特性改寫 CPython 的 bytecode 分派機制。整體 <strong>pyperformance 提升約 3-5%</strong>，某些工作負載可達 30%。</p>
+      </div>
+
+      <h3>技術原理（簡化版）</h3>
+      <p>過去 CPython 的直譯器迴圈是個巨大的 switch-case / computed goto 函式。新版把每個 bytecode 指令變成獨立的小函式，透過<strong>尾呼叫</strong>（tail call）跳到下一個指令的處理函式。這讓現代編譯器能：</p>
+      <ul>
+        <li>更好地使用暫存器、避免 stack frame 開銷</li>
+        <li>分別優化每個指令（過去 12k 行單一函式難以優化）</li>
+        <li>配合 Linux <code>perf</code> 工具分別 profile 每個指令</li>
+      </ul>
+
+      <h3>如何啟用</h3>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">bash</span>
+          <button class="copy-btn">複製</button>
+        </div>
+<pre><code><span class="tok-com"># 目前仍需要從原始碼建置時明確開啟</span>
+./configure <span class="tok-op">--</span>enable<span class="tok-op">-</span>optimizations <span class="tok-op">--</span>with<span class="tok-op">-</span>tail<span class="tok-op">-</span>call<span class="tok-op">-</span>interp
+make
+
+<span class="tok-com"># 好消息：uv 在 macOS 上預設就使用啟用 tail-call 的 3.14 建置</span>
+uv python install <span class="tok-num">3.14</span>
+
+<span class="tok-com"># 需求：
+# - Clang 19+ 或 MSVC 18+（Windows 3.15 起）
+# - x86-64 或 AArch64
+# - 建議搭配 PGO（profile-guided optimization）</span></code></pre>
+      </div>
+
+      <div class="info-box note">
+        <div class="info-box-title">📘 效能現實</div>
+        <p>Tail-call interpreter 在 3.14 剛推出時曾宣稱 10-15% 加速，後來 Ken Jin 澄清部分速度差是因為舊版 computed goto 被編譯器 bug 拖累。真正純粹的改善是 <strong>~2-5% 幾何平均</strong>。但這仍是重要基礎 —— 因為它為 JIT 鋪路，且 Python 3.15 的 Windows 版預計藉此帶來 15-20% 加速。</p>
+      </div>
+    </section>
+
+    <section id="experimental-jit">
+      <h2><span class="section-num">§21.7</span>🆕 實驗性 JIT 編譯器</h2>
+
+      <p>除了 tail-call interpreter，CPython 也在推進一個<strong>真正的 JIT 編譯器</strong>。3.13/3.14 的早期 JIT 幾乎沒有加速，但 3.15 alpha 開始有實質改善：</p>
+
+      <table>
+        <thead><tr><th>平台</th><th>vs tail-call / 一般直譯器</th></tr></thead>
+        <tbody>
+          <tr><td>macOS AArch64（M 系列晶片）</td><td>+11-12% 幾何平均</td></tr>
+          <tr><td>Linux x86-64</td><td>+5-6% 幾何平均</td></tr>
+          <tr><td>個別微基準</td><td>-20% 到 +100% 不等</td></tr>
+        </tbody>
+      </table>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">bash</span>
+          <button class="copy-btn">複製</button>
+        </div>
+<pre><code><span class="tok-com"># 啟用實驗 JIT（目前需重新編譯 Python）</span>
+./configure <span class="tok-op">--</span>enable<span class="tok-op">-</span>experimental<span class="tok-op">-</span>jit
+make
+
+<span class="tok-com"># 環境變數控制</span>
+<span class="tok-cls">PYTHON_JIT</span><span class="tok-op">=</span><span class="tok-num">1</span> python myscript.py    <span class="tok-com"># 啟用</span>
+<span class="tok-cls">PYTHON_JIT</span><span class="tok-op">=</span><span class="tok-num">0</span> python myscript.py    <span class="tok-com"># 停用</span></code></pre>
+      </div>
+
+      <div class="info-box warn">
+        <div class="info-box-title">⚠️ 目前狀態</div>
+        <ul>
+          <li>3.14 的 JIT 仍屬<strong>實驗性</strong>，生產環境勿用</li>
+          <li>不支援 Free-threaded build（3.15/3.16 規劃中）</li>
+          <li>單一基準可能出現 slowdown</li>
+          <li>3.16+ 有望達到成熟階段</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="alternatives">
+      <h2><span class="section-num">§21.8</span>當 CPython 還不夠快 —— 外部工具</h2>
+
+      <h3>替代實作</h3>
+      <table>
+        <thead><tr><th>工具</th><th>用途</th><th>典型加速</th></tr></thead>
+        <tbody>
+          <tr><td><strong>PyPy</strong></td><td>完整的 JIT Python 實作</td><td>CPU bound 5-10x</td></tr>
+          <tr><td><strong>Cython</strong></td><td>把 Python 加型別後編譯成 C</td><td>10-100x</td></tr>
+          <tr><td><strong>mypyc</strong></td><td>型別註解 → C 擴充（mypy 自己用）</td><td>1.5-4x</td></tr>
+          <tr><td><strong>numba</strong></td><td>@jit 裝飾器，適合數值運算</td><td>10-100x</td></tr>
+          <tr><td><strong>Codon</strong></td><td>Python 語法 → LLVM</td><td>10-100x</td></tr>
+        </tbody>
+      </table>
+
+      <h3>用 Rust / C 寫熱點</h3>
+      <ul>
+        <li><strong>PyO3</strong>：從 Rust 呼叫 Python / 讓 Python 用 Rust —— 目前最火的 Python 擴充技術（uv、ruff、polars 都是）</li>
+        <li><strong>pybind11</strong>：C++ 對應</li>
+        <li><strong>cffi</strong> / <strong>ctypes</strong>：呼叫 C 函式庫</li>
+      </ul>
+
+      <div class="info-box tip">
+        <div class="info-box-title">💡 優化的優先順序</div>
+        <ol>
+          <li>換演算法（O(n²) → O(n log n)）</li>
+          <li>換資料結構（list → set/dict）</li>
+          <li>用內建/標準庫函式（sum、map、itertools）</li>
+          <li>向量化（numpy、pandas、polars）</li>
+          <li>快取（<code>@cache</code>）</li>
+          <li>並行（threading / asyncio / multiprocessing）</li>
+          <li>升級 Python（3.14 幾乎無痛加速）</li>
+          <li>編譯熱點（Cython、numba、Rust extension）</li>
+          <li>換 PyPy</li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ============= CHEATSHEET ============= -->
+    <section id="cheatsheet" class="cheatsheet">
+      <div class="cheatsheet-header">
+        <div class="cheatsheet-label">CHAPTER 21 CHEAT SHEET</div>
+        <div class="cheatsheet-title">效能優化速查表</div>
+      </div>
+      <div class="cheatsheet-grid">
+
+        <div class="cheat-card">
+          <div class="cheat-card-title">⏱️ 測量工具</div>
+<pre>import timeit
+timeit.timeit(code, number=10000)
+
+import time
+t0 = time.perf_counter()
+work()
+print(time.perf_counter()-t0)
+
+# 命令列
+python -m timeit "code"
+python -m cProfile script.py</pre>
+        </div>
+
+        <div class="cheat-card">
+          <div class="cheat-card-title">📊 Profiler</div>
+          <ul>
+            <li><b>cProfile</b> 標準庫</li>
+            <li><b>snakeviz</b> 視覺化</li>
+            <li><b>py-spy</b> 取樣 + 可 attach</li>
+            <li><b>scalene</b> CPU+記憶體+GPU</li>
+            <li><b>line_profiler</b> 逐行</li>
+            <li><b>memray</b> 記憶體</li>
+          </ul>
+        </div>
+
+        <div class="cheat-card">
+          <div class="cheat-card-title">💡 Python 技巧</div>
+<pre># 字串連接
+"".join(words)   # 不要 +=
+
+# 成員檢查
+if x in set_or_dict  # O(1)
+
+# 快取
+@cache / @lru_cache
+
+# 區域變數
+append = lst.append
+
+# 推導式 > map+lambda
+[x*2 for x in xs]</pre>
+        </div>
+
+        <div class="cheat-card">
+          <div class="cheat-card-title">📦 選資料結構</div>
+          <ul>
+            <li>搜尋/去重 → <code>set</code> / <code>dict</code></li>
+            <li>FIFO / 雙端 → <code>deque</code></li>
+            <li>優先佇列 → <code>heapq</code></li>
+            <li>純數字 → <code>array</code> / <code>numpy</code></li>
+            <li>不變小記錄 → <code>tuple</code> / <code>NamedTuple</code></li>
+            <li>大量實例 → <code>__slots__</code></li>
+          </ul>
+        </div>
+
+        <div class="cheat-card">
+          <div class="cheat-card-title">💾 記憶體</div>
+<pre># 大資料用生成器
+sum(x for x in iter)
+
+# 大量物件用 slots
+class P:
+    __slots__ = ("x","y")
+
+# 數值用 array / numpy
+
+sys.getsizeof(obj)
+gc.collect()</pre>
+        </div>
+
+        <div class="cheat-card">
+          <div class="cheat-card-title">🆕 3.14 Tail-call</div>
+<pre># pyperformance +2-5%
+# 某些 +30%
+# 為 JIT 鋪路
+
+# 啟用
+./configure --with-tail-call-interp
+
+# uv 在 macOS 預設啟用
+uv python install 3.14
+
+# 需 Clang 19+ / PGO</pre>
+        </div>
+
+        <div class="cheat-card">
+          <div class="cheat-card-title">🆕 3.14+ JIT</div>
+<pre># 實驗性
+./configure --enable-experimental-jit
+
+PYTHON_JIT=1 python ...
+
+# 3.14 ~小幅加速
+# 3.15 macOS +11-12%
+# 3.15 Linux +5-6%
+# 仍不支援 free-threaded</pre>
+        </div>
+
+        <div class="cheat-card">
+          <div class="cheat-card-title">🚀 外部工具</div>
+          <ul>
+            <li><b>PyPy</b> JIT 實作 5-10x</li>
+            <li><b>Cython</b> 加型別 → C</li>
+            <li><b>numba</b> 數值 @jit</li>
+            <li><b>mypyc</b> 用 mypy 註解</li>
+            <li><b>PyO3</b> Rust 擴充（最熱）</li>
+          </ul>
+        </div>
+
+        <div class="cheat-card">
+          <div class="cheat-card-title">📋 優化順序</div>
+          <ol>
+            <li>換演算法</li>
+            <li>換資料結構</li>
+            <li>用內建 / 標準庫</li>
+            <li>向量化（numpy）</li>
+            <li>快取</li>
+            <li>並行</li>
+            <li>升級 Python</li>
+            <li>編譯熱點</li>
+            <li>換實作（PyPy）</li>
+          </ol>
+        </div>
+
+      </div>
+    </section>
+
+    <div class="footer">
+      <div>Chapter 21 · 效能優化與 JIT</div>
+      <div class="nav-buttons">
+        <a href="ch20.html" class="nav-btn">← 上一章</a>
+        <a href="ch00-index.html" class="nav-btn">🏠 首頁</a>
+        <a href="ch22.html" class="nav-btn">下一章:現代打包工具 →</a>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// Python 3.14 快速學習 — 共用腳本
+
+// 複製按鈕功能
+document.querySelectorAll('.copy-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const codeBlock = btn.closest('.code-block').querySelector('pre code');
+    const text = codeBlock.innerText;
+    navigator.clipboard.writeText(text).then(() => {
+      const original = btn.innerText;
+      btn.innerText = '已複製 ✓';
+      btn.classList.add('copied');
+      setTimeout(() => {
+        btn.innerText = original;
+        btn.classList.remove('copied');
+      }, 1500);
+    });
+  });
+});
+
+// 側邊欄依捲動高亮
+const sections = document.querySelectorAll('section[id]');
+const navLinks = document.querySelectorAll('.sidebar-nav a');
+
+if (sections.length > 0 && navLinks.length > 0) {
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const id = entry.target.id;
+        navLinks.forEach(link => {
+          link.classList.toggle('active', link.getAttribute('href') === `#${id}`);
+        });
+      }
+    });
+  }, { rootMargin: '-30% 0px -60% 0px' });
+
+  sections.forEach(s => observer.observe(s));
+}
+
+</script>
+</body>
+</html>
