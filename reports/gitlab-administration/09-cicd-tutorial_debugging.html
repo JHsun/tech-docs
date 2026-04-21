@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GitLab CI/CD Cheat Sheet - 09. Debugging</title>
+<style>
+  :root {
+    --primary: #FC6D26;
+    --primary-dark: #E24329;
+    --bg: #FAFAFA;
+    --card: #FFFFFF;
+    --text: #2E2E2E;
+    --muted: #6C6C6C;
+    --border: #E5E5E5;
+    --code-bg: #F4F4F4;
+    --beginner: #2E7D32;
+    --intermediate: #1565C0;
+    --advanced: #6A1B9A;
+    --warning: #B71C1C;
+    --hint-bg: #FFF8E1;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+  header { background: linear-gradient(135deg, var(--primary-dark), var(--primary)); color: white; padding: 2rem 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+  header h1 { margin: 0 0 .5rem; font-size: 1.8rem; }
+  header .subtitle { opacity: 0.95; font-size: 1rem; }
+  header .meta { font-size: .85rem; opacity: 0.85; margin-top: .75rem; }
+  main { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
+  nav.toc { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+  nav.toc h3 { margin: 0 0 .5rem; font-size: 1rem; color: var(--primary-dark); }
+  nav.toc ul { margin: 0; padding-left: 1.25rem; }
+  nav.toc li { margin: .25rem 0; }
+  nav.toc a { color: var(--text); text-decoration: none; }
+  nav.toc a:hover { color: var(--primary-dark); text-decoration: underline; }
+  section { background: var(--card); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 1.5rem; overflow: hidden; }
+  section > h2 { margin: 0; padding: .9rem 1.25rem; background: #F7F7F7; border-bottom: 1px solid var(--border); font-size: 1.2rem; color: var(--primary-dark); }
+  .content { padding: 1.25rem; }
+  .level { display: inline-block; padding: .15rem .55rem; border-radius: 999px; font-size: .75rem; font-weight: 600; color: white; margin-right: .5rem; vertical-align: middle; }
+  .level.b { background: var(--beginner); }
+  .level.i { background: var(--intermediate); }
+  .level.a { background: var(--advanced); }
+  h3.depth { font-size: 1.05rem; margin: 1.5rem 0 .6rem; padding-bottom: .3rem; border-bottom: 2px dashed var(--border); }
+  h3.depth:first-child { margin-top: 0; }
+  code { background: var(--code-bg); padding: .1rem .35rem; border-radius: 4px; font-size: .9em; font-family: "SF Mono", Consolas, Monaco, monospace; }
+  pre { background: #2B2B2B; color: #F8F8F2; padding: .9rem 1rem; border-radius: 6px; overflow-x: auto; font-size: .85rem; line-height: 1.5; }
+  pre code { background: transparent; color: inherit; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: .75rem 0; font-size: .92rem; }
+  th, td { border: 1px solid var(--border); padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: #F7F7F7; font-weight: 600; }
+  .tip, .warn, .note { padding: .75rem 1rem; border-radius: 6px; margin: .75rem 0; font-size: .92rem; }
+  .tip { background: #E8F5E9; border-left: 4px solid var(--beginner); }
+  .warn { background: #FFEBEE; border-left: 4px solid var(--warning); }
+  .note { background: var(--hint-bg); border-left: 4px solid var(--primary); }
+  ul.checklist { list-style: none; padding-left: 0; }
+  ul.checklist li { padding: .3rem 0 .3rem 1.7rem; position: relative; }
+  ul.checklist li::before { content: "☐"; position: absolute; left: 0; color: var(--primary); font-weight: bold; }
+  .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+  .card-mini { background: #FAFAFA; border: 1px solid var(--border); border-radius: 6px; padding: .8rem 1rem; }
+  .card-mini h4 { margin: 0 0 .4rem; color: var(--primary-dark); font-size: .95rem; }
+  footer { text-align: center; padding: 2rem 1rem; color: var(--muted); font-size: .85rem; }
+  footer a { color: var(--primary-dark); }
+  @media (max-width: 600px) {
+    header h1 { font-size: 1.4rem; }
+    main { padding: 1rem; }
+    .content { padding: 1rem; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>09. Debugging — Pipeline 除錯</h1>
+  <div class="subtitle">CI Lint、Pipeline Editor、CI_DEBUG_TRACE、常見錯誤排查、本地模擬</div>
+  <div class="meta">來源:docs.gitlab.com/ci/debugging/ | 系列 9/14</div>
+</header>
+
+<main>
+
+<nav class="toc">
+  <h3>📑 本篇目錄</h3>
+  <ul>
+    <li><a href="#workflow">除錯流程</a></li>
+    <li><a href="#syntax">1. YAML 語法錯誤</a></li>
+    <li><a href="#rules-debug">2. Rules / 觸發問題</a></li>
+    <li><a href="#runtime">3. Runtime 失敗</a></li>
+    <li><a href="#variables-debug">4. 變數除錯</a></li>
+    <li><a href="#local">5. 本地重現</a></li>
+    <li><a href="#common">6. 常見錯誤一覽</a></li>
+    <li><a href="#cheatsheet">⚡ 速查表</a></li>
+  </ul>
+</nav>
+
+<section id="workflow">
+  <h2>🗺️ 除錯流程</h2>
+  <div class="content">
+    <p>CI 問題的診斷依層級展開:</p>
+    <pre><code>┌────────────────────────────────────────┐
+│ 1. 沒跑 pipeline?                       │
+│    → YAML 語法錯 / workflow 排除        │
+├────────────────────────────────────────┤
+│ 2. 有 pipeline 但少 job?                │
+│    → rules / only / except 問題         │
+├────────────────────────────────────────┤
+│ 3. Job pending 很久?                    │
+│    → runner tag、protected、忙碌        │
+├────────────────────────────────────────┤
+│ 4. Job 執行失敗?                        │
+│    → script 錯、變數空、依賴失敗        │
+├────────────────────────────────────────┤
+│ 5. 結果不如預期?                        │
+│    → artifact、cache、變數優先順序      │
+└────────────────────────────────────────┘</code></pre>
+  </div>
+</section>
+
+<section id="syntax">
+  <h2>📝 1. YAML 語法錯誤</h2>
+  <div class="content">
+    <h3 class="depth"><span class="level b">Quick Start</span>三個工具</h3>
+    <table>
+      <tr><th>工具</th><th>路徑 / 用途</th></tr>
+      <tr><td><strong>Pipeline Editor</strong></td><td><code>Build → Pipeline editor</code>,即時語法檢查 + 視覺化</td></tr>
+      <tr><td><strong>CI Lint</strong></td><td><code>Build → Pipeline editor → Lint</code> tab</td></tr>
+      <tr><td><strong>IDE schema</strong></td><td>VS Code 等 IDE 載入 GitLab CI schema,寫 YAML 時即時提示</td></tr>
+    </table>
+
+    <h3 class="depth"><span class="level b">Quick Start</span>Pipeline Editor 功能</h3>
+    <ul>
+      <li><strong>Edit</strong>:編輯 <code>.gitlab-ci.yml</code></li>
+      <li><strong>Visualize</strong>:graph 看 stage / job 依賴</li>
+      <li><strong>Full configuration</strong>:展開 <code>include</code>、<code>extends</code> 後的完整 YAML</li>
+      <li><strong>Lint</strong>:語法檢查 + 警告</li>
+    </ul>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>用 API 做 lint(CI of CI)</h3>
+    <pre><code># 可以在 pre-commit hook 或 meta-pipeline 跑
+curl --header "Content-Type: application/json" \
+     --header "PRIVATE-TOKEN: $TOKEN" \
+     "https://gitlab.example.com/api/v4/projects/42/ci/lint" \
+     --data @- &lt;&lt;EOF
+{
+  "content": "$(cat .gitlab-ci.yml | jq -Rsa .)"
+}
+EOF</code></pre>
+
+    <h3 class="depth"><span class="level a">架構視角</span>把 .gitlab-ci.yml 當 code 治理</h3>
+    <ul>
+      <li>PR review <code>.gitlab-ci.yml</code> 變更</li>
+      <li>用 meta-pipeline 測試自己(先 lint,再跑 dry run)</li>
+      <li>把 <code>include</code> 檔案釘 commit SHA</li>
+      <li>保留 CHANGELOG 記錄大改動</li>
+    </ul>
+  </div>
+</section>
+
+<section id="rules-debug">
+  <h2>🎯 2. Rules / 觸發問題</h2>
+  <div class="content">
+    <h3 class="depth"><span class="level b">Quick Start</span>Job 沒加入 pipeline?</h3>
+    <p>第一步檢查 <code>rules</code> / <code>only</code> / <code>except</code>,九成問題是規則寫錯。</p>
+    <pre><code># 典型錯誤:用 $CI_PIPELINE_SOURCE 但值不對
+job:
+  script: echo test
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+# MR pipeline 下,$CI_PIPELINE_SOURCE == "merge_request_event"
+# 所以這個 job 不會加入 MR pipeline</code></pre>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>用 Pipeline Editor Visualize</h3>
+    <p>Visualize tab 顯示哪些 job <strong>會被加進來</strong>。若某 job 沒出現,規則不符。</p>
+    <p>也可以手動觸發 pipeline 時試不同變數組合,看哪些 job 出現。</p>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>重複 pipeline</h3>
+    <p>最常見:push + MR 同時產生兩條 pipeline。解法:設 <code>workflow:rules</code>(見第 2 章)。</p>
+
+    <h3 class="depth"><span class="level a">架構視角</span>從 only/except 遷移到 rules</h3>
+    <div class="warn">⚠️ <code>only/except</code> 與 <code>rules</code> 預設行為不同。同一 pipeline 混用會很混亂。</div>
+    <table>
+      <tr><th>關鍵字</th><th>預設 when</th></tr>
+      <tr><td><code>only/except</code>(舊)</td><td>on_success</td></tr>
+      <tr><td><code>rules</code>(新)</td><td>依第一個 match 的 rule 決定</td></tr>
+    </table>
+    <p>建議一口氣改全部 job 到 <code>rules</code>,不混用。</p>
+  </div>
+</section>
+
+<section id="runtime">
+  <h2>🔧 3. Runtime 失敗</h2>
+  <div class="content">
+    <h3 class="depth"><span class="level b">Quick Start</span>看 Job Log</h3>
+    <p>點 failed job → 看完整 log。重點看:</p>
+    <ul>
+      <li><strong>最後 20 行</strong>:通常錯誤在這裡</li>
+      <li><strong>section_start / section_end</strong>:log 的折疊段,展開看細節</li>
+      <li><strong>Exit code</strong>:通常是 1(一般錯誤)、137(OOM)、143(SIGTERM)</li>
+      <li><strong>Runner version</strong>:log 最上面</li>
+    </ul>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>常見 exit code</h3>
+    <table>
+      <tr><th>Code</th><th>意義</th></tr>
+      <tr><td>0</td><td>成功</td></tr>
+      <tr><td>1</td><td>一般錯誤(script 失敗)</td></tr>
+      <tr><td>2</td><td>Misuse of shell builtins</td></tr>
+      <tr><td>126</td><td>指令不可執行(權限)</td></tr>
+      <tr><td>127</td><td>找不到指令</td></tr>
+      <tr><td>128+N</td><td>被 signal N 終止(如 130 = Ctrl+C、137 = kill -9)</td></tr>
+      <tr><td>137</td><td>Out of memory 或 kill -9</td></tr>
+      <tr><td>143</td><td>SIGTERM(timeout / cancel)</td></tr>
+    </table>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>shell trace debug</h3>
+    <pre><code>job:
+  script:
+    # 方式 1:整個 script 都開 trace
+    - set -x
+    - echo "A"
+    - echo "B"
+    - set +x    # 關掉
+
+    # 方式 2:單行 trace
+    - bash -x ./my-script.sh
+
+    # 方式 3:全開(整個 runner job)
+  variables:
+    CI_DEBUG_TRACE: "true"    # 會曝露所有變數!</code></pre>
+
+    <div class="warn">⚠️ <strong><code>CI_DEBUG_TRACE=true</code> 是安全風險:</strong>
+    <ul>
+      <li>會把<strong>所有 CI 變數</strong>(包含 masked)印到 log</li>
+      <li>log 可能被專案任何有權限的人看到</li>
+      <li>用完一定要刪除 log 或轉為私有</li>
+      <li><strong>不要</strong>設為 pipeline 層級變數,只用於單 job 臨時除錯</li>
+    </ul>
+    </div>
+
+    <h3 class="depth"><span class="level a">架構視角</span>Retry failed job</h3>
+    <p>Job 頁面右上「Retry」可以重跑失敗 job。</p>
+    <p><strong>Run job again</strong> 會重新套用當前的 <code>.gitlab-ci.yml</code>(不是當時的快照)。所以若你已修好 YAML,retry 會用新設定跑。</p>
+  </div>
+</section>
+
+<section id="variables-debug">
+  <h2>🔍 4. 變數除錯</h2>
+  <div class="content">
+    <h3 class="depth"><span class="level b">Quick Start</span>印出所有變數(安全版)</h3>
+    <pre><code>check-vars:
+  stage: .pre
+  script:
+    # 只印 CI_* 系列(通常不含 secret)
+    - env | grep ^CI_ | sort
+
+    # 列特定變數(確認值)
+    - echo "BRANCH=$CI_COMMIT_BRANCH"
+    - echo "SOURCE=$CI_PIPELINE_SOURCE"
+    - echo "DEFAULT_BRANCH=$CI_DEFAULT_BRANCH"
+
+  # 避免 env | sort 印 secret
+  # 避免用 CI_DEBUG_TRACE</code></pre>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>rules 評估時的變數</h3>
+    <div class="warn">⚠️ <code>rules:if</code> 在 <strong>pipeline 建立時</strong>評估,此時只能用:
+    <ul>
+      <li>Predefined 變數</li>
+      <li>UI 設定的變數</li>
+      <li>YAML 定義的變數</li>
+    </ul>
+    <strong>不能用:</strong>dotenv(還沒跑)、script 內 export 的(還沒跑)、部分跨 pipeline 的變數。
+    </div>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>設計可插入 debug 的 job</h3>
+    <pre><code>flaky-test:
+  variables:
+    DEBUG_FLAGS: ""          # 預設空
+  script:
+    - pytest $DEBUG_FLAGS tests/
+
+# 手動跑 pipeline 時,在表單設 DEBUG_FLAGS="-vv --pdb"
+# 就能開 debug 模式,不改 YAML</code></pre>
+
+    <h3 class="depth"><span class="level a">架構視角</span>變數除錯流程</h3>
+    <ol>
+      <li>先檢查<strong>優先順序</strong>:UI &gt; YAML &gt; Predefined</li>
+      <li>檢查<strong>是否 Protected</strong>:feature branch 拿不到 protected 變數</li>
+      <li>檢查 <strong>Environment scope</strong>:job 沒 environment 拿不到 scoped 變數</li>
+      <li>檢查 <strong>mask 規則</strong>:值被當空可能是 mask 失敗</li>
+      <li>用 <code>echo ${VAR:-UNSET}</code> 區分「空值」vs「未設定」</li>
+    </ol>
+  </div>
+</section>
+
+<section id="local">
+  <h2>💻 5. 本地重現</h2>
+  <div class="content">
+    <h3 class="depth"><span class="level b">Quick Start</span>Docker 本地重現</h3>
+    <pre><code># 1. 用相同 image 起容器
+docker run -it --rm \
+  -v "$PWD:/workspace" \
+  -w /workspace \
+  node:20-alpine sh
+
+# 2. 進容器後跑 job 的 script 指令
+npm ci
+npm test</code></pre>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>gitlab-runner exec(已 deprecate)</h3>
+    <p>舊版 runner 支援 <code>gitlab-runner exec docker job_name</code> 本地跑 job,但已在新版 deprecated。現在推薦用上面的 Docker 做法。</p>
+
+    <h3 class="depth"><span class="level i">SRE 實務</span>Interactive web terminal</h3>
+    <p>若管理員啟用,可以在 job 執行期<strong>直接 SSH 進 runner</strong>除錯:</p>
+    <ul>
+      <li>Runner 需啟用 <code>[session_server]</code></li>
+      <li>Job 頁面會出現 "Debug" 按鈕</li>
+      <li>開啟瀏覽器終端,看即時環境</li>
+    </ul>
+
+    <h3 class="depth"><span class="level a">架構視角</span>把「卡住」的 job 留下來調查</h3>
+    <pre><code>debug-on-failure:
+  script:
+    - ./my-command || true
+  # 失敗後 keep 5 分鐘不清掉,管理員可 ssh 到 runner 看
+  after_script:
+    - |
+      if [ "$CI_JOB_STATUS" != "success" ]; then
+        echo "Job failed, sleeping 300s for investigation"
+        sleep 300
+      fi</code></pre>
+  </div>
+</section>
+
+<section id="common">
+  <h2>🆘 6. 常見錯誤一覽</h2>
+  <div class="content">
+
+    <h3 class="depth">🔴 Pipeline 相關</h3>
+    <table>
+      <tr><th>症狀</th><th>可能原因 / 解法</th></tr>
+      <tr><td>Pipeline 根本沒建立</td><td>YAML invalid;workflow:rules 全 false;push 被 hook 擋</td></tr>
+      <tr><td>重複 pipeline(branch + MR)</td><td>設定 <code>workflow:rules</code></td></tr>
+      <tr><td>"YAML invalid" badge</td><td>Pipeline Editor 看錯誤;縮排、必填欄位缺失</td></tr>
+      <tr><td>"too many jobs"</td><td>Pipeline 超過 instance 限制,拆 parent-child</td></tr>
+      <tr><td>"Pipelines must succeed" 卡住</td><td>workflow 排除了這個 pipeline,改設定或關掉此功能</td></tr>
+    </table>
+
+    <h3 class="depth">🟡 Job pending / 不執行</h3>
+    <table>
+      <tr><th>症狀</th><th>可能原因 / 解法</th></tr>
+      <tr><td>永遠 pending</td><td>沒 runner 匹配 tag</td></tr>
+      <tr><td>Pending 後 "stuck"</td><td>runner offline、tag 不對、protected 問題</td></tr>
+      <tr><td>"This job is stuck because..."</td><td>訊息已告訴你問題</td></tr>
+      <tr><td>Job 該跑卻不在 pipeline</td><td>rules 沒 match;needs 指向不存在的 job</td></tr>
+      <tr><td>Fork MR 沒 pipeline</td><td>需要在 parent project 啟用 fork MR pipeline</td></tr>
+    </table>
+
+    <h3 class="depth">🔴 Job 執行失敗</h3>
+    <table>
+      <tr><th>症狀</th><th>可能原因 / 解法</th></tr>
+      <tr><td>Exit 137 (OOM)</td><td>記憶體不夠,加大 runner 或減少並發</td></tr>
+      <tr><td>Exit 143 (timeout)</td><td>job timeout,看 Project / Runner / Job 三層設定</td></tr>
+      <tr><td>"command not found"</td><td>image 沒裝;PATH 沒設</td></tr>
+      <tr><td>"permission denied"</td><td>chmod +x;runner user 權限</td></tr>
+      <tr><td>"no space left"</td><td>runner 磁碟滿;清 /builds、/cache</td></tr>
+      <tr><td>Docker-in-Docker 失敗</td><td>需 privileged + services:docker:dind</td></tr>
+      <tr><td>Flaky test</td><td>不要用 retry 掩蓋,修 test</td></tr>
+    </table>
+
+    <h3 class="depth">🟠 資料相關</h3>
+    <table>
+      <tr><th>症狀</th><th>可能原因 / 解法</th></tr>
+      <tr><td>Artifact 找不到</td><td>上游 job 失敗;dependencies 設錯;檔名拼錯</td></tr>
+      <tr><td>Cache 沒命中</td><td>key 不同;不同 runner 各有 cache;沒啟用分散式 cache</td></tr>
+      <tr><td>變數空</td><td>優先順序、protected、scope(見上節)</td></tr>
+      <tr><td>Dotenv 沒傳過來</td><td>format 錯、需要 <code>needs: [build]</code>、不是 key=val</td></tr>
+      <tr><td>Masked 沒作用</td><td>值不符 mask 規則(&lt; 8 字元、有空格)</td></tr>
+    </table>
+
+    <h3 class="depth">🔵 其他</h3>
+    <table>
+      <tr><th>症狀</th><th>可能原因 / 解法</th></tr>
+      <tr><td>"Argument list too long"</td><td>變數總長度超 ARG_MAX,用 File type 或 Secure Files</td></tr>
+      <tr><td>Downstream pipeline 失敗</td><td>trigger project 權限;下游 ref 不存在</td></tr>
+      <tr><td>Schedule 沒跑</td><td>owner 權限;cron 時區;active toggle</td></tr>
+      <tr><td>MR "Checking pipeline status" 一直轉</td><td>workflow 排除了 MR pipeline,卻要求必須成功</td></tr>
+    </table>
+  </div>
+</section>
+
+<section id="cheatsheet">
+  <h2>⚡ 速查表</h2>
+  <div class="content">
+
+    <h3 class="depth">🧭 Debug 5 分鐘流程</h3>
+    <ol>
+      <li>看 Pipeline 頁面 — YAML valid?Job 數量對?</li>
+      <li>點 failed job — 看 log 最後 20 行</li>
+      <li>看 exit code — 知道是 script / infra / timeout</li>
+      <li>看 job variables section — 確認變數值</li>
+      <li>本地 Docker 起同一個 image 重現</li>
+    </ol>
+
+    <h3 class="depth">🔧 實用指令</h3>
+    <pre><code># 在 job 最開始印關鍵資訊
+before_script:
+  - echo "Ref: $CI_COMMIT_REF_NAME"
+  - echo "Source: $CI_PIPELINE_SOURCE"
+  - echo "Runner: $CI_RUNNER_DESCRIPTION ($CI_RUNNER_TAGS)"
+  - echo "Job: $CI_JOB_NAME stage=$CI_JOB_STAGE"
+  - echo "Build dir: $PWD"
+  - ls -la
+
+# 安全印環境(只 CI_*)
+script:
+  - env | grep -E "^(CI_|GITLAB_)" | sort | grep -v TOKEN
+
+# Shell trace(單段)
+script:
+  - set -x
+  - ./something
+  - set +x
+
+# Early fail
+script:
+  - set -euo pipefail      # 未定義變數 / pipe 失敗都停</code></pre>
+
+    <h3 class="depth">🔬 診斷變數的指令</h3>
+    <pre><code># 檢查變數是否存在(未設定 vs 空)
+echo "VAR=${VAR:-(UNSET)}"
+echo "VAR=${VAR:+(HAS VALUE)}"
+
+# 檢查變數長度(不洩漏值)
+echo "VAR length: ${#VAR}"
+
+# 檢查變數開頭 / 結尾字元(確認沒多空白)
+echo "First chars: ${VAR:0:4}..."
+echo "Last chars: ...${VAR: -4}"</code></pre>
+
+    <h3 class="depth">🧪 可插入 debug 的設計</h3>
+    <pre><code>variables:
+  DEBUG_MODE: "false"
+  EXTRA_FLAGS: ""
+
+job:
+  script:
+    - |
+      if [ "$DEBUG_MODE" = "true" ]; then
+        set -x
+        echo "Debug mode ON"
+      fi
+    - pytest $EXTRA_FLAGS tests/
+
+# 手動觸發時輸入 DEBUG_MODE=true、EXTRA_FLAGS=-vv</code></pre>
+
+    <h3 class="depth">✅ Debug Checklist</h3>
+    <ul class="checklist">
+      <li>Pipeline Editor 顯示 YAML valid</li>
+      <li>Visualize 顯示預期的 job</li>
+      <li>手動觸發時能指定變數</li>
+      <li>Runner online 且 tag 匹配</li>
+      <li>變數值符合預期</li>
+      <li>artifact / cache 保留正確</li>
+      <li>本地能重現</li>
+      <li>失敗的 log 已妥善保存</li>
+    </ul>
+
+    <h3 class="depth">🆘 最後手段</h3>
+    <ol>
+      <li><strong>Clear runner caches</strong>:Project → CI/CD → General pipelines → Clear runner caches</li>
+      <li><strong>Retry job</strong>:會用當前 YAML 重跑</li>
+      <li><strong>手動新起 pipeline</strong>:Build → Pipelines → Run pipeline(測試變數)</li>
+      <li><strong>新 runner</strong>:若問題只在特定 runner 發生,停用該 runner</li>
+      <li><strong>GitLab Support</strong>(Premium+):附 log + YAML 開 ticket</li>
+      <li><strong>Community Forum</strong>:<a href="https://forum.gitlab.com" target="_blank">forum.gitlab.com</a></li>
+    </ol>
+
+    <h3 class="depth">📚 延伸閱讀</h3>
+    <ul>
+      <li>Debugging:<code>docs.gitlab.com/ci/debugging/</code></li>
+      <li>Variables troubleshooting:<code>docs.gitlab.com/ci/variables/variables_troubleshooting/</code></li>
+      <li>CI_DEBUG_TRACE 範例:<a href="https://gitlab.com/gitlab-examples/ci-debug-trace" target="_blank">gitlab.com/gitlab-examples/ci-debug-trace</a></li>
+      <li>GitLab Duo Root Cause Analysis(AI 除錯):Ultimate + Duo</li>
+    </ul>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <p>GitLab CI/CD Cheat Sheet 系列 9/14 · 來源:<a href="https://docs.gitlab.com/ci/debugging/" target="_blank">docs.gitlab.com/ci/debugging/</a></p>
+  <p>本文件為中文摘要與實務補充,非 GitLab 官方翻譯。請以官網最新版本為準。</p>
+</footer>
+
+</body>
+</html>
