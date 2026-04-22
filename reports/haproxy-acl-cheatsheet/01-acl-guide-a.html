@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HAProxy 3.2 ACL 完全指南 Part A — 語法、Fetch、Converter</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600&family=Playfair+Display:wght@700;900&display=swap');
+  :root {
+    --bg: #faf9f6;
+    --surface: #ffffff;
+    --surface2: #f0eeeb;
+    --border: #e0ddd8;
+    --accent: #1a6b4e;
+    --accent2: #2563eb;
+    --accent3: #9333ea;
+    --accent4: #dc2626;
+    --accent5: #ca8a04;
+    --text: #1e1e1e;
+    --text2: #4a4a4a;
+    --text3: #7a7a7a;
+    --code-bg: #f5f3ef;
+    --code-fg: #1a6b4e;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Noto Sans TC',sans-serif; background:var(--bg); color:var(--text); line-height:1.75; font-size:15px; }
+
+  .hero {
+    background: linear-gradient(135deg, #e8f5e9 0%, #faf9f6 40%, #e3f2fd 100%);
+    border-bottom: 2px solid var(--border);
+    padding: 3.5rem 2rem 2.5rem;
+    text-align: center;
+  }
+  .hero-badge {
+    display:inline-block; background:var(--accent); color:#fff;
+    font-size:.72rem; font-weight:700; padding:.3rem 1.2rem;
+    border-radius:100px; letter-spacing:.1em; text-transform:uppercase; margin-bottom:1rem;
+  }
+  .hero h1 {
+    font-family:'Playfair Display',serif; font-size:2.6rem; font-weight:900;
+    color:var(--accent); margin-bottom:.4rem; letter-spacing:-.02em;
+  }
+  .hero p { color:var(--text2); font-size:1rem; }
+
+  .container { max-width:1140px; margin:0 auto; padding:2rem 1.5rem; }
+
+  .toc {
+    background:var(--surface); border:1px solid var(--border); border-radius:14px;
+    padding:1.5rem 2rem; margin-bottom:2.5rem; box-shadow:0 2px 8px rgba(0,0,0,.04);
+  }
+  .toc h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:.12em; color:var(--accent); margin-bottom:1rem; font-weight:700; }
+  .toc-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:.4rem; }
+  .toc a { color:var(--text2); text-decoration:none; font-size:.88rem; padding:.35rem .7rem; border-radius:8px; transition:all .2s; display:block; }
+  .toc a:hover { background:var(--surface2); color:var(--accent); }
+  .toc a .n { color:var(--accent2); font-family:'JetBrains Mono',monospace; font-size:.76rem; margin-right:.5rem; font-weight:600; }
+
+  section { margin-bottom:2.5rem; }
+  .sh { display:flex; align-items:center; gap:.8rem; margin-bottom:1.2rem; padding-bottom:.8rem; border-bottom:2px solid var(--border); }
+  .sn { font-family:'JetBrains Mono',monospace; font-size:.72rem; font-weight:700; color:#fff; padding:.25rem .7rem; border-radius:8px; white-space:nowrap; }
+  .sg { background:var(--accent); } .sb { background:var(--accent2); } .sp { background:var(--accent3); } .sr { background:var(--accent4); } .sy { background:var(--accent5); }
+  .sh h2 { font-size:1.3rem; font-weight:700; color:var(--text); }
+
+  .card {
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:1.4rem 1.6rem; margin-bottom:1.1rem; box-shadow:0 1px 4px rgba(0,0,0,.03);
+  }
+  .card h3 { font-size:.95rem; font-weight:700; color:var(--accent2); margin-bottom:.7rem; }
+  .card p { color:var(--text2); margin-bottom:.5rem; font-size:.9rem; }
+
+  .tw { overflow-x:auto; margin:.8rem 0; }
+  table { width:100%; border-collapse:collapse; font-size:.82rem; }
+  thead th { background:var(--surface2); color:var(--accent); font-weight:700; text-align:left; padding:.6rem .8rem; border-bottom:2px solid var(--border); white-space:nowrap; }
+  tbody td { padding:.5rem .8rem; border-bottom:1px solid var(--border); color:var(--text2); vertical-align:top; }
+  tbody tr:hover { background:#f5f9f7; }
+  td code, p code, li code {
+    font-family:'JetBrains Mono',monospace; font-size:.78em;
+    background:var(--code-bg); color:var(--code-fg); padding:.12rem .4rem; border-radius:4px;
+    border:1px solid #e8e5e0;
+  }
+  .cb {
+    background:#1e293b; border:1px solid #334155; border-radius:10px;
+    padding:1rem 1.2rem; margin:.7rem 0;
+    font-family:'JetBrains Mono',monospace; font-size:.73rem; line-height:1.85;
+    color:#e2e8f0; overflow-x:auto; white-space:pre;
+  }
+  .hc{color:#67e8f9;font-weight:600} .hp{color:#c4b5fd;font-weight:600} .hg{color:#6ee7b7;font-weight:600}
+  .hy{color:#fde68a;font-weight:600} .hr{color:#fca5a5;font-weight:600} .ho{color:#fdba74;font-weight:600} .dm{color:#64748b}
+
+  .al { border-left:4px solid; border-radius:0 10px 10px 0; padding:.9rem 1.1rem; margin:.9rem 0; font-size:.88rem; }
+  .al-w { border-color:var(--accent5); background:#fefce8; } .al-w .at { color:var(--accent5); }
+  .al-d { border-color:var(--accent4); background:#fef2f2; } .al-d .at { color:var(--accent4); }
+  .al-i { border-color:var(--accent); background:#ecfdf5; } .al-i .at { color:var(--accent); }
+  .al-b { border-color:var(--accent2); background:#eff6ff; } .al-b .at { color:var(--accent2); }
+  .at { font-weight:700; margin-bottom:.3rem; font-size:.82rem; }
+
+  .g2 { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+  @media(max-width:768px) { .g2{grid-template-columns:1fr} }
+
+  .tag { display:inline-block; font-size:.72rem; padding:.2rem .6rem; border-radius:6px; font-weight:600; margin:.15rem .15rem; }
+  .tg-g { background:#d1fae5; color:#065f46; } .tg-b { background:#dbeafe; color:#1e40af; }
+  .tg-p { background:#ede9fe; color:#5b21b6; } .tg-r { background:#fee2e2; color:#991b1b; }
+  .tg-y { background:#fef3c7; color:#92400e; } .tg-o { background:#ffedd5; color:#9a3412; }
+
+  .footer { text-align:center; padding:2rem; color:var(--text3); font-size:.78rem; border-top:2px solid var(--border); margin-top:2rem; }
+  .footer a { color:var(--accent); text-decoration:none; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-badge">HAProxy 3.2 Complete Guide</div>
+  <h1>ACL 完全指南 — Part A</h1>
+  <p>語法基礎 ｜ 六種比對類型 ｜ 條件組合 ｜ Fetch 按場景分類 ｜ Converter 鏈式組合 ｜ Pre-defined ACLs</p>
+</div>
+
+<div class="container">
+
+<nav class="toc">
+  <h2>📑 目錄</h2>
+  <div class="toc-grid">
+    <a href="#syntax"><span class="n">01</span>ACL 完整語法</a>
+    <a href="#match"><span class="n">02</span>六種比對類型詳解</a>
+    <a href="#cond"><span class="n">03</span>條件組合 &amp; 優先順序</a>
+    <a href="#fetch-scenario"><span class="n">04</span>Fetch 按場景分類速查</a>
+    <a href="#fetch-l4"><span class="n">05</span>L4 連線層 Fetch</a>
+    <a href="#fetch-ssl"><span class="n">06</span>L5 SSL/TLS Fetch</a>
+    <a href="#fetch-buf"><span class="n">07</span>L6 Buffer Fetch</a>
+    <a href="#fetch-http"><span class="n">08</span>L7 HTTP Fetch</a>
+    <a href="#fetch-internal"><span class="n">09</span>Internal &amp; Stick-table Fetch</a>
+    <a href="#conv"><span class="n">10</span>Converter 完整速查</a>
+    <a href="#chain"><span class="n">11</span>Converter 鏈式組合食譜</a>
+    <a href="#predef"><span class="n">12</span>Pre-defined ACLs 完整表</a>
+  </div>
+</nav>
+
+<!-- ===== 01 語法 ===== -->
+<section id="syntax">
+  <div class="sh"><span class="sn sg">01</span><h2>ACL 完整語法</h2></div>
+  <div class="card">
+    <h3>📐 宣告語法</h3>
+    <div class="cb">acl &lt;name&gt; &lt;fetch&gt;[,&lt;converter&gt;...] [<span class="hy">flags</span>] [<span class="ho">operator</span>] &lt;<span class="hc">value</span>&gt; ...
+
+<span class="dm"># 範例</span>
+acl is_api      <span class="hc">path_beg</span>         <span class="hy">-i</span>       <span class="hg">/api /graphql</span>
+acl is_local    <span class="hc">src</span>                         <span class="hg">10.0.0.0/8 172.16.0.0/12</span>
+acl too_fast    <span class="hc">sc_http_req_rate(0)</span> <span class="ho">gt</span>  <span class="hg">100</span>
+acl has_token   <span class="hc">req.hdr(Authorization)</span> <span class="hy">-m found</span>
+acl is_bot      <span class="hc">req.hdr(User-Agent)</span> <span class="hy">-m sub -i</span> <span class="hg">bot crawler spider</span></div>
+  </div>
+  <div class="card">
+    <h3>🏷️ Flags 速查</h3>
+    <div class="tw"><table>
+      <thead><tr><th>Flag</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>-i</code></td><td>不分大小寫比對</td></tr>
+        <tr><td><code>-f &lt;file&gt;</code></td><td>從檔案載入 pattern 清單（每行一個）</td></tr>
+        <tr><td><code>-m &lt;method&gt;</code></td><td>指定比對方法（見下方六種比對類型）</td></tr>
+        <tr><td><code>-n</code></td><td>禁止 DNS 解析（純 IP 比對）</td></tr>
+        <tr><td><code>-M</code></td><td>載入 map 檔案（兩欄格式）</td></tr>
+        <tr><td><code>-u</code></td><td>強制 ACL 為唯一 ID（內部使用）</td></tr>
+        <tr><td><code>--</code></td><td>結束 flags，後續字串不被解析為 flag（pattern 以 <code>-</code> 開頭時必用）</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>📝 命名 ACL vs 匿名 ACL</h3>
+    <div class="cb"><span class="dm"># 命名 ACL：可讀性好，適合複雜規則</span>
+acl is_api path_beg /api
+acl is_post method POST
+http-request deny if is_api !is_post
+
+<span class="dm"># 匿名 ACL：用 { } 內聯，簡潔</span>
+http-request deny if { path_beg /api } !{ method POST }
+
+<span class="dm"># 多值同名 ACL = OR（任一匹配即為真）</span>
+acl blocked_ua req.hdr(User-Agent) -m sub -i bot
+acl blocked_ua req.hdr(User-Agent) -m sub -i crawler
+<span class="dm"># ↑ 等同於 bot OR crawler</span></div>
+  </div>
+</section>
+
+<!-- ===== 02 比對類型 ===== -->
+<section id="match">
+  <div class="sh"><span class="sn sb">02</span><h2>六種比對類型詳解</h2></div>
+  <div class="card">
+    <div class="tw"><table>
+      <thead><tr><th>類型</th><th>-m flag</th><th>語法</th><th>完整範例</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Boolean</strong></td><td><code>found</code></td><td>值存在/不存在</td><td><code>acl has_auth req.hdr(Authorization) -m found</code></td></tr>
+        <tr><td rowspan="2"><strong>Integer</strong></td><td>（預設）</td><td><code>eq ne lt le gt ge</code></td><td><code>acl too_many src_conn_cur gt 100</code></td></tr>
+        <tr><td></td><td>範圍 <code>min:max</code></td><td><code>acl is_error status 400:599</code></td></tr>
+        <tr><td rowspan="6"><strong>String</strong></td><td><code>str</code></td><td>精確匹配</td><td><code>acl is_get method -m str GET</code></td></tr>
+        <tr><td><code>beg</code></td><td>前綴</td><td><code>acl is_api path -m beg /api/</code></td></tr>
+        <tr><td><code>end</code></td><td>後綴</td><td><code>acl is_css path -m end .css</code></td></tr>
+        <tr><td><code>sub</code></td><td>包含子字串</td><td><code>acl has_json hdr(Content-Type) -m sub json</code></td></tr>
+        <tr><td><code>dir</code></td><td>目錄匹配（/ 分隔）</td><td><code>acl in_admin path -m dir admin</code></td></tr>
+        <tr><td><code>dom</code></td><td>網域匹配（. 分隔）</td><td><code>acl is_sub hdr(Host) -m dom example.com</code></td></tr>
+        <tr><td><strong>Regex</strong></td><td><code>reg</code></td><td>正規表達式</td><td><code>acl is_uuid path -m reg '^/[0-9a-f-]{36}$'</code></td></tr>
+        <tr><td><strong>IP</strong></td><td><code>ip</code></td><td>CIDR / 精確 IP</td><td><code>acl is_rfc1918 src -m ip 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16</code></td></tr>
+        <tr><td><strong>Binary</strong></td><td><code>bin</code></td><td>十六進位比對</td><td><code>acl is_ssh req.payload(0,3) -m bin 535348</code>（"SSH"）</td></tr>
+      </tbody>
+    </table></div>
+    <div class="al al-i">
+      <div class="at">💡 快捷寫法</div>
+      <code>path_beg</code> 等同 <code>path -m beg</code>，<code>hdr_sub(Host)</code> 等同 <code>hdr(Host) -m sub</code>。快捷寫法更簡潔但靈活度略低。
+    </div>
+    <div class="al al-w">
+      <div class="at">⚠️ <code>-m dir</code> vs <code>-m beg</code></div>
+      <code>path -m beg /admin</code> 會匹配 <code>/administrator</code>（前綴相同）。<code>path -m dir admin</code> 只匹配 <code>/admin</code> 或 <code>/admin/...</code>（以 <code>/</code> 為邊界）。目錄匹配更安全。
+    </div>
+  </div>
+</section>
+
+<!-- ===== 03 條件 ===== -->
+<section id="cond">
+  <div class="sh"><span class="sn sp">03</span><h2>條件組合 &amp; 優先順序</h2></div>
+  <div class="card">
+    <h3>🔗 邏輯運算子</h3>
+    <div class="tw"><table>
+      <thead><tr><th>運算</th><th>語法</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><strong>AND</strong></td><td>空格分隔</td><td><code>if is_api is_post</code> → 兩者皆真</td></tr>
+        <tr><td><strong>OR</strong></td><td><code>||</code></td><td><code>if is_blocked_ip || is_blocked_ua</code> → 任一為真</td></tr>
+        <tr><td><strong>NOT</strong></td><td><code>!</code> 前綴</td><td><code>if !is_whitelisted</code> → 取反</td></tr>
+        <tr><td><strong>嵌套</strong></td><td><code>{ }</code> 匿名 ACL</td><td><code>if { path /admin } !{ src 10.0.0.0/8 }</code></td></tr>
+      </tbody>
+    </table></div>
+    <div class="cb"><span class="dm"># 優先順序：NOT > AND > OR</span>
+<span class="dm"># 以下兩種寫法等價：</span>
+if A B || C D       <span class="dm"># = (A AND B) OR (C AND D)</span>
+if A !B || !C D     <span class="dm"># = (A AND !B) OR (!C AND D)</span>
+
+<span class="dm"># 短路行為：AND 中第一個 false → 後續不評估</span>
+<span class="dm">#           OR 中第一個 true → 後續不評估</span>
+
+<span class="dm"># 複雜範例</span>
+http-request deny if { path_beg /admin } !{ src 10.0.0.0/8 } || { method DELETE } !{ req.hdr(X-Admin-Token) -m found }</div>
+    <div class="al al-b">
+      <div class="at">💡 同名 ACL = 隱含 OR</div>
+      定義多行同名 ACL 等於在值之間做 OR。但不同名的 ACL 在 <code>if</code> 中並列則是 AND。這是最常見的混淆來源。
+    </div>
+  </div>
+</section>
+
+<!-- ===== 04 Fetch 場景分類 ===== -->
+<section id="fetch-scenario">
+  <div class="sh"><span class="sn sg">04</span><h2>Fetch 按場景分類速查（「我要做什麼？」）</h2></div>
+  <div class="card">
+    <div class="tw"><table>
+      <thead><tr><th>我要判斷…</th><th>用這些 Fetch</th><th>層</th></tr></thead>
+      <tbody>
+        <tr><td>來源是誰？</td><td><code>src</code>, <code>src_port</code>, <code>src_is_local</code>, <code>fc_pp_authority</code></td><td>L4</td></tr>
+        <tr><td>目的地是哪？</td><td><code>dst</code>, <code>dst_port</code>, <code>dst_is_local</code></td><td>L4</td></tr>
+        <tr><td>網路品質？</td><td><code>fc_rtt</code>, <code>fc_rttvar</code>, <code>fc_retrans</code>, <code>fc_lost</code></td><td>L4</td></tr>
+        <tr><td>用了 SSL 嗎？</td><td><code>ssl_fc</code>, <code>ssl_fc_protocol</code>, <code>ssl_fc_cipher</code>, <code>ssl_fc_alpn</code></td><td>L5</td></tr>
+        <tr><td>Client 憑證？</td><td><code>ssl_c_verify</code>, <code>ssl_c_used</code>, <code>ssl_c_s_dn</code>, <code>ssl_c_i_dn</code>, <code>ssl_c_serial</code></td><td>L5</td></tr>
+        <tr><td>Client 要什麼 SNI？</td><td><code>ssl_fc_sni</code>, <code>ssl_fc_has_sni</code>, <code>req.ssl_sni</code>（TCP mode）</td><td>L5/L6</td></tr>
+        <tr><td>原始 payload？</td><td><code>req.payload(off,len)</code>, <code>req.payload_lv</code>, <code>req.len</code></td><td>L6</td></tr>
+        <tr><td>HTTP 方法？</td><td><code>method</code></td><td>L7</td></tr>
+        <tr><td>URL / 路徑？</td><td><code>path</code>, <code>pathq</code>, <code>url</code>, <code>query</code>, <code>base</code>, <code>baseq</code></td><td>L7</td></tr>
+        <tr><td>URL 參數值？</td><td><code>url_param(name)</code>, <code>query</code></td><td>L7</td></tr>
+        <tr><td>Request header？</td><td><code>req.hdr(name)</code>, <code>req.hdr_cnt(name)</code>, <code>req.hdr_val(name)</code>, <code>req.hdr_ip(name)</code></td><td>L7</td></tr>
+        <tr><td>Cookie？</td><td><code>req.cook(name)</code>, <code>req.cook_cnt(name)</code>, <code>req.cook_val(name)</code></td><td>L7</td></tr>
+        <tr><td>Request body？</td><td><code>req.body</code>, <code>req.body_param(name)</code>, <code>req.body_len</code></td><td>L7</td></tr>
+        <tr><td>Response 狀態碼？</td><td><code>status</code></td><td>L7</td></tr>
+        <tr><td>Response header？</td><td><code>res.hdr(name)</code>, <code>res.hdr_cnt(name)</code></td><td>L7</td></tr>
+        <tr><td>Response cookie？</td><td><code>res.cook(name)</code></td><td>L7</td></tr>
+        <tr><td>後端負載？</td><td><code>be_conn</code>, <code>fe_conn</code>, <code>nbsrv</code>, <code>connslots</code>, <code>avg_queue</code>, <code>srv_conn</code></td><td>Internal</td></tr>
+        <tr><td>來源 IP 的歷史行為？</td><td><code>sc_http_req_rate(N)</code>, <code>sc_conn_rate(N)</code>, <code>sc_get_gpc0(N)</code>, <code>src_http_req_rate</code></td><td>Stick-table</td></tr>
+        <tr><td>HTTP 認證？</td><td><code>http_auth(realm)</code>, <code>http_auth_group(realm)</code>, <code>http_auth_user</code>, <code>http_auth_pass</code></td><td>L7</td></tr>
+        <tr><td>是否第一個請求？</td><td><code>http_first_req</code></td><td>L7</td></tr>
+        <tr><td>HAProxy 版本/環境？</td><td><code>hostname</code>, <code>proc</code>, <code>pid</code>, <code>date</code>, <code>env(name)</code></td><td>Internal</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== 05 L4 ===== -->
+<section id="fetch-l4">
+  <div class="sh"><span class="sn sg">05</span><h2>L4 連線層 Fetch 完整表</h2></div>
+  <div class="card">
+    <div class="tw"><table>
+      <thead><tr><th>Fetch</th><th>回傳</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>src</code></td><td>IP</td><td>來源 IP 位址</td></tr>
+        <tr><td><code>src_port</code></td><td>int</td><td>來源 port</td></tr>
+        <tr><td><code>src_is_local</code></td><td>bool</td><td>來源是否為本機 IP</td></tr>
+        <tr><td><code>dst</code></td><td>IP</td><td>目的 IP（HAProxy 監聽的）</td></tr>
+        <tr><td><code>dst_port</code></td><td>int</td><td>目的 port</td></tr>
+        <tr><td><code>dst_is_local</code></td><td>bool</td><td>目的是否為本機 IP</td></tr>
+        <tr><td><code>dst_conn</code></td><td>int</td><td>同一目的 socket 的目前連線數</td></tr>
+        <tr><td><code>fc_src</code> / <code>fc_dst</code></td><td>IP</td><td>前端連線來源 / 目的（同 src/dst，但可在 backend 使用）</td></tr>
+        <tr><td><code>fc_src_port</code> / <code>fc_dst_port</code></td><td>int</td><td>前端連線 port</td></tr>
+        <tr><td><code>bc_src</code> / <code>bc_dst</code></td><td>IP</td><td>後端連線來源 / 目的</td></tr>
+        <tr><td><code>bc_src_port</code> / <code>bc_dst_port</code></td><td>int</td><td>後端連線 port</td></tr>
+        <tr><td><code>fc_rtt</code></td><td>int (μs)</td><td>前端 TCP RTT（微秒）</td></tr>
+        <tr><td><code>fc_rttvar</code></td><td>int (μs)</td><td>RTT 變異</td></tr>
+        <tr><td><code>fc_retrans</code></td><td>int</td><td>重傳次數</td></tr>
+        <tr><td><code>fc_lost</code></td><td>int</td><td>遺失封包數</td></tr>
+        <tr><td><code>fc_sacked</code></td><td>int</td><td>SACK 封包數</td></tr>
+        <tr><td><code>fc_unacked</code></td><td>int</td><td>未確認封包數</td></tr>
+        <tr><td><code>fc_fackets</code></td><td>int</td><td>FACK 封包數</td></tr>
+        <tr><td><code>fc_reordering</code></td><td>int</td><td>重排度量</td></tr>
+        <tr><td><code>fc_nb_streams</code></td><td>int</td><td>前端連線上的 stream 數（H2/QUIC）</td></tr>
+        <tr><td><code>fc_http_major</code></td><td>int</td><td>前端 HTTP 主版本（1=HTTP/1, 2=HTTP/2, 3=HTTP/3）</td></tr>
+        <tr><td><code>fc_rcvd_proxy</code></td><td>bool</td><td>是否收到 PROXY Protocol header</td></tr>
+        <tr><td><code>fc_pp_authority</code></td><td>str</td><td>PROXY Protocol v2 authority TLV</td></tr>
+        <tr><td><code>fc_pp_unique_id</code></td><td>str</td><td>PROXY Protocol v2 unique-id TLV</td></tr>
+        <tr><td><code>fc_pp_tlv(id)</code></td><td>str</td><td>PROXY Protocol v2 任意 TLV 值</td></tr>
+        <tr><td><code>fc_glitches</code></td><td>int</td><td>前端協議異常計數（3.0+）</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== 06 SSL ===== -->
+<section id="fetch-ssl">
+  <div class="sh"><span class="sn sp">06</span><h2>L5 SSL/TLS Fetch（精選 40+）</h2></div>
+  <div class="card">
+    <h3>🔒 連線層 SSL 資訊</h3>
+    <div class="tw"><table>
+      <thead><tr><th>Fetch</th><th>回傳</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>ssl_fc</code></td><td>bool</td><td>前端連線是否為 SSL</td></tr>
+        <tr><td><code>ssl_fc_protocol</code></td><td>str</td><td>TLS 版本（<code>TLSv1.3</code>）</td></tr>
+        <tr><td><code>ssl_fc_cipher</code></td><td>str</td><td>Cipher suite 名稱</td></tr>
+        <tr><td><code>ssl_fc_alg_keysize</code></td><td>int</td><td>演算法 key 大小</td></tr>
+        <tr><td><code>ssl_fc_use_keysize</code></td><td>int</td><td>實際使用 key 大小</td></tr>
+        <tr><td><code>ssl_fc_alpn</code></td><td>str</td><td>協商的 ALPN 協定（<code>h2</code>）</td></tr>
+        <tr><td><code>ssl_fc_npn</code></td><td>str</td><td>NPN 協定</td></tr>
+        <tr><td><code>ssl_fc_sni</code></td><td>str</td><td>Client SNI 值</td></tr>
+        <tr><td><code>ssl_fc_has_sni</code></td><td>bool</td><td>是否提供 SNI</td></tr>
+        <tr><td><code>ssl_fc_has_crt</code></td><td>bool</td><td>Client 是否送了憑證（⚠️ session resume 時可能誤報）</td></tr>
+        <tr><td><code>ssl_fc_has_early</code></td><td>bool</td><td>是否包含 0-RTT early data</td></tr>
+        <tr><td><code>ssl_fc_is_resumed</code></td><td>bool</td><td>Session 是否被恢復</td></tr>
+        <tr><td><code>ssl_fc_curve</code></td><td>str</td><td>金鑰交換橢圓曲線名稱</td></tr>
+        <tr><td><code>ssl_fc_err</code></td><td>int</td><td>SSL 錯誤代碼（0=成功）</td></tr>
+        <tr><td><code>ssl_fc_err_str</code></td><td>str</td><td>SSL 錯誤字串（人類可讀）</td></tr>
+        <tr><td><code>ssl_fc_session_id</code></td><td>bin</td><td>SSL Session ID</td></tr>
+        <tr><td><code>ssl_fc_unique_id</code></td><td>bin</td><td>TLS Unique 值</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>📜 Client 憑證 Fetch</h3>
+    <div class="tw"><table>
+      <thead><tr><th>Fetch</th><th>回傳</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>ssl_c_used</code></td><td>bool</td><td>Client 是否使用了憑證（✅ 推薦替代 <code>ssl_fc_has_crt</code>）</td></tr>
+        <tr><td><code>ssl_c_verify</code></td><td>int</td><td>驗證結果（0=成功）</td></tr>
+        <tr><td><code>ssl_c_s_dn</code></td><td>str</td><td>Subject DN（<code>/CN=user/O=corp</code>）</td></tr>
+        <tr><td><code>ssl_c_s_dn(cn)</code></td><td>str</td><td>Subject 的特定 RDN 欄位</td></tr>
+        <tr><td><code>ssl_c_i_dn</code></td><td>str</td><td>Issuer DN</td></tr>
+        <tr><td><code>ssl_c_serial</code></td><td>bin</td><td>憑證序號</td></tr>
+        <tr><td><code>ssl_c_sha1</code></td><td>bin</td><td>SHA-1 指紋</td></tr>
+        <tr><td><code>ssl_c_notafter</code></td><td>str</td><td>憑證到期日</td></tr>
+        <tr><td><code>ssl_c_notbefore</code></td><td>str</td><td>憑證生效日</td></tr>
+        <tr><td><code>ssl_c_der</code></td><td>bin</td><td>DER 編碼完整憑證</td></tr>
+        <tr><td><code>ssl_c_chain_der</code></td><td>bin</td><td>DER 編碼完整憑證鏈</td></tr>
+        <tr><td><code>ssl_c_key_alg</code></td><td>str</td><td>公鑰演算法</td></tr>
+        <tr><td><code>ssl_c_sig_alg</code></td><td>str</td><td>簽章演算法</td></tr>
+        <tr><td><code>ssl_c_version</code></td><td>int</td><td>X.509 版本</td></tr>
+        <tr><td><code>ssl_c_san</code></td><td>str</td><td>Subject Alternative Names</td></tr>
+        <tr><td><code>ssl_c_ca_err</code></td><td>int</td><td>CA 驗證錯誤碼</td></tr>
+        <tr><td><code>ssl_c_ca_err_depth</code></td><td>int</td><td>CA 驗證錯誤發生的鏈深度</td></tr>
+        <tr><td><code>ssl_c_err</code></td><td>int</td><td>Client 憑證錯誤碼</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>📜 Server 憑證 &amp; Backend SSL Fetch</h3>
+    <div class="tw"><table>
+      <thead><tr><th>Fetch</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>ssl_f_s_dn</code> / <code>ssl_f_i_dn</code></td><td>前端憑證 Subject / Issuer DN</td></tr>
+        <tr><td><code>ssl_f_serial</code> / <code>ssl_f_sha1</code></td><td>前端憑證序號 / SHA-1</td></tr>
+        <tr><td><code>ssl_f_notafter</code> / <code>ssl_f_notbefore</code></td><td>前端憑證到期 / 生效日</td></tr>
+        <tr><td><code>ssl_bc</code></td><td>後端連線是否為 SSL</td></tr>
+        <tr><td><code>ssl_bc_protocol</code> / <code>ssl_bc_cipher</code></td><td>後端 TLS 版本 / Cipher</td></tr>
+        <tr><td><code>ssl_bc_alpn</code></td><td>後端 ALPN</td></tr>
+        <tr><td><code>ssl_bc_is_resumed</code></td><td>後端 session 是否恢復</td></tr>
+        <tr><td><code>ssl_bc_err</code> / <code>ssl_bc_err_str</code></td><td>後端 SSL 錯誤碼 / 字串</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== 07 Buffer ===== -->
+<section id="fetch-buf">
+  <div class="sh"><span class="sn sy">07</span><h2>L6 Buffer Fetch</h2></div>
+  <div class="card">
+    <div class="tw"><table>
+      <thead><tr><th>Fetch</th><th>回傳</th><th>說明</th><th>常用場景</th></tr></thead>
+      <tbody>
+        <tr><td><code>req.len</code></td><td>int</td><td>Request buffer 已接收的長度</td><td>偵測異常大請求</td></tr>
+        <tr><td><code>req.payload(off,len)</code></td><td>bin</td><td>指定偏移量的 payload 資料</td><td>協定辨識（SSH/RDP/SMTP…）</td></tr>
+        <tr><td><code>req.payload_lv(off,len_off,len_len)</code></td><td>bin</td><td>length-value 格式 payload</td><td>自訂二進位協定</td></tr>
+        <tr><td><code>req.ssl_hello_type</code></td><td>int</td><td>SSL hello 類型（1=ClientHello）</td><td>TCP mode SSL 偵測</td></tr>
+        <tr><td><code>req.ssl_sni</code></td><td>str</td><td>TCP mode 下從 ClientHello 取 SNI</td><td>SSL Passthrough 路由</td></tr>
+        <tr><td><code>req.ssl_ver</code></td><td>int</td><td>TCP mode SSL 版本</td><td>協定偵測</td></tr>
+        <tr><td><code>req.ssl_alpn</code></td><td>str</td><td>TCP mode ALPN</td><td>H2 偵測</td></tr>
+        <tr><td><code>req.ssl_ec_ext</code></td><td>int</td><td>橢圓曲線擴展</td><td>-</td></tr>
+        <tr><td><code>req.ssl_st_ext</code></td><td>int</td><td>Session Ticket 擴展</td><td>-</td></tr>
+        <tr><td><code>res.len</code> / <code>res.payload</code></td><td>-</td><td>Response 版本（同上格式）</td><td>-</td></tr>
+      </tbody>
+    </table></div>
+    <div class="al al-w">
+      <div class="at">⚠️ Buffer Fetch 需搭配 inspect-delay</div>
+      <code>tcp-request inspect-delay 5s</code> 確保 buffer 有足夠資料再做判斷。
+    </div>
+  </div>
+</section>
+
+<!-- ===== 08 HTTP ===== -->
+<section id="fetch-http">
+  <div class="sh"><span class="sn sb">08</span><h2>L7 HTTP Fetch 完整表</h2></div>
+  <div class="card">
+    <h3>📥 Request Fetch</h3>
+    <div class="tw"><table>
+      <thead><tr><th>Fetch</th><th>回傳</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>method</code></td><td>str/int</td><td>HTTP 方法（GET/POST/…）</td></tr>
+        <tr><td><code>path</code></td><td>str</td><td>URL 路徑（不含 query string）</td></tr>
+        <tr><td><code>pathq</code></td><td>str</td><td>URL 路徑 + query string</td></tr>
+        <tr><td><code>query</code></td><td>str</td><td>Query string（不含 <code>?</code>）</td></tr>
+        <tr><td><code>url</code></td><td>str</td><td>完整 URI（路徑 + query）</td></tr>
+        <tr><td><code>url_param(name)</code></td><td>str</td><td>指定 query 參數值</td></tr>
+        <tr><td><code>base</code></td><td>str</td><td>Host header + path（不含 query）</td></tr>
+        <tr><td><code>base32</code></td><td>int</td><td>base 的 32-bit hash</td></tr>
+        <tr><td><code>baseq</code></td><td>str</td><td>Host header + path + query</td></tr>
+        <tr><td><code>req.ver</code></td><td>str</td><td>HTTP 版本（<code>HTTP/1.1</code>）</td></tr>
+        <tr><td><code>req.hdr(name)</code></td><td>str</td><td>指定 request header 值（第一個出現的）</td></tr>
+        <tr><td><code>req.hdr(name,N)</code></td><td>str</td><td>第 N 個出現的 header 值</td></tr>
+        <tr><td><code>req.hdr_cnt(name)</code></td><td>int</td><td>header 出現次數</td></tr>
+        <tr><td><code>req.hdr_val(name)</code></td><td>int</td><td>header 值轉整數</td></tr>
+        <tr><td><code>req.hdr_ip(name)</code></td><td>IP</td><td>header 值轉 IP</td></tr>
+        <tr><td><code>req.hdr_names</code></td><td>str</td><td>所有 header 名稱（逗號分隔）</td></tr>
+        <tr><td><code>req.hdrs</code></td><td>bin</td><td>原始 header 區塊</td></tr>
+        <tr><td><code>req.cook(name)</code></td><td>str</td><td>指定 cookie 值</td></tr>
+        <tr><td><code>req.cook_cnt(name)</code></td><td>int</td><td>cookie 出現次數</td></tr>
+        <tr><td><code>req.cook_val(name)</code></td><td>int</td><td>cookie 值轉整數</td></tr>
+        <tr><td><code>req.cook_names</code></td><td>str</td><td>所有 cookie 名稱</td></tr>
+        <tr><td><code>req.body</code></td><td>bin</td><td>Request body（需 <code>option http-buffer-request</code>）</td></tr>
+        <tr><td><code>req.body_len</code></td><td>int</td><td>Body 目前已接收長度</td></tr>
+        <tr><td><code>req.body_size</code></td><td>int</td><td>Body 預期總大小（Content-Length）</td></tr>
+        <tr><td><code>req.body_param(name)</code></td><td>str</td><td>POST 表單參數值</td></tr>
+        <tr><td><code>capture.req.method</code></td><td>str</td><td>已擷取的 request method</td></tr>
+        <tr><td><code>capture.req.uri</code></td><td>str</td><td>已擷取的 request URI</td></tr>
+        <tr><td><code>capture.req.hdr(N)</code></td><td>str</td><td>第 N 個已擷取的 header</td></tr>
+        <tr><td><code>http_auth(realm)</code></td><td>bool</td><td>HTTP Basic 認證是否成功</td></tr>
+        <tr><td><code>http_auth_user</code></td><td>str</td><td>認證使用者名稱</td></tr>
+        <tr><td><code>http_auth_pass</code></td><td>str</td><td>認證密碼</td></tr>
+        <tr><td><code>http_auth_bearer</code></td><td>str</td><td>Bearer token 值</td></tr>
+        <tr><td><code>http_first_req</code></td><td>bool</td><td>是否為此連線的第一個 HTTP 請求</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>📤 Response Fetch</h3>
+    <div class="tw"><table>
+      <thead><tr><th>Fetch</th><th>回傳</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>status</code></td><td>int</td><td>HTTP 狀態碼</td></tr>
+        <tr><td><code>res.ver</code></td><td>str</td><td>Response HTTP 版本</td></tr>
+        <tr><td><code>res.hdr(name)</code></td><td>str</td><td>Response header 值</td></tr>
+        <tr><td><code>res.hdr_cnt(name)</code></td><td>int</td><td>Response header 出現次數</td></tr>
+        <tr><td><code>res.hdr_val(name)</code></td><td>int</td><td>header 值轉整數</td></tr>
+        <tr><td><code>res.hdr_ip(name)</code></td><td>IP</td><td>header 值轉 IP</td></tr>
+        <tr><td><code>res.hdr_names</code></td><td>str</td><td>所有 response header 名稱</td></tr>
+        <tr><td><code>res.cook(name)</code></td><td>str</td><td>Set-Cookie 值</td></tr>
+        <tr><td><code>res.cook_cnt(name)</code></td><td>int</td><td>Set-Cookie 出現次數</td></tr>
+        <tr><td><code>res.cook_names</code></td><td>str</td><td>所有 Set-Cookie 名稱</td></tr>
+        <tr><td><code>res.body</code></td><td>bin</td><td>Response body</td></tr>
+        <tr><td><code>res.body_len</code></td><td>int</td><td>Body 目前長度</td></tr>
+        <tr><td><code>res.cache_hit</code></td><td>bool</td><td>是否命中快取</td></tr>
+        <tr><td><code>res.cache_name</code></td><td>str</td><td>命中的快取名稱</td></tr>
+        <tr><td><code>res.comp</code></td><td>bool</td><td>回應是否被壓縮</td></tr>
+        <tr><td><code>res.comp_algo</code></td><td>str</td><td>壓縮演算法</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== 09 Internal ===== -->
+<section id="fetch-internal">
+  <div class="sh"><span class="sn sr">09</span><h2>Internal &amp; Stick-table Fetch</h2></div>
+  <div class="card">
+    <h3>📊 負載與狀態</h3>
+    <div class="tw"><table>
+      <thead><tr><th>Fetch</th><th>回傳</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>be_conn</code> / <code>fe_conn</code></td><td>int</td><td>Backend / Frontend 目前連線數</td></tr>
+        <tr><td><code>be_conn_free</code></td><td>int</td><td>Backend 可用連線數</td></tr>
+        <tr><td><code>be_sess_rate</code> / <code>fe_sess_rate</code></td><td>int</td><td>Backend / Frontend session 速率</td></tr>
+        <tr><td><code>fe_req_rate</code></td><td>int</td><td>Frontend request 速率</td></tr>
+        <tr><td><code>connslots</code></td><td>int</td><td>Backend 總可用連線插槽（含佇列）</td></tr>
+        <tr><td><code>nbsrv</code></td><td>int</td><td>Backend 可用 server 數</td></tr>
+        <tr><td><code>avg_queue</code></td><td>int</td><td>Backend 平均佇列長度</td></tr>
+        <tr><td><code>srv_conn</code></td><td>int</td><td>指定 server 目前連線數</td></tr>
+        <tr><td><code>srv_is_up</code></td><td>bool</td><td>指定 server 是否 UP</td></tr>
+        <tr><td><code>srv_sess_rate</code></td><td>int</td><td>指定 server session 速率</td></tr>
+        <tr><td><code>srv_queue</code></td><td>int</td><td>指定 server 佇列長度</td></tr>
+        <tr><td><code>act_conn</code></td><td>int</td><td>HAProxy 行程活躍連線總數</td></tr>
+        <tr><td><code>be_id</code> / <code>fe_id</code></td><td>int</td><td>Backend / Frontend ID</td></tr>
+        <tr><td><code>be_name</code> / <code>fe_name</code></td><td>str</td><td>Backend / Frontend 名稱</td></tr>
+        <tr><td><code>srv_id</code> / <code>srv_name</code></td><td>int/str</td><td>被選擇的 Server ID / 名稱</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>📋 Stick-table Fetch（sc_* 系列）</h3>
+    <p>所有 <code>sc_*</code> 函式接受 sticky counter 編號作為參數，如 <code>sc_http_req_rate(0)</code>。</p>
+    <p>另有 <code>src_*</code> 便捷系列（自動從 <code>src</code> 查詢預設表），如 <code>src_http_req_rate</code>。</p>
+    <div class="tw"><table>
+      <thead><tr><th>Fetch（sc_ 或 src_ 前綴）</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>*_conn_cnt</code> / <code>*_conn_cur</code> / <code>*_conn_rate</code></td><td>連線計數 / 目前 / 速率</td></tr>
+        <tr><td><code>*_sess_cnt</code> / <code>*_sess_rate</code></td><td>Session 計數 / 速率</td></tr>
+        <tr><td><code>*_http_req_cnt</code> / <code>*_http_req_rate</code></td><td>HTTP 請求計數 / 速率</td></tr>
+        <tr><td><code>*_http_err_cnt</code> / <code>*_http_err_rate</code></td><td>HTTP 錯誤計數 / 速率</td></tr>
+        <tr><td><code>*_http_fail_cnt</code> / <code>*_http_fail_rate</code></td><td>HTTP 失敗計數 / 速率</td></tr>
+        <tr><td><code>*_bytes_in_rate</code> / <code>*_bytes_out_rate</code></td><td>入/出頻寬速率</td></tr>
+        <tr><td><code>*_kbytes_in</code> / <code>*_kbytes_out</code></td><td>累計 KB 入/出</td></tr>
+        <tr><td><code>*_get_gpc0</code> / <code>*_get_gpc1</code> / <code>*_get_gpc(N)</code></td><td>通用計數器值</td></tr>
+        <tr><td><code>*_inc_gpc0</code> / <code>*_inc_gpc1</code> / <code>*_inc_gpc(N)</code></td><td>遞增並回傳新值</td></tr>
+        <tr><td><code>*_clr_gpc0</code> / <code>*_clr_gpc1</code></td><td>清除並回傳舊值</td></tr>
+        <tr><td><code>*_get_gpt0</code> / <code>*_get_gpt(N)</code></td><td>通用標籤值</td></tr>
+        <tr><td><code>*_gpc0_rate</code> / <code>*_gpc1_rate</code> / <code>*_gpc_rate(N)</code></td><td>通用計數器遞增速率</td></tr>
+        <tr><td><code>*_glitch_cnt</code> / <code>*_glitch_rate</code></td><td>協議異常計數/速率（3.0+）</td></tr>
+        <tr><td><code>*_tracked</code></td><td>是否正在被追蹤（bool）</td></tr>
+        <tr><td><code>*_trackers</code></td><td>追蹤者數量</td></tr>
+        <tr><td><code>*_key</code></td><td>目前的追蹤 key 值</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>🔧 環境 &amp; 時間</h3>
+    <div class="tw"><table>
+      <thead><tr><th>Fetch</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>date</code> / <code>date_us</code></td><td>Unix 時間戳（秒 / 微秒）</td></tr>
+        <tr><td><code>hostname</code></td><td>HAProxy 主機名</td></tr>
+        <tr><td><code>pid</code></td><td>行程 PID</td></tr>
+        <tr><td><code>proc</code></td><td>行程編號</td></tr>
+        <tr><td><code>env(name)</code></td><td>環境變數值</td></tr>
+        <tr><td><code>rand</code> / <code>rand(max)</code></td><td>隨機整數</td></tr>
+        <tr><td><code>unique-id</code></td><td>唯一請求 ID</td></tr>
+        <tr><td><code>cpu_calls</code> / <code>cpu_ns_avg</code> / <code>cpu_ns_tot</code></td><td>CPU 排程統計</td></tr>
+        <tr><td><code>lat_ns_avg</code> / <code>lat_ns_tot</code></td><td>延遲統計</td></tr>
+        <tr><td><code>always_true</code> / <code>always_false</code></td><td>常數 true / false</td></tr>
+        <tr><td><code>req.timer.*</code> / <code>res.timer.*</code></td><td>各階段計時器（hdr/idle/queue/tq/data）</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== 10 Converter ===== -->
+<section id="conv">
+  <div class="sh"><span class="sn sg">10</span><h2>Converter 完整速查</h2></div>
+  <div class="card">
+    <h3>🔄 字串操作</h3>
+    <div class="tw"><table>
+      <thead><tr><th>Converter</th><th>說明</th><th>範例</th></tr></thead>
+      <tbody>
+        <tr><td><code>lower</code> / <code>upper</code></td><td>轉小寫 / 大寫</td><td><code>hdr(Host),lower</code></td></tr>
+        <tr><td><code>ltrim(chars)</code> / <code>rtrim(chars)</code></td><td>左 / 右 trim 指定字元</td><td></td></tr>
+        <tr><td><code>length</code></td><td>字串長度</td><td></td></tr>
+        <tr><td><code>concat(pfx,sfx,sep)</code></td><td>串接前綴/後綴/分隔符</td><td></td></tr>
+        <tr><td><code>field(N,delim)</code></td><td>用分隔符取第 N 欄（1-based）</td><td><code>hdr(X-Forwarded-For),field(1,',')</code></td></tr>
+        <tr><td><code>word(N,delim)</code></td><td>取第 N 個「字」</td><td></td></tr>
+        <tr><td><code>regsub(regex,sub[,flags])</code></td><td>正規替換</td><td><code>path,regsub(^/v1,/v2)</code></td></tr>
+        <tr><td><code>cut_crlf</code></td><td>移除 CR/LF</td><td></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>🔢 算術 &amp; 邏輯</h3>
+    <div class="tw"><table>
+      <thead><tr><th>Converter</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>add(N)</code> / <code>sub(N)</code> / <code>mul(N)</code> / <code>div(N)</code> / <code>mod(N)</code></td><td>加減乘除餘</td></tr>
+        <tr><td><code>and(N)</code> / <code>or(N)</code> / <code>neg</code> / <code>not</code></td><td>位元運算 AND/OR/反轉/NOT</td></tr>
+        <tr><td><code>odd</code> / <code>even</code></td><td>奇數/偶數判斷</td></tr>
+        <tr><td><code>bool</code></td><td>轉為 0 或 1</td></tr>
+        <tr><td><code>iif(true_val,false_val)</code></td><td>三元運算子</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>🔐 編碼 / Hash / 加密</h3>
+    <div class="tw"><table>
+      <thead><tr><th>Converter</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>base64</code> / <code>b64dec</code></td><td>Base64 編碼 / 解碼</td></tr>
+        <tr><td><code>hex</code> / <code>hex2i</code></td><td>十六進位轉換</td></tr>
+        <tr><td><code>json(encoding)</code></td><td>JSON 安全跳脫（<code>utf8s</code>）</td></tr>
+        <tr><td><code>crc32</code> / <code>crc32c</code></td><td>CRC32 / CRC32C hash</td></tr>
+        <tr><td><code>djb2</code> / <code>sdbm</code></td><td>DJB2 / SDBM hash</td></tr>
+        <tr><td><code>sha1</code> / <code>sha2(bits)</code></td><td>SHA-1 / SHA-256/384/512</td></tr>
+        <tr><td><code>digest(algo)</code></td><td>任意摘要演算法</td></tr>
+        <tr><td><code>hmac(algo,key)</code></td><td>HMAC 簽章</td></tr>
+        <tr><td><code>aes_gcm_enc(bits,nonce,key)</code></td><td>AES-GCM 加密</td></tr>
+        <tr><td><code>aes_gcm_dec(bits,nonce,key)</code></td><td>AES-GCM 解密</td></tr>
+        <tr><td><code>secure_memcmp(ref)</code></td><td>恆時間比較（防時序攻擊）</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>🌐 網路 / 型別 / 查表</h3>
+    <div class="tw"><table>
+      <thead><tr><th>Converter</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>ipmask(mask)</code></td><td>IP 遮罩（CIDR 位數或點分十進位）</td></tr>
+        <tr><td><code>ipv4</code> / <code>ipv6</code></td><td>強制轉型為 IPv4 / IPv6</td></tr>
+        <tr><td><code>int</code></td><td>轉為整數</td></tr>
+        <tr><td><code>bytes(off,len)</code></td><td>擷取子位元組</td></tr>
+        <tr><td><code>htonl</code></td><td>32-bit host-to-network byte order</td></tr>
+        <tr><td><code>be2dec</code> / <code>le2dec</code></td><td>Big/Little endian → 十進位</td></tr>
+        <tr><td><code>map(file[,default])</code></td><td>檔案查表映射（字串 key）</td></tr>
+        <tr><td><code>map_ip(file[,default])</code></td><td>IP/CIDR 查表（longest match）</td></tr>
+        <tr><td><code>map_str(file[,default])</code></td><td>同 map（明確字串比對）</td></tr>
+        <tr><td><code>map_beg/end/sub/dir/dom/reg</code></td><td>各種比對方式的 map 變體</td></tr>
+        <tr><td><code>in_table(table)</code></td><td>key 是否存在於 stick-table</td></tr>
+        <tr><td><code>table_cnt(table)</code> / <code>table_conn_cur(table)</code> …</td><td>查詢 stick-table 中該 key 的統計值</td></tr>
+        <tr><td><code>nbsrv(backend)</code></td><td>指定 backend 的可用 server 數</td></tr>
+        <tr><td><code>srv_queue(be/srv)</code></td><td>指定 server 的佇列長度</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>🕐 日期 / 時間</h3>
+    <div class="tw"><table>
+      <thead><tr><th>Converter</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>http_date</code></td><td>Unix timestamp → HTTP 日期格式</td></tr>
+        <tr><td><code>ltime(fmt)</code> / <code>utime(fmt)</code></td><td>本地 / UTC 時間格式化（strftime）</td></tr>
+        <tr><td><code>ms_ltime(fmt)</code> / <code>ms_utime(fmt)</code></td><td>毫秒精度版本</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>📦 變數 &amp; 協定解析</h3>
+    <div class="tw"><table>
+      <thead><tr><th>Converter</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>set-var(scope.name)</code></td><td>存入變數並傳遞原值</td></tr>
+        <tr><td><code>unset-var(scope.name)</code></td><td>刪除變數</td></tr>
+        <tr><td><code>var(scope.name)</code></td><td>讀取變數值（Sample Fetch，非 Converter）</td></tr>
+        <tr><td><code>json_query(path)</code></td><td>JSON 路徑查詢</td></tr>
+        <tr><td><code>jwt_header_query(field)</code></td><td>JWT header 欄位查詢</td></tr>
+        <tr><td><code>jwt_payload_query(field)</code></td><td>JWT payload 欄位查詢</td></tr>
+        <tr><td><code>jwt_verify(alg,cert)</code></td><td>JWT 簽章驗證</td></tr>
+        <tr><td><code>protobuf(field)</code></td><td>ProtoBuf 欄位擷取</td></tr>
+        <tr><td><code>fix_tag_value(tag)</code></td><td>FIX 協定 tag 值擷取</td></tr>
+        <tr><td><code>mqtt_field_value(type,field)</code></td><td>MQTT 欄位值</td></tr>
+        <tr><td><code>shard(N)</code></td><td>分片編號（0 到 N-1）</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== 11 鏈式組合 ===== -->
+<section id="chain">
+  <div class="sh"><span class="sn sb">11</span><h2>Converter 鏈式組合食譜</h2></div>
+  <div class="card">
+    <div class="cb"><span class="dm"># 1. GeoIP 路由</span>
+http-request set-var(txn.country) <span class="hc">src</span>,<span class="hp">map_ip</span>(/etc/haproxy/geoip.map,<span class="hy">--</span>)
+
+<span class="dm"># 2. Host → Backend 動態路由</span>
+use_backend %[<span class="hc">req.hdr(Host)</span>,<span class="hp">lower</span>,<span class="hp">map</span>(/etc/haproxy/hosts.map,<span class="hy">bk_default</span>)]
+
+<span class="dm"># 3. JWT payload 提取使用者 ID</span>
+http-request set-var(txn.uid) <span class="hc">req.hdr(Authorization)</span>,<span class="hp">field</span>(2,' '),<span class="hp">b64dec</span>,<span class="hp">json_query</span>('.sub')
+
+<span class="dm"># 4. XFF 第一個 IP（防偽造後）</span>
+http-request set-header X-Real-IP %[<span class="hc">req.hdr(X-Forwarded-For)</span>,<span class="hp">field</span>(1,','),<span class="hp">ltrim</span>(' ')]
+
+<span class="dm"># 5. 日誌安全的 URI（JSON 跳脫 + 截斷）</span>
+<span class="dm"># HAProxy 3.0+</span>
+log-format '{"uri":"%[<span class="hc">capture.req.uri</span>,<span class="hp">json</span>(utf8s)]"}'
+
+<span class="dm"># 6. 請求 hash → 一致性路由</span>
+http-request set-header X-Req-Hash %[<span class="hc">url</span>,<span class="hp">crc32</span>]
+
+<span class="dm"># 7. IP 分群（/24 子網路）</span>
+http-request track-sc0 <span class="hc">src</span>,<span class="hp">ipmask</span>(24) table per_subnet_rates
+
+<span class="dm"># 8. 隨機取樣 10% 流量做 A/B 測試</span>
+acl is_canary <span class="hc">rand</span>(100) lt 10
+use_backend bk_canary if is_canary
+
+<span class="dm"># 9. 時間條件路由（僅工作時間）</span>
+acl is_work_hours <span class="hc">date</span>,<span class="hp">ltime</span>(%H),<span class="hp">int</span> ge 9
+acl is_work_hours <span class="hc">date</span>,<span class="hp">ltime</span>(%H),<span class="hp">int</span> lt 18
+
+<span class="dm"># 10. SSL → Boolean → 字串</span>
+http-request set-header X-Proto %[<span class="hc">ssl_fc</span>,<span class="hp">iif</span>(https,http)]
+
+<span class="dm"># 11. Cookie hash → Server 黏著</span>
+http-request set-header X-Sticky %[<span class="hc">req.cook(session_id)</span>,<span class="hp">crc32</span>,<span class="hp">mod</span>(4)]
+
+<span class="dm"># 12. Body JSON 查詢 → 路由決策</span>
+http-request set-var(txn.action) <span class="hc">req.body</span>,<span class="hp">json_query</span>('.action')
+use_backend bk_write if { var(txn.action) -m str create update delete }</div>
+  </div>
+</section>
+
+<!-- ===== 12 Pre-defined ===== -->
+<section id="predef">
+  <div class="sh"><span class="sn sr">12</span><h2>Pre-defined ACLs 完整表</h2></div>
+  <div class="card">
+    <h3>⚡ 內建快捷 ACL（免宣告即可使用）</h3>
+    <div class="tw"><table>
+      <thead><tr><th>Pre-defined ACL</th><th>等同於</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>HTTP</code></td><td><code>req.proto_http</code></td><td>請求是否為有效 HTTP</td></tr>
+        <tr><td><code>HTTP_1.0</code></td><td><code>req.ver 1.0</code></td><td>HTTP/1.0</td></tr>
+        <tr><td><code>HTTP_1.1</code></td><td><code>req.ver 1.1</code></td><td>HTTP/1.1</td></tr>
+        <tr><td><code>HTTP_CONTENT</code></td><td><code>req.hdr_val(content-length) gt 0</code></td><td>請求含 body</td></tr>
+        <tr><td><code>HTTP_URL_ABS</code></td><td><code>url -m reg '^[^/:]*://'</code></td><td>URL 是絕對路徑（含 scheme）</td></tr>
+        <tr><td><code>HTTP_URL_SLASH</code></td><td><code>url -m beg /</code></td><td>URL 以 / 開頭</td></tr>
+        <tr><td><code>HTTP_URL_STAR</code></td><td><code>url *</code></td><td>URL 為 *（OPTIONS）</td></tr>
+        <tr><td><code>LOCALHOST</code></td><td><code>src 127.0.0.1/8 ::1</code></td><td>來源為 localhost</td></tr>
+        <tr><td><code>METH_CONNECT</code></td><td><code>method CONNECT</code></td><td>CONNECT 方法</td></tr>
+        <tr><td><code>METH_DELETE</code></td><td><code>method DELETE</code></td><td>DELETE 方法</td></tr>
+        <tr><td><code>METH_GET</code></td><td><code>method GET HEAD</code></td><td>GET 或 HEAD 方法</td></tr>
+        <tr><td><code>METH_HEAD</code></td><td><code>method HEAD</code></td><td>HEAD 方法</td></tr>
+        <tr><td><code>METH_OPTIONS</code></td><td><code>method OPTIONS</code></td><td>OPTIONS 方法</td></tr>
+        <tr><td><code>METH_POST</code></td><td><code>method POST</code></td><td>POST 方法</td></tr>
+        <tr><td><code>METH_PUT</code></td><td><code>method PUT</code></td><td>PUT 方法</td></tr>
+        <tr><td><code>METH_TRACE</code></td><td><code>method TRACE</code></td><td>TRACE 方法</td></tr>
+        <tr><td><code>RDP_COOKIE</code></td><td><code>req.rdp_cookie -m found</code></td><td>RDP cookie 存在</td></tr>
+        <tr><td><code>REQ_CONTENT</code></td><td><code>req.len gt 0</code></td><td>請求 buffer 含資料</td></tr>
+        <tr><td><code>TRUE</code></td><td><code>always_true</code></td><td>永遠為真</td></tr>
+        <tr><td><code>FALSE</code></td><td><code>always_false</code></td><td>永遠為假</td></tr>
+        <tr><td><code>WAIT_END</code></td><td><code>wait_end</code></td><td>等待分析結束</td></tr>
+      </tbody>
+    </table></div>
+    <div class="cb"><span class="dm"># 使用範例：免宣告直接用</span>
+http-request deny if !HTTP                     <span class="dm"># 拒絕非 HTTP 流量</span>
+http-request deny if METH_TRACE                <span class="dm"># 拒絕 TRACE（安全最佳實踐）</span>
+http-request allow if METH_GET || METH_POST    <span class="dm"># 僅允許 GET/POST</span>
+http-request deny if !LOCALHOST !{ src 10.0.0.0/8 }  <span class="dm"># 僅允許本地和內網</span></div>
+  </div>
+</section>
+
+</div>
+
+<div class="footer">
+  HAProxy 3.2 ACL 完全指南 — Part A 語法、Fetch、Converter ｜ 
+  資料來源：<a href="https://docs.haproxy.org/3.2/configuration.html#7" target="_blank">docs.haproxy.org §7</a> ｜ 
+  產製日期：2026-04-22
+</div>
+</body>
+</html>

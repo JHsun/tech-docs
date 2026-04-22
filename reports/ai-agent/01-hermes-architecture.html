@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hermes Agent — Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c10;
+    --surface: #111318;
+    --border: #1e2230;
+    --accent: #e8c84a;
+    --accent2: #4ae8c8;
+    --accent3: #e84a7a;
+    --accent4: #7a4ae8;
+    --text: #e8eaf0;
+    --muted: #6b7280;
+    --glow: rgba(232, 200, 74, 0.15);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* noise overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.4;
+  }
+
+  .canvas {
+    position: relative;
+    z-index: 1;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+
+  /* ── Header ── */
+  header {
+    text-align: center;
+    margin-bottom: 56px;
+    animation: fadeDown 0.6s ease both;
+  }
+  header .tag {
+    display: inline-block;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    padding: 4px 12px;
+    margin-bottom: 16px;
+    text-transform: uppercase;
+  }
+  header h1 {
+    font-size: clamp(28px, 5vw, 52px);
+    font-weight: 800;
+    letter-spacing: -1px;
+    line-height: 1.1;
+  }
+  header h1 span { color: var(--accent); }
+  header p {
+    margin-top: 12px;
+    color: var(--muted);
+    font-size: 14px;
+    letter-spacing: 1px;
+  }
+
+  /* ── Section Label ── */
+  .section-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 12px;
+    padding-left: 4px;
+  }
+
+  /* ── Layer Block ── */
+  .layer {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 20px 24px;
+    margin-bottom: 8px;
+    position: relative;
+    animation: fadeUp 0.5s ease both;
+  }
+  .layer:nth-child(1) { animation-delay: 0.1s; }
+  .layer:nth-child(2) { animation-delay: 0.2s; }
+  .layer:nth-child(3) { animation-delay: 0.3s; }
+  .layer:nth-child(4) { animation-delay: 0.4s; }
+  .layer:nth-child(5) { animation-delay: 0.5s; }
+
+  .layer-title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .layer-title .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+
+  /* ── Cards Row ── */
+  .cards {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .card {
+    flex: 1;
+    min-width: 140px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 14px 16px;
+    transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+    cursor: default;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .card:hover { transform: translateY(-2px); }
+
+  .card-icon {
+    font-size: 20px;
+    margin-bottom: 8px;
+    display: block;
+  }
+  .card-name {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+  .card-desc {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  /* Color themes */
+  .theme-yellow .card { border-top: 2px solid var(--accent); }
+  .theme-yellow .card:hover { border-color: var(--accent); box-shadow: 0 4px 24px rgba(232,200,74,0.12); }
+  .theme-yellow .dot { background: var(--accent); }
+  .theme-yellow .layer-title { color: var(--accent); }
+
+  .theme-cyan .card { border-top: 2px solid var(--accent2); }
+  .theme-cyan .card:hover { border-color: var(--accent2); box-shadow: 0 4px 24px rgba(74,232,200,0.12); }
+  .theme-cyan .dot { background: var(--accent2); }
+  .theme-cyan .layer-title { color: var(--accent2); }
+
+  .theme-pink .card { border-top: 2px solid var(--accent3); }
+  .theme-pink .card:hover { border-color: var(--accent3); box-shadow: 0 4px 24px rgba(232,74,122,0.12); }
+  .theme-pink .dot { background: var(--accent3); }
+  .theme-pink .layer-title { color: var(--accent3); }
+
+  .theme-purple .card { border-top: 2px solid var(--accent4); }
+  .theme-purple .card:hover { border-color: var(--accent4); box-shadow: 0 4px 24px rgba(122,74,232,0.12); }
+  .theme-purple .dot { background: var(--accent4); }
+  .theme-purple .layer-title { color: var(--accent4); }
+
+  .theme-white .card { border-top: 2px solid #555; }
+  .theme-white .card:hover { border-color: #aaa; box-shadow: 0 4px 24px rgba(255,255,255,0.06); }
+  .theme-white .dot { background: #888; }
+  .theme-white .layer-title { color: #aaa; }
+
+  /* ── Arrow ── */
+  .arrow {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 28px;
+    color: var(--muted);
+    font-size: 18px;
+    position: relative;
+    animation: fadeUp 0.4s ease both;
+  }
+  .arrow::before, .arrow::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 120px;
+    height: 1px;
+    background: var(--border);
+  }
+  .arrow::before { right: calc(50% + 14px); }
+  .arrow::after { left: calc(50% + 14px); }
+
+  /* ── Data Flow Section ── */
+  .flow-section {
+    margin-top: 48px;
+    animation: fadeUp 0.5s ease 0.6s both;
+  }
+
+  .flow-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  @media (max-width: 680px) {
+    .flow-grid { grid-template-columns: 1fr; }
+  }
+
+  .flow-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 20px;
+  }
+  .flow-card-title {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .flow-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .flow-step:last-child { margin-bottom: 0; }
+  .step-num {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    min-width: 18px;
+    padding-top: 1px;
+  }
+  .step-text {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--text);
+    line-height: 1.6;
+  }
+  .step-arrow {
+    color: var(--muted);
+    margin-left: 6px;
+  }
+
+  /* ── Stats Row ── */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-top: 48px;
+    animation: fadeUp 0.5s ease 0.7s both;
+  }
+  @media (max-width: 680px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 20px 16px;
+    text-align: center;
+  }
+  .stat-num {
+    font-family: 'Space Mono', monospace;
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 4px;
+  }
+  .stat-label {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 1px;
+  }
+
+  /* ── Core Engine Highlight ── */
+  .core-engine {
+    background: linear-gradient(135deg, #111318 0%, #14161f 100%);
+    border: 1px solid var(--accent);
+    box-shadow: 0 0 40px rgba(232,200,74,0.08), inset 0 0 40px rgba(232,200,74,0.03);
+    position: relative;
+  }
+  .core-engine::before {
+    content: 'CORE';
+    position: absolute;
+    top: -1px; right: 20px;
+    background: var(--accent);
+    color: var(--bg);
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    padding: 2px 8px;
+  }
+
+  /* ── Subsystem Two-col ── */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  @media (max-width: 600px) {
+    .two-col { grid-template-columns: 1fr; }
+  }
+
+  /* ── Animations ── */
+  @keyframes fadeDown {
+    from { opacity: 0; transform: translateY(-20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Pulse dot ── */
+  .pulse {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent2);
+    margin-right: 6px;
+    animation: pulse 2s ease-in-out infinite;
+    vertical-align: middle;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.7); }
+  }
+
+  /* hover tooltip */
+  .card[data-tip]:hover::before {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1e2230;
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--text);
+    white-space: nowrap;
+    z-index: 10;
+    border-radius: 2px;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div class="canvas">
+
+  <!-- Header -->
+  <header>
+    <div class="tag">Architecture Overview</div>
+    <h1>Hermes <span>Agent</span></h1>
+    <p>by Nous Research &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; 2026</p>
+  </header>
+
+  <!-- LAYER 1: Entry Points -->
+  <div class="section-label">Layer 01 — Entry Points</div>
+  <div class="layer theme-yellow">
+    <div class="layer-title"><span class="dot"></span>入口層 Entry Points</div>
+    <div class="cards">
+      <div class="card" data-tip="HermesCLI ~10,000 lines">
+        <span class="card-icon">⌨️</span>
+        <div class="card-name">CLI</div>
+        <div class="card-desc">cli.py<br>終端機互動介面<br>slash-command 自動完成</div>
+      </div>
+      <div class="card" data-tip="GatewayRunner ~9,000 lines">
+        <span class="card-icon">📡</span>
+        <div class="card-name">Gateway</div>
+        <div class="card-desc">gateway/run.py<br>訊息平台閘道<br>18 個平台 Adapter</div>
+      </div>
+      <div class="card" data-tip="VS Code / Zed / JetBrains">
+        <span class="card-icon">🧩</span>
+        <div class="card-name">ACP Adapter</div>
+        <div class="card-desc">acp_adapter/<br>IDE 整合<br>VS Code · Zed · JetBrains</div>
+      </div>
+      <div class="card" data-tip="batch_runner.py">
+        <span class="card-icon">⚙️</span>
+        <div class="card-name">Batch Runner</div>
+        <div class="card-desc">batch_runner.py<br>批次軌跡生成<br>RL 訓練資料</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <!-- LAYER 2: Core Engine -->
+  <div class="section-label">Layer 02 — Core Engine</div>
+  <div class="layer core-engine theme-yellow">
+    <div class="layer-title"><span class="dot"></span>核心引擎 AIAgent &nbsp;<span class="pulse"></span><span style="color:var(--muted);font-size:11px;">run_agent.py · ~10,700 lines</span></div>
+    <div class="cards">
+      <div class="card" data-tip="prompt_builder.py">
+        <span class="card-icon">📝</span>
+        <div class="card-name">Prompt Builder</div>
+        <div class="card-desc">組裝系統 Prompt<br>注入記憶 / 技能 / 情境<br>SOUL.md 人格定義</div>
+      </div>
+      <div class="card" data-tip="runtime_provider.py">
+        <span class="card-icon">🔀</span>
+        <div class="card-name">Provider Resolution</div>
+        <div class="card-desc">動態解析模型端點<br>3 種 API 模式<br>chat / codex / anthropic</div>
+      </div>
+      <div class="card" data-tip="model_tools.py · registry.py">
+        <span class="card-icon">🔧</span>
+        <div class="card-name">Tool Dispatch</div>
+        <div class="card-desc">工具發現與呼叫<br>47 工具 / 19 工具組<br>registry.py 統一管理</div>
+      </div>
+      <div class="card" data-tip="context_compressor.py · prompt_caching.py">
+        <span class="card-icon">🗜️</span>
+        <div class="card-name">Compression & Cache</div>
+        <div class="card-desc">有損摘要壓縮<br>Anthropic Prompt Cache<br>Context 長度管理</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <!-- LAYER 3: Subsystems -->
+  <div class="section-label">Layer 03 — Subsystems</div>
+  <div class="two-col">
+
+    <!-- Memory -->
+    <div class="layer theme-cyan" style="margin-bottom:0">
+      <div class="layer-title"><span class="dot"></span>記憶系統 Memory</div>
+      <div class="cards" style="flex-direction:column">
+        <div class="card">
+          <span class="card-icon">🗄️</span>
+          <div class="card-name">Session Storage</div>
+          <div class="card-desc">SQLite + FTS5 全文搜尋<br>hermes_state.py<br>跨 session 持久化</div>
+        </div>
+        <div class="card">
+          <span class="card-icon">🧠</span>
+          <div class="card-name">Memory Manager</div>
+          <div class="card-desc">memory_manager.py<br>LLM 摘要 + 周期性記錄<br>Honcho 使用者建模</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Skills -->
+    <div class="layer theme-purple" style="margin-bottom:0">
+      <div class="layer-title"><span class="dot"></span>技能系統 Skills</div>
+      <div class="cards" style="flex-direction:column">
+        <div class="card">
+          <span class="card-icon">📚</span>
+          <div class="card-name">Skill Documents</div>
+          <div class="card-desc">~/.hermes/skills/<br>Level 0: 名稱描述 (~3K tokens)<br>Level 1: 完整內容按需載入</div>
+        </div>
+        <div class="card">
+          <span class="card-icon">🔄</span>
+          <div class="card-name">Auto-Creation Loop</div>
+          <div class="card-desc">完成複雜任務後自動建立<br>使用中持續自我改善<br>agentskills.io 開放標準</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="height:8px"></div>
+
+  <!-- Tool Backends -->
+  <div class="section-label">Layer 04 — Tool Backends</div>
+  <div class="layer theme-pink">
+    <div class="layer-title"><span class="dot"></span>工具後端 Tool Backends</div>
+    <div class="cards">
+      <div class="card" data-tip="local · Docker · SSH · Daytona · Singularity · Modal">
+        <span class="card-icon">💻</span>
+        <div class="card-name">Terminal</div>
+        <div class="card-desc">6 種後端<br>local / Docker / SSH<br>Daytona / Singularity / Modal</div>
+      </div>
+      <div class="card" data-tip="5 browser backends">
+        <span class="card-icon">🌐</span>
+        <div class="card-name">Browser</div>
+        <div class="card-desc">5 種後端<br>10 個自動化工具<br>browser_tool.py</div>
+      </div>
+      <div class="card" data-tip="web_search · web_extract">
+        <span class="card-icon">🔍</span>
+        <div class="card-name">Web</div>
+        <div class="card-desc">4 種後端<br>搜尋 / 擷取 / 視覺<br>TTS / 圖片生成</div>
+      </div>
+      <div class="card" data-tip="mcp_tool.py ~2200 lines">
+        <span class="card-icon">🔌</span>
+        <div class="card-name">MCP</div>
+        <div class="card-desc">動態擴充<br>mcp_tool.py ~2,200 行<br>連接任意 MCP Server</div>
+      </div>
+      <div class="card" data-tip="file_tools.py · delegate_tool.py">
+        <span class="card-icon">📁</span>
+        <div class="card-name">File + Delegate</div>
+        <div class="card-desc">read/write/patch<br>隔離子 Agent<br>Python RPC 管線</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <!-- LAYER 5: Platforms -->
+  <div class="section-label">Layer 05 — Messaging Platforms</div>
+  <div class="layer theme-white">
+    <div class="layer-title"><span class="dot"></span>訊息平台 Gateway Adapters &nbsp;<span style="color:var(--muted);font-size:11px;">18 個平台</span></div>
+    <div class="cards" style="flex-wrap:wrap">
+      <div class="card" style="min-width:80px;flex:none;padding:12px">
+        <span class="card-icon">✈️</span>
+        <div class="card-name" style="font-size:11px">Telegram</div>
+      </div>
+      <div class="card" style="min-width:80px;flex:none;padding:12px">
+        <span class="card-icon">🎮</span>
+        <div class="card-name" style="font-size:11px">Discord</div>
+      </div>
+      <div class="card" style="min-width:80px;flex:none;padding:12px">
+        <span class="card-icon">💼</span>
+        <div class="card-name" style="font-size:11px">Slack</div>
+      </div>
+      <div class="card" style="min-width:80px;flex:none;padding:12px">
+        <span class="card-icon">💬</span>
+        <div class="card-name" style="font-size:11px">WhatsApp</div>
+      </div>
+      <div class="card" style="min-width:80px;flex:none;padding:12px">
+        <span class="card-icon">🔐</span>
+        <div class="card-name" style="font-size:11px">Signal</div>
+      </div>
+      <div class="card" style="min-width:80px;flex:none;padding:12px">
+        <span class="card-icon">📧</span>
+        <div class="card-name" style="font-size:11px">Email</div>
+      </div>
+      <div class="card" style="min-width:80px;flex:none;padding:12px">
+        <span class="card-icon">📱</span>
+        <div class="card-name" style="font-size:11px">SMS</div>
+      </div>
+      <div class="card" style="min-width:80px;flex:none;padding:12px">
+        <span class="card-icon">🏠</span>
+        <div class="card-name" style="font-size:11px">Home Assistant</div>
+      </div>
+      <div class="card" style="min-width:80px;flex:none;padding:12px">
+        <span class="card-icon">🌐</span>
+        <div class="card-name" style="font-size:11px">Matrix · Mattermost</div>
+      </div>
+      <div class="card" style="min-width:80px;flex:none;padding:12px">
+        <span class="card-icon">🇨🇳</span>
+        <div class="card-name" style="font-size:11px">DingTalk · 飛書 · WeCom</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Data Flow -->
+  <div class="flow-section">
+    <div class="section-label">Data Flow — 三種執行路徑</div>
+    <div class="flow-grid">
+
+      <div class="flow-card">
+        <div class="flow-card-title" style="color:var(--accent)">⌨️ CLI Session</div>
+        <div class="flow-step"><span class="step-num">01</span><span class="step-text">使用者輸入</span></div>
+        <div class="flow-step"><span class="step-num">→</span><span class="step-text">HermesCLI.process_input()</span></div>
+        <div class="flow-step"><span class="step-num">→</span><span class="step-text">AIAgent.run_conversation()</span></div>
+        <div class="flow-step"><span class="step-num">→</span><span class="step-text">build_system_prompt()</span></div>
+        <div class="flow-step"><span class="step-num">→</span><span class="step-text">API Call</span></div>
+        <div class="flow-step"><span class="step-num">→</span><span class="step-text">Tool 執行（若有）→ 迴圈</span></div>
+        <div class="flow-step"><span class="step-num">→</span><span class="step-text">顯示回應 → 存入 SessionDB</span></div>
+      </div>
+
+      <div class="flow-card">
+        <div class="flow-card-title" style="color:var(--accent2)">📡 Gateway Message</div>
+        <div class="flow-step"><span class="step-num">01</span><span class="step-text">平台事件觸發</span></div>
+        <div class="flow-step"><span class="step-num">→</span><span class="step-text">Adapter.on_message()</span></div>
+        <div class="flow-step"><span class="step-num">→</span><span class="step-text">GatewayRunner 授權使用者</span></div>
+        <div class="flow-step"><span class="step-num">→</span><span class="step-text">解析 Session Key</span></div>
+        <div class="flow-step"><span class="step-num">→</span><span class="step-text">建立 AIAgent（含歷史）</span></div>
+        <div class="flow-step"><span class="step-num">→</span><span class="step-text">AIAgent.run_conversation()</span></div>
+        <div class="flow-step"><span class="step-num">→</span><span class="step-text">透過 Adapter 回傳結果</span></div>
+      </div>
+
+      <div class="flow-card">
+        <div class="flow-card-title" style="color:var(--accent3)">⏰ Cron Job</div>
+        <div class="flow-step"><span class="step-num">01</span><span class="step-text">Scheduler tick</span></div>
+        <div class="flow-step"><span class="step-num">→</span><span class="step-text">載入到期任務 jobs.json</span></div>
+        <div class="flow-step"><span class="step-num">→</span><span class="step-text">建立全新 AIAgent（無歷史）</span></div>
+        <div class="flow-step"><span class="step-num">→</span><span class="step-text">注入附加技能為 context</span></div>
+        <div class="flow-step"><span class="step-num">→</span><span class="step-text">執行任務 Prompt</span></div>
+        <div class="flow-step"><span class="step-num">→</span><span class="step-text">輸出到目標平台</span></div>
+        <div class="flow-step"><span class="step-num">→</span><span class="step-text">更新 next_run 狀態</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats">
+    <div class="stat-card">
+      <span class="stat-num">~10.7K</span>
+      <span class="stat-label">AIAgent 行數</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-num">47</span>
+      <span class="stat-label">內建工具</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-num">18</span>
+      <span class="stat-label">平台 Adapter</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-num">6</span>
+      <span class="stat-label">終端後端</span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
