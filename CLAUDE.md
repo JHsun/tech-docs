@@ -50,6 +50,14 @@ index.html                            → 自動生成，勿手動編輯
 - 色彩分類：blue/green/yellow/red/cyan/purple 漸層頂邊
 - 語言：繁體中文
 
+### Mermaid 圖表
+
+- 共用本地 mermaid.min.js：`reports/[category]/shared/mermaid.min.js`，符合離線閱讀需求（不依賴 CDN）
+- **HTML labels 必須用 entities 寫**：`&lt;br/&gt;`、`&lt;b&gt;`、`&lt;i&gt;`，否則 textContent 剝離後重渲染（例如切主題）會炸成單行
+- 用 `dataset.source = textContent`（不是 `innerHTML`）儲存原始 source — 避開 XSS 安全 hook，且確保重渲染拿得到原始 mermaid source
+- 雙主題重渲染：`toggleTheme()` 內呼叫 `renderMermaid()`；`getMermaidConfig(theme)` 提供 light/dark themeVariables
+- 參考實作：`reports/proxy-guide/06-proxy-guide-part-5-ai-era.html`（CSS、script、figure 包裝範例齊全）
+
 ### Git
 
 - Commit message 使用英文

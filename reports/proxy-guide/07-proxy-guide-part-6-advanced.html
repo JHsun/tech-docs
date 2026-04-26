@@ -1,0 +1,1840 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Part VI — 進階架構 · Proxy 完全教科書</title>
+<meta name="description" content="Proxy 完全教科書 Part VI：MASQUE（CONNECT-UDP / CONNECT-IP）、HTTP/3-only proxy、後量子密碼學（X25519MLKEM768）、Kubernetes Gateway API、eBPF / Cilium、edge computing、Zero Trust、IPv6-only — 2026-2030 reverse proxy 工程師的前沿議題。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,900;1,400;1,700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=Noto+Serif+TC:wght@300;400;500;600;700;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root[data-theme="light"]{--bg:#faf8f3;--bg-elevated:#fff;--bg-subtle:#f3efe6;--bg-code:#f5f0e3;--border:#e0d8c4;--border-strong:#b8ad95;--text:#1c1917;--text-muted:#57534e;--text-dim:#8b8578;--accent:#7c2d12;--accent-soft:#fef0e6;--accent-2:#d97706;--link:#7c2d12;--link-hover:#9a3412;--shadow:0 1px 3px rgba(28,25,23,.06),0 8px 24px rgba(28,25,23,.04);--shadow-strong:0 4px 12px rgba(28,25,23,.08),0 24px 48px rgba(28,25,23,.06);--rule:rgba(28,25,23,.12);--paper-grain:rgba(124,45,18,.015);--table-stripe:rgba(124,45,18,.025);--code-keyword:#7c2d12;--code-string:#15803d;--code-comment:#a16207;--code-number:#9333ea;--diagram-bg:#fbfaf6}
+:root[data-theme="dark"]{--bg:#1a1614;--bg-elevated:#211c19;--bg-subtle:#25201d;--bg-code:#14110f;--border:#2e2823;--border-strong:#4a4138;--text:#e7e5e4;--text-muted:#b8b1a8;--text-dim:#8a8278;--accent:#fb923c;--accent-soft:rgba(251,146,60,.10);--accent-2:#fbbf24;--link:#fb923c;--link-hover:#fdba74;--shadow:0 4px 12px rgba(0,0,0,.3);--shadow-strong:0 8px 32px rgba(0,0,0,.5);--rule:rgba(231,229,228,.12);--paper-grain:rgba(251,146,60,.02);--table-stripe:rgba(251,146,60,.04);--code-keyword:#fb923c;--code-string:#86efac;--code-comment:#facc15;--code-number:#c084fc;--diagram-bg:#1f1a17}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:80px;font-size:16px}
+body{font-family:"Noto Serif TC","Source Serif 4",Georgia,serif;background:var(--bg);color:var(--text);line-height:1.85;font-feature-settings:"kern","liga","palt";-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;transition:background .3s,color .3s;background-image:radial-gradient(var(--paper-grain) 1px,transparent 1px),radial-gradient(var(--paper-grain) 1px,transparent 1px);background-size:24px 24px,32px 32px;background-position:0 0,12px 16px}
+.topbar{position:sticky;top:0;z-index:100;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid var(--rule)}
+.topbar-inner{max-width:1280px;margin:0 auto;padding:14px 32px;display:flex;align-items:center;justify-content:space-between;gap:24px}
+.brand{display:flex;align-items:center;gap:12px;text-decoration:none;color:var(--text)}
+.brand-mark{width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-family:"Playfair Display",serif;font-style:italic;font-weight:900;font-size:22px;color:var(--accent);border:1.5px solid var(--accent);border-radius:2px;letter-spacing:-.05em}
+.brand-text{font-family:"Playfair Display",serif;font-weight:700;font-size:16px;display:none}
+.brand-text em{font-weight:400;font-size:12px;font-style:italic;color:var(--text-muted);display:block;margin-top:-2px}
+@media (min-width:640px){.brand-text{display:block}}
+.topbar-actions{display:flex;align-items:center;gap:8px}
+.topbar-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:"Inter",sans-serif;font-size:13px;font-weight:500;cursor:pointer;transition:all .2s;text-decoration:none}
+.topbar-btn:hover{border-color:var(--accent);color:var(--accent)}
+.topbar-btn svg{width:14px;height:14px}
+.part-hero{max-width:920px;margin:0 auto;padding:80px 32px 48px;text-align:center}
+.part-hero-num{font-family:"Playfair Display",serif;font-style:italic;font-weight:400;font-size:.95rem;letter-spacing:.3em;text-transform:uppercase;color:var(--accent);margin-bottom:16px}
+.part-hero-title{font-family:"Playfair Display","Noto Serif TC",serif;font-weight:700;font-size:clamp(2.5rem,5vw,4rem);line-height:1.1;letter-spacing:-.025em;margin-bottom:12px}
+.part-hero-en{font-family:"Playfair Display",serif;font-style:italic;font-weight:400;font-size:1.15rem;color:var(--text-muted);margin-bottom:32px}
+.part-hero-rule{width:60px;height:1px;background:var(--accent);margin:24px auto;position:relative}
+.part-hero-rule::before,.part-hero-rule::after{content:"";position:absolute;top:50%;width:4px;height:4px;background:var(--accent);border-radius:50%;transform:translateY(-50%)}
+.part-hero-rule::before{left:-10px}
+.part-hero-rule::after{right:-10px}
+.part-hero-tagline{font-family:"Source Serif 4",serif;font-style:italic;font-size:1.1rem;color:var(--text-muted);max-width:580px;margin:0 auto;line-height:1.8}
+.part-hero-badge{display:inline-block;font-family:"Inter",sans-serif;font-size:11px;font-weight:600;letter-spacing:.15em;text-transform:uppercase;color:var(--accent-2);border:1px solid var(--accent-2);padding:4px 12px;border-radius:2px;margin-bottom:16px}
+main{max-width:760px;margin:0 auto;padding:0 32px 96px}
+.chapter{margin-bottom:96px;scroll-margin-top:80px}
+.ch-header{margin-bottom:40px;padding-bottom:24px;border-bottom:2px solid var(--text)}
+.ch-marker{font-family:"Playfair Display",serif;font-style:italic;font-weight:400;font-size:.85rem;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);margin-bottom:8px}
+.ch-title{font-family:"Playfair Display","Noto Serif TC",serif;font-weight:700;font-size:clamp(1.8rem,3.6vw,2.6rem);line-height:1.15;letter-spacing:-.02em;margin-bottom:16px}
+.ch-deck{font-family:"Source Serif 4","Noto Serif TC",serif;font-style:italic;font-size:1.1rem;color:var(--text-muted);line-height:1.7}
+.ch-prose p{font-size:1.04rem;line-height:1.9;margin-bottom:1.4em;color:var(--text);text-align:justify;hyphens:auto}
+.ch-prose .first-p::first-letter{font-family:"Playfair Display",serif;font-size:4.4em;font-weight:700;float:left;line-height:.85;margin:6px 12px 0 0;color:var(--accent)}
+.ch-prose strong{color:var(--text);font-weight:700;background:linear-gradient(transparent 65%,var(--accent-soft) 65%);padding:0 2px}
+.ch-prose em{font-style:italic;color:var(--text-muted)}
+.ch-prose code{font-family:"JetBrains Mono",monospace;font-size:.88em;background:var(--bg-code);padding:2px 6px;border:1px solid var(--border);border-radius:3px;color:var(--accent)}
+.ch-prose a{color:var(--link);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--accent) 30%,transparent);text-underline-offset:3px;transition:text-decoration-color .2s}
+.ch-prose a:hover{text-decoration-color:var(--accent)}
+.ch-prose ul,.ch-prose ol{margin:16px 0 24px 0;padding-left:28px}
+.ch-prose li{margin-bottom:10px;line-height:1.8}
+.ch-prose ul li::marker{color:var(--accent)}
+.ch-prose ol li::marker{color:var(--accent);font-style:italic;font-weight:700}
+h3.section-h{font-family:"Playfair Display","Noto Serif TC",serif;font-weight:600;font-size:1.6rem;letter-spacing:-.01em;margin:56px 0 16px;padding-left:0;position:relative;scroll-margin-top:80px}
+h3.section-h::before{content:"§";font-family:"Playfair Display",serif;font-style:italic;color:var(--accent);margin-right:12px;font-weight:400}
+h4.subsection-h{font-family:"Source Serif 4","Noto Serif TC",serif;font-weight:700;font-size:1.15rem;margin:36px 0 12px;color:var(--text)}
+h4.subsection-h::before{content:"▸";color:var(--accent);margin-right:8px;font-size:.9em}
+.callout{border-left:3px solid var(--accent);padding:18px 22px;background:var(--accent-soft);margin:28px 0;border-radius:0 3px 3px 0}
+.callout-label{font-family:"Inter",sans-serif;font-size:10px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);margin-bottom:6px}
+.callout p{margin:0 0 .8em 0;font-size:.97rem;line-height:1.75}
+.callout ul.key-points{margin:0;padding-left:0;list-style:none}
+.callout ul.key-points li{margin:0 0 .65em 0;padding-left:20px;position:relative;font-size:.97rem;line-height:1.75}
+.callout ul.key-points li::before{content:"›";position:absolute;left:0;top:0;color:var(--accent);font-weight:700;font-size:1.15em;line-height:1.4}
+.callout ul.key-points li:last-child{margin-bottom:0}
+.callout p + ul.key-points{margin-top:.5em}
+.callout p:last-child{margin-bottom:0}
+.callout.note{border-color:var(--text-muted);background:var(--bg-subtle)}
+.callout.note .callout-label{color:var(--text-muted)}
+.callout.history{border-color:var(--accent-2);background:color-mix(in srgb,var(--accent-2) 8%,transparent)}
+.callout.history .callout-label{color:var(--accent-2)}
+.callout.warn{border-color:#b91c1c;background:rgba(185,28,28,.06)}
+:root[data-theme="dark"] .callout.warn{border-color:#f87171;background:rgba(248,113,113,.08)}
+.callout.warn .callout-label{color:#b91c1c}
+:root[data-theme="dark"] .callout.warn .callout-label{color:#f87171}
+.figure{margin:36px 0}
+.mermaid-wrap{background:var(--diagram-bg);border:1px solid var(--border);border-radius:6px;padding:24px 16px;position:relative;overflow-x:auto}
+.mermaid{display:flex;justify-content:center;font-family:"Inter",sans-serif!important;min-width:0}
+.mermaid svg{max-width:100%;height:auto}
+.diagram-label{font-family:"Inter",sans-serif;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--text-dim);font-weight:600;margin-bottom:12px;text-align:center}
+.figure-caption{text-align:center;font-family:"Source Serif 4","Noto Serif TC",serif;font-style:italic;font-size:.9rem;color:var(--text-muted);margin-top:8px}
+.figure-caption strong{font-style:normal;color:var(--accent);font-weight:600;margin-right:6px}
+.table-wrap{overflow-x:auto;margin:28px 0;border:1px solid var(--border);border-radius:4px;background:var(--bg-elevated)}
+table{width:100%;border-collapse:collapse;font-size:.92rem}
+th{font-family:"Inter",sans-serif;background:var(--bg-subtle);padding:12px 14px;text-align:left;font-weight:600;font-size:.78rem;letter-spacing:.05em;text-transform:uppercase;color:var(--accent);border-bottom:2px solid var(--border-strong)}
+td{padding:12px 14px;border-bottom:1px solid var(--border);vertical-align:top;line-height:1.6}
+tr:last-child td{border-bottom:none}
+tr:nth-child(even) td{background:var(--table-stripe)}
+td code{font-size:.82rem}
+.epigraph{font-family:"Source Serif 4","Noto Serif TC",serif;font-style:italic;font-size:1rem;color:var(--text-muted);border-left:2px solid var(--accent);padding:8px 0 8px 24px;margin:32px 0;line-height:1.75}
+.epigraph cite{display:block;margin-top:12px;font-style:normal;font-size:.85rem;color:var(--text-dim);letter-spacing:.05em}
+.epigraph cite::before{content:"— ";color:var(--accent)}
+.ref{font-family:"Inter",sans-serif;font-size:.7em;font-feature-settings:"sups" 1;vertical-align:super;color:var(--accent);text-decoration:none;margin-left:1px}
+.footnotes{font-size:.85rem;color:var(--text-dim);line-height:1.7;margin:48px 0 24px;padding-top:24px;border-top:1px solid var(--rule)}
+.code-block{background:var(--bg-code);border:1px solid var(--border);padding:20px 24px;border-radius:4px;font-family:"JetBrains Mono",monospace;font-size:12.5px;line-height:1.6;overflow-x:auto;margin:8px 0;color:var(--text);position:relative;white-space:pre}
+.code-label{display:block;font-family:"Inter",sans-serif;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--text-dim);font-weight:600;margin-bottom:-6px;font-style:normal}
+.code-block .kw{color:var(--code-keyword);font-weight:600}
+.code-block .str{color:var(--code-string)}
+.code-block .com{color:var(--code-comment);font-style:italic}
+.code-block .num{color:var(--code-number)}
+.code-block .hex{color:var(--code-number);font-weight:600}
+.code-caption{text-align:center;font-family:"Source Serif 4","Noto Serif TC",serif;font-style:italic;font-size:.9rem;color:var(--text-muted);margin-top:8px}
+.code-caption strong{font-style:normal;color:var(--accent);font-weight:600;margin-right:6px}
+.ch-end{margin:72px 0 0;padding-top:32px;border-top:1px solid var(--rule);text-align:center}
+.ch-end-mark{font-family:"Playfair Display",serif;color:var(--accent);font-size:1.4rem;font-style:italic}
+.section-rule{width:100%;height:1px;background:var(--rule);margin:64px 0;position:relative}
+.section-rule::before{content:"❦";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--bg);padding:0 16px;color:var(--accent);font-size:14px}
+.coming-soon{background:var(--bg-subtle);border:1px dashed var(--border-strong);padding:32px;border-radius:4px;margin:48px 0;text-align:center}
+.coming-soon-label{font-family:"Inter",sans-serif;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:12px}
+.coming-soon h4{font-family:"Playfair Display","Noto Serif TC",serif;font-weight:700;font-size:1.4rem;margin-bottom:8px}
+.coming-soon p{font-style:italic;color:var(--text-muted);font-size:.95rem;margin:0}
+.part-end{text-align:center;padding:80px 32px 40px;margin-top:48px;border-top:2px solid var(--text);background:linear-gradient(to bottom,var(--bg-subtle),transparent)}
+.part-end-mark{font-family:"Playfair Display",serif;font-size:3rem;color:var(--accent);line-height:1;margin-bottom:24px}
+.part-end-label{font-family:"Inter",sans-serif;font-size:11px;font-weight:700;letter-spacing:.3em;text-transform:uppercase;color:var(--accent);margin-bottom:16px}
+.part-end-text{font-family:"Playfair Display","Noto Serif TC",serif;font-weight:700;font-size:1.8rem;line-height:1.3;margin-bottom:8px}
+.part-end-text em{font-style:italic;font-weight:400;font-size:1.1rem;color:var(--text-muted);display:block;margin-top:4px}
+.part-end-stats{font-family:"Inter",sans-serif;font-size:12px;letter-spacing:.1em;color:var(--text-dim);margin-top:24px}
+footer{border-top:2px solid var(--text);padding:64px 32px;margin-top:64px;text-align:center;background:var(--bg-subtle)}
+.foot-nav{display:flex;justify-content:space-between;max-width:760px;margin:0 auto 32px;gap:16px;flex-wrap:wrap}
+.foot-nav a{font-family:"Inter",sans-serif;font-size:13px;font-weight:500;color:var(--text);text-decoration:none;padding:10px 18px;border:1px solid var(--border);border-radius:4px;transition:all .2s}
+.foot-nav a:hover{border-color:var(--accent);color:var(--accent)}
+.foot-nav a.disabled{opacity:.4;pointer-events:none}
+.foot-nav .nav-label{display:block;font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--text-dim);margin-bottom:2px}
+.colophon-mini{font-family:"Source Serif 4",serif;font-style:italic;font-size:.85rem;color:var(--text-dim);margin-top:24px}
+.totop{position:fixed;bottom:24px;right:24px;width:44px;height:44px;background:var(--accent);color:var(--bg);display:flex;align-items:center;justify-content:center;border-radius:50%;text-decoration:none;font-size:18px;box-shadow:var(--shadow-strong);opacity:0;pointer-events:none;transition:opacity .3s,transform .2s;z-index:50;cursor:pointer;border:none}
+.totop.visible{opacity:1;pointer-events:auto}
+.totop:hover{transform:translateY(-3px)}
+.progress-bar{position:fixed;top:0;left:0;height:2px;background:var(--accent);width:0%;z-index:200;transition:width .1s linear}
+.side-toc{position:fixed;right:24px;top:50%;transform:translateY(-50%);z-index:40;display:none;font-family:"Inter",sans-serif;font-size:11px;letter-spacing:.05em;max-width:200px}
+@media (min-width:1280px){.side-toc{display:block}}
+.side-toc-title{text-transform:uppercase;letter-spacing:.18em;color:var(--text-dim);font-size:9px;margin-bottom:10px;padding-left:12px;font-weight:600}
+.side-toc-list{list-style:none;border-left:1px solid var(--border);padding:0;margin:0}
+.side-toc-list li{margin:0;padding:0}
+.side-toc-list a{display:block;padding:5px 12px;color:var(--text-muted);text-decoration:none;border-left:2px solid transparent;margin-left:-1px;line-height:1.4;transition:all .2s}
+.side-toc-list a:hover{color:var(--accent)}
+.side-toc-list a.active{color:var(--accent);border-left-color:var(--accent);font-weight:600}
+@media (max-width:768px){.topbar-inner{padding:12px 20px}.part-hero{padding:56px 20px 32px}main{padding:0 20px 64px}.ch-prose p{font-size:1rem}.ch-prose .first-p::first-letter{font-size:3.4em}.code-block{font-size:10.5px;padding:14px 16px}th,td{padding:10px 10px;font-size:.85rem}}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+</style>
+</head>
+<body>
+
+<div class="progress-bar" id="progress"></div>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a href="01-proxy-guide-index.html" class="brand">
+      <div class="brand-mark">P</div>
+      <div class="brand-text">
+        Proxy Handbook
+        <em>Part VI · 進階架構</em>
+      </div>
+    </a>
+    <div class="topbar-actions">
+      <a href="01-proxy-guide-index.html" class="topbar-btn" title="回到目錄">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+        <span>目錄</span>
+      </a>
+      <button class="topbar-btn" onclick="toggleTheme()" aria-label="切換主題">
+        <svg id="theme-icon" viewBox="0 0 24 24" fill="currentColor"></svg>
+        <span id="theme-label">LIGHT</span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<section class="part-hero" id="top">
+  <div class="part-hero-num">PART VI</div>
+  <h1 class="part-hero-title">進階架構</h1>
+  <p class="part-hero-en">Advanced Architecture &amp; Frontiers</p>
+  <div class="part-hero-rule"></div>
+  <p class="part-hero-tagline">
+    MASQUE、後量子密碼學、Kubernetes Gateway API、eBPF、<br>
+    edge computing — 2026-2030 reverse proxy 工程師的前沿議題。
+  </p>
+</section>
+
+<aside class="side-toc" id="sideToc">
+  <div class="side-toc-title">本 PART 章節</div>
+  <ul class="side-toc-list">
+    <li><a href="#ch47">Ch.47 · MASQUE 全解構</a></li>
+    <li><a href="#ch48">Ch.48 · HTTP/3-only Proxy</a></li>
+    <li><a href="#ch49">Ch.49 · 後量子密碼學</a></li>
+    <li><a href="#ch50">Ch.50 · K8s Gateway + eBPF</a></li>
+    <li><a href="#ch51">Ch.51 · Edge Computing</a></li>
+    <li><a href="#ch52">Ch.52 · Zero Trust 與 IPv6</a></li>
+  </ul>
+</aside>
+
+<main>
+
+<!-- ============================================================ -->
+<!-- CHAPTER 47 — MASQUE 全解構                                      -->
+<!-- ============================================================ -->
+<article class="chapter" id="ch47">
+  <header class="ch-header">
+    <div class="ch-marker">Chapter 47</div>
+    <h2 class="ch-title">MASQUE 全解構<br><em style="font-style:italic;font-weight:400;font-size:.65em;color:var(--text-muted)">CONNECT-UDP、CONNECT-IP、巢狀隧道與 Apple iCloud Private Relay</em></h2>
+    <p class="ch-deck">2024-2026 年最重要的 proxy 技術躍進是 MASQUE — 把 HTTP 從「<em>能 proxy TCP</em>」擴展到「<em>能 proxy UDP / IP / Ethernet</em>」。本章解構 IETF MASQUE WG、RFC 9298 (CONNECT-UDP)、RFC 9484 (CONNECT-IP)、RFC 9221 (HTTP Datagrams)，以及 Apple iCloud Private Relay 與 Cloudflare WARP 的真實部署。</p>
+  </header>
+  <div class="ch-prose">
+    <p class="first-p">
+      Part I-V 大量討論了 reverse proxy、forward proxy、AI Gateway。但有個<em>結構性</em>限制一直存在：<strong>HTTP 的 CONNECT 方法只能 proxy TCP</strong>。當 QUIC（UDP-based）成為主流、WebRTC 普及、IoT 與 VPN 場景需要 IP 級 tunnel 時，傳統 CONNECT 不夠用。<strong>MASQUE</strong>（Multiplexed Application Substrate over QUIC Encryption）是 IETF 對這個問題的回應 — 一套讓 HTTP 能 proxy UDP、IP、甚至 Ethernet frame 的協定家族。本章是 Part VI 的起點，幫你理解 MASQUE 為何重要、怎麼運作、以及 Apple、Cloudflare 等已經在用它做什麼。
+    </p>
+
+    <h3 class="section-h" id="s47-1">47.1 — 為何需要 MASQUE：CONNECT 的限制</h3>
+
+    <p>HTTP CONNECT 方法（RFC 2817, 2000）原本是為 TLS 而設計 — 讓 forward proxy 能<em>盲目轉發</em> TLS 流量到目標伺服器。一旦 CONNECT tunnel 建立，proxy 只能看到加密的 byte stream，無法解析 TLS 內容。CONNECT 也成為 HTTP 唯一能<em>proxy 任意 TCP 協定</em>的機制。</p>
+
+    <h4 class="subsection-h">CONNECT 的三大限制</h4>
+    <ul>
+      <li><strong>只能 proxy TCP</strong>：UDP、IP、Ethernet frame 都不行</li>
+      <li><strong>每個目標一個 TCP 連線</strong>：無法在單一 HTTP 連線上多工多個 tunnel</li>
+      <li><strong>對 QUIC 不友好</strong>：QUIC 跑在 UDP 上，CONNECT 無法直接 proxy</li>
+    </ul>
+
+    <h4 class="subsection-h">QUIC / HTTP/3 改變一切</h4>
+    <p>2022 年 HTTP/3（RFC 9114）標準化。HTTP/3 跑在 QUIC 上，QUIC 跑在 UDP 上。當 web 流量從 TCP 轉向 UDP，proxy 工程師面對尷尬問題：</p>
+
+    <ul>
+      <li>用 CONNECT 把 QUIC 當「<em>UDP datagram</em>」proxy？CONNECT 不支援 UDP</li>
+      <li>把 QUIC tunneled in TCP？破壞 QUIC 的設計（congestion control 干擾）</li>
+      <li>用 SOCKS5？舊協定、不在 HTTP 生態</li>
+    </ul>
+
+    <p>解法：<strong>讓 HTTP 本身能 proxy UDP</strong>。MASQUE 應運而生。</p>
+
+    <h3 class="section-h" id="s47-2">47.2 — MASQUE 完整協定家族</h3>
+
+    <p>MASQUE 不是單一 RFC，而是一系列相關規格：</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>規格</th><th>狀態</th><th>內容</th></tr></thead>
+        <tbody>
+          <tr><td><strong>RFC 9221（2022/03）</strong></td><td>Standard</td><td>QUIC 的<em>不可靠 datagram extension</em>（DATAGRAM frame）</td></tr>
+          <tr><td><strong>RFC 9297（2022/08）</strong></td><td>Standard</td><td><strong>HTTP Datagrams + Capsule Protocol</strong>（HTTP 層的 datagram 抽象）</td></tr>
+          <tr><td><strong>RFC 9298（2022/08）</strong></td><td>Standard</td><td><strong>CONNECT-UDP</strong>（Proxying UDP in HTTP）</td></tr>
+          <tr><td><strong>RFC 9484（2023/10）</strong></td><td>Standard</td><td><strong>CONNECT-IP</strong>（Proxying IP in HTTP）</td></tr>
+          <tr><td><strong>RFC 9729（2025/02）</strong></td><td>Standard</td><td>Concealed HTTP Authentication（讓 MASQUE proxy 與普通 web server 無法區分）</td></tr>
+          <tr><td>draft-ietf-masque-connect-udp-listen-11</td><td>Draft（2026/01）</td><td><strong>CONNECT-UDP-Bind</strong>（peer-to-peer 場景如 WebRTC）</td></tr>
+          <tr><td>draft-ietf-masque-connect-ethernet-08</td><td>Draft（2025/10）</td><td><strong>CONNECT-Ethernet</strong>（L2 frame proxying）</td></tr>
+          <tr><td>draft-ietf-masque-quic-proxy</td><td>Draft</td><td><strong>QUIC Aware Forwarding</strong>（壓縮 connection ID、優化 QUIC over QUIC proxying）</td></tr>
+          <tr><td>draft-westerlund-masque-connect-udp-ecn-dscp-01</td><td>Draft（2025/10）</td><td>ECN + DSCP 支援</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p><strong>2022 年是 MASQUE 元年</strong> — RFC 9221、9297、9298 三個基礎規格在當年釋出。RFC 9484 (CONNECT-IP) 在 2023/10 跟進。2024-2026 年 IETF MASQUE WG 持續擴展（CONNECT-Ethernet、CONNECT-UDP-Bind、ECN/DSCP 等）。</p>
+
+    <h3 class="section-h" id="s47-3">47.3 — HTTP Datagrams 與 Capsule Protocol（RFC 9297）</h3>
+
+    <p>MASQUE 的基礎是<strong>HTTP Datagrams</strong> — 在 HTTP 層提供「<em>不可靠訊息</em>」抽象。傳統 HTTP 訊息是 reliable byte stream（為 TCP 設計）；HTTP Datagrams 加入<em>不可靠 message-oriented</em> 替代。</p>
+
+    <h4 class="subsection-h">為何需要不可靠</h4>
+    <p>UDP 流量（如 QUIC、DNS、WebRTC、即時音視訊）<em>本來就不需要可靠</em>。把它們 tunnel 在 reliable HTTP stream 中會：</p>
+
+    <ul>
+      <li>引入<em>不必要的</em>重傳延遲</li>
+      <li>congestion control 雙層干擾（外層 + 內層 QUIC）</li>
+      <li>head-of-line blocking</li>
+    </ul>
+
+    <p>HTTP Datagrams 透過<strong>HTTP/3 + QUIC DATAGRAM frame</strong>解決：DATAGRAM 不會被 retransmit，丟了就丟了，與 UDP 行為一致。對 HTTP/1.1 與 HTTP/2，HTTP Datagrams 透過 <strong>Capsule Protocol</strong>退回到 reliable stream（次優但能工作）。</p>
+
+    <h4 class="subsection-h">Capsule Protocol</h4>
+    <p>Capsule 是 HTTP body 中的「<em>結構化訊息</em>」。每個 capsule 有 type + length + value（TLV 編碼）。CONNECT-UDP / CONNECT-IP 用 capsule 傳遞控制訊息（如建立 UDP association、調整 route）。</p>
+
+    <pre class="code-block"><span class="code-label">Capsule 結構（簡化）</span>┌──────────────┬──────────────┬─────────────────┐
+│  Type        │  Length      │  Value          │
+│  (varint)    │  (varint)    │  (variable)     │
+└──────────────┴──────────────┴─────────────────┘
+
+範例 capsule type:
+  • DATAGRAM           — 包裝 UDP/IP datagram
+  • COMPRESSION_ASSIGN — 註冊 context ID 用於壓縮
+  • COMPRESSION_ACK    — 確認 context ID
+  • ROUTE_ADVERTISEMENT — 通告 IP route
+  • ADDRESS_ASSIGN     — 分配 IP address</pre>
+
+    <h3 class="section-h" id="s47-4">47.4 — CONNECT-UDP（RFC 9298）</h3>
+
+    <p>CONNECT-UDP 讓 client 透過 HTTP 請求 proxy 開啟一個 UDP socket 到目標伺服器，後續 UDP datagram 透過 HTTP Datagram 雙向傳遞。</p>
+
+    <h4 class="subsection-h">建立 UDP tunnel 的 HTTP/3 範例</h4>
+
+    <pre class="code-block"><span class="code-label">CONNECT-UDP 請求（HTTP/3）</span><span class="com"># Client 發出 Extended CONNECT</span>
+HEADERS frame:
+  :method = CONNECT
+  :protocol = connect-udp
+  :scheme = https
+  :path = /.well-known/masque/udp/192.0.2.1/443/
+  :authority = proxy.example.org
+  capsule-protocol = ?1
+
+<span class="com"># Proxy 回應</span>
+HEADERS frame:
+  :status = 200
+  capsule-protocol = ?1
+
+<span class="com"># 從此 Client 與 Proxy 之間用 HTTP DATAGRAM frame 雙向傳 UDP payload</span>
+<span class="com"># Proxy 把 DATAGRAM payload 用真實 UDP socket 送到 192.0.2.1:443</span>
+<span class="com"># 反向亦然：UDP 回應包成 DATAGRAM frame 送回 client</span></pre>
+
+    <h4 class="subsection-h">關鍵設計</h4>
+    <ul>
+      <li><strong>URI Template</strong>：<code>/.well-known/masque/udp/{host}/{port}/</code>明示目標</li>
+      <li><strong>Extended CONNECT（RFC 8441 / 9220）</strong>：HTTP/2 與 HTTP/3 的擴展</li>
+      <li><strong>HTTP Datagram</strong>：UDP payload 用 DATAGRAM frame 傳，不是 reliable stream</li>
+      <li><strong>每個 stream 一個 UDP association</strong>：HTTP/2/3 多工讓單一連線能開多個 UDP tunnel</li>
+      <li><strong>HTTP/1.1 也支援</strong>（用 HTTP Upgrade + Capsule Protocol，效能較差）</li>
+    </ul>
+
+    <h3 class="section-h" id="s47-5">47.5 — CONNECT-IP（RFC 9484）</h3>
+
+    <p>CONNECT-IP 把 proxy 範圍從 UDP 擴展到<em>整個 IP 層</em>。Client 不指定目標 host:port，而是請求 proxy 處理任意 IP 封包 — 這基本上是「<em>HTTP-based VPN</em>」。</p>
+
+    <h4 class="subsection-h">使用場景</h4>
+    <ul>
+      <li><strong>Remote access VPN</strong>：取代 OpenVPN、IPsec、WireGuard</li>
+      <li><strong>Site-to-site VPN</strong></li>
+      <li><strong>Secure point-to-point communication</strong></li>
+      <li><strong>通用封包 tunnel</strong></li>
+    </ul>
+
+    <h4 class="subsection-h">CONNECT-IP 的核心 capsule</h4>
+    <ul>
+      <li><strong>ADDRESS_ASSIGN</strong>：proxy 分配 IP 給 client</li>
+      <li><strong>ROUTE_ADVERTISEMENT</strong>：proxy 通告哪些路由可達</li>
+      <li><strong>DATAGRAM</strong>：包裝 IPv4 / IPv6 封包</li>
+    </ul>
+
+    <p>Client 收到 ADDRESS_ASSIGN 後設定 virtual interface（如 TUN device），把<em>整個系統流量</em>導向這個介面。Proxy 端則把收到的 IP 封包<em>實際發送出去</em>，回應再包回 DATAGRAM。這就是 VPN。</p>
+
+    <h3 class="section-h" id="s47-6">47.6 — 巢狀 MASQUE 隧道：partition 信任</h3>
+
+    <p>MASQUE 最強大的設計之一：<strong>巢狀 tunnel</strong> — 流量穿過<em>多個</em> MASQUE proxy，每個 proxy 只看到部分資訊。</p>
+
+    <div class="figure">
+      <div class="mermaid-wrap">
+        <div class="diagram-label">Figure 47.2 · 巢狀 MASQUE 隧道</div>
+        <pre class="mermaid">
+flowchart LR
+    A["&lt;b&gt;Client (Alice)&lt;/b&gt;&lt;br/&gt;&lt;i&gt;HTTP/3 → Proxy A&lt;br/&gt;Inner: HTTP/3 → Proxy B (tunneled)&lt;br/&gt;Inner-Inner: HTTP/3 → web.com&lt;/i&gt;"]
+    PA["&lt;b&gt;Proxy A&lt;/b&gt;&lt;br/&gt;&lt;i&gt;看見: Alice IP&lt;br/&gt;不知最終目標&lt;/i&gt;"]
+    PB["&lt;b&gt;Proxy B&lt;/b&gt;&lt;br/&gt;&lt;i&gt;看見: web.com 目標&lt;br/&gt;不知 Alice 是誰&lt;/i&gt;"]
+    O["&lt;b&gt;Origin (web.com)&lt;/b&gt;&lt;br/&gt;&lt;i&gt;看見: 來源是 Proxy B&lt;br/&gt;與 Alice 完全無關&lt;/i&gt;"]
+    A --&gt; PA
+    PA -- "CONNECT-UDP to Proxy B" --&gt; PB
+    PB -- "外網 to web.com" --&gt; O
+        </pre>
+      </div>
+      <div class="figure-caption"><strong>圖 47.2</strong>　巢狀 MASQUE：每個 proxy 只看到部分資訊，達成「partition 信任」— 沒有單一節點知道完整路徑。</div>
+    </div>
+
+    <p>關鍵性質：</p>
+
+    <ul>
+      <li><strong>Proxy A 看見</strong>：Alice 的真實 IP，但只看到「<em>她在連 Proxy B</em>」 — <em>不知</em>她最終要去 web.com</li>
+      <li><strong>Proxy B 看見</strong>：目標是 web.com，但只看到「<em>請求來自 Proxy A</em>」 — <em>不知</em> Alice 是誰</li>
+      <li><strong>web.com 看見</strong>：來源 IP 是 Proxy B，與 Alice 完全無關</li>
+    </ul>
+
+    <p>如果 Proxy A 與 Proxy B 是<em>非合謀</em>（non-colluding）的不同營運者，則<strong>沒有任何單一實體能同時看到「<em>誰</em>」與「<em>去哪</em>」</strong>。這是 MASQUE 給隱私的根本貢獻。</p>
+
+    <h3 class="section-h" id="s47-7">47.7 — Apple iCloud Private Relay：MASQUE-like 雙代理</h3>
+
+    <p>2021 年 WWDC，Apple 公布 <strong>iCloud Private Relay</strong>。架構與 MASQUE 巢狀 tunnel 高度相似：</p>
+
+    <ul>
+      <li><strong>Ingress proxy（Apple）</strong>：看 Alice IP，把流量轉給 egress proxy</li>
+      <li><strong>Egress proxy（合作 CDN：Akamai、Cloudflare、Fastly）</strong>：看目標網址，但收到的來源是 Apple proxy</li>
+      <li>iOS / macOS Safari 流量自動透過此架構</li>
+    </ul>
+
+    <p>Apple 部署時 MASQUE 規格還未 RFC 化，所以實際協定不完全是 MASQUE，但<em>設計理念與架構與 MASQUE 一致</em>。Apple 的工程師（包括 Tommy Pauly、Eric Kinnear）也是 MASQUE WG 主要貢獻者。</p>
+
+    <h4 class="subsection-h">Private Relay 的實際影響</h4>
+    <ul>
+      <li>2022 年起<em>大量</em> iOS 使用者預設啟用 Private Relay</li>
+      <li>網站看到的「Apple 來源 IP」其實是匿名化結果</li>
+      <li>影響 IP-based rate limit、fraud detection、geolocation</li>
+      <li>對<em>網站營運者</em>是新挑戰：怎麼處理已知是合法但 IP 不是真實的流量</li>
+    </ul>
+
+    <h3 class="section-h" id="s47-8">47.8 — Cloudflare WARP 與其他部署</h3>
+
+    <h4 class="subsection-h">Cloudflare WARP（2025-2026 過渡到 MASQUE）</h4>
+    <p>Cloudflare WARP 是 Cloudflare 1.1.1.1 DNS resolver 內建的 VPN 功能，原本用 WireGuard 變種協定。<strong>2025-2026 年 Cloudflare 把 WARP 過渡到 MASQUE</strong> — 用 CONNECT-IP over HTTP/3。</p>
+
+    <ul>
+      <li>WARP MASQUE 整合預設啟用 hybrid X25519MLKEM768（cf. Ch.49）</li>
+      <li>2025/12 加入 PQC，2026 年中進入 Phase 2（拒絕 downgrade）</li>
+      <li>Cloudflare 也是 Apple Private Relay 的 egress proxy 合作方</li>
+    </ul>
+
+    <h4 class="subsection-h">Google：MASQUE 主要推手</h4>
+    <p>David Schinazi（Google）是 RFC 9298、9484、9729 的主作者。Google 的<em>動機</em>明確：</p>
+
+    <ul>
+      <li>Chrome 是全球最大瀏覽器，控制 client side</li>
+      <li>Google Cloud / YouTube / Search 控制大量 server side</li>
+      <li>QUIC 是 Google 推動的標準（2013 開始 QUIC，2021 RFC 9000）</li>
+      <li>MASQUE 是 QUIC 生態的<em>自然延伸</em></li>
+    </ul>
+
+    <h4 class="subsection-h">其他實作</h4>
+    <ul>
+      <li><strong>aioquic（Python）</strong>：QUIC + MASQUE 完整實作，研究與實驗用</li>
+      <li><strong>quiche（Rust，Cloudflare）</strong>：production-grade QUIC + MASQUE</li>
+      <li><strong>quic-go（Go）</strong>：MASQUE 支援逐步加入</li>
+      <li><strong>OpenSSL 3.x</strong>：QUIC 支援，MASQUE 仍待整合</li>
+    </ul>
+
+    <h3 class="section-h" id="s47-9">47.9 — Concealed Authentication（RFC 9729, 2025/02）</h3>
+
+    <p>傳統 proxy 的<em>致命弱點</em>：<strong>能被網路偵測到</strong>。即使 traffic 被加密，「<em>有 proxy 流量</em>」這件事本身就暴露 — 國家級審查、企業 DLP、ISP 限速都能利用這個 metadata。</p>
+
+    <h4 class="subsection-h">Concealed Authentication 的目標</h4>
+    <p>讓 MASQUE proxy 與普通 web server 「<em>無法區分</em>」。如果你能<em>連到</em> proxy，你就能用它；如果你<em>不知道</em> proxy 存在，你看到的是普通網站。</p>
+
+    <ul>
+      <li>Client 不能用「<em>標準</em> Authorization header」要求 proxy（會暴露 proxy 性質）</li>
+      <li>改用<strong>HMAC-based 認證</strong>：client 在 ClientHello 的 ALPS 或某個 header 中嵌入 keyed MAC</li>
+      <li>Server 計算同樣 MAC，<em>匹配就提供 proxy 服務</em>，<em>不匹配就當普通網站</em></li>
+      <li>沒有 keyed MAC 的探測者看到的是「普通網站行為」</li>
+    </ul>
+
+    <p>這個設計讓<em>任何 web server 都能<strong>悄悄</strong>同時是 MASQUE proxy</em>。對審查者，找出 proxy 變得困難 — 你必須<em>事先知道密鑰</em>才能驗證某個域名是不是 proxy。</p>
+
+    <h3 class="section-h" id="s47-10">47.10 — MASQUE 與既有 proxy 工具的關係</h3>
+
+    <p>給 reverse proxy 工程師的整合視野：</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>工具</th><th>2026 年 MASQUE 支援</th></tr></thead>
+        <tbody>
+          <tr><td>Nginx</td><td>無 native 支援（需要 module / 第三方）</td></tr>
+          <tr><td>HAProxy</td><td>無 native 支援</td></tr>
+          <tr><td>Envoy</td><td>HTTP/3 支援，CONNECT-UDP 規劃中</td></tr>
+          <tr><td><strong>Cloudflare（OXY/Pingora）</strong></td><td><strong>完整 production</strong>（WARP / Private Relay 部分）</td></tr>
+          <tr><td>Apple network stack</td><td>iOS / macOS Safari 已用</td></tr>
+          <tr><td>Caddy</td><td>實驗性 plugin</td></tr>
+          <tr><td>aioquic（Python）</td><td>研究與測試用</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>2026 年 MASQUE <em>仍是雲端廠商主導</em>的技術 — Cloudflare、Apple、Google 是主要部署者。傳統開源 proxy（Nginx、HAProxy）尚未 native 支援。對<em>自架 reverse proxy 的中型企業</em>，MASQUE 還不是必須。但對<em>提供消費者 VPN / 隱私服務</em>的廠商，MASQUE 是 2025-2027 年必修。</p>
+
+    <div class="callout">
+      <div class="callout-label">本章要點</div>
+      <ul class="key-points">
+        <li><strong>MASQUE</strong>（Multiplexed Application Substrate over QUIC Encryption）解決傳統 HTTP CONNECT「<em>只能 proxy TCP</em>」的限制，把 HTTP 擴展到能 proxy UDP / IP / Ethernet。</li>
+        <li><strong>核心 RFC</strong>：RFC 9221 (QUIC DATAGRAM, 2022/03)、RFC 9297 (HTTP Datagrams + Capsule Protocol, 2022/08)、RFC 9298 (CONNECT-UDP, 2022/08)、RFC 9484 (CONNECT-IP, 2023/10)、RFC 9729 (Concealed Auth, 2025/02)。</li>
+        <li><strong>2022 是 MASQUE 元年</strong>。</li>
+        <li><strong>HTTP Datagrams</strong>透過 QUIC DATAGRAM frame 提供<em>不可靠</em>訊息（避免 reliable stream 對 UDP 的雙層 congestion 干擾）。</li>
+        <li><strong>CONNECT-UDP</strong>讓 HTTP proxy UDP；<strong>CONNECT-IP</strong>讓 HTTP 變 VPN。</li>
+        <li><strong>巢狀 MASQUE tunnel</strong>partition 信任：兩個非合謀 proxy 各看「<em>誰</em>」與「<em>去哪</em>」一半，沒人看到全貌。</li>
+        <li><strong>Apple iCloud Private Relay（2021）</strong>是首個大規模類 MASQUE 部署；<strong>Cloudflare WARP 2025-2026 過渡到 MASQUE</strong>。</li>
+        <li><strong>Concealed Authentication（RFC 9729）</strong>讓 MASQUE proxy 與普通 web server 無法區分，對抗審查偵測。</li>
+        <li><strong>2026 年 MASQUE 仍是雲端廠商主導</strong>（Google、Apple、Cloudflare），傳統開源 proxy 尚未 native 支援。</li>
+      </ul>
+    </div>
+
+    <div class="footnotes">
+      <a id="fn1"></a><span class="ref">1</span> MASQUE WG 由 IETF 在 2020 年成立。David Schinazi（Google）是核心作者。WG mail list 與 charter 見 datatracker.ietf.org/wg/masque。<br>
+      <a id="fn2"></a><span class="ref">2</span> Apple iCloud Private Relay 在 2021 WWDC 公布，2021/06 進入 beta。實際協定不完全是 MASQUE，但設計理念一致。Apple 工程師也是 MASQUE WG 主要貢獻者（Tommy Pauly、Eric Kinnear）。<br>
+      <a id="fn3"></a><span class="ref">3</span> Cloudflare 部落格 blog.cloudflare.com 多篇 MASQUE / QUIC / WARP 文章是學習這個生態的最佳實戰資源。Lucas Pardue、Christian Huitema 為主要作者。
+    </div>
+
+    <div class="ch-end"><span class="ch-end-mark">❦</span></div>
+  </div>
+</article>
+
+<div class="section-rule"></div>
+
+<!-- ============================================================ -->
+<!-- COMING SOON: Ch.48 (will be replaced)                          -->
+<!-- ============================================================ -->
+<!-- ============================================================ -->
+<!-- CHAPTER 48 — HTTP/3-only Proxy                                  -->
+<!-- ============================================================ -->
+<article class="chapter" id="ch48">
+  <header class="ch-header">
+    <div class="ch-marker">Chapter 48</div>
+    <h2 class="ch-title">HTTP/3-only Proxy<br><em style="font-style:italic;font-weight:400;font-size:.65em;color:var(--text-muted)">當 reverse proxy 完全跳過 TCP — 0-RTT、connection migration 與 UDP 防火牆現實</em></h2>
+    <p class="ch-deck">Ch.10 §10.7-10.10 介紹 HTTP/3 與 QUIC。本章探討一個更激進的問題：能不能完全<em>不要</em> TCP？「HTTP/3-only proxy」的設計權衡 — 0-RTT、connection migration 的實戰、UDP 在企業防火牆的現實困境，以及為何 2026 年仍要保留 HTTP/2 fallback。</p>
+  </header>
+  <div class="ch-prose">
+    <p class="first-p">
+      Ch.10 介紹了 HTTP/3 的技術。本章是個<em>架構思考實驗</em>：<strong>能不能架設一個完全不支援 TCP / HTTP/2 的 proxy？</strong> 這叫「HTTP/3-only proxy」。理論上可行 — Cloudflare、Google、Apple 內部都有部署。但現實有諸多挑戰。本章解構這些挑戰，幫你判斷自己場景<em>是否</em>該做 HTTP/3-only。
+    </p>
+
+    <h3 class="section-h" id="s48-1">48.1 — HTTP/3 的核心優勢回顧</h3>
+
+    <p>Ch.10 已詳述。簡短回顧 reverse proxy 視角下 HTTP/3 比 HTTP/2 的優勢：</p>
+
+    <ul>
+      <li><strong>真正的 stream 多工</strong>：QUIC 在 transport 層提供獨立 stream，徹底消除 HTTP/2 head-of-line blocking</li>
+      <li><strong>0-RTT</strong>：再次連到同一 server 時資料能跟著第一個 packet 走，省一個 RTT</li>
+      <li><strong>Connection migration</strong>：用 connection ID 而非 4-tuple 識別連線，IP 換了不斷線（手機切換 WiFi / 4G）</li>
+      <li><strong>內建 TLS 1.3</strong>：handshake 與加密合一，省一次 round trip</li>
+      <li><strong>更好的 congestion control</strong>：QUIC 在 user space，可用 BBR、CUBIC 自由切換</li>
+      <li><strong>Forward error correction（潛力）</strong>：QUIC 設計允許未來加入 FEC</li>
+    </ul>
+
+    <h3 class="section-h" id="s48-2">48.2 — 「HTTP/3-only」是什麼意思</h3>
+
+    <p>HTTP/3-only proxy 的<em>嚴格</em>定義：<strong>不接受 TCP 連線</strong>，client 必須用 QUIC / HTTP/3 才能存取。</p>
+
+    <h4 class="subsection-h">三種「HTTP/3 部署」程度</h4>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>程度</th><th>說明</th><th>2026 普及度</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Opt-in HTTP/3</strong></td><td>同時提供 H1/H2/H3，client 用 Alt-Svc 升級到 H3</td><td>主流（Cloudflare、Google、Facebook、CDN 通用）</td></tr>
+          <tr><td><strong>HTTP/3 preferred</strong></td><td>主推 H3，但保留 H2 fallback（無 Alt-Svc 也能用 H2）</td><td>常見</td></tr>
+          <tr><td><strong>HTTP/3-only</strong></td><td>完全不接 TCP，沒 H3 client 進不來</td><td><em>罕見</em>，僅內部 / 實驗 / 特殊場景</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>2026 年大多數網站處於「Opt-in HTTP/3」— Alt-Svc 廣告 H3，但 H1/H2 仍然可用。HTTP/3-only 是<em>未來方向</em>，但仍有重大障礙。</p>
+
+    <h3 class="section-h" id="s48-3">48.3 — 0-RTT：機會與陷阱</h3>
+
+    <p>0-RTT 是 HTTP/3 最被討論的優勢。它讓 reconnecting client 能在<em>第一個 packet</em>中送資料，省掉一次 RTT。</p>
+
+    <h4 class="subsection-h">0-RTT 的工作原理</h4>
+    <ol>
+      <li>第一次連線：正常 TLS 1.3 handshake，server 給 client 一個 <em>session ticket</em></li>
+      <li>後續連線：client 用 session ticket 加密第一個 packet（含應用層資料）</li>
+      <li>Server 驗證 ticket，立即處理應用層資料 — handshake 同時完成</li>
+    </ol>
+
+    <h4 class="subsection-h">0-RTT 的安全陷阱：Replay Attack</h4>
+    <p>0-RTT 資料<em>不在 Forward Secrecy 保護中</em>，且攻擊者能重放。RFC 9001 (QUIC) 與 RFC 8446 (TLS 1.3) 明確規定：</p>
+
+    <ul>
+      <li>0-RTT <strong>只能用於 idempotent 請求</strong>（GET、HEAD）</li>
+      <li>POST、PUT、DELETE <strong>絕對不能</strong>用 0-RTT</li>
+      <li>Server 必須有 anti-replay 機制（time window + nonce）</li>
+      <li>實作要 explicit allow-list 哪些 endpoint 可 0-RTT</li>
+    </ul>
+
+    <h4 class="subsection-h">真實案例：Cloudflare 的 0-RTT 限制</h4>
+    <p>Cloudflare 對 0-RTT 的處理是<em>業界謹慎標桿</em>：</p>
+
+    <ul>
+      <li>預設<em>關閉</em> 0-RTT</li>
+      <li>客戶手動 opt-in</li>
+      <li>只對 GET / HEAD 啟用</li>
+      <li>對 reorigin 連線一律 disable 0-RTT</li>
+    </ul>
+
+    <p>這個保守態度反映了 0-RTT 的根本性質：<strong>性能優勢真實但有限，安全風險真實且嚴重</strong>。對 reverse proxy 工程師：<em>啟用 0-RTT 前要確保 application layer 對 replay 安全</em>。</p>
+
+    <h3 class="section-h" id="s48-4">48.4 — Connection Migration：手機時代的關鍵</h3>
+
+    <p>HTTP/3 / QUIC 的另一大優勢是 connection migration — IP 換了不斷線。對<em>行動使用者</em>意義重大。</p>
+
+    <h4 class="subsection-h">場景</h4>
+    <p>使用者在咖啡店連 WiFi 看 YouTube，離開時切換 4G。</p>
+
+    <ul>
+      <li><strong>HTTP/2 over TCP</strong>：4-tuple (src IP, src port, dst IP, dst port) 改變 → TCP 連線斷 → app 重連 → 影片 buffer → 體驗差</li>
+      <li><strong>HTTP/3 over QUIC</strong>：QUIC 用 64-bit connection ID 識別 connection。IP 換了，connection ID 不變 → server 收到新 IP 的 packet 認得是同一連線 → 連線繼續</li>
+    </ul>
+
+    <h4 class="subsection-h">實作挑戰</h4>
+    <ul>
+      <li><strong>Path validation</strong>：server 必須驗證新 IP 不是攻擊者偽造（PATH_CHALLENGE / PATH_RESPONSE frame）</li>
+      <li><strong>Address spoofing 防禦</strong>：避免 server 被誘導打 amplification 流量到無辜目標</li>
+      <li><strong>Stateful firewall / NAT</strong>：許多企業 firewall 用 4-tuple 維護 state，IP 換了 firewall 不認得</li>
+      <li><strong>Load balancer connection ID 路由</strong>：LB 必須能根據 connection ID（而非 4-tuple）把 packet 送到正確 backend</li>
+    </ul>
+
+    <h4 class="subsection-h">QUIC LB（draft-ietf-quic-load-balancers）</h4>
+    <p>解 LB 路由問題的 IETF draft：在 connection ID 中編碼 server identifier，LB 能解析後路由。Cloudflare、Google 都有自家實作。對自架 reverse proxy + HTTP/3，必須處理這個問題（HAProxy、Nginx 的 QUIC 支援都包含此邏輯）。</p>
+
+    <h3 class="section-h" id="s48-5">48.5 — UDP 在企業防火牆的現實</h3>
+
+    <p>HTTP/3-only 部署的<strong>最大障礙</strong>：UDP 在許多企業網路被封鎖或限速。</p>
+
+    <h4 class="subsection-h">為何 UDP 不受歡迎</h4>
+    <ul>
+      <li><strong>歷史包袱</strong>：UDP 過去被 game / DNS amplification 攻擊濫用，許多企業預設封鎖非必要 UDP</li>
+      <li><strong>Stateful firewall 不友好</strong>：UDP 沒 connection 概念，stateful firewall 用 timeout 模擬，常 break QUIC connection migration</li>
+      <li><strong>DPI 困難</strong>：QUIC 加密 transport metadata，企業 DLP / IDS 看不到內容</li>
+      <li><strong>反映限速規則</strong>：許多 ISP / 企業對 UDP 套用更嚴格 rate limit</li>
+    </ul>
+
+    <h4 class="subsection-h">真實數據</h4>
+    <ul>
+      <li>2024 年 Google 報告：~5-10% 全球連線 UDP 443 被封鎖（依地區差異大）</li>
+      <li>中國 GFW 對 QUIC（UDP 443）<em>主動干擾</em>，許多場景需 fallback 到 TCP</li>
+      <li>企業 SASE / proxy 預設常封 UDP，要 IT 團隊 explicit allow</li>
+      <li>飯店 / 機場 WiFi 經常封鎖 UDP 443</li>
+    </ul>
+
+    <p>結果：<strong>HTTP/3 必須有 H2 fallback，否則 5-10% 使用者進不來</strong>。對<em>面向消費者</em>的 reverse proxy，HTTP/3-only 是商業自殺。</p>
+
+    <h3 class="section-h" id="s48-6">48.6 — 何時可以 HTTP/3-only</h3>
+
+    <p>儘管限制，<em>有些場景</em> HTTP/3-only 完全合理：</p>
+
+    <h4 class="subsection-h">場景 1：內部服務 + 控制 client</h4>
+    <p>如果你<em>同時</em>控制 client 與 server（內部 microservice、行動 app、自家 client），且確認所有 client 網路允許 UDP，可以 HTTP/3-only。例：</p>
+
+    <ul>
+      <li>內部 microservice 通訊（service mesh 場景）</li>
+      <li>自家行動 app + 自家後端</li>
+      <li>容器內 sidecar proxy 通訊</li>
+    </ul>
+
+    <h4 class="subsection-h">場景 2：MASQUE proxy（cf. Ch.47）</h4>
+    <p>MASQUE proxy 本質就是 HTTP/3-only — 整個概念基於 HTTP/3 + QUIC DATAGRAM。MASQUE proxy 不做 TCP fallback。</p>
+
+    <h4 class="subsection-h">場景 3：實驗 / 研究</h4>
+    <p>學術測試、研究新 congestion control 演算法、QUIC 性能研究。</p>
+
+    <h4 class="subsection-h">場景 4：私有網路 / VPN 內部</h4>
+    <p>Tailscale、ZeroTier、WireGuard 之類私有 mesh 網路內部能保證 UDP 可達，HTTP/3-only 可行。</p>
+
+    <h3 class="section-h" id="s48-7">48.7 — 主流 reverse proxy 的 HTTP/3 支援（2026）</h3>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>工具</th><th>HTTP/3 狀態</th><th>HTTP/3-only 可行？</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Nginx</strong></td><td>1.25+ 內建（2024 stable）</td><td>可，但需自行限制 H1/H2 listen</td></tr>
+          <tr><td><strong>HAProxy</strong></td><td>2.6+ 內建</td><td>可</td></tr>
+          <tr><td><strong>Envoy</strong></td><td>內建（quiche）</td><td>可</td></tr>
+          <tr><td><strong>Caddy</strong></td><td>v2 內建（quic-go）</td><td>可</td></tr>
+          <tr><td><strong>Traefik</strong></td><td>v3 內建</td><td>可</td></tr>
+          <tr><td><strong>Apache</strong></td><td>無 native（mod_h2 only）</td><td>否</td></tr>
+          <tr><td><strong>Cloudflare（Pingora / quiche）</strong></td><td>production，全球</td><td>可，已部分採用</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h4 class="subsection-h">Nginx HTTP/3-only 配置範例</h4>
+
+    <pre class="code-block"><span class="code-label">Listing 48.1 · Nginx HTTP/3-only 配置（沒 H1/H2 listen）</span>server {
+    <span class="com"># 只 listen UDP 443（QUIC），不 listen TCP 443</span>
+    listen <span class="num">443</span> quic reuseport;
+
+    server_name api.internal.example.com;
+
+    <span class="com"># TLS 1.3 必要（HTTP/3 要求）</span>
+    ssl_certificate /etc/ssl/cert.pem;
+    ssl_certificate_key /etc/ssl/key.pem;
+    ssl_protocols TLSv1.3;
+
+    <span class="com"># 0-RTT 嚴格控制：只允許 GET / HEAD</span>
+    ssl_early_data on;
+
+    <span class="com"># H3 specific tuning</span>
+    quic_retry on;             <span class="com"># 防 amplification 攻擊</span>
+    quic_gso on;                <span class="com"># Generic Segmentation Offload</span>
+    http3_max_concurrent_streams <span class="num">128</span>;
+
+    <span class="com"># 應用層：拒絕 0-RTT 對非冪等請求</span>
+    location / {
+        if ($ssl_early_data = <span class="str">"1"</span>) {
+            <span class="com"># 0-RTT 連線</span>
+            if ($request_method != <span class="str">"GET"</span>) {
+                return <span class="num">425</span> <span class="str">"Too Early"</span>;
+            }
+        }
+        proxy_pass http://backend;
+    }
+}
+
+<span class="com"># 注意：這個 server 在 TCP 443 不接連線</span>
+<span class="com"># client 必須先用 H3 才能連到</span>
+<span class="com"># 沒 H3 client（如 curl 沒 --http3）會連線失敗</span></pre>
+
+    <h3 class="section-h" id="s48-8">48.8 — 給 reverse proxy 工程師的 5 條建議</h3>
+
+    <ol>
+      <li><strong>面向公網服務：opt-in HTTP/3 + H2 fallback</strong>。Alt-Svc 廣告 H3，client 自動升級。保留 H2 給 5-10% UDP 不通的使用者</li>
+      <li><strong>內部服務 + 控制 client：考慮 HTTP/3-only</strong>。性能、connection migration、0-RTT 是真實價值</li>
+      <li><strong>0-RTT 預設關閉</strong>。需要時 explicit opt-in，限 GET/HEAD，application layer 要 anti-replay</li>
+      <li><strong>監控 H3 / H2 流量比例</strong>。當 H3 占比超過 95%，可考慮逐步 deprecate H2</li>
+      <li><strong>QUIC LB 必須處理 connection ID routing</strong>。不能假設 4-tuple 穩定，要看 connection ID</li>
+    </ol>
+
+    <div class="callout">
+      <div class="callout-label">本章要點</div>
+      <ul class="key-points">
+        <li><strong>HTTP/3-only proxy</strong>是「<em>完全不接 TCP</em>」的激進部署，2026 年仍罕見。</li>
+        <li><strong>三種程度</strong>：opt-in HTTP/3（主流）/ HTTP/3 preferred / HTTP/3-only（特殊場景）。</li>
+        <li><strong>0-RTT</strong>能省一個 RTT 但有 replay 風險，<em>只能用於 idempotent 請求</em>，Cloudflare 預設關閉。</li>
+        <li><strong>Connection migration</strong>用 connection ID 識別連線，IP 換了不斷線（行動裝置關鍵），但 LB / firewall 必須處理 connection ID routing。</li>
+        <li><strong>UDP 防火牆現實</strong>：5-10% 全球使用者 UDP 443 被封，企業 / 飯店 / 中國 GFW 常見，<em>面向公網場景必須有 H2 fallback</em>。</li>
+        <li><strong>HTTP/3-only 合理場景</strong>：內部服務 + 控制 client、MASQUE proxy（cf. Ch.47）、實驗、私有網路內部。</li>
+        <li><strong>主流 reverse proxy 全部支援 HTTP/3</strong>（Nginx 1.25+、HAProxy 2.6+、Envoy、Caddy、Traefik；Apache 例外）。</li>
+        <li><strong>5 條建議</strong>：面向公網用 opt-in、內部用 only、0-RTT 預設關閉、監控比例、處理 connection ID routing。</li>
+      </ul>
+    </div>
+
+    <div class="footnotes">
+      <a id="fn4"></a><span class="ref">4</span> RFC 9001（QUIC）+ RFC 8446（TLS 1.3）詳細規範 0-RTT 安全要求。實作參考 Cloudflare quiche 與 Google quiche 兩個 open source library。<br>
+      <a id="fn5"></a><span class="ref">5</span> Connection migration 與 path validation 詳見 RFC 9000 Section 9。Path validation 用 PATH_CHALLENGE / PATH_RESPONSE frame，避免 amplification。<br>
+      <a id="fn6"></a><span class="ref">6</span> UDP 443 封鎖比例隨地區差異大，Cloudflare、APNIC 各有公開資料。中國 GFW 對 QUIC 干擾參考 ResearchGate / IETF mailing list 多篇報告。
+    </div>
+
+    <div class="ch-end"><span class="ch-end-mark">❦</span></div>
+  </div>
+</article>
+
+<div class="section-rule"></div>
+
+<!-- ============================================================ -->
+<!-- COMING SOON: Ch.49 (will be replaced)                          -->
+<!-- ============================================================ -->
+<!-- ============================================================ -->
+<!-- CHAPTER 49 — 後量子密碼學                                       -->
+<!-- ============================================================ -->
+<article class="chapter" id="ch49">
+  <header class="ch-header">
+    <div class="ch-marker">Chapter 49</div>
+    <h2 class="ch-title">後量子密碼學<br><em style="font-style:italic;font-weight:400;font-size:.65em;color:var(--text-muted)">ML-KEM、X25519MLKEM768、harvest-now-decrypt-later 與 reverse proxy 升級之路</em></h2>
+    <p class="ch-deck">2024/08 NIST 標準化 ML-KEM（即原 Kyber）、2025-2026 年 X25519MLKEM768 hybrid 模式在主流瀏覽器預設啟用、Cloudflare 已對 1/3+ 流量啟用 PQC、Cloudflare WARP 2025/12 加入。本章解構 PQC 為何重要、混合模式設計、reverse proxy 工程師的升級路徑，以及為何「<em>不升級就晚了</em>」。</p>
+  </header>
+  <div class="ch-prose">
+    <p class="first-p">
+      量子電腦能在<em>數小時內</em>破解現在所有的公鑰加密 — RSA、ECDSA、ECDH 全部。<em>還沒有</em>大型量子電腦能做到，但專家預估 2040-2050 年可能達成。對 reverse proxy 工程師而言，威脅<em>不是</em>未來的量子電腦 — 而是<strong>「<em>harvest now, decrypt later</em>」攻擊</strong>：對手<em>現在</em>截獲並儲存你的加密流量，<em>未來</em>用量子電腦解密。今天的機密 → 20 年後曝光。本章是 reverse proxy 工程師<em>必修</em>的 2026 年議題：你在 production 用的 TLS 是否已經 quantum-safe？
+    </p>
+
+    <h3 class="section-h" id="s49-1">49.1 — 量子電腦與密碼學的基本威脅</h3>
+
+    <h4 class="subsection-h">三類密碼學在量子時代的命運</h4>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>類型</th><th>例子</th><th>量子威脅</th></tr></thead>
+        <tbody>
+          <tr><td><strong>對稱加密</strong></td><td>AES-128、AES-256、ChaCha20</td><td>輕微（Grover 演算法把 brute force 從 2ⁿ 降到 2^(n/2)）— AES-256 仍安全</td></tr>
+          <tr><td><strong>Hash 函式</strong></td><td>SHA-256、SHA-3、BLAKE3</td><td>輕微（同 Grover）</td></tr>
+          <tr><td><strong>公鑰加密 / 簽章</strong></td><td>RSA、ECDSA、Ed25519、ECDH、X25519</td><td><strong>致命</strong>（Shor 演算法多項式時間破解）</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>對稱加密的安全性<em>輕微下降</em>但仍可用（用 AES-256 取代 AES-128 即可）。<strong>真正崩潰的是公鑰系統</strong> — 而 TLS 的 key agreement 與 certificate 認證全部依賴公鑰系統。</p>
+
+    <h4 class="subsection-h">Shor 演算法為何致命</h4>
+    <p>Peter Shor 在 1994 年發現：量子電腦能用<em>多項式時間</em>解 integer factorization 與 discrete logarithm — 這正是 RSA 與 ECDH 的數學基礎。一旦有<em>足夠 qubit</em>且<em>低 error rate</em>的量子電腦：</p>
+
+    <ul>
+      <li>RSA-2048 可在數小時內破解</li>
+      <li>ECDH P-256 / X25519 同樣破解</li>
+      <li>ECDSA 簽章可被偽造</li>
+    </ul>
+
+    <p>當前最強量子電腦（IBM Condor 1,121 qubits, 2023；Google Willow 105 qubits with error correction, 2024/12）<em>遠</em>不夠破解 RSA-2048。但專家估計 2030-2040 年可能達成。</p>
+
+    <h3 class="section-h" id="s49-2">49.2 — Harvest-Now, Decrypt-Later：當下的威脅</h3>
+
+    <p>關鍵洞察：<em>不需要等量子電腦造好才有威脅</em>。攻擊模型如下：</p>
+
+    <div class="figure">
+      <div class="mermaid-wrap">
+        <div class="diagram-label">Figure 49.1 · Harvest-Now Decrypt-Later</div>
+        <pre class="mermaid">
+timeline
+    title Harvest-Now Decrypt-Later 時間軸
+    2026 年（現在） : 攻擊者監聽 TLS 流量
+                    : 截獲 ClientHello（ephemeral public key）
+                    : 截獲 ServerHello + 加密 application data
+                    : 全部存到便宜儲存（PB 級成本可負擔）
+    2035-2045 年（未來） : 量子電腦達實用規模
+                        : 用 Shor 演算法破解 ephemeral key
+                        : 推導出 session key
+                        : 解密所有 application data
+    結果 : 今天的祕密 → 10-20 年後曝光
+        </pre>
+      </div>
+      <div class="figure-caption"><strong>圖 49.1</strong>　Harvest-Now Decrypt-Later：不需等量子電腦造好就有威脅 — 今天的流量已被監聽存儲，等量子電腦上線後即解。</div>
+    </div>
+
+    <h4 class="subsection-h">誰在做 harvest</h4>
+    <p>真實的 harvest-now 攻擊者：</p>
+
+    <ul>
+      <li><strong>國家情報機構</strong>：NSA、中國 MSS、俄 FSB 等被廣泛認為已在進行</li>
+      <li><strong>大型企業</strong>：少數能負擔 PB 級儲存的</li>
+      <li><strong>網路骨幹擁有者</strong>：能 tap 大量流量</li>
+    </ul>
+
+    <h4 class="subsection-h">什麼樣的資料值得 harvest</h4>
+    <ul>
+      <li>政府機密</li>
+      <li>企業 M&A、財報、源碼</li>
+      <li>醫療紀錄（HIPAA 25 年保密期）</li>
+      <li>個人通訊（家庭、健康、政治觀點）</li>
+      <li>長期合約、智慧財產</li>
+    </ul>
+
+    <p>對<em>大多數</em> reverse proxy 工程師：你不負責國家機密，但你保護的金融資料、醫療資料、個人 PII 在 10-20 年後仍敏感。<strong>今天升級 PQC 是 cheap insurance</strong>。</p>
+
+    <h3 class="section-h" id="s49-3">49.3 — NIST 後量子密碼學標準化</h3>
+
+    <p>2016 年 NIST 啟動全球 PQC 競賽，2024/08 完成第一輪標準化：</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>NIST 標準</th><th>原名</th><th>用途</th><th>核心數學</th></tr></thead>
+        <tbody>
+          <tr><td><strong>FIPS 203（ML-KEM）</strong></td><td>CRYSTALS-Kyber</td><td>Key Encapsulation（取代 ECDH）</td><td>Module Learning With Errors</td></tr>
+          <tr><td><strong>FIPS 204（ML-DSA）</strong></td><td>CRYSTALS-Dilithium</td><td>Digital Signature（取代 ECDSA）</td><td>Module Learning With Errors</td></tr>
+          <tr><td><strong>FIPS 205（SLH-DSA）</strong></td><td>SPHINCS+</td><td>Stateless Hash-based Signature（備援）</td><td>Hash function</td></tr>
+          <tr><td>未來</td><td>HQC、BIKE、Classic McEliece</td><td>code-based KEM 候選（NIST round 4）</td><td>Error-correcting codes</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h4 class="subsection-h">為何 ML-KEM（前 Kyber）勝出</h4>
+    <ul>
+      <li>性能優秀（比 RSA / ECDH 慢一些但合理）</li>
+      <li>金鑰大小可接受（公鑰 ~800-1600 bytes，比 ECDH 的 32 bytes 大但能用）</li>
+      <li>數學基礎成熟（lattice-based，研究多年）</li>
+      <li>實作簡單（沒有 pairing 等複雜運算）</li>
+    </ul>
+
+    <h4 class="subsection-h">為何同時要備援</h4>
+    <p>NIST 也標準化 SLH-DSA 與保留 HQC、BIKE 為 round 4 候選 — <em>「<em>不要把所有蛋放同一個籃子</em>」</em>。Lattice-based 密碼學雖然成熟，但若未來發現對 lattice 的<em>古典或量子攻擊</em>，需要備援。</p>
+
+    <h3 class="section-h" id="s49-4">49.4 — Hybrid 模式：X25519MLKEM768</h3>
+
+    <p>2025-2026 年的<em>主流</em> PQC 部署不是「<em>純 ML-KEM</em>」，而是 <strong>hybrid 模式</strong>：把<em>傳統</em> + <em>後量子</em>兩種演算法<em>同時</em>用，最終 session key 來自兩者組合。</p>
+
+    <h4 class="subsection-h">為何要 hybrid</h4>
+    <ul>
+      <li><strong>新演算法的<em>未知風險</em></strong>：ML-KEM 雖經 NIST 多年審查，但仍有可能被未發現的攻擊破解</li>
+      <li><strong>實作 bug</strong>：新加密實作可能有 bug，hybrid 確保即使 ML-KEM 完全失敗，仍有 X25519 保護</li>
+      <li><strong>過渡期信心</strong>：給整個生態時間驗證 PQC 實作</li>
+    </ul>
+
+    <h4 class="subsection-h">X25519MLKEM768 是什麼</h4>
+    <p><strong>X25519MLKEM768</strong>（IANA codepoint <code>0x11ec</code>）是 hybrid key agreement：</p>
+
+    <ul>
+      <li><strong>X25519</strong>：傳統 ECDH（Curve25519，32-byte key）</li>
+      <li><strong>ML-KEM-768</strong>：NIST FIPS 203，「中等」security level</li>
+      <li>Client 與 server 同時跑兩個 key exchange</li>
+      <li>Final session key = HKDF(X25519 shared secret ‖ ML-KEM shared secret)</li>
+      <li><em>攻擊者必須<strong>同時</strong>破解 X25519 與 ML-KEM 才能拿到 session key</em></li>
+    </ul>
+
+    <h4 class="subsection-h">部署現況（2026 年初）</h4>
+    <ul>
+      <li><strong>瀏覽器</strong>：Chrome 124+（2024/04 起預設）、Firefox 132+、Edge、Safari 18+ 全部預設啟用 X25519MLKEM768</li>
+      <li><strong>TLS library</strong>：OpenSSL 3.4+、BoringSSL、Go crypto/tls（2024+）、Apple Network Stack 全部支援</li>
+      <li><strong>CDN / Edge</strong>：Cloudflare、Google Cloud、AWS CloudFront 部分支援</li>
+      <li><strong>Cloudflare 特殊地位</strong>：對<em>所有</em>客戶 enabled by default，含到 origin 的 outbound（client → CF → origin 整條鏈 quantum-safe）</li>
+      <li><strong>2026/03 數據</strong>：Cloudflare 處理流量約 35-40% 已是 X25519MLKEM768</li>
+    </ul>
+
+    <h3 class="section-h" id="s49-5">49.5 — Hybrid 的代價：handshake 變大</h3>
+
+    <p>X25519MLKEM768 不是 free lunch。性能影響：</p>
+
+    <h4 class="subsection-h">資料大小</h4>
+    <ul>
+      <li>X25519 公鑰：32 bytes</li>
+      <li>ML-KEM-768 公鑰：1184 bytes</li>
+      <li>X25519MLKEM768 hybrid：~1216 bytes</li>
+      <li><strong>ClientHello 從 ~500 bytes 增加到 ~1700 bytes</strong></li>
+    </ul>
+
+    <h4 class="subsection-h">為何資料大小重要</h4>
+    <ul>
+      <li><strong>單個 packet 限制</strong>：MTU 約 1500 bytes，ClientHello 1700 bytes 一定要分兩個 packet</li>
+      <li><strong>HelloRetryRequest 增加</strong>：server 不知 client 偏好哪個 group，可能要 HelloRetryRequest 加一個 round trip</li>
+      <li><strong>Server 計算量</strong>：ML-KEM-768 比 X25519 慢約 5-10x，但仍 ms 級</li>
+    </ul>
+
+    <h4 class="subsection-h">Cloudflare 的 HelloRetryRequest 策略</h4>
+    <p>Cloudflare 對 origin 連線採用 conservative 策略：<strong>預設只「<em>廣告</em>」支援 X25519MLKEM768，不主動發 keyshare</strong>。如果 origin 也支援，origin 用 HelloRetryRequest 要求；不支援就退回 X25519。代價：多一個 RTT（HRR）。但避免破壞舊 origin。</p>
+
+    <p>進階配置：客戶可透過 API <code>set tls_pq_origin_settings = preferred</code> 讓 Cloudflare 直接送 keyshare，省 RTT。</p>
+
+    <h3 class="section-h" id="s49-6">49.6 — Reverse Proxy 工程師的升級路徑</h3>
+
+    <p>給<em>自架</em> reverse proxy 的具體建議：</p>
+
+    <h4 class="subsection-h">階段 1：升級 TLS library</h4>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Library</th><th>支援 X25519MLKEM768 起始版本</th></tr></thead>
+        <tbody>
+          <tr><td><strong>OpenSSL</strong></td><td>3.4+（2024/Q4）</td></tr>
+          <tr><td><strong>BoringSSL</strong></td><td>已支援（Chromium 2024+）</td></tr>
+          <tr><td><strong>quiche（Cloudflare）</strong></td><td>已支援</td></tr>
+          <tr><td><strong>Go crypto/tls</strong></td><td>1.23+（2024/08）</td></tr>
+          <tr><td><strong>Rustls</strong></td><td>0.23+ 透過 ring + AWS-LC</td></tr>
+          <tr><td><strong>NSS（Firefox）</strong></td><td>3.105+</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h4 class="subsection-h">階段 2：升級 reverse proxy</h4>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Proxy</th><th>PQC 支援</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Nginx</strong></td><td>1.27+ + OpenSSL 3.4+ 可啟用</td></tr>
+          <tr><td><strong>HAProxy</strong></td><td>3.0+ + OpenSSL 3.4+</td></tr>
+          <tr><td><strong>Envoy</strong></td><td>BoringSSL 整合，1.30+ 開始</td></tr>
+          <tr><td><strong>Caddy</strong></td><td>v2.8+ 透過 Go 1.23</td></tr>
+          <tr><td><strong>Cloudflare（Pingora）</strong></td><td>已 production</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h4 class="subsection-h">階段 3：實際 enable 配置</h4>
+
+    <pre class="code-block"><span class="code-label">Listing 49.1 · Nginx 啟用 X25519MLKEM768</span>http {
+    server {
+        listen <span class="num">443</span> ssl http2;
+        listen <span class="num">443</span> quic reuseport;
+
+        ssl_certificate /etc/ssl/cert.pem;
+        ssl_certificate_key /etc/ssl/key.pem;
+        ssl_protocols TLSv1.3;
+
+        <span class="com"># 啟用 hybrid PQC key exchange</span>
+        <span class="com"># 順序：X25519MLKEM768 優先，X25519 fallback</span>
+        ssl_ecdh_curve X25519MLKEM768:X25519:secp256r1;
+
+        <span class="com"># OpenSSL 3.4+ 才支援上述 group</span>
+        <span class="com"># 老版本 Nginx + OpenSSL 3.3 - 用 OQS provider</span>
+    }
+}</pre>
+
+    <h4 class="subsection-h">階段 4：監控與驗證</h4>
+    <ul>
+      <li>監控 TLS handshake 中 selected group：<code>ssl_curve</code> 變數</li>
+      <li>用 Cloudflare Radar 比對自家統計</li>
+      <li>確認 client 升級率（Chrome、Firefox、Safari 預設啟用，但行動 app 內嵌 WebView 可能落後）</li>
+      <li>對 origin server 也要 PQC，否則 proxy 到 origin 的 hop 仍是傳統加密</li>
+    </ul>
+
+    <h3 class="section-h" id="s49-7">49.7 — PQC 證書：尚未到來的挑戰</h3>
+
+    <p>49.4-49.6 講的都是 <strong>key agreement</strong> — 已有實際部署。但 TLS 還有另一半：<strong>數位簽章 / 證書</strong>。這部分<em>2026 年仍未準備好</em>。</p>
+
+    <h4 class="subsection-h">為何證書比 key agreement 難</h4>
+    <ul>
+      <li><strong>ML-DSA 簽章很大</strong>：~3-4KB（vs ECDSA 64 bytes），單個證書鏈 30KB+</li>
+      <li><strong>每次 handshake 都要傳</strong>：影響每個連線而非 session 重用</li>
+      <li><strong>CA 生態要全升級</strong>：Let's Encrypt、DigiCert、Sectigo 等都要支援，CT log 也要</li>
+      <li><strong>瀏覽器要全部信任</strong>：要新 root CA、新驗證邏輯</li>
+      <li><strong>硬體 token / HSM</strong>：很多企業 HSM 不支援 ML-DSA</li>
+    </ul>
+
+    <h4 class="subsection-h">時間表（2026 預測）</h4>
+    <ul>
+      <li><strong>2026 年</strong>：第一張 PQC 證書出現（試驗、非主流瀏覽器信任）</li>
+      <li><strong>2027 年</strong>：主流 CA 開始發放，瀏覽器漸 enable</li>
+      <li><strong>2028-2030 年</strong>：廣泛部署</li>
+      <li><strong>2030+</strong>：成為新基準</li>
+    </ul>
+
+    <p>因此 2026 年的 reverse proxy 工程師：<strong>升級 key agreement 是務實</strong>（防 harvest-now），<strong>等 PQC 證書再說</strong>（沒到時間，別自找麻煩）。</p>
+
+    <h3 class="section-h" id="s49-8">49.8 — 為何「現在升級」是正確答案</h3>
+
+    <p>讀到這你可能想：「<em>2030 才有量子電腦威脅，現在升級太早？</em>」</p>
+
+    <p>三個理由說明這想法錯誤：</p>
+
+    <ol>
+      <li><strong>Harvest-now 已經在發生</strong>。攻擊者今天截獲的流量，未來 10-20 年才解密。今天不升，今天的祕密<em>已經</em>在風險中</li>
+      <li><strong>密碼學遷移是 5-10 年的事</strong>。看 SHA-1 → SHA-256（2005 提議，2017 才完全棄用）、TLS 1.0 → 1.2（2008 提議，2021 才主流）。PQC 的時程更急，但仍要多年</li>
+      <li><strong>升級<em>幾乎</em>免費</strong>。OpenSSL 升級、改一行 cipher 設定、X25519MLKEM768 性能影響極小（多 1KB handshake、5-10ms server compute）。代價遠小於風險</li>
+    </ol>
+
+    <h4 class="subsection-h">給 reverse proxy 工程師的最後告誡</h4>
+    <p>2026 年仍未啟用 PQC key agreement 的 reverse proxy，2030 年回頭看會像今天看「<em>仍用 SSLv3</em>」一樣 — 不是<em>會不會</em>升級，而是<em>什麼時候</em>升級。早升級的優勢：</p>
+
+    <ul>
+      <li>找出實作 bug 與 interop 問題（在<em>關係不大</em>的時候）</li>
+      <li>累積運維經驗</li>
+      <li>對外溝通正面：客戶、合規、稽核都加分</li>
+      <li>成本低（瀏覽器都支援，server-side 升級成本可控）</li>
+    </ul>
+
+    <p>晚升級的代價：</p>
+    <ul>
+      <li>當監管要求時手忙腳亂</li>
+      <li>與其他系統 interop 問題比早升級時難解</li>
+      <li>可能<em>真的</em>洩漏歷史流量</li>
+    </ul>
+
+    <p>下一段（Section 2）會進入 Kubernetes Gateway API + eBPF + edge computing + Zero Trust + IPv6-only。</p>
+
+    <div class="callout">
+      <div class="callout-label">本章要點</div>
+      <ul class="key-points">
+        <li><strong>量子電腦威脅</strong>：對稱加密與 hash 輕微下降（用 256-bit 即可），<em>公鑰系統（RSA、ECDSA、ECDH）會被 Shor 演算法多項式時間破解</em>。</li>
+        <li><strong>Harvest-Now Decrypt-Later</strong>是當下威脅：對手今天截獲、未來解密。國家情報機構已在做。</li>
+        <li><strong>NIST 2024/08 標準化 PQC</strong>：FIPS 203 ML-KEM（前 Kyber）+ FIPS 204 ML-DSA（前 Dilithium）+ FIPS 205 SLH-DSA。</li>
+        <li><strong>Hybrid 模式 X25519MLKEM768</strong>是 2025-2026 主流：傳統 + PQC 兩條都跑，攻擊者必須同時破解兩者。</li>
+        <li><strong>主流瀏覽器（Chrome、Firefox、Edge、Safari）2024-2025 已預設啟用</strong>。</li>
+        <li><strong>Cloudflare 35-40% 流量已是 X25519MLKEM768</strong>。</li>
+        <li><strong>代價</strong>：ClientHello 從 ~500B 增到 ~1700B、HelloRetryRequest 可能加 RTT、server 計算多 5-10ms。</li>
+        <li><strong>PQC 證書尚未到來</strong>：ML-DSA 簽章 3-4KB、CA 生態未升級，預計 2026-2028 年部署。</li>
+        <li><strong>給 reverse proxy 工程師</strong>：升級 OpenSSL 3.4+ / BoringSSL，配置 <code>ssl_ecdh_curve X25519MLKEM768:X25519</code>，監控 selected group。</li>
+        <li><strong>「現在升級」是正確答案</strong>：harvest-now 已在發生、密碼遷移要 5-10 年、升級幾乎免費。</li>
+      </ul>
+    </div>
+
+    <div class="footnotes">
+      <a id="fn7"></a><span class="ref">7</span> NIST PQC 標準化在 2016 年啟動，2024/08 釋出 FIPS 203 / 204 / 205。完整文件 csrc.nist.gov/projects/post-quantum-cryptography。<br>
+      <a id="fn8"></a><span class="ref">8</span> Cloudflare 多篇 PQC 部署文章是業界最詳實參考：blog.cloudflare.com/pq-2024 與 pq-2025 系列、pq.cloudflareresearch.com 即時統計。<br>
+      <a id="fn9"></a><span class="ref">9</span> Apple iMessage 在 2024/02 加入 PQC（PQ3 protocol）；Signal 早於 2023 年用 PQXDH。這兩個 messaging 平台是消費者最大規模 PQC 部署。
+    </div>
+
+    <div class="ch-end"><span class="ch-end-mark">❦</span></div>
+  </div>
+</article>
+
+<div class="section-rule"></div>
+
+<!-- ============================================================ -->
+<!-- COMING SOON: Ch.50–52                                         -->
+<!-- ============================================================ -->
+<!-- ============================================================ -->
+<!-- CHAPTER 50 — Kubernetes Gateway API + eBPF                      -->
+<!-- ============================================================ -->
+<article class="chapter" id="ch50">
+  <header class="ch-header">
+    <div class="ch-marker">Chapter 50</div>
+    <h2 class="ch-title">Kubernetes Gateway API + eBPF<br><em style="font-style:italic;font-weight:400;font-size:.65em;color:var(--text-muted)">Ingress 退場、Cilium eBPF 重新定義性能、Istio Ambient 殲滅 sidecar</em></h2>
+    <p class="ch-deck">2026/03/31 是 Kubernetes 網路史上的分水嶺：<strong>Ingress NGINX（影響 50% 雲原生環境）正式退役</strong>。Gateway API 是 Kubernetes 官方推薦的後繼者。本章解構 Gateway API v1.0-v1.5 演進、5 個 GA 資源、4 大實作（Cilium / Istio Ambient / Envoy Gateway / Kong）對比，以及 Cilium eBPF 為何重新定義 K8s 網路性能。</p>
+  </header>
+  <div class="ch-prose">
+    <p class="first-p">
+      Kubernetes 網路的 2020-2023 年由 <strong>Ingress + ingress-nginx controller</strong>主宰。但 Ingress API 的設計缺陷（單一 resource 混雜 routing/TLS/policy、annotation 爆炸、廠商實作不可移植）越來越明顯。2023/10 Kubernetes Gateway API v1.0 GA，提供「<em>persona-driven</em>」的新模型。<strong>2026/03/31 Ingress NGINX 正式退役</strong>，把整個生態推向 Gateway API。本章是 K8s 工程師 2026 年最重要的<em>強制</em>議題。
+    </p>
+
+    <h3 class="section-h" id="s50-1">50.1 — Ingress NGINX 退役：2026/03/31 的分水嶺</h3>
+
+    <p>2025/11/11 Kubernetes 官方 blog 公告：<strong>Ingress NGINX（kubernetes/ingress-nginx）將於 2026/03/31 正式退役</strong>。退役後：</p>
+
+    <ul>
+      <li><strong>停止所有 release</strong>（無 bug fix、無安全 patch、無 CVE 修復）</li>
+      <li>Existing 部署仍能運作，但<em>沒人修問題</em></li>
+      <li>GitHub repo 變 read-only</li>
+      <li>installation artifacts（Helm chart、container image）保留可用，但凍結</li>
+    </ul>
+
+    <h4 class="subsection-h">為何退役</h4>
+    <ul>
+      <li><strong>Datadog 內部研究：影響 50% 雲原生環境</strong></li>
+      <li>多年來只有 1-2 位志工 maintainer</li>
+      <li><strong>2025 年 IngressNightmare（CVE-2025-1974）</strong>嚴重 RCE 漏洞讓問題暴露</li>
+      <li>「<em>snippet</em>」annotations 設計允許任意 NGINX config 注入，安全模型崩潰</li>
+      <li>**InGate**（規劃的純 Go 替代）開發停滯，<em>也被一併退役</em></li>
+    </ul>
+
+    <h4 class="subsection-h">⚠️ 三大命名混淆</h4>
+
+    <div class="callout warn">
+      <div class="callout-label">命名混淆釐清</div>
+      <p>Kubernetes 網路有<em>三個</em>容易混淆的「NGINX 相關」概念：</p>
+      <ul>
+        <li><strong>Ingress API</strong>（K8s API object）：feature-frozen 但<em>不會</em>被刪</li>
+        <li><strong>Ingress NGINX（kubernetes/ingress-nginx）</strong>：社群維護的 controller，<em>2026/03/31 退役</em></li>
+        <li><strong>NGINX Ingress Controller（F5/NGINX Inc.）</strong>：F5 商業 + OSS 維護，<em>持續存活</em></li>
+      </ul>
+      <p>退役的是<em>第二個</em>（社群維護的 ingress-nginx），不是 Ingress API 也不是 F5 NGINX Inc. 的版本。</p>
+    </div>
+
+    <h4 class="subsection-h">遷移路徑</h4>
+    <p>K8s 官方建議三條路：</p>
+
+    <ol>
+      <li><strong>遷到 Gateway API（首選）</strong>：選一個 Gateway API 實作（Envoy Gateway / Cilium / Istio / Kong / GKE Gateway）</li>
+      <li><strong>遷到其他 Ingress controller</strong>：F5 NGINX Inc. OSS、Traefik、HAProxy Unified Gateway、cloud 原生（AWS Load Balancer Controller / Azure Application Gateway for Containers）</li>
+      <li><strong>用遷移工具</strong>：<code>ingress2gateway</code> 自動把 Ingress 資源轉成 Gateway API HTTPRoute</li>
+    </ol>
+
+    <h3 class="section-h" id="s50-2">50.2 — Gateway API：persona-driven 設計</h3>
+
+    <p>Gateway API 的<em>核心創新</em>是「<em>persona-driven</em>」 — 不同角色看到不同資源，職責清楚分離：</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>角色</th><th>看的資源</th><th>關心的事</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Infrastructure Provider</strong></td><td>GatewayClass</td><td>「<em>哪個實作</em>」（Cilium / Istio / Envoy / 雲端）</td></tr>
+          <tr><td><strong>Cluster Operator</strong></td><td>Gateway</td><td>「<em>監聽哪些 port、TLS 證書、容量規劃</em>」</td></tr>
+          <tr><td><strong>Application Developer</strong></td><td>HTTPRoute / GRPCRoute / TLSRoute</td><td>「<em>我的服務怎麼路由</em>」</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h4 class="subsection-h">Ingress vs Gateway API 對比</h4>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>Ingress</th><th>Gateway API</th></tr></thead>
+        <tbody>
+          <tr><td>單一資源</td><td>Ingress（混雜所有事）</td><td>分為 GatewayClass / Gateway / HTTPRoute</td></tr>
+          <tr><td>角色分離</td><td>無</td><td>明確（infrastructure / operator / developer）</td></tr>
+          <tr><td>進階 routing</td><td>annotations（廠商各異）</td><td>API first-class（rewrite、redirect、retry、timeout）</td></tr>
+          <tr><td>可移植性</td><td>差（綁實作 annotations）</td><td>核心 API portable，廠商擴充透明</td></tr>
+          <tr><td>協定</td><td>HTTP only（多協定靠 annotations hack）</td><td>HTTP / HTTPS / TLS / gRPC / TCP / UDP first-class</td></tr>
+          <tr><td>狀態</td><td>Feature-frozen</td><td>Active 開發</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="section-h" id="s50-3">50.3 — Gateway API 5 個 GA 資源</h3>
+
+    <p>2026 年 Gateway API standard channel 的 5 個 GA 資源：</p>
+
+    <h4 class="subsection-h">GatewayClass（cluster-scoped）</h4>
+    <p>定義「<em>用哪個實作</em>」。一個 cluster 可有多個 GatewayClass（如同時用 Cilium 與 Istio）。</p>
+
+    <pre class="code-block"><span class="code-label">GatewayClass 範例</span>apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: cilium
+spec:
+  controllerName: io.cilium/gateway-controller</pre>
+
+    <h4 class="subsection-h">Gateway（namespaced）</h4>
+    <p>實際的「監聽 endpoint」 — port、protocol、TLS、IP 等。由 cluster operator 管理。</p>
+
+    <pre class="code-block"><span class="code-label">Gateway 範例</span>apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: prod-gateway
+  namespace: networking
+spec:
+  gatewayClassName: cilium
+  addresses:
+    - type: IPAddress
+      value: <span class="num">192.168.10.95</span>      <span class="com"># 從 CiliumLoadBalancerIPPool 拿</span>
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: <span class="num">443</span>
+      hostname: <span class="str">"*.example.com"</span>
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: wildcard-cert
+      allowedRoutes:
+        namespaces:
+          from: All</pre>
+
+    <h4 class="subsection-h">HTTPRoute（namespaced）</h4>
+    <p>實際路由規則 — host、path、method、header 匹配，後端 service 與 weight。由 application developer 管理。</p>
+
+    <pre class="code-block"><span class="code-label">HTTPRoute 範例（含 canary）</span>apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api-route
+  namespace: api-team
+spec:
+  parentRefs:
+    - name: prod-gateway
+      namespace: networking
+  hostnames:
+    - api.example.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v2/
+      backendRefs:
+        - name: api-stable
+          port: <span class="num">8080</span>
+          weight: <span class="num">90</span>
+        - name: api-canary
+          port: <span class="num">8080</span>
+          weight: <span class="num">10</span>
+      filters:
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            add:
+              - name: X-Forwarded-Proto
+                value: https</pre>
+
+    <h4 class="subsection-h">GRPCRoute</h4>
+    <p>給 gRPC 服務的 first-class 支援，匹配 service / method 而非 path。2024 加入 GA。</p>
+
+    <h4 class="subsection-h">ReferenceGrant</h4>
+    <p>跨 namespace 引用的安全控制 — 例如 HTTPRoute 在 namespace A 引用 namespace B 的 Service，B 必須<em>明確</em> grant。</p>
+
+    <h4 class="subsection-h">仍 experimental 的資源</h4>
+    <ul>
+      <li><strong>TLSRoute</strong>：TLS passthrough 路由（如 ArgoCD、Keycloak 等需要原始 TLS 的場景）</li>
+      <li><strong>TCPRoute / UDPRoute</strong>：non-HTTP 協定路由</li>
+      <li><strong>BackendTLSPolicy</strong>：上游 TLS 配置</li>
+    </ul>
+
+    <h3 class="section-h" id="s50-4">50.4 — 主流實作：4 巨頭對比（2026）</h3>
+
+    <p>2026 年 Gateway API 實作生態主要 4 個方向：</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>Cilium</th><th>Istio Ambient</th><th>Envoy Gateway</th><th>Kong Gateway Operator</th></tr></thead>
+        <tbody>
+          <tr><td>Data plane</td><td>eBPF + Envoy（per-node）</td><td>ztunnel + waypoint Envoy</td><td>Envoy</td><td>OpenResty / Kong</td></tr>
+          <tr><td>L4 性能</td><td>★★★★★（XDP / 硬體上限）</td><td>★★★★</td><td>★★★★</td><td>★★★</td></tr>
+          <tr><td>L7 性能</td><td>★★★★（per-node Envoy）</td><td>★★★★</td><td>★★★★★</td><td>★★★★</td></tr>
+          <tr><td>Conformance</td><td>v1.4+（Cilium 1.19+）</td><td>v1.4+</td><td>v1.4+（最高）</td><td>v1.4+</td></tr>
+          <tr><td>Service Mesh 整合</td><td>內建（GAMMA）</td><td>原生（Ambient + sidecar 雙模）</td><td>需另裝 Istio</td><td>需 Kong Mesh</td></tr>
+          <tr><td>Update latency</td><td>毫秒</td><td>毫秒</td><td>毫秒</td><td>毫秒</td></tr>
+          <tr><td>學習曲線</td><td>陡（eBPF 除錯）</td><td>中（Ambient 比 sidecar 容易）</td><td>低（純 Gateway API）</td><td>中</td></tr>
+          <tr><td>商業</td><td>Isovalent（Cisco 收購）</td><td>Solo / Tetrate / Red Hat</td><td>純 OSS</td><td>Kong Inc.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h4 class="subsection-h">適合場景對照</h4>
+    <ul>
+      <li><strong>Performance at All Costs</strong>（streaming、gaming、L4 主導）→ <strong>Cilium</strong>（eBPF L4 throughput 受限於硬體 NIC）</li>
+      <li><strong>Service Mesh 收斂</strong>（內外流量統一管理、未來要 mTLS / observability）→ <strong>Istio Ambient</strong></li>
+      <li><strong>純 Gateway API + 標準參考</strong>（最高 conformance、最少 magic）→ <strong>Envoy Gateway</strong></li>
+      <li><strong>API monetization</strong>（developer portal、API key 管理、計費）→ <strong>Kong Gateway Operator</strong></li>
+    </ul>
+
+    <h3 class="section-h" id="s50-5">50.5 — Cilium eBPF：重新定義 K8s 網路</h3>
+
+    <p>Cilium 是<em>2026 年 K8s 網路最有野心的專案</em>。2024/10 Cisco 收購 Isovalent（Cilium 主開發公司），2025-2026 加速整合到 Cisco 整個網路產品線。</p>
+
+    <h4 class="subsection-h">eBPF 為何強</h4>
+    <p>eBPF（Extended Berkeley Packet Filter）讓使用者程式碼<strong>直接在 Linux kernel 執行</strong>，跳過 user space ↔ kernel 的 context switch。對 K8s 網路：</p>
+
+    <ul>
+      <li><strong>kube-proxy 完全替代</strong>：傳統 iptables / IPVS 規則被 eBPF map 取代，O(1) 查找</li>
+      <li><strong>L4 throughput 限於硬體 NIC</strong>：XDP（eXpress Data Path）讓 packet 在 NIC driver 層級就被處理，user space 完全不參與</li>
+      <li><strong>容器密度</strong>：eBPF 規則直接在 kernel，每個 container 不需要 sidecar</li>
+      <li><strong>Direct Server Return（DSR）</strong>：load balancer 不在回應路徑上，性能翻倍</li>
+      <li><strong>Maglev consistent hashing</strong>：Google 風格的 LB 演算法</li>
+    </ul>
+
+    <h4 class="subsection-h">Cilium 的<em>不可</em>取代功能</h4>
+    <ul>
+      <li><strong>L2 Announcements</strong>：取代 MetalLB（裸金屬 K8s LB）</li>
+      <li><strong>LB IPAM</strong>：CiliumLoadBalancerIPPool 管理 LB IP</li>
+      <li><strong>BGP 整合</strong>：與 ToR / spine switch 直接 peering</li>
+      <li><strong>Cluster Mesh</strong>：跨多 cluster 的 service discovery + mTLS</li>
+      <li><strong>Hubble</strong>：eBPF-based observability</li>
+      <li><strong>Tetragon</strong>：runtime security（行程級監控）</li>
+    </ul>
+
+    <h4 class="subsection-h">Cilium 的限制</h4>
+    <ul>
+      <li><strong>L7 流量仍走 per-node Envoy</strong>：純 eBPF 處理不了複雜 HTTP（header、JSON parsing）</li>
+      <li><strong>控制平面 churn 限制</strong>：HTTPRoute 大量更新時 Envoy reconcile 仍是瓶頸</li>
+      <li><strong>除錯難度</strong>：eBPF 程式 crash 直接影響 kernel，traceback 在 kernel space</li>
+      <li><strong>Linux 6.x 需求</strong>：許多 feature 要新 kernel</li>
+    </ul>
+
+    <h3 class="section-h" id="s50-6">50.6 — Istio Ambient：殲滅 sidecar</h3>
+
+    <p>傳統 Istio 用 <strong>sidecar 模式</strong>（每個 pod 旁邊一個 Envoy）。2024-2025 年 Istio 力推 <strong>Ambient mode</strong>，把 sidecar 改成兩層：</p>
+
+    <ul>
+      <li><strong>ztunnel（per-node L4 proxy）</strong>：用 Rust 寫，輕量，處理 L4 mTLS</li>
+      <li><strong>waypoint proxy（per-namespace L7 Envoy）</strong>：選擇性加入，只在需要 L7 policy 時啟用</li>
+    </ul>
+
+    <h4 class="subsection-h">為何要殺 sidecar</h4>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>Sidecar 模式</th><th>Ambient 模式</th></tr></thead>
+        <tbody>
+          <tr><td>每 pod overhead</td><td>~50-100MB（Envoy）</td><td>~5MB（ztunnel 共享）</td></tr>
+          <tr><td>啟動延遲</td><td>15-30s（sidecar 啟動）</td><td>近 0（共用 ztunnel）</td></tr>
+          <tr><td>升級</td><td>每個 pod 重啟</td><td>per-node ztunnel 升級</td></tr>
+          <tr><td>調試</td><td>每個 pod 多一個 container</td><td>只有 ztunnel</td></tr>
+          <tr><td>L7 政策</td><td>所有 pod 都付代價</td><td>只在需要的 namespace 啟用 waypoint</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h4 class="subsection-h">2026 年 Ambient 狀態</h4>
+    <ul>
+      <li>2024/05 Ambient v1.22 GA</li>
+      <li>2026 年成為 Istio 推薦預設模式</li>
+      <li>Solo、Tetrate、Red Hat 等商業支援</li>
+      <li>性能與 Envoy Gateway 接近（消除 sidecar double-hop）</li>
+    </ul>
+
+    <h3 class="section-h" id="s50-7">50.7 — GAMMA：mesh 與 gateway 統一</h3>
+
+    <p><strong>GAMMA</strong>（Gateway API Mesh Management）是 SIG-Network 的子專案，目標：<em>讓 Gateway API 同時管理 east-west（service mesh）與 north-south（ingress）</em>。</p>
+
+    <h4 class="subsection-h">GAMMA 核心概念</h4>
+    <p>HTTPRoute 不只能 attach 到 Gateway（north-south），也能 attach 到 Service（east-west）。把 service mesh 的 traffic split / canary 用<em>同一個</em> API 管理。</p>
+
+    <pre class="code-block"><span class="code-label">GAMMA HTTPRoute 範例</span>apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: internal-canary
+spec:
+  parentRefs:
+    - kind: <strong>Service</strong>      <span class="com"># 不是 Gateway！</span>
+      name: payment-service
+  rules:
+    - backendRefs:
+        - name: payment-v1
+          weight: <span class="num">90</span>
+        - name: payment-v2
+          weight: <span class="num">10</span></pre>
+
+    <h4 class="subsection-h">2026 年 GAMMA 實作</h4>
+    <ul>
+      <li>Cilium：v1.18+ 完整支援（含 Service-as-parentRef）</li>
+      <li>Istio Ambient：原生支援</li>
+      <li>Linkerd：experimental 支援</li>
+    </ul>
+
+    <p>對工程師：GAMMA 把<em>「ingress vs mesh」</em>的二元對立融合為「一致的 traffic policy」。長期看是 K8s 網路的方向。</p>
+
+    <h3 class="section-h" id="s50-8">50.8 — 給 K8s 工程師的 7 條建議</h3>
+
+    <ol>
+      <li><strong>立即審視 Ingress NGINX 使用</strong>：<code>kubectl get pods --all-namespaces -l app.kubernetes.io/name=ingress-nginx</code>。在 production，2026/03/31 後沒安全 patch 等於資安債</li>
+      <li><strong>遷移目標選 Gateway API（首選）</strong>：未來 5 年的標準</li>
+      <li><strong>實作選擇看現有環境</strong>：已用 Cilium → 用 Cilium Gateway；已用 Istio → 用 Istio Ambient；無歷史包袱 → 用 Envoy Gateway</li>
+      <li><strong>用 ingress2gateway 自動遷移</strong>：減少人工錯誤</li>
+      <li><strong>持續關注 GAMMA</strong>：未來 service mesh 與 ingress 統一</li>
+      <li><strong>避免 NGINX-specific snippets</strong>：未來遷移會痛</li>
+      <li><strong>裸金屬 K8s 用 Cilium</strong>：取代 MetalLB + ingress-nginx 一次完成</li>
+    </ol>
+
+    <div class="callout">
+      <div class="callout-label">本章要點</div>
+      <ul class="key-points">
+        <li><strong>Ingress NGINX（kubernetes/ingress-nginx）2026/03/31 退役</strong>，影響 50% 雲原生環境（Datadog 數據）。</li>
+        <li><strong>三大命名混淆</strong>：Ingress API（feature-frozen）vs Ingress NGINX（社群退役）vs F5 NGINX Ingress Controller（持續維護）。</li>
+        <li><strong>退役原因</strong>：1-2 maintainer + IngressNightmare CVE-2025-1974 + InGate 替代失敗。</li>
+        <li><strong>Gateway API persona-driven 設計</strong>：GatewayClass（infrastructure）/ Gateway（operator）/ HTTPRoute（developer）三層職責分離。</li>
+        <li><strong>5 個 GA 資源</strong>：GatewayClass、Gateway、HTTPRoute、GRPCRoute、ReferenceGrant；TLSRoute / TCPRoute / UDPRoute 仍 experimental。</li>
+        <li><strong>4 大實作</strong>：Cilium（eBPF L4 無敵）、Istio Ambient（sidecar 殲滅）、Envoy Gateway（標準參考）、Kong Gateway Operator（API monetization）。</li>
+        <li><strong>Cilium eBPF 重新定義</strong>：L4 throughput 受限硬體 NIC、kube-proxy 替代、L2 Announcements、Cluster Mesh、Hubble。</li>
+        <li><strong>Istio Ambient（v1.22 GA, 2024/05）</strong>：ztunnel + waypoint 兩層，每 pod overhead 從 50-100MB 降到 ~5MB。</li>
+        <li><strong>GAMMA</strong>：HTTPRoute 能 attach 到 Service，把 ingress 與 mesh 用同 API。</li>
+        <li><strong>給工程師 7 條建議</strong>：立即審視、首選 Gateway API、看現有環境、用 ingress2gateway、關注 GAMMA、避免 NGINX-specific snippet、裸金屬用 Cilium。</li>
+      </ul>
+    </div>
+
+    <div class="footnotes">
+      <a id="fn10"></a><span class="ref">10</span> Ingress NGINX 退役公告：kubernetes.io/blog/2025/11/11/ingress-nginx-retirement。SIG Network 與 Security Response Committee 聯合聲明：2026/01/29 第二次強烈警告。<br>
+      <a id="fn11"></a><span class="ref">11</span> Cilium 由 Isovalent 2017 年開源，2018 加入 CNCF，2023 graduate。Cisco 2024/10 完成收購 Isovalent。創始人 Thomas Graf。<br>
+      <a id="fn12"></a><span class="ref">12</span> Istio Ambient 由 Solo.io、Google、Microsoft 等共同推動，v1.22 在 2024/05 GA。完整文件 istio.io/latest/docs/ambient。
+    </div>
+
+    <div class="ch-end"><span class="ch-end-mark">❦</span></div>
+  </div>
+</article>
+
+<div class="section-rule"></div>
+
+<!-- ============================================================ -->
+<!-- COMING SOON: Ch.51-52 (will be replaced)                       -->
+<!-- ============================================================ -->
+<!-- ============================================================ -->
+<!-- CHAPTER 51 — Edge Computing                                     -->
+<!-- ============================================================ -->
+<article class="chapter" id="ch51">
+  <header class="ch-header">
+    <div class="ch-marker">Chapter 51</div>
+    <h2 class="ch-title">Edge Computing<br><em style="font-style:italic;font-weight:400;font-size:.65em;color:var(--text-muted)">Cloudflare Workers、Vercel、Deno Deploy — 當 reverse proxy 變成全球 V8 isolate</em></h2>
+    <p class="ch-deck">Cloudflare Workers 5ms 冷啟動、330+ 全球 PoP、95% 全球人口 50ms 內可達 — edge computing 在 2026 年從「<em>邊緣 cache</em>」演化為「<em>全球分散的 reverse proxy + 應用 runtime</em>」。本章解構 V8 isolate 為何重新定義 serverless、6 大平台對比、edge 取代傳統 reverse proxy 的場景與限制。</p>
+  </header>
+  <div class="ch-prose">
+    <p class="first-p">
+      傳統 reverse proxy 部署有個<em>無解的</em>權衡：要麼<em>單一資料中心</em>（簡單但全球延遲差），要麼<em>多區域部署</em>（複雜且昂貴）。Edge computing 給了第三條路：<strong>把 proxy logic + 應用程式碼一起跑在<em>全球 300+ 個 PoP</em></strong>。Cloudflare 的 V8 isolate 5ms 冷啟動讓這變成商業現實。本章是給 reverse proxy 工程師的 edge primer — 你不一定要寫 Workers，但你必須<em>理解</em>這個範式為何重新定義整個產業。
+    </p>
+
+    <h3 class="section-h" id="s51-1">51.1 — V8 Isolate 革命：為何冷啟動 &lt; 5ms</h3>
+
+    <p>Edge computing 的核心技術是 <strong>V8 isolate</strong> — Chrome 用來隔離不同 tab 的 sandbox。每個 isolate 有獨立 heap，但<em>共享</em> V8 binary 與 OS process。</p>
+
+    <h4 class="subsection-h">傳統 serverless（容器）vs V8 isolate</h4>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>容器（Lambda / Cloud Run）</th><th>V8 isolate（Workers / Edge）</th></tr></thead>
+        <tbody>
+          <tr><td>冷啟動</td><td>100ms - 1000ms+</td><td><strong>&lt; 5ms</strong></td></tr>
+          <tr><td>單一 instance memory</td><td>50-500 MB</td><td><strong>~5 MB</strong></td></tr>
+          <tr><td>密度（per server）</td><td>數十 ~ 數百</td><td><strong>數千 ~ 數萬</strong></td></tr>
+          <tr><td>啟動方式</td><td>boot Linux + runtime</td><td>create V8 isolate（毫秒級）</td></tr>
+          <tr><td>語言支援</td><td>任意（Node、Python、Go、Java、Rust）</td><td>JavaScript / TypeScript / WASM</td></tr>
+          <tr><td>filesystem</td><td>有（temporary）</td><td>無</td></tr>
+          <tr><td>Long-running</td><td>有限（Lambda 15min）</td><td>嚴格 CPU time（30-50ms 預設）</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>關鍵洞察：<strong>V8 isolate 用「<em>受限</em>」換「<em>速度與密度</em>」</strong>。沒有 filesystem、CPU time 嚴格限制 — 但啟動 1000× 快、單機密度 100×、成本低一個數量級。</p>
+
+    <h4 class="subsection-h">Cloudflare 的 Shard and Conquer</h4>
+    <p>Cloudflare 用 consistent hashing 把同一 Worker 的請求路由到同一 isolate，達到 <strong>99.99% warm rate</strong>。剩下 0.01% 的冷啟動仍是<em>單位數毫秒</em>（V8 isolate 就是這麼快）。</p>
+
+    <h3 class="section-h" id="s51-2">51.2 — 6 大 Edge 平台對比</h3>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>平台</th><th>PoP 數</th><th>Runtime</th><th>冷啟動</th><th>定位</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Cloudflare Workers</strong></td><td><strong>330+ cities</strong></td><td>V8 isolate</td><td>&lt; 5ms</td><td>API、middleware、AI、最廣 PoP</td></tr>
+          <tr><td><strong>Vercel Edge Functions / Fluid Compute</strong></td><td>Vercel global</td><td>V8 isolate（Edge Runtime）</td><td>近 0（Fluid 共享 context）</td><td>Next.js 整合、framework-first DX</td></tr>
+          <tr><td><strong>Fastly Compute@Edge</strong></td><td>~80 PoP</td><td><strong>WebAssembly（Lucet/Wasmtime）</strong></td><td>&lt; 1ms</td><td>多語言（Rust / Go / JS）、CDN 整合</td></tr>
+          <tr><td><strong>Deno Deploy</strong></td><td>~35 regions</td><td>V8 + Deno runtime</td><td>&lt; 50ms</td><td>TypeScript-native、簡潔 DX</td></tr>
+          <tr><td><strong>AWS Lambda@Edge / CloudFront Functions</strong></td><td>AWS edge（450+）</td><td>Node.js / 自家 JS runtime</td><td>50-100ms</td><td>AWS 生態整合</td></tr>
+          <tr><td><strong>Akamai EdgeWorkers</strong></td><td>Akamai 4000+ PoP</td><td>V8 isolate</td><td>&lt; 5ms</td><td>傳統 CDN 升級、企業整合</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h4 class="subsection-h">關鍵差異</h4>
+    <ul>
+      <li><strong>Cloudflare</strong>：最廣 PoP、最多生態功能（KV、Durable Objects、R2、D1、Queues、Workers AI）、最便宜（10M 請求 $5）。<em>行業領導者</em></li>
+      <li><strong>Vercel</strong>：Next.js + framework integration 體驗無可匹敵。對 Next.js 應用首選</li>
+      <li><strong>Fastly</strong>：唯一<em>純 WebAssembly</em>方案（Lucet → Wasmtime），多語言支援</li>
+      <li><strong>Deno Deploy</strong>：TypeScript-native + Web Standards 純粹</li>
+      <li><strong>AWS</strong>：生態整合，但冷啟動與 PoP 數都不如競爭對手</li>
+      <li><strong>Akamai</strong>：傳統 CDN 客戶的自然升級</li>
+    </ul>
+
+    <h3 class="section-h" id="s51-3">51.3 — Edge 取代 reverse proxy 的場景</h3>
+
+    <p>Edge computing 在哪些場景<em>真的</em>取代傳統 reverse proxy？</p>
+
+    <h4 class="subsection-h">場景 1：認證與授權邊緣化</h4>
+    <p>傳統：origin 收到請求 → 驗 JWT → 處理或拒絕。問題：未授權請求<em>已經</em>跨太平洋到 origin，浪費頻寬與計算。</p>
+
+    <p>Edge：在邊緣 PoP 驗 JWT，未授權請求<em>從未</em>離開使用者區域。Cloudflare Access、Vercel Authentication 都這樣做。</p>
+
+    <h4 class="subsection-h">場景 2：A/B Test 與 Feature Flag</h4>
+    <p>傳統：在 origin 或 client 做 A/B 邏輯。問題：全球流量都打到 origin、或前端代碼複雜化。</p>
+
+    <p>Edge：根據 cookie / geo / 隨機分配 routing 到不同 backend，origin 看到的就是「<em>已分組的流量</em>」。Cloudflare Workers + Origin Rules 是經典模式。</p>
+
+    <h4 class="subsection-h">場景 3：Cache 個性化（Personalized Cache）</h4>
+    <p>傳統 CDN cache 對<em>登入使用者</em>無效（每個 user 不同回應）。Edge：根據 cookie 動態組合 cached fragments + personalized data，讓登入頁面也能 cache。Vercel ISR、Cloudflare Cache API 提供原語。</p>
+
+    <h4 class="subsection-h">場景 4：Geo-routing 與 Compliance</h4>
+    <p>EU 客戶 routing 到 EU origin（GDPR）、中國客戶到香港、其他到美國。Edge 做這件事比 DNS-based geo-routing 精準得多。</p>
+
+    <h4 class="subsection-h">場景 5：Image / Video 動態變換</h4>
+    <p>邊緣根據 device、network 動態 resize / format conversion（avif、webp）/ compression。Cloudflare Images、Vercel Image Optimization 都基於此。</p>
+
+    <h4 class="subsection-h">場景 6：AI Inference 邊緣化</h4>
+    <p>Cloudflare Workers AI、Vercel AI SDK + Edge — 把 LLM inference 跑在邊緣 GPU，避免每次請求跨太平洋。對 chat 應用體驗顯著提升。</p>
+
+    <h3 class="section-h" id="s51-4">51.4 — Edge 不是銀彈：限制與陷阱</h3>
+
+    <p>Edge computing 不是<em>所有</em>場景的最佳選擇。誠實面對限制：</p>
+
+    <h4 class="subsection-h">限制 1：CPU time 嚴格</h4>
+    <ul>
+      <li>Cloudflare Workers：50ms CPU time（Free 10ms、Paid 50ms、Unbound 30s）</li>
+      <li>Vercel Edge：30s wall-clock</li>
+      <li>Fastly Compute@Edge：60s</li>
+    </ul>
+
+    <p>對<em>長時間 compute</em>（如 video transcoding、大量 ML 推論）不適合。</p>
+
+    <h4 class="subsection-h">限制 2：Memory 上限</h4>
+    <ul>
+      <li>Workers：128 MB</li>
+      <li>Vercel Edge：4 GB（更寬鬆）</li>
+    </ul>
+
+    <p>處理大檔案、大資料集會撞壁。</p>
+
+    <h4 class="subsection-h">限制 3：Stateful 場景困難</h4>
+    <p>Edge 設計是<em>無狀態</em>的（每個請求可能去不同 PoP）。Stateful 解法：</p>
+
+    <ul>
+      <li>Cloudflare KV：eventually consistent（讀<em>快</em>但寫有 60s 延遲）</li>
+      <li>Cloudflare Durable Objects：strongly consistent（單一 instance per object）</li>
+      <li>Cloudflare D1：分散式 SQLite，讀寫差異</li>
+      <li>Vercel Edge Config：read-heavy 配置儲存</li>
+    </ul>
+
+    <p>真正的 stateful 應用（資料庫、長 session）仍要 origin。</p>
+
+    <h4 class="subsection-h">限制 4：WebSocket 與長連線</h4>
+    <p>Edge 對<em>短請求</em>優化。WebSocket（長連線）支援有限：</p>
+
+    <ul>
+      <li>Cloudflare Workers + Durable Objects：完整 WebSocket 支援</li>
+      <li>Vercel Edge：有限</li>
+      <li>Fastly：不支援</li>
+    </ul>
+
+    <h4 class="subsection-h">限制 5：Node.js API 不完整</h4>
+    <p>V8 isolate 不是 Node.js — 沒 <code>fs</code>、<code>child_process</code>、<code>net</code>（raw socket）。許多 npm 套件（依賴 Node.js API）無法運作。<em>必須用 Web Standards API</em>（Fetch、Web Crypto、Streams）。</p>
+
+    <h4 class="subsection-h">限制 6：Vendor lock-in</h4>
+    <p>Workers 的 KV / Durable Objects、Vercel 的 Edge Config — 都是 vendor-specific。遷移到其他平台<em>困難</em>。</p>
+
+    <h3 class="section-h" id="s51-5">51.5 — CDN-as-Reverse-Proxy：傳統 CDN 的演進</h3>
+
+    <p>傳統 CDN（Akamai、Cloudflare、Fastly、CloudFront）原本只 cache 靜態資源。2020-2026 年演化為<em>完整的 reverse proxy 平台</em>：</p>
+
+    <h4 class="subsection-h">2026 年主流 CDN 的 reverse proxy 能力</h4>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>能力</th><th>傳統 CDN（2010）</th><th>2026 CDN</th></tr></thead>
+        <tbody>
+          <tr><td>靜態 cache</td><td>✓</td><td>✓</td></tr>
+          <tr><td>SSL/TLS termination</td><td>✓</td><td>✓ + PQC（cf. Ch.49）</td></tr>
+          <tr><td>HTTP/3</td><td>✗</td><td>✓ + MASQUE（部分）</td></tr>
+          <tr><td>WAF</td><td>✗</td><td>✓（managed rules + ML）</td></tr>
+          <tr><td>DDoS 防護</td><td>有限</td><td>Tbps 級（cf. Ch.36）</td></tr>
+          <tr><td>Bot management</td><td>✗</td><td>✓（JA4 + AI Labyrinth）</td></tr>
+          <tr><td>Edge compute</td><td>✗</td><td>✓（Workers / Edge Functions）</td></tr>
+          <tr><td>AI Gateway</td><td>✗</td><td>✓（Cloudflare AI Gateway 等）</td></tr>
+          <tr><td>Zero Trust</td><td>✗</td><td>✓（Access、Tunnel）</td></tr>
+          <tr><td>CDN as VPN</td><td>✗</td><td>✓（WARP、Private Relay）</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>結論：<strong>2026 年的 CDN 不是 CDN，是「<em>全球分散的 reverse proxy 平台 + 安全 + 計算</em>」</strong>。Cloudflare 自我定位為「Connectivity Cloud」 — 從 reverse proxy 工程師視角，這是最精準的描述。</p>
+
+    <h3 class="section-h" id="s51-6">51.6 — 給 reverse proxy 工程師的 5 條建議</h3>
+
+    <ol>
+      <li><strong>邊緣化「容易移到邊緣的」</strong>：認證、A/B test、geo-routing、cache 個性化</li>
+      <li><strong>保留 origin 給「需要 stateful」</strong>：資料庫操作、長計算、WebSocket（除非用 Cloudflare DO）</li>
+      <li><strong>學 V8 isolate 模型</strong>：即使你不寫 Workers，理解這個範式為何重要</li>
+      <li><strong>Cold start &lt; 5ms 是 game-changer</strong>：傳統 serverless 性能瓶頸消失了</li>
+      <li><strong>把 CDN 當 reverse proxy 平台</strong>：2026 年的 Cloudflare / Akamai / Fastly 不是 cache，是<em>完整 platform</em></li>
+    </ol>
+
+    <div class="callout">
+      <div class="callout-label">本章要點</div>
+      <ul class="key-points">
+        <li><strong>V8 isolate 革命</strong>：冷啟動 &lt; 5ms（vs 容器 100-1000ms）、~5MB 記憶體（vs 容器 50-500MB）、千倍密度。</li>
+        <li><strong>用「受限」換「速度與密度」</strong>：無 filesystem、CPU time 嚴格、有限 Node.js API。</li>
+        <li><strong>Cloudflare Shard and Conquer</strong>達 99.99% warm rate。</li>
+        <li><strong>6 大平台</strong>：Cloudflare Workers（330+ PoP，最廣）、Vercel（Next.js 首選）、Fastly Compute@Edge（純 WASM）、Deno Deploy（TS-native）、AWS Lambda@Edge、Akamai EdgeWorkers。</li>
+        <li><strong>Edge 取代 reverse proxy 的 6 場景</strong>：邊緣 auth、A/B test、cache 個性化、geo-routing、image transform、AI inference。</li>
+        <li><strong>Edge 不是銀彈</strong>：CPU time 嚴格、memory 上限、stateful 困難、WebSocket 限制、Node.js API 不完整、vendor lock-in。</li>
+        <li><strong>2026 年 CDN = 全球分散 reverse proxy 平台</strong>：cache + WAF + DDoS + bot management + edge compute + AI Gateway + Zero Trust + VPN 一體。</li>
+        <li><strong>5 條工程師建議</strong>：邊緣化容易移的、保留 origin 給 stateful、學 V8 isolate、cold start &lt; 5ms 是 game-changer、把 CDN 當完整 platform。</li>
+      </ul>
+    </div>
+
+    <div class="footnotes">
+      <a id="fn13"></a><span class="ref">13</span> Cloudflare Workers 與 V8 isolate 架構詳見 Kenton Varda 的演講「Cloudflare Workers: Lambda alternative」（2018）與後續 blog 系列。<br>
+      <a id="fn14"></a><span class="ref">14</span> Cloudflare 2026/03 達 330+ cities，95% 全球人口 50ms 內可達。Cloudflare Radar 提供即時統計。<br>
+      <a id="fn15"></a><span class="ref">15</span> Vercel Fluid Compute 在 2024 推出，把傳統 serverless 與 edge runtime 折衷，幾乎消除冷啟動。
+    </div>
+
+    <div class="ch-end"><span class="ch-end-mark">❦</span></div>
+  </div>
+</article>
+
+<div class="section-rule"></div>
+
+<!-- ============================================================ -->
+<!-- CHAPTER 52 — Zero Trust 與 IPv6                                 -->
+<!-- ============================================================ -->
+<article class="chapter" id="ch52">
+  <header class="ch-header">
+    <div class="ch-marker">Chapter 52</div>
+    <h2 class="ch-title">Zero Trust 與 IPv6<br><em style="font-style:italic;font-weight:400;font-size:.65em;color:var(--text-muted)">BeyondCorp、ZTNA、IPv6-only mobile network 與 Part VI 收尾</em></h2>
+    <p class="ch-deck">Google BeyondCorp 2014 開啟 Zero Trust 範式、NIST SP 800-207 標準化、OMB M-22-09 強制美國聯邦過渡。Apple iOS 2016+ 強制 IPv6-only、T-Mobile US 已 IPv6-only mobile。本章解構 Zero Trust 的核心原則、ZTNA 廠商生態、IPv6-only 的真實部署，並以「reverse proxy 工程師的下一個十年」收尾整個 Part VI。</p>
+  </header>
+  <div class="ch-prose">
+    <p class="first-p">
+      Part VI 進入最後一章。前面 5 章涵蓋了 reverse proxy 工程師的<em>前沿協定</em>（MASQUE、HTTP/3、PQC）與<em>前沿平台</em>（Gateway API、eBPF、Edge）。本章是<em>前沿架構</em>：<strong>Zero Trust</strong> 重新定義「信任邊界」、<strong>IPv6-only</strong> 終於從研究議題變成生產現實。兩者表面無關，實際都反映同一個趨勢：<em>傳統「網路邊界」已死，identity 與 protocol 才是新邊界</em>。本章是 Part VI 結語，也是 reverse proxy 工程師<em>面對 2030 年</em>的最後準備。
+    </p>
+
+    <h3 class="section-h" id="s52-1">52.1 — Zero Trust 的起源：BeyondCorp</h3>
+
+    <p>2009 年 Google 遭 Operation Aurora 攻擊（中國駭客滲透 Google 內部網路）。Google 安全團隊得出一個激進結論：<strong>「<em>內部網路不該被信任</em>」</strong>。傳統「<em>內網安全 / 外網不安全</em>」二元假設失敗 — VPN 內的攻擊者與外部攻擊者一樣危險。</p>
+
+    <h4 class="subsection-h">BeyondCorp 核心原則</h4>
+    <p>2014 年 Google 公開 BeyondCorp 架構，三個核心：</p>
+
+    <ol>
+      <li><strong>不信任網路位置</strong>：在 office 與在家咖啡店<em>沒</em>本質差別</li>
+      <li><strong>每個請求都驗證</strong>：每次存取都要 identity + device 驗證，不是「連上 VPN 就放行」</li>
+      <li><strong>加密所有流量</strong>：即使在「內網」，仍用 TLS</li>
+    </ol>
+
+    <h4 class="subsection-h">為何叫「Zero Trust」</h4>
+    <p>術語由 Forrester 分析師 John Kindervag 2010 年提出。核心：「<em>Never trust, always verify</em>」 — 不論流量來源、身分初步驗證、設備狀態，<em>每次</em>都要 re-verify。</p>
+
+    <h3 class="section-h" id="s52-2">52.2 — NIST SP 800-207：Zero Trust 標準化</h3>
+
+    <p>2020/08 NIST 釋出 <strong>Special Publication 800-207</strong>「Zero Trust Architecture」，給 ZTA 一個官方定義。三大組件：</p>
+
+    <div class="figure">
+      <div class="mermaid-wrap">
+        <div class="diagram-label">Figure 52.1 · NIST SP 800-207 ZTA 核心架構</div>
+        <pre class="mermaid">
+flowchart TD
+    U["&lt;b&gt;User / Device&lt;/b&gt;&lt;br/&gt;發出請求"]
+    PEP["&lt;b&gt;Policy Enforcement Point (PEP)&lt;/b&gt;&lt;br/&gt;&lt;i&gt;實際執行：放行或擋下&lt;br/&gt;典型：reverse proxy / ZTNA gateway&lt;/i&gt;"]
+    PDP["&lt;b&gt;Policy Decision Point (PDP)&lt;/b&gt;&lt;br/&gt;&lt;i&gt;決定請求可否放行&lt;br/&gt;輸入：身分 · 設備 · 上下文 · 時間 · 地理&lt;/i&gt;"]
+    PIP["&lt;b&gt;Policy Information Point (PIP)&lt;/b&gt;&lt;br/&gt;&lt;i&gt;Identity provider (Okta · Azure AD)&lt;br/&gt;Device posture (CrowdStrike · Jamf)&lt;br/&gt;Threat intel · SIEM / SOAR&lt;/i&gt;"]
+    U -- "request" --&gt; PEP
+    PEP -- "詢問" --&gt; PDP
+    PDP -- "allow / deny" --&gt; PEP
+    PIP -- "提供 context" --&gt; PDP
+        </pre>
+      </div>
+      <div class="figure-caption"><strong>圖 52.1</strong>　NIST ZTA 三大組件：PDP 做決策、PEP 執行、PIP 提供決策所需資訊。Reverse proxy 通常擔任 PEP 角色。</div>
+    </div>
+
+    <h4 class="subsection-h">PEP 的角色</h4>
+    <p>關鍵：<strong>PEP 通常是 reverse proxy</strong>。Cloudflare Access、Tailscale、Twingate、Zscaler ZIA、Palo Alto Prisma — 都是 ZTNA PEP 實作。Reverse proxy 工程師<em>本質上</em>就是 Zero Trust 的執行者。</p>
+
+    <h3 class="section-h" id="s52-3">52.3 — OMB M-22-09：美國聯邦強制過渡</h3>
+
+    <p>2022/01 美國 OMB（Office of Management and Budget）發布 <strong>M-22-09</strong>：<em>所有聯邦機構 2024 年底完成 Zero Trust 過渡</em>。具體要求：</p>
+
+    <ul>
+      <li><strong>Identity</strong>：phishing-resistant MFA（FIDO2 / WebAuthn）</li>
+      <li><strong>Devices</strong>：每個設備有完整 inventory + 持續監控</li>
+      <li><strong>Networks</strong>：所有 DNS / HTTP 流量加密；網路分段 + micro-segmentation</li>
+      <li><strong>Applications</strong>：所有 app 內部 + 外部都當「公開網際網路」對待</li>
+      <li><strong>Data</strong>：分類、加密、DLP</li>
+    </ul>
+
+    <p>影響：<strong>美國聯邦市場是 ZTNA 廠商最大客戶</strong>，間接推動全球生態。EU NIS2（2024 年強制）也類似要求。</p>
+
+    <h3 class="section-h" id="s52-4">52.4 — 主流 ZTNA 廠商（2026）</h3>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>廠商</th><th>特色</th><th>適合</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Cloudflare Access / Zero Trust</strong></td><td>整合 Cloudflare 全球網路、含 SWG / CASB / browser isolation</td><td>已用 Cloudflare、希望全功能</td></tr>
+          <tr><td><strong>Tailscale</strong></td><td>WireGuard-based mesh、極簡 setup、開發者友好</td><td>小團隊、開發者、homelab</td></tr>
+          <tr><td><strong>Twingate</strong></td><td>無客戶端 split tunnel、VPN 替代</td><td>中小企業</td></tr>
+          <tr><td><strong>Zscaler ZPA</strong></td><td>企業級、合規認證齊全</td><td>大型企業、Fortune 500</td></tr>
+          <tr><td><strong>Palo Alto Prisma Access</strong></td><td>SASE 整合、含 firewall + DLP</td><td>已用 Palo Alto firewall</td></tr>
+          <tr><td><strong>Netskope</strong></td><td>SSE 領導者、強 CASB</td><td>SaaS-heavy 企業</td></tr>
+          <tr><td><strong>Microsoft Entra Private Access</strong></td><td>Microsoft 365 整合、Entra ID（前 Azure AD）</td><td>Microsoft-centric 企業</td></tr>
+          <tr><td><strong>Google BeyondCorp Enterprise</strong></td><td>Google 原版、與 Workspace 整合</td><td>Google-centric 企業</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>2026 年 ZTNA 市場成熟，各家差異主要在<em>生態整合</em>而非技術。選擇看「<em>你已經用誰</em>」。</p>
+
+    <h3 class="section-h" id="s52-5">52.5 — IPv6-only：從研究議題到生產現實</h3>
+
+    <p>IPv6 自 1998 年標準化（RFC 2460），但<em>30 年</em>仍未全面取代 IPv4。2020-2026 年情況變了：<strong>IPv6-only 部署已是生產現實</strong>。</p>
+
+    <h4 class="subsection-h">2026 年的 IPv6-only 部署</h4>
+
+    <ul>
+      <li><strong>Apple iOS / macOS（2016+）</strong>：Apple App Store 強制要求 app 在 IPv6-only 網路中能運作。<em>事實上</em>所有 iOS app 都已 IPv6-ready</li>
+      <li><strong>T-Mobile US</strong>：mobile network 已是 <em>IPv6-only</em>，IPv4 透過 NAT64 / 464XLAT 提供</li>
+      <li><strong>Facebook / Meta 內部</strong>：data center 內部完全 IPv6-only（自 2017 年）</li>
+      <li><strong>LinkedIn 內部</strong>：data center 自 2014 年 IPv6-only</li>
+      <li><strong>Microsoft Azure</strong>：2025 起完整 IPv6-only support，可建純 IPv6 VNet</li>
+      <li><strong>AWS</strong>：2024+ 多個 service 提供 IPv6-only endpoint，VPC 支援 dual-stack 與 IPv6-only</li>
+      <li><strong>Google Cloud</strong>：IPv6 在主要 region 全面可用</li>
+      <li><strong>印度、越南</strong>：政府與電信主導的 IPv6 全面部署</li>
+    </ul>
+
+    <h4 class="subsection-h">為何現在</h4>
+    <ul>
+      <li><strong>IPv4 地址枯竭</strong>：RIR 分配的 IPv4 / 24 block 一個賣 USD $30,000+（2026）</li>
+      <li><strong>NAT 痛苦</strong>：CGNAT（Carrier-Grade NAT）造成 P2P、WebRTC、VoIP 問題</li>
+      <li><strong>雲廠商成本</strong>：AWS 從 2024/02 開始對 public IPv4 收費（每小時 $0.005）</li>
+      <li><strong>Mobile network</strong>：行動網路的 4G LTE / 5G 設計就是 IPv6-first</li>
+    </ul>
+
+    <h3 class="section-h" id="s52-6">52.6 — IPv4-IPv6 過渡：NAT64 與 464XLAT</h3>
+
+    <p>純 IPv6 部署的<em>現實</em>挑戰：仍有大量 IPv4-only 資源（舊網站、第三方 API、IoT 設備）。解法：</p>
+
+    <h4 class="subsection-h">NAT64 + DNS64</h4>
+    <p>網路提供「假裝 IPv6 可達 IPv4」的閘道：</p>
+
+    <ul>
+      <li><strong>DNS64</strong>：DNS server 對 IPv4-only 域名回傳<em>合成的</em> IPv6 地址（前綴 64:ff9b::/96 + IPv4 地址編碼）</li>
+      <li><strong>NAT64</strong>：邊界 router 把 IPv6 → 真實 IPv4 連線</li>
+    </ul>
+
+    <p>缺點：DNS64 對 DNSSEC 不友好；某些 app 在 raw IP 中嵌入 IPv4 文字，不會被翻譯。</p>
+
+    <h4 class="subsection-h">464XLAT（client-side translation）</h4>
+    <p>進階方案：client 端有 NAT46 + NAT64 的兩段翻譯：</p>
+
+    <ul>
+      <li>App 用 IPv4 socket → client OS 翻譯成 IPv6（NAT46）→ 邊界 NAT64 → IPv4 server</li>
+      <li>對 app 完全透明，<em>連 IP literal 都能用</em></li>
+      <li>Apple iOS、Android 內建 464XLAT</li>
+      <li>T-Mobile US 用此方案</li>
+    </ul>
+
+    <h4 class="subsection-h">Reverse Proxy 在 IPv6-only 場景</h4>
+    <ul>
+      <li><strong>Nginx 1.28+</strong>：完整 IPv6-only 支援，含 health check 與 upstream</li>
+      <li><strong>HAProxy 3.0+</strong>：完整支援</li>
+      <li><strong>Envoy</strong>：完整支援</li>
+      <li><strong>Cloudflare</strong>：對 origin 同時試 IPv6 與 IPv4，自動 prefer IPv6</li>
+    </ul>
+
+    <h3 class="section-h" id="s52-7">52.7 — Part VI 結語：Reverse Proxy 工程師的下一個十年</h3>
+
+    <p>Part VI 走完了 6 個前沿議題。整理 reverse proxy 工程師的 2026-2035 年技能地圖：</p>
+
+    <h4 class="subsection-h">2026 年「<em>必修</em>」技能（已從 nice-to-have 變必要）</h4>
+    <ul>
+      <li><strong>HTTP/3 / QUIC</strong>：全球流量已超 30%（Cloudflare 數據）</li>
+      <li><strong>Kubernetes Gateway API</strong>：Ingress NGINX 退役後沒選擇</li>
+      <li><strong>TLS 1.3 + X25519MLKEM768</strong>：harvest-now 攻擊已在發生</li>
+      <li><strong>OAuth / OIDC + Zero Trust 基礎</strong>：合規與企業整合</li>
+    </ul>
+
+    <h4 class="subsection-h">2026-2030「<em>將會必修</em>」</h4>
+    <ul>
+      <li><strong>MASQUE</strong>：當 VPN / privacy proxy 成主流</li>
+      <li><strong>eBPF / Cilium</strong>：當 K8s 性能要求超過 Envoy 能達</li>
+      <li><strong>Edge computing（Workers / Edge Functions）</strong>：當邊緣化成為部署預設</li>
+      <li><strong>IPv6-only</strong>：當雲廠商繼續對 IPv4 加價</li>
+      <li><strong>PQC certificates</strong>：當 NIST FIPS 204 ML-DSA 證書 2027-2028 主流化</li>
+      <li><strong>Service Mesh + GAMMA</strong>：當 ingress 與 mesh 統一管理</li>
+    </ul>
+
+    <h4 class="subsection-h">2030+「<em>下一波</em>」（推測）</h4>
+    <ul>
+      <li><strong>純 PQC</strong>（不要 hybrid，直接用 ML-KEM）</li>
+      <li><strong>WebMCP / agent-aware proxy</strong>（cf. Ch.42）</li>
+      <li><strong>Encrypted ClientHello（ECH）廣泛部署</strong></li>
+      <li><strong>HTTP/4 ?</strong>（誰知道，但 IETF 已在討論）</li>
+    </ul>
+
+    <h4 class="subsection-h">三個跨議題趨勢</h4>
+    <ol>
+      <li><strong>「邊界」消失</strong>：傳統網路邊界 → identity + protocol 為新邊界（Zero Trust + MASQUE + PQC 都反映這點）</li>
+      <li><strong>「分散化」加深</strong>：單機 reverse proxy → 全球邊緣 platform（Edge computing + Workers + 330+ PoP）</li>
+      <li><strong>「協定升級」加速</strong>：HTTP/1.1 → HTTP/2 用了 18 年；HTTP/2 → HTTP/3 用 7 年；MASQUE 從 RFC 到主流會更快</li>
+    </ol>
+
+    <h4 class="subsection-h">給 reverse proxy 工程師的最後話</h4>
+    <p>Part I-V 教你「<em>2026 年在做什麼</em>」。Part VI 教你「<em>2030 年會在做什麼</em>」。兩者一樣重要 — 沒有<em>當下</em>的精熟，談未來是空話；沒有<em>未來</em>的視野，當下會被淘汰。</p>
+
+    <p>Reverse proxy 工程師的職業半衰期不長 — 2010 年的 Apache mod_rewrite 大師到 2026 年若沒升級，已被 Nginx / Envoy / Cloudflare 取代。<strong>持續學習不是<em>選擇</em>，是<em>生存條件</em></strong>。但同時，<em>底層原理</em>跨技術不變：四元組、TLS、stream 多工、cache、observability — 這些 50 年前對、50 年後仍會對。</p>
+
+    <p>本書的下一個 Part 進入 <strong>Part VII — Development & Integration</strong>：API 設計、SDK 整合、開發者體驗、可觀測性實戰、debug 與 troubleshoot。從<em>前沿議題</em>回到<em>日常工程</em>。</p>
+
+    <div class="callout">
+      <div class="callout-label">本章要點</div>
+      <ul class="key-points">
+        <li><strong>Zero Trust 起源</strong>：2009 Google Operation Aurora 後 BeyondCorp（2014 公開）；Forrester John Kindervag 提出術語「Never trust, always verify」。</li>
+        <li><strong>NIST SP 800-207（2020/08）</strong>標準化 PDP / PEP / PIP 三組件，<em>PEP 通常就是 reverse proxy</em>。</li>
+        <li><strong>OMB M-22-09（2022/01）</strong>強制美國聯邦 2024 年完成 ZTA 過渡，間接推動全球生態。</li>
+        <li><strong>主流 ZTNA 廠商</strong> 8 家：Cloudflare Access、Tailscale、Twingate、Zscaler ZPA、Palo Alto Prisma、Netskope、Microsoft Entra Private Access、Google BeyondCorp Enterprise。</li>
+        <li><strong>IPv6-only 已是生產現實</strong>：Apple iOS（2016+ App Store 強制）、T-Mobile US mobile、Meta / LinkedIn data center、AWS / Azure / GCP 完整 IPv6-only 支援、AWS 2024 對 IPv4 收費。</li>
+        <li><strong>464XLAT</strong>是行動網路 IPv6-only + IPv4 兼容的標準解。</li>
+        <li><strong>Part VI 結語</strong>：2026 必修（HTTP/3、Gateway API、PQC、Zero Trust 基礎）、2026-2030 將必修（MASQUE、eBPF、Edge、IPv6-only、PQC certificates、GAMMA）、2030+ 下一波（純 PQC、WebMCP、ECH、HTTP/4?）。</li>
+        <li><strong>三個跨議題趨勢</strong>：邊界消失、分散化加深、協定升級加速。Reverse proxy 工程師的<em>持續學習是生存條件</em>，但<em>底層原理不變</em>。</li>
+      </ul>
+    </div>
+
+    <div class="footnotes">
+      <a id="fn16"></a><span class="ref">16</span> BeyondCorp 系列論文由 Google 於 2014-2017 年陸續公開，cloud.google.com/beyondcorp 提供完整文件。<br>
+      <a id="fn17"></a><span class="ref">17</span> NIST SP 800-207「Zero Trust Architecture」於 2020/08 釋出，是 ZTA 領域的事實標準。OMB M-22-09 於 2022/01 發布，cio.gov 提供完整文件。<br>
+      <a id="fn18"></a><span class="ref">18</span> IPv6-only 部署統計可見 APNIC、Google IPv6 stats（google.com/intl/en/ipv6）、Cloudflare Radar 等公開資料。
+    </div>
+
+    <div class="ch-end"><span class="ch-end-mark">❦</span></div>
+  </div>
+</article>
+
+<!-- ============================================================ -->
+<!-- PART VI COMPLETE — END MATTER                                 -->
+<!-- ============================================================ -->
+<div class="part-end">
+  <div class="part-end-mark">⁂</div>
+  <div class="part-end-label">END OF PART VI</div>
+  <div class="part-end-text">進階架構<br><em>Advanced Architecture &amp; Frontiers</em></div>
+  <div class="part-end-stats">6 章 · ~13,200 字 · 從 MASQUE 到 後量子密碼學、從 Gateway API 到 Edge Computing、從 Zero Trust 到 IPv6-only</div>
+</div>
+
+</main>
+
+<footer>
+  <nav class="foot-nav">
+    <a href="06-proxy-guide-part-5-ai-era.html">
+      <span class="nav-label">上一個 Part</span>
+      ← Part V — AI Era 與 API Gateway
+    </a>
+    <a href="01-proxy-guide-index.html">
+      <span class="nav-label">回到</span>
+      全書目錄
+    </a>
+  </nav>
+  <div class="colophon-mini">Part VI · 進階架構 · ✓ Complete (6 chapters)</div>
+</footer>
+
+<button class="totop" id="totop" aria-label="回到頂部">↑</button>
+
+<script src="./shared/mermaid.min.js"></script>
+<script src="./shared/mermaid-init.js"></script>
+<script>
+const SUN='<path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="12" cy="12" r="4" fill="currentColor"/>';
+const MOON='<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="currentColor"/>';
+function updateThemeUI(t){const i=document.getElementById('theme-icon'),l=document.getElementById('theme-label');if(t==='dark'){i.innerHTML=MOON;l.textContent='DARK'}else{i.innerHTML=SUN;l.textContent='LIGHT'}}
+function toggleTheme(){const c=document.documentElement.getAttribute('data-theme'),n=c==='light'?'dark':'light';document.documentElement.setAttribute('data-theme',n);localStorage.setItem('proxy-handbook-theme',n);updateThemeUI(n);if(typeof renderMermaid==='function')renderMermaid()}
+(function(){const s=localStorage.getItem('proxy-handbook-theme'),p=window.matchMedia('(prefers-color-scheme: dark)').matches,t=s||(p?'dark':'light');document.documentElement.setAttribute('data-theme',t);document.addEventListener('DOMContentLoaded',()=>{updateThemeUI(t);if(typeof renderMermaid==='function')renderMermaid()})})();
+const progress=document.getElementById('progress');
+window.addEventListener('scroll',()=>{const w=document.documentElement.scrollHeight-window.innerHeight,s=(window.scrollY/w)*100;progress.style.width=s+'%'});
+const totop=document.getElementById('totop');
+window.addEventListener('scroll',()=>{if(window.scrollY>800)totop.classList.add('visible');else totop.classList.remove('visible')});
+totop.addEventListener('click',()=>window.scrollTo({top:0,behavior:'smooth'}));
+const sl=document.querySelectorAll('.side-toc-list a');
+const o=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){const id=e.target.id;sl.forEach(l=>l.classList.toggle('active',l.getAttribute('href')==='#'+id))}})},{rootMargin:'-100px 0px -60% 0px',threshold:0});
+document.querySelectorAll('article.chapter,.coming-soon[id]').forEach(e=>o.observe(e));
+</script>
+</body>
+</html>
