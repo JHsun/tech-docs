@@ -211,7 +211,7 @@ def generate_index(groups):
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Report Hub</title>
+  <title>JHsun × Claude TechDocs</title>
   <style>
     :root {
       --bg: #f5f5f7;
@@ -433,7 +433,7 @@ def generate_index(groups):
     <div class="header-inner">
       <div class="logo">
         <div class="logo-icon"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5z" fill="rgba(255,255,255,0.15)" stroke="white" stroke-width="1.5"/><path d="M8 7h8M8 11h5" stroke="white" stroke-width="1.5" stroke-linecap="round"/><circle cx="16" cy="16" r="3.5" fill="white" fill-opacity="0.2" stroke="white" stroke-width="1.5"/><path d="M14.5 16l1 1 2-2" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-        <span class="logo-text">AI Report Hub</span>
+        <span class="logo-text">JHsun × Claude TechDocs</span>
       </div>
       <div class="theme-toggle" onclick="toggleTheme()" title="切換 Light/Dark 模式" role="button" tabindex="0">
         <div class="theme-toggle-thumb"></div>
@@ -443,8 +443,8 @@ def generate_index(groups):
 
   <div class="container">
     <div class="hero">
-      <h1>AI Report Hub</h1>
-      <p>由 Claude AI 產製的 HTML 分析報告彙整</p>
+      <h1>JHsun × Claude TechDocs</h1>
+      <p>由 JHsun 規劃、Claude AI 執行的技術文件平台</p>
       <div class="stats-row">
         <span class="stat-chip">&#128196; 共 """ + str(total) + """ 份報告</span>
         <span class="stat-chip">&#128193; """ + str(len(categories)) + """ 個分類</span>
