@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 10 章 · P2P 拓樸與 Kademlia DHT</title>
+<link rel="stylesheet" href="../share/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>NAT TRAVERSAL × P2P</span>
+  </div>
+  <nav>
+    <a href="../firewall-traversal-and-p2p-guide -index.html">封面</a>
+    <a href="ch09.html">CH 9</a>
+    <a href="ch10.html" class="current">CH 10</a>
+    <a href="ch11.html">CH 11</a>
+    <a href="ch12.html">CH 12</a>
+    <a href="cheatsheet.html">速查</a>
+    <a href="glossary.html">術語</a>
+    <button id="themeToggle" class="theme-toggle">暗色</button>
+  </nav>
+</header>
+
+<main class="page">
+
+<div class="chapter-meta">
+  <span class="dot"></span> PART III &nbsp;·&nbsp; P2P 網路架構
+  <span class="dot"></span> CHAPTER 10
+</div>
+
+<h1>
+  <span class="chapter-num">CHAPTER 10</span>
+  P2P 拓樸與 Kademlia DHT
+</h1>
+
+<div class="chapter-intro">
+  <h4>本章導讀</h4>
+  <p>
+    Part II 教你怎麼讓兩個 peer 直連，本章開始問一個更大的問題：
+    <strong>當網路中有上百萬個 peer 時，怎麼找到你想找的那一個？</strong>
+    這就是「<em>peer discovery</em>」與「<em>內容路由</em>」問題。我們會比較結構化（DHT）與非結構化（flooding）兩種覆蓋網路設計，
+    然後深入<strong>Kademlia DHT</strong>——這是 BitTorrent、IPFS、Ethereum、libp2p 共同的基礎設施，
+    也是工程上最優雅的分散式雜湊表設計之一。
+  </p>
+</div>
+
+<div class="objectives">
+  <h4>📚 學習目標</h4>
+  <ul>
+    <li>能說明結構化與非結構化覆蓋網路的本質差異與適用場景。</li>
+    <li>能解釋 Kademlia 的 XOR 距離度量為何優雅。</li>
+    <li>能描述 k-bucket 的結構與更新策略。</li>
+    <li>能解釋 FIND_NODE / FIND_VALUE / STORE / PING 四個 RPC 的協作流程。</li>
+    <li>能評估 Kademlia 在 Sybil 攻擊與 Eclipse 攻擊下的安全性。</li>
+  </ul>
+</div>
+
+<h2>10.1 P2P 拓樸的兩條道路</h2>
+
+<p>
+  P2P 系統的核心設計選擇之一：<em>節點該怎麼組織</em>？節點與節點間的「鄰居關係」決定了：
+</p>
+
+<ul>
+  <li>查詢的<strong>路徑長度</strong>（要跳幾次才能找到資料）</li>
+  <li>查詢的<strong>頻寬成本</strong>（每次查詢產生多少訊息）</li>
+  <li>網路的<strong>抗變動性</strong>（節點頻繁進出時是否仍可用）</li>
+  <li>網路的<strong>抗攻擊性</strong>（惡意節點能造成多少破壞）</li>
+</ul>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>🌪 非結構化（Unstructured）</h4>
+    <p>節點隨機建立連線，查詢透過洪泛（flooding）或隨機漫步傳播。<br>
+    <strong>例：</strong>Gnutella、Freenet 早期版本</p>
+    <p style="font-size:0.9em;color:var(--text-muted);"><strong>優點：</strong>實作簡單、極抗變動<br>
+    <strong>缺點：</strong>查詢成本高、不保證找得到</p>
+  </div>
+  <div class="cheat-card">
+    <h4>🏛 結構化（Structured）</h4>
+    <p>節點與資料都用<em>同一種 ID 空間</em>編址，路由演算法保證 O(log N) 步抵達目標。<br>
+    <strong>例：</strong>Chord、Kademlia、Pastry、Tapestry</p>
+    <p style="font-size:0.9em;color:var(--text-muted);"><strong>優點：</strong>可保證找到、效率高<br>
+    <strong>缺點：</strong>節點頻繁進出時維護成本高</p>
+  </div>
+</div>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart LR
+    subgraph U["非結構化：Gnutella 風格"]
+        U1((A))
+        U2((B))
+        U3((C))
+        U4((D))
+        U5((E))
+        U6((F))
+        U1 --- U2
+        U1 --- U3
+        U2 --- U4
+        U3 --- U5
+        U4 --- U6
+        U5 --- U6
+        U2 --- U5
+    end
+
+    subgraph S["結構化：DHT 環/樹"]
+        S1((Node 0001))
+        S2((Node 0011))
+        S3((Node 0101))
+        S4((Node 0111))
+        S5((Node 1001))
+        S6((Node 1101))
+        S1 -.路由表.-> S3
+        S1 -.路由表.-> S5
+        S3 -.-> S5
+        S5 -.-> S1
+        S2 -.-> S4
+        S4 -.-> S6
+    end
+
+    classDef u fill:#b8761d,stroke:#b8761d,color:#fff
+    classDef s fill:#2d5a3d,stroke:#2d5a3d,color:#fff
+    class U1,U2,U3,U4,U5,U6 u
+    class S1,S2,S3,S4,S5,S6 s
+</div>
+<div class="caption">圖 10-1 ｜ 非結構化（左）vs 結構化（右）的覆蓋網路</div>
+</div>
+
+<h2>10.2 從 Gnutella 到 Chord：歷史脈絡</h2>
+
+<h3>10.2.1 Gnutella：洪泛的代價</h3>
+
+<p>
+  2000 年代初的 Gnutella 是純粹的非結構化 P2P：每個節點維護幾個鄰居，
+  查詢時用 TTL（Time-To-Live，預設 7）洪泛廣播給所有鄰居。理論上，
+  TTL=7、平均度 5 的網路，一次查詢產生 5⁷ ≈ 78,125 個訊息。網路一旦規模化就崩潰。
+</p>
+
+<h3>10.2.2 Chord：第一個學術 DHT</h3>
+
+<p>
+  2001 年 MIT 的 Chord 論文開啟了結構化 P2P 時代。它把節點與 key 都映射到同一個圓環上，
+  每個節點維護一張「<strong>finger table</strong>」指向 2^i 距離外的節點，
+  查詢透過 finger 跳躍能在 O(log N) 步抵達。
+</p>
+
+<p>
+  Chord 雖優雅，但實務上並不流行——它的 finger table 維護要求太嚴格，
+  節點 churn（頻繁進出）會造成大量更新。<strong>Kademlia 後來居上</strong>的原因之一，
+  是它的設計天生對 churn 友善。
+</p>
+
+<h2>10.3 Kademlia：工程之美</h2>
+
+<p>
+  Kademlia 由 Petar Maymounkov 與 David Mazières 在 2002 年發表。它的設計之美在於：
+  用一個簡單的數學概念（XOR 距離），優雅地解決了路由、儲存、容錯三個問題。
+  今天 BitTorrent、IPFS、Ethereum、libp2p 的 DHT 全部基於 Kademlia 變體。
+</p>
+
+<h3>10.3.1 ID 空間與 XOR 距離</h3>
+
+<p>
+  Kademlia 使用 <strong>160 bit</strong>（SHA-1 大小）或 <strong>256 bit</strong>（現代版本）
+  的 ID 空間。每個節點隨機產生一個 ID；每筆資料的 key 也是同一空間中的點。
+</p>
+
+<p>
+  「節點 A 與節點 B 的距離」定義為 <code>distance(A, B) = A XOR B</code>。
+  這個簡單定義有幾個漂亮性質：
+</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>對稱性</h4>
+    <p><code>d(A,B) = d(B,A)</code><br>
+    A 看 B 與 B 看 A 是同樣距離——這讓 Chord 的「順時針」非對稱問題消失。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>三角不等式</h4>
+    <p><code>d(A,C) ≤ d(A,B) ⊕ d(B,C)</code><br>
+    保證透過中間節點不會繞遠路。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>單位元素</h4>
+    <p><code>d(A,A) = 0</code><br>
+    自己跟自己距離為零。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>唯一性</h4>
+    <p>對任一 ID X 與距離 d，<em>恰好</em>存在一個 ID Y 滿足 <code>d(X,Y)=d</code>。<br>
+    這對 routing 演算法極為關鍵。</p>
+  </div>
+</div>
+
+<h3>10.3.2 一個直觀理解</h3>
+
+<p>把 ID 想成 binary tree 的葉子，XOR 距離就是「<em>樹上兩葉子的最近共同祖先到根的距離</em>」：</p>
+
+<pre data-lang="conceptual">假設 ID 是 4 bit，畫成 binary tree：
+
+              root
+            /      \
+          0         1
+        / \        / \
+       00  01    10  11
+      /|  |\    /|  |\
+   0000 ... 1111
+
+節點 ID = 0011, key = 0110
+  XOR = 0101 = 5
+
+節點 0011 ↔ 0110 在 tree 上的關係：
+  共同祖先 = root (因為最高位就不同)
+  距離 5 反映了「從 root 走到任一邊」的概念
+
+節點 ID = 0011 vs 0010
+  XOR = 0001 = 1
+  非常近！只差最後一個 bit
+  共同祖先非常深</pre>
+
+<h3>10.3.3 K-Bucket：路由表</h3>
+
+<p>
+  Kademlia 不為每個節點都記，也不只記少數幾個——它的路由表是分層的「<strong>k-bucket</strong>」結構。
+</p>
+
+<p>
+  對於一個 160-bit ID 的節點 N，它維護 160 個 buckets。Bucket i 存放<em>距離 N 在 [2^i, 2^(i+1)) 範圍內</em>的節點清單，
+  每個 bucket 最多存 <code>k</code> 個節點（k 通常為 20）。
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TB
+    Me["我的 ID = 0...000"]
+
+    subgraph B["k-buckets"]
+        B0[Bucket 0<br/>距離 1<br/>1 個槽]
+        B1[Bucket 1<br/>距離 2-3<br/>k 個槽]
+        B2[Bucket 2<br/>距離 4-7<br/>k 個槽]
+        Bdot["..."]
+        B159[Bucket 159<br/>距離 2^159+<br/>k 個槽]
+    end
+
+    Me --> B0
+    Me --> B1
+    Me --> B2
+    Me --> Bdot
+    Me --> B159
+
+    Note["每個 bucket 最多 k=20 個節點<br/>總計：每節點僅需追蹤 ~20×160 = 3200 個聯絡人<br/>(實際遠少於此，因低位 bucket 通常空)"]:::note
+
+    classDef note fill:transparent,stroke:#8a7456,color:#5a4a35
+</div>
+<div class="caption">圖 10-2 ｜ Kademlia 的 k-bucket 路由表結構</div>
+</div>
+
+<p>幾個關鍵觀察：</p>
+
+<ul>
+  <li><strong>近的節點 bucket 多但容量小</strong>（高 i 的 bucket 對應遠距離，但範圍大）</li>
+  <li>**整個網路只看到 O(log N) 個 buckets 是非空的**（其他 bucket 的節點根本不存在或極少）</li>
+  <li>網路規模 N=10⁶ 時，每個節點只需追蹤約 <strong>400 個聯絡人</strong>就能路由到任何其他節點</li>
+</ul>
+
+<h3>10.3.4 K-Bucket 更新策略：Least-Recently-Seen</h3>
+
+<p>
+  當節點 N 收到任何訊息（請求、回應、heartbeat）時，會更新對應 bucket：
+</p>
+
+<pre data-lang="algorithm">收到來自節點 X 的訊息時：
+
+1. 計算 X 與我的距離 d，找出對應 bucket B_i (i = floor(log2(d)))
+2. 若 X 已在 B_i 中：
+     將 X 移到 bucket 尾端（標記為「最近聯絡」）
+3. 若 X 不在 B_i 中：
+     若 B_i 有空位 (size &lt; k)：
+        把 X 加到尾端
+     否則：
+        Ping bucket 頂端那個節點 Y（最久未聯絡的）
+        若 Y 回應：
+           把 Y 移到尾端，丟棄 X（保守策略）
+        若 Y 不回應：
+           移除 Y，把 X 放尾端</pre>
+
+<div class="callout callout-info">
+  <span class="callout-title">為什麼偏好「老節點」？</span>
+  Kademlia 的設計者觀察到：<strong>線上越久的節點，繼續線上的機率越高</strong>
+  （這是經典的「<em>長尾分布</em>」現象）。新節點可能是攻擊者、可能是短暫連線者，
+  老節點則證明了自己「<em>能存活</em>」。所以 LRS（Least-Recently-Seen）策略
+  自然抗 Sybil 攻擊——攻擊者要佔據 bucket 必須持續在線很久才能擠掉老節點。
+</div>
+
+<h2>10.4 Kademlia 的四個 RPC</h2>
+
+<p>整個 Kademlia 協議只需要四個 RPC（remote procedure call）：</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>RPC</th>
+      <th>作用</th>
+      <th>回應</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>PING</code></td>
+      <td>確認節點是否在線</td>
+      <td>echo</td>
+    </tr>
+    <tr>
+      <td><code>STORE(key, value)</code></td>
+      <td>請求接收方儲存一筆資料</td>
+      <td>ack</td>
+    </tr>
+    <tr>
+      <td><code>FIND_NODE(target)</code></td>
+      <td>請接收方回報它知道<em>離 target 最近的</em> k 個節點</td>
+      <td>k 個 (ID, IP, port)</td>
+    </tr>
+    <tr>
+      <td><code>FIND_VALUE(key)</code></td>
+      <td>類似 FIND_NODE，但若接收方<em>有</em> key 對應的值，直接回傳</td>
+      <td>value 或 k 個聯絡人</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h3>10.4.1 Iterative Lookup：核心演算法</h3>
+
+<p>
+  整個 Kademlia 的搜尋邏輯就是一個漂亮的「<em>迭代逼近</em>」過程：
+</p>
+
+<pre data-lang="algorithm">查詢 target_id（FIND_NODE 或 FIND_VALUE 的核心）：
+
+shortlist = 我的 k-bucket 中離 target 最近的 α 個節點 (α 通常 = 3)
+queried = {}
+closest_so_far = max distance
+
+迴圈：
+  從 shortlist 中選 α 個尚未 query 過的節點，並行送 FIND_NODE
+  收集所有回應的 (ID, IP, port)
+  把這些新節點加入 shortlist（並排序：最近的在前）
+
+  current_closest = shortlist 中最近的節點
+  若 current_closest &gt;= closest_so_far（沒有更近了）：
+    終止迴圈
+  否則：
+    closest_so_far = current_closest
+
+最終：對 shortlist 前 k 個節點再做一次同步 FIND_NODE，得到「最近的 k 個」</pre>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant Me as 查詢者 (我)
+    participant N1 as Node A (距離 100)
+    participant N2 as Node B (距離 80)
+    participant N3 as Node C (距離 50)
+    participant N4 as Node D (距離 20)
+    participant T as 目標附近的節點
+
+    Note over Me: 起點：我的 k-bucket 中<br/>最近的是 A, B, C (α=3)
+
+    par 第一輪並行查詢
+        Me->>N1: FIND_NODE(target)
+        Me->>N2: FIND_NODE(target)
+        Me->>N3: FIND_NODE(target)
+    end
+
+    N1-->>Me: 回報它認識的近節點：包括 D
+    N2-->>Me: 回報：包括 D, E
+    N3-->>Me: 回報：包括 D, F
+
+    Note over Me: shortlist 更新，<br/>D（距離 20）變最近
+
+    Me->>N4: FIND_NODE(target)
+    N4-->>Me: 回報：T 附近的節點
+
+    Note over Me: 已收斂——<br/>新一輪沒有更近的節點
+
+    Me->>T: 對最近 k 個做最終 FIND_NODE
+</div>
+<div class="caption">圖 10-3 ｜ Kademlia 的迭代查詢：每輪逼近 target，O(log N) 步收斂</div>
+</div>
+
+<h3>10.4.2 為什麼要 α 個並行？</h3>
+
+<p>
+  並行度 α 是 Kademlia 的精明設計：
+</p>
+
+<ul>
+  <li>α=1 時是純序列查詢——若某個被查的節點不回應或慢，整體會卡住</li>
+  <li>α=3 是論文建議值——三個並行請求只要任何一個回，就能繼續推進</li>
+  <li>α 太大會浪費頻寬與目標節點資源</li>
+</ul>
+
+<p>
+  這個機制讓 Kademlia <strong>對 churn 與不可靠網路天生友善</strong>——
+  個別節點掛掉不影響整體查詢進度。
+</p>
+
+<h2>10.5 STORE：怎麼放資料？</h2>
+
+<p>
+  要儲存 (key, value)：
+</p>
+
+<ol>
+  <li>對 key 做 FIND_NODE（找出離 key 最近的 k 個節點）</li>
+  <li>對這 k 個節點全部送 STORE(key, value)</li>
+</ol>
+
+<p>
+  資料因此被冗餘儲存在 k 份副本上——只要不超過 k-1 個節點同時掛掉，資料不會丟失。
+  典型 k=20 提供了極高的容錯。
+</p>
+
+<h3>10.5.1 Republishing：對抗自然衰減</h3>
+
+<p>
+  節點會進出，原本儲存資料的 k 個節點可能慢慢變少。Kademlia 規定：
+</p>
+
+<ul>
+  <li><strong>原始 publisher 每 24 小時 republish 一次</strong>（即重複整個 STORE 流程）</li>
+  <li><strong>儲存節點每 1 小時 republish 給其他應該存的節點</strong>（抓到新加入網路的近鄰）</li>
+  <li>資料的<strong>過期時間預設 24 小時</strong>，沒有 republish 就消失</li>
+</ul>
+
+<p>這是一個典型的「<em>持續維護而非一次性放置</em>」的設計——非常 P2P 思維。</p>
+
+<h2>10.6 Bootstrap：怎麼進入網路？</h2>
+
+<p>新節點如何加入 Kademlia 網路？這是個「<em>雞生蛋</em>」問題——你需要先認識某些節點才能查詢。</p>
+
+<pre data-lang="algorithm">新節點 N 加入網路：
+
+1. 從硬編碼的 bootstrap nodes 清單中拿到至少一個聯絡人 B
+2. 將 B 放入自己的 k-bucket
+3. 對 N 自己的 ID 做一次 FIND_NODE（這個查詢會觸發網路中許多節點認識 N）
+4. 對隨機分布的 ID（每個 bucket 對應的範圍）做 FIND_NODE，
+   填滿自己的 k-buckets</pre>
+
+<p>
+  Bootstrap 是 P2P 系統的關鍵安全議題——bootstrap nodes 是中心化的弱點。
+  IPFS 預設有 8 個 bootstrap nodes，BitTorrent DHT 有 6 個。若這些節點被攻擊或封鎖，新節點無法加入。
+</p>
+
+<h2>10.7 Kademlia 的安全性</h2>
+
+<h3>10.7.1 Sybil 攻擊</h3>
+
+<div class="callout callout-warn">
+  <span class="callout-title">什麼是 Sybil 攻擊？</span>
+  攻擊者建立<strong>大量假節點</strong>（每個有自己的 ID），透過數量優勢操縱網路。
+  在 Kademlia 中可以：
+  <ul style="margin:0.3em 0;">
+    <li>佔據受害者 k-bucket 的多數位置 → 接管路由</li>
+    <li>圍繞特定 key 部署假節點 → 攔截或污染儲存</li>
+    <li>送錯誤的 FIND_NODE 回應 → 誤導查詢路徑</li>
+  </ul>
+</div>
+
+<p>純 Kademlia 對 Sybil 攻擊抵抗有限。常見緩解：</p>
+
+<ul>
+  <li><strong>S/Kademlia</strong>：要求 Node ID 必須是 hash(public_key)，且 hash 必須有 PoW (proof-of-work)，提高生成假身份的成本</li>
+  <li><strong>多路徑查詢</strong>：透過多條 disjoint paths 查同一個 key，比較結果判斷異常</li>
+  <li><strong>身份權重</strong>：基於聲譽或長期觀察給節點權重</li>
+</ul>
+
+<h3>10.7.2 Eclipse 攻擊</h3>
+
+<p>
+  Eclipse 攻擊更精準——攻擊者<em>包圍</em>一個特定受害者，讓它的所有 k-bucket 都被假節點填滿，
+  受害者看到的「網路」全是攻擊者控制的。這在區塊鏈領域是嚴重風險（受害者可能被「分裂」到假鏈上）。
+</p>
+
+<p>
+  防禦：bootstrap 時連到多個獨立來源、IP 多樣性、定期重新探索網路。
+</p>
+
+<h2>10.8 不同系統的 Kademlia 變體</h2>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>系統</th>
+      <th>ID 大小</th>
+      <th>k 值</th>
+      <th>特殊修改</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>BitTorrent (Mainline)</strong></td>
+      <td>160 bit (info_hash)</td>
+      <td>8</td>
+      <td>儲存的是「peer list」而非任意 value；BEP 5</td>
+    </tr>
+    <tr>
+      <td><strong>IPFS / libp2p</strong></td>
+      <td>256 bit (multihash)</td>
+      <td>20</td>
+      <td>內容定址；provider records 而非實際資料</td>
+    </tr>
+    <tr>
+      <td><strong>Ethereum (devp2p)</strong></td>
+      <td>512 bit (secp256k1 pub key)</td>
+      <td>16</td>
+      <td>節點發現，無資料儲存功能</td>
+    </tr>
+    <tr>
+      <td><strong>I2P (Tor 替代)</strong></td>
+      <td>256 bit</td>
+      <td>varies</td>
+      <td>NetDB；存的是路由器資訊與 destination</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h2>10.9 Kademlia + NAT：兩個世界相遇</h2>
+
+<p>
+  本書的核心議題終於與 DHT 相遇——<strong>NAT 後的節點可不可以加入 DHT？</strong>
+</p>
+
+<p>
+  純 Kademlia 假設所有節點都能直接被連線——但這在現代網路是錯誤前提。約 60-70% 的家用節點在 NAT 後。
+  解決方案：
+</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>方案 A · 只當客戶端</h4>
+    <p>NAT 後的節點<strong>查詢但不存資料、不路由</strong>。
+    它消費網路服務但不貢獻——這是 BitTorrent client 預設行為。</p>
+    <p style="color:var(--accent-warn);">→ 公平性問題：太多 leecher</p>
+  </div>
+  <div class="cheat-card">
+    <h4>方案 B · Hole Punching</h4>
+    <p>透過 STUN + UDP hole punching（第 6 章）讓 NAT 後節點<em>能</em>被連到。
+    BitTorrent µTorrent 的 NAT-PMP/UPnP 也屬此類。</p>
+    <p style="color:var(--accent-secondary);">→ 對 cone NAT 有效</p>
+  </div>
+  <div class="cheat-card">
+    <h4>方案 C · Circuit Relay</h4>
+    <p>libp2p 路線：NAT 後節點透過 relay 提供地址，<strong>DHT 中的位址記錄即 relay 路徑</strong>。
+    其他節點透過 relay 連到後再升級為直連（DCUtR）。</p>
+    <p style="color:var(--accent-secondary);">→ 通用解，第 13 章詳述</p>
+  </div>
+  <div class="cheat-card">
+    <h4>方案 D · 雙網模型</h4>
+    <p>區分 full-DHT 節點（公網）與 light-DHT 節點（NAT 後）。
+    Light 節點只<em>使用</em> DHT 不維護它。</p>
+    <p style="color:var(--accent-info);">→ Ethereum、Bitcoin 採用</p>
+  </div>
+</div>
+
+<h2>10.10 一個迷你 Kademlia 實作骨架</h2>
+
+<p>用 Python 簡化版骨架展示核心邏輯：</p>
+
+<pre data-lang="python">import hashlib, asyncio, random
+from collections import OrderedDict
+
+ID_BITS = 160
+K = 20
+
+def node_id(material: bytes) -&gt; int:
+    return int.from_bytes(hashlib.sha1(material).digest(), 'big')
+
+def distance(a: int, b: int) -&gt; int:
+    return a ^ b
+
+def bucket_index(self_id: int, other_id: int) -&gt; int:
+    d = distance(self_id, other_id)
+    return d.bit_length() - 1 if d &gt; 0 else 0
+
+class KBucket:
+    def __init__(self, k=K):
+        self.contacts = OrderedDict()  # id -> (ip, port)
+        self.k = k
+
+    def update(self, contact_id, addr):
+        if contact_id in self.contacts:
+            self.contacts.move_to_end(contact_id)
+        elif len(self.contacts) &lt; self.k:
+            self.contacts[contact_id] = addr
+        else:
+            # bucket 滿了：應 ping 最舊的，這裡簡化省略
+            pass
+
+    def closest_to(self, target_id, n):
+        sorted_contacts = sorted(self.contacts.items(),
+                                 key=lambda kv: distance(kv[0], target_id))
+        return sorted_contacts[:n]
+
+class KademliaNode:
+    def __init__(self, my_id):
+        self.id = my_id
+        self.buckets = [KBucket() for _ in range(ID_BITS)]
+        self.storage = {}  # key -> value (本機儲存)
+
+    def update(self, contact_id, addr):
+        if contact_id == self.id:
+            return
+        idx = bucket_index(self.id, contact_id)
+        self.buckets[idx].update(contact_id, addr)
+
+    def closest(self, target_id, n=K):
+        all_contacts = []
+        for b in self.buckets:
+            all_contacts.extend(b.contacts.items())
+        all_contacts.sort(key=lambda kv: distance(kv[0], target_id))
+        return all_contacts[:n]
+
+    async def find_node(self, target_id, alpha=3):
+        """迭代查詢核心邏輯"""
+        shortlist = self.closest(target_id, K)
+        queried = set()
+        closest_dist = float('inf')
+
+        while True:
+            to_query = [c for c in shortlist[:alpha]
+                        if c[0] not in queried][:alpha]
+            if not to_query:
+                break
+
+            for cid, _ in to_query:
+                queried.add(cid)
+
+            # 並行送 FIND_NODE（此處省略網路 I/O）
+            results = await asyncio.gather(*[
+                self.send_find_node(cid, target_id) for cid, _ in to_query
+            ])
+
+            for result_list in results:
+                for cid, addr in result_list:
+                    self.update(cid, addr)
+                    if (cid, addr) not in shortlist:
+                        shortlist.append((cid, addr))
+
+            shortlist.sort(key=lambda kv: distance(kv[0], target_id))
+            shortlist = shortlist[:K]
+
+            new_closest = distance(shortlist[0][0], target_id)
+            if new_closest &gt;= closest_dist:
+                break
+            closest_dist = new_closest
+
+        return shortlist
+
+    async def send_find_node(self, contact_id, target_id):
+        """實際的 RPC 呼叫——此處留空"""
+        return []  # 應傳回該節點知道的最近 k 個</pre>
+
+<p>
+  完整實作還需加上：UDP 訊息序列化（KRPC / protobuf）、bucket split 邏輯、
+  republishing 排程、Sybil 緩解。但這個骨架已能展示核心結構。
+</p>
+
+<h2>10.11 章末提要</h2>
+
+<div class="callout callout-note">
+  <span class="callout-title">本章核心觀念</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>P2P 拓樸有結構化（DHT）與非結構化（flooding）兩條路；前者主導現代系統。</li>
+    <li>Kademlia 用 XOR 距離度量，把節點與資料統一在同一 ID 空間。</li>
+    <li>K-bucket 是分層結構：每節點僅需 ~3000 個聯絡人即可路由百萬節點網路。</li>
+    <li>Least-Recently-Seen 更新策略天生抗 Sybil。</li>
+    <li>四個 RPC（PING / STORE / FIND_NODE / FIND_VALUE）涵蓋所有功能。</li>
+    <li>Iterative lookup + α 並行 = O(log N) 步收斂、容錯佳。</li>
+    <li>STORE 冗餘到 k 個節點，配合 republishing 對抗自然衰減。</li>
+    <li>Bootstrap 是中心化的弱點，需多源備份。</li>
+    <li>NAT 後節點融入 DHT 需配合本書前面的穿越技術。</li>
+  </ul>
+</div>
+
+<h3>動腦時間</h3>
+<ol>
+  <li>為什麼 Kademlia 用 XOR 而不用「環形距離」（如 Chord）？XOR 的對稱性帶來什麼工程好處？</li>
+  <li>計算：在 N=10⁶ 節點的 Kademlia 網路中，一次 FIND_NODE 的<em>期望訊息數</em>（含並行 α=3）是多少？
+    與 Chord 比較。</li>
+  <li>K-bucket 的 LRS 策略偏好老節點。請設計一個攻擊：<em>若你能讓某個老節點下線</em>，你能做什麼？</li>
+  <li>BitTorrent 的 DHT 用 k=8，IPFS 用 k=20。為什麼差距這麼大？分析這個權衡。</li>
+  <li>研究 S/Kademlia 的 disjoint path lookup 機制，理解它如何抵禦 Eclipse 攻擊。</li>
+</ol>
+
+<h3>延伸閱讀</h3>
+<ul>
+  <li>Maymounkov &amp; Mazières, "Kademlia: A Peer-to-Peer Information System Based on the XOR Metric"（IPTPS 2002）— 奠基論文，必讀</li>
+  <li>BEP 5 — DHT Protocol（BitTorrent 的 Kademlia 變體規範）</li>
+  <li>libp2p Kademlia DHT specification — github.com/libp2p/specs/tree/master/kad-dht</li>
+  <li>Stoica et al., "Chord" (SIGCOMM 2001) — 對比閱讀</li>
+  <li>Baumgart &amp; Mies, "S/Kademlia: A Practicable Approach Towards Secure Key-Based Routing"（2007）</li>
+</ul>
+
+<nav class="chapter-nav">
+  <a class="prev" href="ch09.html">
+    <span class="label">← PREV</span>
+    <span class="title">第 9 章 · 應用層隧道穿越</span>
+  </a>
+  <a class="next" href="ch11.html">
+    <span class="label">NEXT →</span>
+    <span class="title">第 11 章 · BitTorrent 與檔案分享</span>
+  </a>
+</nav>
+
+<footer>
+  <div>CHAPTER 10 / 19 · DHT 與 P2P 拓樸 · NAT TRAVERSAL × P2P TEXTBOOK</div>
+</footer>
+
+</main>
+
+<script src="../share/js/mermaid.min.js"></script>
+<script src="../share/js/textbook.js"></script>
+</body>
+</html>

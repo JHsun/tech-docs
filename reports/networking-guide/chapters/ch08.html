@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 8 章 · ICE：整合所有方法</title>
+<link rel="stylesheet" href="../share/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>NAT TRAVERSAL × P2P</span>
+  </div>
+  <nav>
+    <a href="../firewall-traversal-and-p2p-guide -index.html">封面</a>
+    <a href="ch07.html">CH 7</a>
+    <a href="ch08.html" class="current">CH 8</a>
+    <a href="ch09.html">CH 9</a>
+    <a href="ch10.html">CH 10</a>
+    <a href="cheatsheet.html">速查</a>
+    <a href="glossary.html">術語</a>
+    <button id="themeToggle" class="theme-toggle">暗色</button>
+  </nav>
+</header>
+
+<main class="page">
+
+<div class="chapter-meta">
+  <span class="dot"></span> PART II &nbsp;·&nbsp; 穿越技術的核心方法
+  <span class="dot"></span> CHAPTER 08 &nbsp;·&nbsp; <em>核心章節</em>
+</div>
+
+<h1>
+  <span class="chapter-num">CHAPTER 8</span>
+  ICE：把所有方法整合起來
+</h1>
+
+<div class="chapter-intro">
+  <h4>本章導讀</h4>
+  <p>
+    前面四章我們各自處理了 UPnP、STUN、Hole Punching、TURN——這些是工具。
+    但「給工具」跟「會用」是兩件事。<strong>ICE</strong>（Interactive Connectivity Establishment）
+    是把所有工具整合成一套<em>自動化決策框架</em>的協議。它的核心問題是：
+    當有 N 條可能的路徑時，如何<strong>並行嘗試、量化評估、選最佳</strong>？
+    本章從 RFC 8445 出發，詳述候選收集、優先序計算、連通性檢查、提名機制，
+    並介紹 Trickle ICE 等現代優化。讀完本章你會明白為何 WebRTC 不是「採用了」STUN/TURN——它是把這些<em>編排起來</em>。
+  </p>
+</div>
+
+<div class="objectives">
+  <h4>📚 學習目標</h4>
+  <ul>
+    <li>能定義 ICE 的「候選位址」並說出四種類型（host、srflx、prflx、relay）。</li>
+    <li>能解釋 ICE 候選優先序（priority）的計算公式與設計目的。</li>
+    <li>能描述完整的連通性檢查流程，包括 ordinary check 與 triggered check。</li>
+    <li>能說明 Trickle ICE 相對 vanilla ICE 的時間優勢。</li>
+    <li>能對 WebRTC 連線的 ICE 過程做基本除錯。</li>
+  </ul>
+</div>
+
+<h2>8.1 為什麼需要 ICE？</h2>
+
+<p>
+  想像你正要建立一條 P2P 連線，你的端點可能有：
+</p>
+
+<ul>
+  <li>本地 IPv4 地址 <code>192.168.1.42</code>（如果對方在同 LAN，這條最快）</li>
+  <li>本地 IPv6 地址 <code>2001:db8::1</code>（如果雙方都有 IPv6，可能繞過 NAT）</li>
+  <li>另一張網卡（雙網卡電腦、VPN tunnel）</li>
+  <li>透過 STUN 探得的對外位址 <code>198.51.100.1:62000</code></li>
+  <li>透過 TURN 配的中繼位址 <code>turn.example.com:50001</code></li>
+</ul>
+
+<p>
+  對方可能也有同樣多種候選。理論上是 <strong>N × M 條可能路徑</strong>，且不同路徑的延遲、可達性差很多。
+  你不會想<em>序列</em>嘗試（太慢），也不能<em>全部</em>同時開（資源浪費）。
+</p>
+
+<p>ICE 的設計就是回答：<em>怎麼<strong>並行</strong>嘗試這 N×M 條路徑、<strong>儘速</strong>找到能用的、<strong>選最佳</strong>那條</em>。</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart LR
+    subgraph A["Alice 的候選"]
+        A1[host: 192.168.1.42]
+        A2[host v6: 2001:db8::1]
+        A3[srflx: 198.51.100.1:62000]
+        A4[relay: turn:50001]
+    end
+
+    subgraph B["Bob 的候選"]
+        B1[host: 10.0.0.5]
+        B2[srflx: 203.0.113.99:55001]
+        B3[relay: turn:50002]
+    end
+
+    A --- ICE[ICE Agent<br/>並行測試<br/>各種配對]
+    B --- ICE
+
+    ICE -.最佳.-> Result[(選定一對：<br/>A2-B2 或 A3-B2 等)]
+
+    classDef cand fill:transparent,stroke:#8a7456
+    classDef agent fill:#b8761d,stroke:#b8761d,color:#fff
+    class A1,A2,A3,A4,B1,B2,B3 cand
+    class ICE agent
+</div>
+<div class="caption">圖 8-1 ｜ ICE 從多對候選中找出能用的最佳配對</div>
+</div>
+
+<h2>8.2 候選位址的四種類型</h2>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>① Host Candidate</h4>
+    <p>端點本機網卡上實際綁定的位址（包含 IPv4、IPv6、VPN tunnel 介面等）。
+    透過 OS API 查詢取得。<br>
+    <strong>延遲最低</strong>，若可用則優先。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>② Server-Reflexive (srflx)</h4>
+    <p>透過 STUN 伺服器探得的<em>對外</em>位址。<br>
+    對 cone 類 NAT 通常與 host candidate 不同。<br>
+    用於跨 NAT 的直連嘗試。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>③ Peer-Reflexive (prflx)</h4>
+    <p>連通性檢查過程中<em>對方</em>觀察到我的位址，之前沒列入候選——
+    通常是因為 NAT 對<em>不同遠端</em>分配不同 port（symmetric NAT）。<br>
+    動態發現，補充候選清單。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>④ Relay Candidate</h4>
+    <p>透過 TURN 配給我的中繼位址。<br>
+    所有流量過 TURN 伺服器，<strong>延遲最高、最可靠</strong>。<br>
+    最後保險。</p>
+  </div>
+</div>
+
+<h2>8.3 候選優先序：怎麼決定先試哪條？</h2>
+
+<p>RFC 8445 明確定義了候選的 32-bit priority 計算公式：</p>
+
+<pre data-lang="formula">priority = (2^24) × type_preference
+         + (2^8)  × local_preference
+         + (2^0)  × (256 - component_id)
+
+其中：
+  type_preference   :  host=126, prflx=110, srflx=100, relay=0
+  local_preference  :  介面偏好（IPv6 通常高於 IPv4）
+  component_id      :  RTP=1, RTCP=2</pre>
+
+<p>幾個觀察：</p>
+
+<ul>
+  <li><strong>Type 是主要決定因素</strong>——host 永遠優先於 srflx，srflx 優先於 relay</li>
+  <li>Local preference 是次要差異，可區分多介面（如有線 vs Wi-Fi）</li>
+  <li>Component ID 用於 RTP/RTCP 配對，現代 WebRTC 用 mux 通常只有一個 component</li>
+</ul>
+
+<h3>8.3.1 Pair Priority</h3>
+
+<p>
+  ICE 真正比較的不是單一候選，而是<strong>候選對</strong>（local, remote 配對）的優先級：
+</p>
+
+<pre data-lang="formula">pair_priority = 2^32 × min(G, D)
+              + 2 × max(G, D)
+              + (G > D ? 1 : 0)
+
+G = 控制方（controlling agent）的優先級
+D = 受控方（controlled agent）的優先級</pre>
+
+<p>
+  這個公式設計成<em>雙方計算結果一致</em>——確保兩端對「該先試哪對」的判斷不會分歧。
+</p>
+
+<h2>8.4 連通性檢查（Connectivity Check）</h2>
+
+<p>
+  收集完候選並交換給對方後，ICE 進入核心階段：<strong>連通性檢查</strong>。
+  雙方對每對候選做 STUN Binding Request，看哪些對能成功往返。
+</p>
+
+<h3>8.4.1 STUN 在 ICE 中的特殊用法</h3>
+
+<p>
+  注意：這裡的 STUN 不是發給<em>STUN 伺服器</em>，而是<em>發給 peer</em>！
+  ICE 把 STUN 的 Binding Request 當作「<em>連通性探測信號</em>」，
+  並擴充了一些 attribute：
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Attribute</th>
+      <th>用途</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td><code>USERNAME</code></td><td>身份標示，避免別人偽造 ICE 流量混入</td></tr>
+    <tr><td><code>MESSAGE-INTEGRITY</code></td><td>HMAC 校驗，配合每對 ICE session 的密碼</td></tr>
+    <tr><td><code>PRIORITY</code></td><td>本端對該候選的計算優先級</td></tr>
+    <tr><td><code>USE-CANDIDATE</code></td><td>提名訊號：「<em>就用這對！</em>」（只 controlling agent 會送）</td></tr>
+    <tr><td><code>ICE-CONTROLLING</code> / <code>ICE-CONTROLLED</code></td><td>角色宣告，避免雙方都想當 controlling</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>8.4.2 完整流程圖</h3>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant A as Alice (controlling)
+    participant B as Bob (controlled)
+
+    Note over A,B: 階段 1：候選收集 + 交換（透過 signaling）
+
+    par 並行收集
+        A->>A: 列舉本機 IP → host candidates
+        A->>A: 對 STUN 伺服器查詢 → srflx
+        A->>A: 對 TURN 伺服器 Allocate → relay
+    end
+
+    A->>B: SDP offer (含 Alice 候選清單)
+    B->>A: SDP answer (含 Bob 候選清單)
+
+    Note over A,B: 階段 2：連通性檢查（並行多對）
+
+    par 多對候選並行
+        A->>B: STUN Binding (host_A → host_B)
+        B-->>A: Binding Success?
+    and
+        A->>B: STUN Binding (srflx_A → srflx_B)
+        B-->>A: Binding Success?
+    and
+        A->>B: STUN Binding (relay_A → relay_B)
+        B-->>A: Binding Success
+    end
+
+    Note over A,B: 階段 3：提名最佳路徑
+    A->>B: STUN Binding 帶 USE-CANDIDATE<br/>對選定的那對
+    B-->>A: Binding Success
+    Note over A,B: 連線建立！
+
+    Note over A,B: 階段 4：consent freshness（持續 keep-alive）
+    loop 每 5 秒
+        A->>B: STUN Binding (consent check)
+        B-->>A: Binding Success
+    end
+</div>
+<div class="caption">圖 8-2 ｜ ICE 的完整流程：收集 → 交換 → 並行檢查 → 提名</div>
+</div>
+
+<h3>8.4.3 Triggered Check</h3>
+
+<p>
+  ICE 連通性檢查不是只「<em>我發、等對方回</em>」這麼簡單。當你收到對方的 STUN Binding Request
+  （也就是對方在檢查某對），<strong>你應該立即用同一對候選反向發</strong>一個 check——
+  這就是「triggered check」。
+</p>
+
+<div class="callout callout-info">
+  <span class="callout-title">Triggered check 為什麼重要？</span>
+  Hole punching 的成敗繫於「<em>同步</em>」。當對方主動 punch 過來時，
+  我立即回擊，能<strong>大幅提升雙方 NAT 表同時就緒的機率</strong>。
+  triggered check 把 ICE 的成功率推高到接近理論上限。
+</div>
+
+<h2>8.5 ICE 的兩種角色：Controlling vs Controlled</h2>
+
+<p>
+  ICE 規定每個 session 必有一方是 <strong>controlling agent</strong>（決策者），
+  另一方是 <strong>controlled agent</strong>。職責分工：
+</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>Controlling Agent 的職責</h4>
+    <ul>
+      <li>選定要用哪對候選</li>
+      <li>送出 USE-CANDIDATE 提名訊號</li>
+      <li>處理候選衝突（雙方都聲稱 controlling 時的 tie-break）</li>
+    </ul>
+  </div>
+  <div class="cheat-card">
+    <h4>Controlled Agent 的職責</h4>
+    <ul>
+      <li>對所有 check 都依規回應</li>
+      <li>等待 controlling 的提名</li>
+      <li>看到 USE-CANDIDATE 後啟用該對</li>
+    </ul>
+  </div>
+</div>
+
+<p>
+  在 WebRTC 中，<strong>發起 offer 的那方</strong>通常是 controlling。
+  在 libp2p 中，由 PeerID 大小決定。
+</p>
+
+<h2>8.6 Vanilla ICE vs Trickle ICE</h2>
+
+<h3>8.6.1 Vanilla ICE 的問題</h3>
+
+<p>
+  RFC 5245（ICE 初版，2010）定義的「正規」流程要求：<em>candidate 必須全部收集完才能 offer</em>。
+  這意味著：
+</p>
+
+<pre data-lang="timeline">[t = 0ms]    開始收集 host candidates (~10ms)
+[t = 10ms]   開始查 STUN (~30ms-200ms 視 RTT)
+[t = 200ms]  開始 Allocate TURN (~50ms)
+[t = 250ms]  ✓ 全部收集完，<em>現在</em>才能送出 offer
+[t = 500ms]  signaling 來回後對方收到
+[t = 750ms]  對方做完同樣流程
+[t = 1000ms] 連通性檢查開始
+[t = 1500ms] 連線建立</pre>
+
+<p>整個過程要 1.5 秒。對視訊通話而言，這是很糟的體驗。</p>
+
+<h3>8.6.2 Trickle ICE 的優化</h3>
+
+<p>
+  Trickle ICE（RFC 8838，2021）允許<strong>邊收集邊送出</strong>——
+  發現一個 candidate 就立刻通知對方，不必等全部收集完。
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant A as Alice
+    participant S as Signaling
+    participant B as Bob
+
+    Note over A,B: T=0：開始
+    A->>S: SDP offer (僅 host candidates)
+    S->>B: forward
+    B->>S: SDP answer (僅 host candidates)
+    S->>A: forward
+    Note over A,B: T=50ms：可以開始用 host 對打了！
+
+    par 背景持續探得新候選
+        A->>S: trickle: srflx candidate
+        S->>B: forward
+    and
+        B->>S: trickle: srflx candidate
+        S->>A: forward
+    end
+    Note over A,B: 邊收集邊測試<br/>找到任何一條可用就用
+
+    A->>S: trickle: relay candidate (最後)
+    S->>B: forward
+    Note over A,B: 連線可能早就建立<br/>relay 變成備援
+</div>
+<div class="caption">圖 8-3 ｜ Trickle ICE：邊收集邊送，大幅縮短建立時間</div>
+</div>
+
+<p>
+  Trickle ICE 在實務上把連線建立時間從 1~2 秒降到<strong>~200ms</strong>，
+  WebRTC 從 2017 年起預設使用，現在已是標準做法。
+</p>
+
+<h2>8.7 候選對狀態機</h2>
+
+<p>每對候選在連通性檢查中走過以下狀態：</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+stateDiagram-v2
+    [*] --> Frozen: 初始（等其他更高優先級先試）
+    Frozen --> Waiting: 解凍（輪到此對）
+    Waiting --> InProgress: 開始 STUN check
+    InProgress --> Succeeded: ✓ 收到對方 success
+    InProgress --> Failed: ✗ 超時或錯誤
+    Succeeded --> Nominated: controlling 提名（USE-CANDIDATE）
+    Failed --> [*]
+    Nominated --> [*]: 連線建立
+</div>
+<div class="caption">圖 8-4 ｜ ICE 候選對的狀態轉換</div>
+</div>
+
+<p>
+  Frozen 機制是為了<em>避免一次發太多 STUN check 撐爆網路</em>——
+  ICE 規範把候選對分到不同 foundation group，先解凍每組最高優先級的，
+  其他凍著等。這在頻寬受限或大量候選時特別重要。
+</p>
+
+<h2>8.8 ICE Restart：當網路變了</h2>
+
+<p>
+  使用者從 Wi-Fi 切到 4G、VPN 連上、IP 換了——這些事件都會破壞既有的 ICE pair。
+  ICE 規範定義了 <strong>ICE Restart</strong>——丟棄現有候選、重新跑一次完整流程，
+  但<em>保持應用層連線</em>不重連（從應用視角是無縫切換）。
+</p>
+
+<pre data-lang="javascript">// WebRTC 中觸發 ICE Restart
+const offer = await pc.createOffer({ iceRestart: true });
+await pc.setLocalDescription(offer);
+// 重新走 signaling，產生新的 username/password
+// 連通性檢查重跑，找到新路徑後切換</pre>
+
+<p>
+  在現代行動應用中，ICE restart 是<em>必要</em>機制，否則使用者切換網路就會斷線。
+  Tailscale 的 NetworkMap 機制更進一步——主動偵測網路變化，預先觸發 restart。
+</p>
+
+<h2>8.9 ICE 在 WebRTC 中的整合</h2>
+
+<h3>8.9.1 與 SDP 的關聯</h3>
+
+<p>
+  WebRTC 用 SDP（Session Description Protocol）描述媒體會話，候選位址也包含在 SDP 中：
+</p>
+
+<pre data-lang="sdp">v=0
+o=- 4611732855696449382 2 IN IP4 127.0.0.1
+s=-
+t=0 0
+a=group:BUNDLE 0
+m=video 9 UDP/TLS/RTP/SAVPF 96
+c=IN IP4 0.0.0.0
+a=ice-ufrag:F7gI
+a=ice-pwd:x9cml/YzichV2+XlhiMu8g
+a=fingerprint:sha-256 5C:5C:...
+a=setup:actpass
+a=mid:0
+a=candidate:1 1 udp 2122260223 192.168.1.42 54321 typ host
+a=candidate:2 1 udp 1686052607 198.51.100.1 62000 typ srflx \
+              raddr 192.168.1.42 rport 54321
+a=candidate:3 1 udp 41819902 198.51.100.7 50001 typ relay \
+              raddr 198.51.100.1 rport 62000</pre>
+
+<p>每行 <code>a=candidate</code> 對應一個 ICE candidate。其中：</p>
+
+<ul>
+  <li><code>foundation</code> = 1, 2, 3（用於 freezing 分組）</li>
+  <li><code>component</code> = 1（單一 RTP/RTCP mux）</li>
+  <li>協議 <code>udp</code></li>
+  <li>priority、IP、port、type</li>
+  <li><code>raddr</code> / <code>rport</code> = 對應的「related address」（host for srflx, srflx for relay）</li>
+</ul>
+
+<h3>8.9.2 ICE-LITE 模式</h3>
+
+<p>
+  伺服器（如 SFU、媒體閘道）通常有公網 IP，不在 NAT 後。
+  RFC 8445 定義了 <strong>ICE-LITE</strong> 模式——
+  伺服器只列 host candidate、不主動發 connectivity check、不擔任 controlling，
+  只被動回應對方的 check。這簡化了伺服器實作。
+</p>
+
+<h2>8.10 一個現實 ICE 連線的時序剖析</h2>
+
+<p>從 Chrome 的 <code>chrome://webrtc-internals</code> 抓一條真實連線的時序：</p>
+
+<pre data-lang="trace">[T+0ms]      onicecandidate: host  192.168.1.42:54321
+[T+5ms]      send offer (with host only, trickle)
+[T+150ms]    receive answer (with host only)
+[T+155ms]    onicecandidate: srflx 198.51.100.1:62000
+[T+155ms]    trickle send: srflx
+[T+200ms]    onicecandidate (remote): srflx 203.0.113.99:55001
+[T+205ms]    pair: host_A-host_B   STUN check fail (10.x vs 192.x 不同網段)
+[T+220ms]    pair: srflx_A-srflx_B STUN check sent
+[T+250ms]    pair: srflx_A-srflx_B STUN response received ← 連通!
+[T+255ms]    USE-CANDIDATE sent (controlling agent)
+[T+265ms]    iceConnectionState: connected
+[T+450ms]    onicecandidate: relay turn:50001 (晚到，不影響)
+[T+800ms]    iceConnectionState: completed (consent freshness 開始)</pre>
+
+<p>從觸發到 connected 不到 270ms——這就是 Trickle ICE 的威力。</p>
+
+<h2>8.11 ICE 的限制與替代方案</h2>
+
+<h3>8.11.1 ICE 的設計局限</h3>
+
+<div class="callout callout-warn">
+  <span class="callout-title">ICE 不是萬靈丹</span>
+  <ul style="margin:0.5em 0 0;">
+    <li><strong>需要外部 signaling</strong>——ICE 規範不管「怎麼把候選交換給對方」，這是另外的問題</li>
+    <li><strong>對 symmetric NAT 仍然只有靠 TURN</strong>——直連那條注定失敗</li>
+    <li><strong>協議複雜</strong>——RFC 8445 約 100 頁，許多陷阱（freezing 順序、tie-break、redundant pruning）</li>
+    <li><strong>瀏覽器實作差異</strong>——Chrome / Firefox / Safari 各有怪癖，跨瀏覽器測試是必要的</li>
+  </ul>
+</div>
+
+<h3>8.11.2 替代方案：libp2p 的 DCUtR</h3>
+
+<p>
+  第 13 章會詳述：libp2p 走了不同的路。它沒有完全拒絕 ICE，但它沒用<em>完整</em>的 ICE 框架。
+  在 IPFS/libp2p 網路裡，候選交換透過 Circuit Relay v2（不需要外部 signaling），
+  打洞同步用 DCUtR（直接量 RTT、半 RTT 等待，比 ICE freezing 簡單），
+  也不分 controlling/controlled。它的設計目標是「<em>去中心化網路內的 ICE 替代</em>」。
+</p>
+
+<div class="callout callout-info">
+  <span class="callout-title">在 libp2p 規範中為什麼仍提到 STUN？</span>
+  libp2p 的位址發現用 AutoNAT（不是 STUN），但<em>瀏覽器平台</em>是例外——
+  <strong>libp2p 在瀏覽器上跑時沒有控制權，必須用瀏覽器內建的 WebRTC stack，
+  而那個 stack 只支援 STUN 不支援 AutoNAT</strong>。所以在 browser-to-browser 場景，libp2p 仍依賴 STUN。
+</div>
+
+<h2>8.12 章末提要</h2>
+
+<div class="callout callout-note">
+  <span class="callout-title">本章核心觀念</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>ICE 是把所有穿越工具<em>編排</em>成自動化決策框架的協議。</li>
+    <li>四種候選：host（本機）、srflx（STUN 探得）、prflx（檢查中發現）、relay（TURN 配的）。</li>
+    <li>優先序公式：type 主導 + local preference + component；雙方計算結果必須一致。</li>
+    <li>連通性檢查 = peer-to-peer 的 STUN Binding 配 USERNAME/INTEGRITY。</li>
+    <li>Triggered check 提升 hole punching 同步性，是成功率的關鍵。</li>
+    <li>Trickle ICE（RFC 8838）允許邊收集邊送，把建立時間從秒級壓到 200ms。</li>
+    <li>ICE Restart 機制支援網路切換時無縫重連。</li>
+    <li>ICE-LITE 簡化純伺服器端實作。</li>
+    <li>libp2p DCUtR 是 ICE 在去中心化場景的替代方案。</li>
+  </ul>
+</div>
+
+<h3>動腦時間</h3>
+<ol>
+  <li>計算：Alice 有 2 個 host、1 個 srflx、1 個 relay；Bob 有 1 個 host、1 個 srflx、1 個 relay。
+    總共多少對候選？理論最大 STUN check 次數？</li>
+  <li>為什麼候選優先序公式要設計成「雙方計算結果一致」？若不一致會發生什麼問題？</li>
+  <li>Trickle ICE 提升了速度，但帶來了什麼新挑戰？（提示：對 signaling 通道的要求）</li>
+  <li>用 Chrome 的 <code>chrome://webrtc-internals</code> 觀察一次真實 WebRTC 通話的 ICE 流程，
+    記錄它最後選了哪對候選，並推測為什麼。</li>
+  <li>研究 ICE 的「freezing」機制，思考為什麼要這個複雜性，能否簡化掉。</li>
+</ol>
+
+<h3>延伸閱讀</h3>
+<ul>
+  <li>RFC 8445（2018）— ICE <span class="tag tag-rfc">RFC</span> <strong>必讀，但難</strong></li>
+  <li>RFC 8838（2021）— Trickle ICE <span class="tag tag-rfc">RFC</span></li>
+  <li>RFC 5245 — 舊版 ICE，仍在很多文件被引用，但已被 8445 取代</li>
+  <li>Pion's <code>ice</code>（Go）、<code>libnice</code>（C）原始碼</li>
+  <li>WebRTC Internals（<code>chrome://webrtc-internals</code>）— 實戰除錯利器</li>
+</ul>
+
+<nav class="chapter-nav">
+  <a class="prev" href="ch07.html">
+    <span class="label">← PREV</span>
+    <span class="title">第 7 章 · TURN 與 Circuit Relay</span>
+  </a>
+  <a class="next" href="ch09.html">
+    <span class="label">NEXT →</span>
+    <span class="title">第 9 章 · 應用層隧道穿越</span>
+  </a>
+</nav>
+
+<footer>
+  <div>CHAPTER 8 / 19 · ICE 整合框架 · NAT TRAVERSAL × P2P TEXTBOOK</div>
+</footer>
+
+</main>
+
+<script src="../share/js/mermaid.min.js"></script>
+<script src="../share/js/textbook.js"></script>
+</body>
+</html>

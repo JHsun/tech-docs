@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 2 章 · 網路位址轉換（NAT）原理</title>
+<link rel="stylesheet" href="../share/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>NAT TRAVERSAL × P2P</span>
+  </div>
+  <nav>
+    <a href="../firewall-traversal-and-p2p-guide -index.html">封面</a>
+    <a href="ch01.html">CH 1</a>
+    <a href="ch02.html" class="current">CH 2</a>
+    <a href="ch03.html">CH 3</a>
+    <a href="cheatsheet.html">速查</a>
+    <a href="glossary.html">術語</a>
+    <button id="themeToggle" class="theme-toggle">暗色</button>
+  </nav>
+</header>
+
+<main class="page">
+
+<div class="chapter-meta">
+  <span class="dot"></span> PART I &nbsp;·&nbsp; 基礎與問題場景
+  <span class="dot"></span> CHAPTER 02
+</div>
+
+<h1>
+  <span class="chapter-num">CHAPTER 2</span>
+  網路位址轉換（NAT）原理
+</h1>
+
+<div class="chapter-intro">
+  <h4>本章導讀</h4>
+  <p>
+    上一章告訴你 NAT 為何存在，本章告訴你 NAT 如何運作。我們會從一個最簡單的封包流程開始，
+    一路推導出 NAT 的四種行為分類（Full Cone、Restricted Cone、Port-Restricted Cone、Symmetric），
+    再進一步介紹 RFC 4787 的更細緻分類（Mapping Behavior × Filtering Behavior）。
+    最後，我們會討論一個本書反覆會回到的議題：<strong>為什麼對稱式 NAT 是 P2P 的天敵</strong>。
+  </p>
+</div>
+
+<div class="objectives">
+  <h4>📚 學習目標</h4>
+  <ul>
+    <li>能畫出一個封包經過 SNAT 時，源 IP/Port 如何被改寫的完整流程。</li>
+    <li>能分辨 SNAT、DNAT、NAPT、Hairpinning 等相關概念的差異。</li>
+    <li>能背誦 NAT 的四種傳統分類，並說明它們對 P2P 穿越難易度的影響。</li>
+    <li>能用 RFC 4787 的「映射行為」與「過濾行為」雙軸來描述任一 NAT。</li>
+    <li>能解釋 NAT 表項的 timeout、keep-alive、port allocation 等實作細節為何重要。</li>
+  </ul>
+</div>
+
+<h2>2.1 一條封包的奇幻旅程</h2>
+
+<p>
+  讓我們從一個具體的場景開始。Alice 的筆電在家中區域網路內，私有 IP 為 <code>192.168.1.42</code>。
+  她要去拜訪一台公網伺服器 <code>203.0.113.5</code> 上的 HTTPS 服務（port 443）。
+  家用路由器分配到的對外 IP 是 <code>198.51.100.1</code>。
+</p>
+
+<h3>2.1.1 不經 NAT 的世界（理想情境）</h3>
+
+<p>在端對端原則下，封包應該長這樣：</p>
+
+<pre data-lang="packet">[Alice 出發]
+  src: 192.168.1.42:54321
+  dst: 203.0.113.5:443
+
+[伺服器收到]
+  從 192.168.1.42:54321 發來的封包
+  → 直接回應：dst: 192.168.1.42:54321</pre>
+
+<p>
+  問題在於 <code>192.168.1.42</code> 是<strong>私有位址</strong>（RFC 1918 規範的 <code>10.0.0.0/8</code>、
+  <code>172.16.0.0/12</code>、<code>192.168.0.0/16</code> 三段），公網路由器會直接丟棄。
+  伺服器即使想回應也無從回起。
+</p>
+
+<h3>2.1.2 引入 NAT 後的真實流程</h3>
+
+<p>
+  NAT 路由器的工作就是當「翻譯機」。當封包出門時，它把源位址改寫為自己的公網 IP，並記錄這個對應關係；
+  封包回來時，它依據紀錄反向翻譯。完整流程如下：
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant A as Alice<br/>192.168.1.42
+    participant N as NAT Router<br/>198.51.100.1
+    participant S as Server<br/>203.0.113.5
+
+    Note over A,N: 私有網段
+    Note over N,S: 公網
+
+    A->>N: ① src=192.168.1.42:54321<br/>dst=203.0.113.5:443
+    Note over N: 在表中新增條目：<br/>(192.168.1.42:54321) ⇄ (198.51.100.1:62000)
+    N->>S: ② src=198.51.100.1:62000<br/>dst=203.0.113.5:443
+
+    S->>N: ③ src=203.0.113.5:443<br/>dst=198.51.100.1:62000
+    Note over N: 查表找到對應的內網主機
+    N->>A: ④ src=203.0.113.5:443<br/>dst=192.168.1.42:54321
+</div>
+<div class="caption">圖 2-1 ｜ NAT 翻譯封包的標準流程，外送時改寫源、回程時還原目的</div>
+</div>
+
+<p>
+  注意 ② 與 ④ 中那個關鍵的數字 <code>62000</code>——這是 NAT 路由器<strong>自己選的</strong>外部 port。
+  它沒有用內網的 <code>54321</code>，因為內網有可能很多裝置剛好也都用了 <code>54321</code>，
+  必須區分開。NAT 路由器內部維護一張「<strong>NAT 表</strong>」（也叫 conntrack table）來記錄這些映射。
+</p>
+
+<h2>2.2 SNAT、DNAT、NAPT、Hairpinning</h2>
+
+<p>
+  「NAT」這個詞在不同場合有不同含義，我們先把名詞理清楚。
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>術語</th>
+      <th>全稱</th>
+      <th>意義</th>
+      <th>典型場景</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>SNAT</strong></td>
+      <td>Source NAT</td>
+      <td>改寫封包的<strong>源</strong>位址</td>
+      <td>內網裝置出門時最常見</td>
+    </tr>
+    <tr>
+      <td><strong>DNAT</strong></td>
+      <td>Destination NAT</td>
+      <td>改寫封包的<strong>目的</strong>位址</td>
+      <td>Port forwarding、負載均衡器</td>
+    </tr>
+    <tr>
+      <td><strong>NAPT</strong></td>
+      <td>Network Address Port Translation</td>
+      <td>同時改寫 IP <em>與</em> port，多裝置共用一個 IP</td>
+      <td>家用 NAT 的標準做法</td>
+    </tr>
+    <tr>
+      <td><strong>PAT</strong></td>
+      <td>Port Address Translation</td>
+      <td>NAPT 的同義詞（Cisco 慣用語）</td>
+      <td>路由器設定文件中常見</td>
+    </tr>
+    <tr>
+      <td><strong>1:1 NAT</strong></td>
+      <td>Static / One-to-one NAT</td>
+      <td>一個內網 IP 永久對應一個外網 IP</td>
+      <td>企業 DMZ、伺服器託管</td>
+    </tr>
+    <tr>
+      <td><strong>Hairpinning</strong></td>
+      <td>NAT Hairpinning / Loopback</td>
+      <td>內網裝置透過<em>外部 IP</em> 連到同一內網的另一台裝置</td>
+      <td>家裡的 NAS 用網域名稱存取時</td>
+    </tr>
+    <tr>
+      <td><strong>CGNAT</strong></td>
+      <td>Carrier-Grade NAT</td>
+      <td>電信業者大規模 NAT（多戶共享公網 IP）</td>
+      <td>行動網路、寬頻 IPv4 用戶</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>
+  本書關心的「NAT 穿越」幾乎都在處理 <strong>SNAT/NAPT</strong>。
+  DNAT 是<em>解法</em>而非<em>問題</em>——port forwarding 就是手動配一條 DNAT 規則。
+  Hairpinning 看似冷門，卻在 P2P 場景中很重要：當兩個 peer 在同一個 NAT 後但只透過外部位址互找時，
+  必須仰賴 NAT 支援 hairpin loopback，否則會卡住（第 6 章會再回來討論）。
+</p>
+
+<div class="callout callout-history">
+  <span class="callout-title">為什麼叫 Hairpinning？</span>
+  因為封包從內網出發 → 走到 NAT 路由器 → <em>立刻</em>折返回到同一內網——
+  路徑形狀像一個髮夾。這個比喻雖然有點老派，但全世界的網路工程師都看得懂。
+</div>
+
+<h2>2.3 NAT 表：穿越遊戲的核心戰場</h2>
+
+<p>
+  NAT 路由器內部那張「對應表」是所有穿越技術的核心戰場。理解它的結構，是理解後續所有章節的前提。
+</p>
+
+<h3>2.3.1 表項結構</h3>
+
+<p>每一筆 NAT 表項（conntrack entry）至少包含這些欄位：</p>
+
+<pre data-lang="conceptual">┌─────────────────────────────────────────────────────────────┐
+│  NAT Conntrack Entry                                        │
+├─────────────────────────────────────────────────────────────┤
+│  Internal Endpoint   :  192.168.1.42:54321                  │
+│  External Endpoint   :  198.51.100.1:62000                  │
+│  Remote Endpoint     :  203.0.113.5:443                     │
+│  Protocol            :  UDP / TCP / ICMP                    │
+│  State               :  ESTABLISHED                         │
+│  Last-Used Timestamp :  1714000000                          │
+│  Timeout             :  600s (UDP) / 432000s (TCP est.)     │
+└─────────────────────────────────────────────────────────────┘</pre>
+
+<p>
+  注意這張表記錄的是<strong>「兩端 endpoint」</strong>的映射，而不只是「一個 port 對應一個 port」。
+  這個細節在 NAT 行為分類時會變得至關重要——一個 NAT 是否會根據<em>遠端</em>位址不同而分配
+  不同的外部 port，決定了它是 cone 還是 symmetric。
+</p>
+
+<h3>2.3.2 timeout 與 keep-alive</h3>
+
+<p>
+  NAT 表項<strong>不是永久的</strong>。為了避免表撐爆，每個條目都有壽命：
+</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>UDP Timeout</h4>
+    <p>典型值：<strong>30 秒 ~ 5 分鐘</strong>。UDP 沒有結束信號，NAT 只能仰賴閒置時間判斷。
+    這就是為什麼 UDP-based 的 P2P 應用必須<em>定期送 keep-alive</em>，否則
+    NAT 表項一過期，外部回程封包就被丟棄。</p>
+    <p style="font-size:0.85em;color:var(--text-muted);">RFC 4787 建議 UDP timeout 不應低於 2 分鐘。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>TCP Timeout</h4>
+    <p>典型值：<strong>established 狀態 2 小時以上</strong>，但其他狀態（如 TIME_WAIT、CLOSE_WAIT）很短。
+    TCP 因為有 FIN/RST 信號，NAT 通常能精確跟隨連線生命週期。</p>
+    <p style="font-size:0.85em;color:var(--text-muted);">Linux conntrack 預設 TCP established 為 5 天。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>ICMP Timeout</h4>
+    <p>典型值：<strong>30 秒</strong>。ICMP echo 透過 query ID 而非 port 區分，
+    多數 NAT 用同一機制處理但壽命較短。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Keep-Alive 實務</h4>
+    <p>P2P UDP 應用通常每 <strong>15~25 秒</strong>送一次 keep-alive
+    （比最低 30 秒 timeout 留有餘裕）。WebRTC 的 ICE consent freshness 預設 5 秒，
+    Tailscale 也採類似頻率。</p>
+  </div>
+</div>
+
+<div class="callout callout-warn">
+  <span class="callout-title">坑點：每條 session 的計時是獨立的</span>
+  許多 NAT 把 UDP 閒置計時器綁在<em>「特定 (本地endpoint, 遠端endpoint) 對」</em>上，
+  而不是「整個本地 port」上。也就是說：你跟遠端 A 持續通訊，並<em>不會</em>讓你跟遠端 B 的映射保持活躍。
+  因此 P2P 應用必須對<em>每一條</em>連線分別發 keep-alive，不能偷懶共用。
+</div>
+
+<h2>2.4 經典分類：Cone vs. Symmetric</h2>
+
+<p>
+  RFC 3489（STUN 的初版，2003）提出了沿用至今的 NAT 四分法。雖然 RFC 5389 已棄用這套分類
+  改採更精細的 RFC 4787 模型，但它的直觀性讓它至今仍是學習與口語溝通的標準。
+</p>
+
+<h3>2.4.1 分類軸：兩個關鍵問題</h3>
+
+<p>所有分類都在問兩個問題：</p>
+
+<ol>
+  <li><strong>映射問題（Mapping）</strong>：當 Alice 從同一個內部 endpoint 連去<em>不同</em>外部主機時，
+    NAT 是給她<em>同一個</em>外部 port，還是<em>每次都換</em>？</li>
+  <li><strong>過濾問題（Filtering）</strong>：當有外部主機主動向 Alice 的外部 port 送包時，
+    NAT 是否放行？要看送包者的 IP？要看 IP+port 都對？</li>
+</ol>
+
+<h3>2.4.2 四種類型詳解</h3>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart LR
+    subgraph FC["① Full Cone NAT （最寬鬆）"]
+        FC1["Alice 對外送一次包<br/>NAT 開了 198.51.100.1:62000"]
+        FC2["任何外部主機只要<br/>知道 62000 都能送進來"]
+        FC1 --> FC2
+    end
+
+    subgraph RC["② Restricted Cone NAT"]
+        RC1["Alice 主動連過 Bob (1.2.3.4)"]
+        RC2["只有來自 1.2.3.4 的包能進來<br/>（不限 port）"]
+        RC1 --> RC2
+    end
+
+    subgraph PRC["③ Port-Restricted Cone NAT"]
+        PRC1["Alice 主動連過 1.2.3.4:9000"]
+        PRC2["只有來自 1.2.3.4:9000 的包能進來"]
+        PRC1 --> PRC2
+    end
+
+    subgraph SYM["④ Symmetric NAT （最嚴格）"]
+        SYM1["Alice 連 1.2.3.4:9000 → 開 port 62000"]
+        SYM2["Alice 連 5.6.7.8:9000 → 開 port 62001<br/>（每個目的地都換新外部 port）"]
+        SYM1 -.-> SYM2
+    end
+
+    classDef good fill:#2d5a3d,stroke:#2d5a3d,color:#fff
+    classDef ok fill:#b8761d,stroke:#b8761d,color:#fff
+    classDef bad fill:#7a1414,stroke:#7a1414,color:#fff
+    class FC1,FC2 good
+    class RC1,RC2,PRC1,PRC2 ok
+    class SYM1,SYM2 bad
+</div>
+<div class="caption">圖 2-2 ｜ 四種 NAT 類型，從上到下穿越難度遞增</div>
+</div>
+
+<h4>① Full Cone NAT — 對 P2P 最友善</h4>
+
+<p>
+  只要 Alice 從 <code>192.168.1.42:54321</code> 對外送過<em>任何一個</em>封包，
+  NAT 就建立一個固定映射 <code>198.51.100.1:62000 ⇄ 192.168.1.42:54321</code>。
+  之後，<strong>地球上任何一台主機</strong>，只要對 <code>198.51.100.1:62000</code> 送包，都會被轉送給 Alice。
+</p>
+
+<p>
+  穿越極簡單：Alice 只要透過 STUN 知道自己的 <code>62000</code>，把這個資訊告訴 Bob，Bob 直接寄就行。
+  問題是——Full Cone 在現實世界中相當罕見，因為它太鬆，幾乎等於沒有 NAT 的安全屏障。
+</p>
+
+<h4>② Restricted Cone NAT — 只認來源 IP</h4>
+
+<p>
+  外部映射仍然是固定的 <code>62000</code>，但 NAT 加了一道過濾：
+  <strong>只放行來源 IP 是 Alice 曾主動聯絡過的</strong>那些。Port 不限。
+</p>
+
+<p>
+  穿越方式：Bob 必須先「打第一拳」讓 Alice 知道他的 IP，但這拳會被 NAT 擋掉；
+  解法是 Alice <em>先</em>對 Bob 的 IP 送一個包（即使對方 port 還沒準備好），
+  讓 NAT 表新增「允許 Bob 的 IP 進入」這條規則。這就是 hole punching 的雛形（第 6 章詳述）。
+</p>
+
+<h4>③ Port-Restricted Cone NAT — 認來源 IP+Port</h4>
+
+<p>
+  跟 Restricted Cone 一樣，但過濾更嚴：<strong>必須來源 IP 與 port 都吻合 Alice 主動聯絡過的</strong>。
+  穿越方式類似，但需要事先知道對方確切的 port 才能精準打洞。
+</p>
+
+<h4>④ Symmetric NAT — P2P 的天敵</h4>
+
+<p>
+  Symmetric 跟前三種根本上不同：<strong>Alice 連到不同遠端時，NAT 會分配不同的外部 port</strong>。
+  Alice 連 Bob 用 <code>62000</code>、連 Charlie 用 <code>62001</code>、連 STUN 伺服器用 <code>62002</code>。
+</p>
+
+<p>這毀掉了 STUN 的核心假設——「Alice 從 STUN 看到的位址，就是 Bob 看到的位址」。在 Symmetric NAT 後，
+這兩個位址<em>不一樣</em>。Bob 想連 Alice，就必須<em>猜對</em> NAT 此刻會分配什麼 port 給他——
+這幾乎不可能（除非 NAT 有可預測的 port 分配演算法）。
+</p>
+
+<div class="callout callout-danger">
+  <span class="callout-title">為什麼 Symmetric NAT 在現代特別常見</span>
+  許多<strong>行動電信網路</strong>（4G/5G）、<strong>CGNAT</strong>、以及一部分企業安全閘道
+  採用 symmetric NAT。在 2025 年，任何認真的 P2P 系統都必須假設「至少有一方是對稱式 NAT」是常見情境，
+  而不是邊緣案例。對稱式 NAT 後的兩個 peer 通常無法直接 hole punching，必須仰賴中繼（TURN，第 7 章）。
+</div>
+
+<h3>2.4.3 速查：四類 NAT 對 P2P 穿越的影響</h3>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>NAT 類型</th>
+      <th>外部 port 是否固定？</th>
+      <th>誰能送包進來？</th>
+      <th>P2P 穿越難度</th>
+      <th>常見場景</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Full Cone</td>
+      <td>✅ 固定</td>
+      <td>任何人</td>
+      <td>★ 極易</td>
+      <td>古老或設定鬆散的家用路由器</td>
+    </tr>
+    <tr>
+      <td>Restricted Cone</td>
+      <td>✅ 固定</td>
+      <td>來源 IP 必須是 Alice 連過的</td>
+      <td>★★ 容易</td>
+      <td>常見家用 NAT</td>
+    </tr>
+    <tr>
+      <td>Port-Restricted Cone</td>
+      <td>✅ 固定</td>
+      <td>來源 IP + port 都要對</td>
+      <td>★★★ 中等</td>
+      <td>多數現代家用 NAT、Linux netfilter 預設</td>
+    </tr>
+    <tr>
+      <td>Symmetric</td>
+      <td>❌ 每個遠端都不同</td>
+      <td>來源 IP + port 都要對</td>
+      <td>★★★★★ 困難</td>
+      <td>行動網路、CGNAT、企業</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h2>2.5 RFC 4787 的雙軸分類法</h2>
+
+<p>
+  RFC 5389（STUN 的修訂版）<strong>明確棄用</strong>了 cone/symmetric 這個四分法，
+  原因是它把「映射」與「過濾」兩件事綁死，不夠精確。RFC 4787（2007）提出更工程化的雙軸分類：
+</p>
+
+<h3>2.5.1 軸一：Mapping Behavior（映射行為）</h3>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>Endpoint-Independent Mapping (EIM)</h4>
+    <p>同一個內部 endpoint 連到任何外部位址，都用<strong>同一個</strong>外部 port。
+    對應 cone 類別。</p>
+    <p><span class="tag tag-protocol">P2P-FRIENDLY</span></p>
+  </div>
+  <div class="cheat-card">
+    <h4>Address-Dependent Mapping (ADM)</h4>
+    <p>同一個內部 endpoint 連到<em>同一個</em>外部 IP（不論 port）會用同一個外部 port，
+    但連到不同 IP 會分配不同 port。介於 cone 與 symmetric 之間。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Address and Port-Dependent Mapping (APDM)</h4>
+    <p>每個 (遠端 IP, 遠端 port) 組合都分配不同外部 port。對應 symmetric NAT。</p>
+    <p><span class="tag tag-attack">P2P-HOSTILE</span></p>
+  </div>
+</div>
+
+<h3>2.5.2 軸二：Filtering Behavior（過濾行為）</h3>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>Endpoint-Independent Filtering (EIF)</h4>
+    <p>只要 NAT 表中有對應的內部 endpoint，<strong>任何來源</strong>的封包都放行。對應 Full Cone。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Address-Dependent Filtering (ADF)</h4>
+    <p>放行條件：來源 IP 必須是 Alice 曾主動聯絡的。對應 Restricted Cone。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Address and Port-Dependent Filtering (APDF)</h4>
+    <p>放行條件：來源 IP 與 port 都要對得上。對應 Port-Restricted 與 Symmetric。</p>
+  </div>
+</div>
+
+<h3>2.5.3 兩軸組合的真實 NAT 行為</h3>
+
+<p>
+  RFC 4787 之所以更精準，是因為它揭示了一個事實：<strong>映射與過濾可以獨立</strong>。
+  例如有些 NAT 是 EIM + APDF——映射很大方（cone-like）但過濾很嚴（symmetric-like 的過濾）。
+  這在傳統四分法中無法表達，但對 P2P 設計卻很關鍵：因為<em>映射</em>固定意味著 STUN 探得的位址有效，
+  我們仍然有機會穿越。
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+quadrantChart
+    title NAT 行為的雙軸分類（RFC 4787）
+    x-axis 過濾寬鬆 --> 過濾嚴格
+    y-axis 映射多變 --> 映射固定
+    quadrant-1 P2P 友善
+    quadrant-2 STUN 失靈
+    quadrant-3 完全 hostile
+    quadrant-4 需要打洞
+    "Full Cone (EIM+EIF)": [0.15, 0.9]
+    "Restricted Cone (EIM+ADF)": [0.5, 0.85]
+    "Port-Restricted (EIM+APDF)": [0.85, 0.8]
+    "Symmetric (APDM+APDF)": [0.9, 0.15]
+    "罕見組合 (APDM+EIF)": [0.15, 0.2]
+</div>
+<div class="caption">圖 2-3 ｜ RFC 4787 雙軸 NAT 分類，傳統四類其實只覆蓋了一條對角線</div>
+</div>
+
+<div class="callout callout-info">
+  <span class="callout-title">RFC 4787 的「應做」（SHOULD）建議</span>
+  <ul style="margin-top:0.3em;">
+    <li>NAT <strong>應該</strong>實作 Endpoint-Independent Mapping（友善 P2P）</li>
+    <li>NAT <strong>不應該</strong>使用 Address-Dependent 或 APDM</li>
+    <li>UDP timeout <strong>不應低於</strong> 2 分鐘</li>
+    <li>NAT <strong>應該</strong>支援 Hairpinning</li>
+  </ul>
+  問題在於——這些只是 SHOULD 不是 MUST，市場上違反這些建議的 NAT 比比皆是。
+</div>
+
+<h2>2.6 Port Allocation：那個被忽略的細節</h2>
+
+<p>
+  當 NAT 要分配新的外部 port 時，它有幾種策略，每種對 P2P 穿越的影響都不同：
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>分配策略</th>
+      <th>行為</th>
+      <th>P2P 影響</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Port Preservation</strong></td>
+      <td>盡量保留內部 port，外部 port = 內部 port（如 54321 → 54321）</td>
+      <td>友善，但有衝突風險（兩個內部裝置都用 54321 時無法保留）</td>
+    </tr>
+    <tr>
+      <td><strong>Sequential</strong></td>
+      <td>遞增分配（62000、62001、62002...）</td>
+      <td>對 symmetric NAT，可預測 → 允許「port prediction」打洞</td>
+    </tr>
+    <tr>
+      <td><strong>Random</strong></td>
+      <td>從 ephemeral port 池隨機抽</td>
+      <td>對 symmetric NAT 是噩夢，幾乎無法預測</td>
+    </tr>
+    <tr>
+      <td><strong>Parity Preserving</strong></td>
+      <td>偶數 port 對應偶數、奇數對奇數（為了 RTP/RTCP 配對）</td>
+      <td>SIP/RTP 場景重要，現代 WebRTC 已用 mux 解決</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>
+  Port prediction 是個很有趣的技巧——如果你知道對方 NAT 採用 sequential，
+  且你知道對方剛才連 STUN 用了 62000，那麼下一次連你時很可能用 62001 或 62002。
+  Yutaka Takeda（2003 年）與早稻田大學的研究團隊（2008 年）都發表過 symmetric NAT 的 port prediction 技術，
+  在某些場景下能把成功率從 0% 拉到 80%。但這只在 NAT 用<em>確定性</em>演算法時有效，現代許多 NAT 已採用隨機分配以提升安全性。
+</p>
+
+<h2>2.7 動手實驗：探測你的 NAT 類型</h2>
+
+<p>
+  理論講完，動手做。你可以用以下幾種方法快速判斷自己所在網路的 NAT 行為：
+</p>
+
+<h3>2.7.1 用 STUN 客戶端</h3>
+
+<pre data-lang="bash"># 安裝（macOS / Linux）
+$ pip install stun-client
+
+# 探測
+$ stun-client stun.l.google.com:19302
+NAT Type: Full Cone Nat
+External IP: 203.0.113.42
+External Port: 54321</pre>
+
+<p>
+  或使用線上工具如 <a href="https://www.checkmynat.com/">checkmynat.com</a>。
+  注意：基於 RFC 3489 的舊式 NAT 探測在某些 NAT 上會誤判，僅供參考。
+</p>
+
+<h3>2.7.2 觀察自家路由器的 NAT 表</h3>
+
+<p>
+  在 Linux/OpenWrt 路由器上：
+</p>
+
+<pre data-lang="bash"># 查看 conntrack 表
+$ sudo conntrack -L | head -20
+
+udp  17 30 src=192.168.1.42 dst=8.8.8.8 sport=54321 dport=53 \
+  src=8.8.8.8 dst=198.51.100.1 sport=53 dport=62000 \
+  [ASSURED] mark=0 use=1
+
+# 統計表項數
+$ sudo conntrack -C
+1247
+
+# 觀察某條映射的 timeout 倒數
+$ watch -n 1 'sudo conntrack -L 2>/dev/null | grep 192.168.1.42'</pre>
+
+<h3>2.7.3 用 netcat 測試 timeout</h3>
+
+<pre data-lang="bash"># 開兩個終端機
+
+# 終端機 A：在公網主機上監聽 UDP
+remote$ nc -ul 9999
+
+# 終端機 B：在內網送一個 UDP 封包
+local$ echo "hello" | nc -u 公網IP 9999
+
+# 等待 N 秒（不送任何封包）
+local$ sleep 60
+
+# 從遠端送回應，看會不會收到
+remote$ echo "回包" | nc -u 內網外部IP <NAT分配的port></pre>
+
+<p>
+  逐次調整等待秒數（30、60、120、300...），觀察哪個秒數開始收不到回包，那就是你的 NAT UDP timeout。
+</p>
+
+<h2>2.8 章末提要</h2>
+
+<div class="callout callout-note">
+  <span class="callout-title">本章核心觀念</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>NAT 透過維護一張內外位址映射表來工作；穿越技術都圍繞「如何讓表項符合我們需要」展開。</li>
+    <li>NAT 表項有 timeout，UDP 場景必須<strong>持續 keep-alive</strong>。</li>
+    <li>傳統四分法（Full Cone / Restricted Cone / Port-Restricted / Symmetric）直觀但不精確。</li>
+    <li>RFC 4787 用「映射行為」與「過濾行為」雙軸分類，更工程化。</li>
+    <li><strong>Symmetric NAT 是 P2P 的天敵</strong>，且在現代行動網路與 CGNAT 中極為常見。</li>
+    <li>Port prediction 是對抗 symmetric NAT 的進階技巧，但只在<em>確定性</em>分配演算法下有效。</li>
+  </ul>
+</div>
+
+<h3>動腦時間</h3>
+<ol>
+  <li>畫出 Alice 同時連到 Bob 與 Charlie 時，NAT 表會多出哪些條目？
+    若 Alice 的 NAT 是 EIM，這兩條會共用外部 port 嗎？</li>
+  <li>為什麼 RFC 4787 建議 UDP timeout 不應低於 2 分鐘？把這個建議與 keep-alive 頻率連起來推導。</li>
+  <li>有些 NAT 採用 Endpoint-Independent Mapping 但 Endpoint-Independent Filtering（EIM+EIF）；
+    有些採用 EIM 但 APDF。從 P2P 開發者角度，前者完全不需穿越，後者需要 hole punching——
+    為什麼這個差異很關鍵？</li>
+  <li>嘗試在你家網路上探測 NAT 類型，並對照你電信業者公告的「IPv4 連線方式」。是否一致？</li>
+</ol>
+
+<h3>延伸閱讀</h3>
+<ul>
+  <li>RFC 3489（2003）— STUN 初版，定義了傳統四分法 <span class="tag tag-rfc">RFC</span></li>
+  <li>RFC 4787（2007）— UDP NAT 行為要求 <span class="tag tag-rfc">RFC</span> <strong>必讀</strong></li>
+  <li>RFC 5382（2008）— TCP NAT 行為要求 <span class="tag tag-rfc">RFC</span></li>
+  <li>RFC 5508（2009）— ICMP NAT 行為要求 <span class="tag tag-rfc">RFC</span></li>
+  <li>Takeda, Yutaka. "Symmetric NAT Traversal Using STUN" (2003) — port prediction 經典</li>
+</ul>
+
+<nav class="chapter-nav">
+  <a class="prev" href="ch01.html">
+    <span class="label">← PREV</span>
+    <span class="title">第 1 章 · 緒論</span>
+  </a>
+  <a class="next" href="ch03.html">
+    <span class="label">NEXT →</span>
+    <span class="title">第 3 章 · 防火牆與中介設備</span>
+  </a>
+</nav>
+
+<footer>
+  <div>CHAPTER 2 / 19 · NAT 原理 · NAT TRAVERSAL × P2P TEXTBOOK</div>
+</footer>
+
+</main>
+
+<script src="../share/js/mermaid.min.js"></script>
+<script src="../share/js/textbook.js"></script>
+</body>
+</html>

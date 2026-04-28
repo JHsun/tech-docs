@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 16 章 · IPv6 是解藥嗎？</title>
+<link rel="stylesheet" href="../share/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>NAT TRAVERSAL × P2P</span>
+  </div>
+  <nav>
+    <a href="../firewall-traversal-and-p2p-guide -index.html">封面</a>
+    <a href="ch15.html">CH 15</a>
+    <a href="ch16.html" class="current">CH 16</a>
+    <a href="ch17.html">CH 17</a>
+    <a href="ch18.html">CH 18</a>
+    <a href="cheatsheet.html">速查</a>
+    <a href="glossary.html">術語</a>
+    <button id="themeToggle" class="theme-toggle">暗色</button>
+  </nav>
+</header>
+
+<main class="page">
+
+<div class="chapter-meta">
+  <span class="dot"></span> PART IV &nbsp;·&nbsp; 實作、安全與未來
+  <span class="dot"></span> CHAPTER 16
+</div>
+
+<h1>
+  <span class="chapter-num">CHAPTER 16</span>
+  IPv6 是解藥嗎？
+</h1>
+
+<div class="chapter-intro">
+  <h4>本章導讀</h4>
+  <p>
+    本書的故事一直繞著一個假設：「我們有 NAT 是因為 IPv4 不夠」。那麼，IPv6 普及之後，這一切還重要嗎？
+    本章直面這個問題。答案出乎意料地複雜——<strong>IPv6 是答案的一部分，但不是全部</strong>。
+    我們會看 IPv6 的部署現狀（<em>很高，但不夠</em>）、它如何改變 P2P 設計、為什麼 IPv4 hole punching 在 2026 年仍是關鍵路徑，
+    以及過渡技術 NAT64、464XLAT、Happy Eyeballs 如何讓兩個世界共存。
+  </p>
+</div>
+
+<div class="objectives">
+  <h4>📚 學習目標</h4>
+  <ul>
+    <li>能說明 IPv6 的位址結構與「<em>無 NAT 預設</em>」的設計哲學。</li>
+    <li>能評估 IPv6 在 2026 年的真實普及率，與「全 IPv6 P2P」可行性。</li>
+    <li>能解釋為什麼 IPv6 並未消滅防火牆問題。</li>
+    <li>能描述 NAT64、DNS64、464XLAT 等過渡技術的角色。</li>
+    <li>能說明 Happy Eyeballs 如何讓客戶端在雙堆疊環境中做最佳選擇。</li>
+  </ul>
+</div>
+
+<h2>16.1 IPv6 的核心承諾</h2>
+
+<p>IPv6（RFC 8200）相對 IPv4 的核心改變很多，但對 P2P 而言最關鍵的一點是：</p>
+
+<p class="lead">
+  <strong>每個裝置都能擁有一個全球可路由的位址。</strong>
+</p>
+
+<p>
+  IPv6 把位址空間從 32 bit（43 億）擴張到 <strong>128 bit（3.4 × 10³⁸）</strong>——
+  這個數量大到「<em>地球上每個原子都能分一個位址</em>」（誇張比喻，但接近真實量級）。
+  位址不再稀缺，<em>NAT 的根本動因消失了</em>。
+</p>
+
+<h3>16.1.1 IPv6 位址結構</h3>
+
+<pre data-lang="format">128 bit 位址，寫作 8 組 16-bit hex，以冒號分隔：
+
+完整：  2001:0db8:85a3:0000:0000:8a2e:0370:7334
+壓縮：  2001:db8:85a3::8a2e:370:7334
+            (連續零段可用 :: 替代，僅一次)
+
+結構：
+  ┌───────────── 64 bit ──────────────┬────── 64 bit ──────┐
+  │           Network Prefix          │   Interface ID     │
+  │  (ISP 分配 / 子網路規劃)          │  (主機自行決定)    │
+  └───────────────────────────────────┴────────────────────┘
+
+ISP 通常給家用使用者分配 /48 或 /56：
+  /48  = 65536 個 /64 子網（足夠分給很多裝置與多層網路）
+  /56  = 256 個 /64 子網
+  /64  = 一個子網（家用最常見的「最小切割」）</pre>
+
+<h3>16.1.2 位址類型</h3>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>類型</th><th>前綴</th><th>用途</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Global Unicast</td><td><code>2000::/3</code></td><td>全球可路由，本書關心的主類型</td></tr>
+    <tr><td>Link-Local</td><td><code>fe80::/10</code></td><td>同一鏈路內有效（類似 IPv4 169.254）</td></tr>
+    <tr><td>Unique Local (ULA)</td><td><code>fc00::/7</code></td><td>類似 IPv4 私有位址，<em>不應</em>路由到公網</td></tr>
+    <tr><td>Multicast</td><td><code>ff00::/8</code></td><td>多播</td></tr>
+    <tr><td>Loopback</td><td><code>::1/128</code></td><td>localhost</td></tr>
+    <tr><td>4in6 對映</td><td><code>::ffff:0:0/96</code></td><td>IPv4 位址映射為 IPv6</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>16.1.3 SLAAC：IPv6 的「<em>自帶</em> DHCP」</h3>
+
+<p>
+  IPv6 支援 <strong>SLAAC</strong>（Stateless Address Auto-Configuration）——
+  路由器透過 Router Advertisement 廣播網段前綴，主機自行根據 MAC 位址或隨機數產生 64-bit interface ID，
+  組成完整位址。<em>不需要 DHCP 伺服器</em>。
+</p>
+
+<p>
+  這個機制讓「家裡每台裝置都自動有公網 IPv6」成為現實——理論上 P2P 應用可以直接用 IPv6 位址互連，
+  跳過所有 NAT 穿越的麻煩。
+</p>
+
+<h2>16.2 部署現狀：IPv6 普及到哪了？</h2>
+
+<h3>16.2.1 整體數據</h3>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+xychart-beta
+    title "Google 觀察到的 IPv6 客戶端比例（IPv6 連線占比 %）"
+    x-axis ["2010", "2013", "2016", "2019", "2022", "2025"]
+    y-axis "%" 0 --> 60
+    bar [0.5, 2, 13, 28, 42, 50]
+</div>
+<div class="caption">圖 16-1 ｜ IPv6 部署率持續上升，但仍未達 100%（資料來源：Google IPv6 統計）</div>
+</div>
+
+<p>幾個觀察：</p>
+
+<ul>
+  <li>2025 年 Google 觀察到全球用戶端的 IPv6 流量比例約 <strong>50%</strong></li>
+  <li>各國差異極大：印度、美國、德國領先（&gt; 60%）；中國、俄國、許多東南亞國家相對低</li>
+  <li>大型內容供應商（Google、Facebook、Cloudflare、Netflix）幾乎全面 IPv6 化</li>
+  <li><strong>家用寬頻 IPv6 普及高，行動電信更早全面 IPv6</strong></li>
+</ul>
+
+<h3>16.2.2 為什麼不是 100%？</h3>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>老舊路由器</h4>
+    <p>許多家用路由器（特別是 ISP 出租的舊機種）不支援 IPv6 或設定關閉。
+    替換成本與動機都低。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>企業惰性</h4>
+    <p>企業內部網路向來保守，IPv6 改造涉及防火牆、ACL、監控全面更新。
+    多數企業仍是純 IPv4 內網 + IPv4 出站。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>應用支援不一</h4>
+    <p>多數應用支援 IPv6，但仍有大量舊系統綁死 IPv4。
+    工程團隊「<em>能跑就好</em>」的心態延緩遷移。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>CGNAT 緩解了壓力</h4>
+    <p>IPv4 位址枯竭的痛苦本應推動 IPv6——但 CGNAT 讓電信業者「<em>還能撐</em>」。
+    緊迫感降低 → IPv6 動力降低。</p>
+  </div>
+</div>
+
+<h2>16.3 IPv6 真的能消滅 NAT 穿越問題嗎？</h2>
+
+<p>
+  Tailscale 部落格非常坦誠地寫過：「<em>IPv6 確實可以在雙方都有原生 IPv6 時繞過 NAT 問題，
+  但實務上 IPv6 部署常常是部分的——一邊有 IPv6、另一邊只有 IPv4，或只有 ULA。
+  所以 IPv4 + UDP hole punching 在 2025 年仍是關鍵路徑</em>」。
+</p>
+
+<h3>16.3.1 「<em>雙方都有 IPv6</em>」的機率</h3>
+
+<p>
+  假設全球有 50% 用戶有 IPv6。隨機選兩個用戶，<em>都</em>有 IPv6 的機率是 50% × 50% = <strong>25%</strong>。
+  也就是說，約 75% 的 P2P 連線中至少一方仍需透過 IPv4。
+</p>
+
+<p>
+  這不是悲觀預估——加上「<em>有 IPv6 但有防火牆擋</em>」的情境，實際能用 IPv6 直連的場景更少。
+  P2P 系統<strong>必須</strong>同時支援 IPv4 與 IPv6 多年。
+</p>
+
+<h3>16.3.2 IPv6 有自己的問題</h3>
+
+<div class="callout callout-warn">
+  <span class="callout-title">IPv6 不是完全免費的午餐</span>
+  <ul style="margin:0.5em 0 0;">
+    <li><strong>IPv6 也有防火牆</strong>——大量 IPv6 家用路由器預設啟用「<em>類 NAT 行為的有狀態防火牆</em>」（不放行未經邀請的入站連線）</li>
+    <li><strong>位址多、變動快</strong>——SLAAC + Privacy Extensions 讓位址定期變更，影響 P2P 系統穩定地址記錄</li>
+    <li><strong>IPv6 的地址不對 hole punching 友善</strong>——因為通常 IPv6 沒有 NAT，hole punching 概念不適用，但若有 stateful firewall，<em>類似</em>機制仍要用</li>
+    <li><strong>應用 bug</strong>——許多應用對 IPv6 的處理不如 IPv4 成熟（Happy Eyeballs 設計就是為了繞過這些 bug）</li>
+  </ul>
+</div>
+
+<h3>16.3.3 IPv6 中的「<em>類 NAT 穿越</em>」</h3>
+
+<p>
+  即使沒 NAT，stateful firewall 仍需要被「告訴」要放行某 peer。在 IPv6 環境下，hole punching 的概念變化：
+</p>
+
+<ul>
+  <li>不需要「<em>探得對外位址</em>」（位址就是你自己的）</li>
+  <li>但仍需要「<em>讓 firewall 開洞</em>」（送出包後，firewall 條目允許回應）</li>
+  <li>port prediction 不再必要（IPv6 firewall 多半 EIM 行為）</li>
+  <li>整體成功率<strong>顯著高於</strong> IPv4 NAT 場景</li>
+</ul>
+
+<p>第 4 章介紹的 PCP 對 IPv6 防火牆原生支援——這是 PCP 相對 NAT-PMP 的重要進步。</p>
+
+<h2>16.4 IPv6/IPv4 過渡技術</h2>
+
+<p>
+  現實中 IPv4 與 IPv6 必須長期共存。一系列過渡技術讓兩個世界互通：
+</p>
+
+<h3>16.4.1 雙堆疊（Dual-Stack）</h3>
+
+<p>
+  最直觀的方案——主機<em>同時</em>有 IPv4 與 IPv6 位址。應用想用哪個就用哪個。
+  這是最普遍的部署方式（電信業者多採此方案）。
+</p>
+
+<h3>16.4.2 NAT64 + DNS64</h3>
+
+<p>
+  讓<strong>純 IPv6 客戶端訪問純 IPv4 伺服器</strong>。流程：
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant C as IPv6 Client
+    participant D as DNS64 Server
+    participant N as NAT64 Gateway
+    participant S as IPv4 Server (1.2.3.4)
+
+    C->>D: AAAA www.example.com?
+    Note over D: 真實 AAAA 不存在<br/>但 D 知道 example.com 的 A = 1.2.3.4
+    D->>C: 回傳合成的 AAAA<br/>= 64:ff9b::1.2.3.4
+
+    C->>N: 連到 [64:ff9b::1.2.3.4]:80
+    Note over N: 識別 64:ff9b::/96 前綴<br/>抽出嵌入的 IPv4
+    N->>S: 連到 1.2.3.4:80<br/>(NAT64 自己有 IPv4 位址)
+    S->>N: 回應
+    N->>C: 轉送（IPv6 形式）
+</div>
+<div class="caption">圖 16-2 ｜ NAT64 + DNS64 讓純 IPv6 客戶端能訪問 IPv4 伺服器</div>
+</div>
+
+<p>
+  這是 Apple 在 iOS 9 後強制要求 App「<em>必須能在純 IPv6 網路下運作</em>」背後的機制——
+  Apple 在審查時用 NAT64 環境測試 App。
+</p>
+
+<h3>16.4.3 464XLAT</h3>
+
+<p>
+  解決 NAT64 不能處理「<em>應用直接傳遞 IPv4 字面量</em>」的問題（如 SIP、某些舊遊戲）。
+  在客戶端加一層 CLAT（Customer-side Translator），把 IPv4 流量包進 IPv6 送到 PLAT（NAT64），
+  PLAT 再轉回 IPv4 出公網。
+</p>
+
+<p>
+  464XLAT 是<strong>多數現代行動電信網路</strong>的真實架構——T-Mobile、Verizon、SoftBank 等。
+  從 P2P 視角看：這意味著手機<em>看起來有</em> IPv4 但實際是 IPv6 包裝的，
+  穿越行為比直接 IPv4 更複雜。
+</p>
+
+<h3>16.4.4 6to4 / Teredo（已過時）</h3>
+
+<p>
+  早期過渡方案——讓 IPv6-only 主機透過公網 IPv4 隧道存取 IPv6 網路。
+  Teredo 由 Microsoft 推動，曾經內建於 Windows，但因效率與穩定性問題已被放棄（Windows 11 移除）。
+</p>
+
+<h2>16.5 Happy Eyeballs：客戶端的智慧</h2>
+
+<p>
+  雙堆疊主機面對一個基本問題：<em>連到 google.com 時，要先試 IPv4 還是 IPv6？</em>
+  簡單做法是「<em>先試 IPv6，失敗再試 IPv4</em>」——但若 IPv6 路徑壞掉，會等很久才退回。
+  RFC 8305 定義的 <strong>Happy Eyeballs v2</strong> 提供了優雅解法。
+</p>
+
+<h3>16.5.1 演算法</h3>
+
+<pre data-lang="algorithm">當客戶端要連 example.com:443：
+
+1. 並行查詢 AAAA 與 A 記錄
+2. AAAA 一回來就<em>立即</em>啟動 IPv6 連線嘗試
+3. 等待 50-300ms（resolution delay）
+4. 若期間 IPv6 連線未成功，啟動 IPv4 連線嘗試
+5. 哪個先成功（TCP handshake 完成）就用哪個，取消另一個
+
+效果：
+  - IPv6 路徑健康時，使用者透明地用 IPv6
+  - IPv6 路徑壞掉時，250ms 內無痛 fall back 到 IPv4
+  - 避免「IPv6 卡 30 秒才退回 IPv4」的糟糕體驗</pre>
+
+<div class="callout callout-info">
+  <span class="callout-title">為什麼這個小設計很重要？</span>
+  Happy Eyeballs 是「<em>優雅的雙堆疊使用體驗</em>」的工程關鍵。它讓主機不必完美——
+  只要 IPv6 不爛得太厲害，就能享受 IPv6 的好處；爛了也不影響使用體驗。
+  Chrome、Firefox、curl、所有現代客戶端都實現它。
+</div>
+
+<h3>16.5.2 對 P2P 的延伸</h3>
+
+<p>
+  Happy Eyeballs 的精神也適用於 P2P——當你有一個 peer 的多個 candidate（IPv4、IPv6、relay），
+  並行嘗試 + 快速 fallback 是最佳策略。這在第 8 章 ICE 的 trickle 機制與第 13 章 libp2p 的多 transport 並行中都看得到。
+</p>
+
+<h2>16.6 P2P 系統如何擁抱 IPv6</h2>
+
+<h3>16.6.1 設計原則</h3>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>把 IPv6 當第一公民</h4>
+    <p>不要讓 IPv6 是「<em>事後加上去的</em>」。Multiaddr（libp2p）、ICE candidate（WebRTC）
+    都把 IPv6 與 IPv4 平等看待。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>優先 IPv6 直連</h4>
+    <p>當雙方都有 IPv6，優先使用——延遲低、無 NAT 開銷、成功率高。
+    但<em>不阻擋</em> IPv4 fallback。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>處理位址變動</h4>
+    <p>IPv6 隱私擴展讓位址定期變化。P2P 系統應該對「<em>peer 位址改變</em>」優雅處理——
+    用 PeerID（libp2p）或長期 fingerprint 識別身份。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>正確處理 ULA</h4>
+    <p>fc00::/7 範圍是「<em>類私有位址</em>」，<strong>不應</strong>當作公網位址廣告給遠端 peer。
+    類似 IPv4 中對 192.168.x.x 的處理。</p>
+  </div>
+</div>
+
+<h3>16.6.2 ICE 中的 IPv6</h3>
+
+<p>RFC 8421 補充了 ICE 對 IPv6 的支援。關鍵點：</p>
+
+<ul>
+  <li>IPv6 host candidate 應該與 IPv4 host candidate 並列收集</li>
+  <li>Type preference 通常設成 IPv6 與 IPv4 相同（126），由 local preference 細分</li>
+  <li>連通性檢查同時進行，第一條成功的就用</li>
+  <li>避免 IPv6 link-local 位址做為 srflx——它們在公網上沒意義</li>
+</ul>
+
+<h2>16.7 IPv6 與隱私</h2>
+
+<h3>16.7.1 SLAAC + EUI-64 的隱私問題</h3>
+
+<p>
+  早期 SLAAC 用 MAC 位址產生 interface ID（EUI-64 演算法）——這意味著你的位址<strong>跨網段保留你的 MAC 部分</strong>。
+  即使換了 ISP，64 個 bit 中後 64 bit 不變——<em>這是個漂亮的全球追蹤識別碼</em>。
+</p>
+
+<h3>16.7.2 RFC 4941 隱私擴展</h3>
+
+<p>
+  IETF 早就意識到這個問題，RFC 4941（後 RFC 8981 更新）規定主機應使用<strong>隨機 interface ID</strong>，
+  並定期變更（典型每天）。所有現代作業系統預設啟用：
+</p>
+
+<pre data-lang="bash"># 查看 Linux 的隱私擴展設定
+$ sysctl net.ipv6.conf.all.use_tempaddr
+net.ipv6.conf.all.use_tempaddr = 2
+
+# 0 = 不用（不安全！）
+# 1 = 用，但偏好 EUI-64
+# 2 = 用，且偏好臨時位址（推薦）</pre>
+
+<p>
+  對 P2P 系統，這意味著「<em>peer 的 IPv6 位址不能當長期身份</em>」——
+  必須用密碼學身份（PeerID、DTLS fingerprint）識別 peer。
+</p>
+
+<h2>16.8 預測：IPv4 NAT 還會存在多久？</h2>
+
+<p>本書的最後一個預測——這是個個人觀點：</p>
+
+<div class="callout callout-history">
+  <span class="callout-title">作者觀點</span>
+  <p>IPv4 NAT 不會在「<em>2030 年前</em>」消失，原因有三：</p>
+  <ol style="margin:0.3em 0;">
+    <li><strong>長尾遺留</strong>：政府、軍工、特定行業內網的 IPv4-only 系統需要數十年才能完全淘汰</li>
+    <li><strong>反而更深</strong>：因 CGNAT 普及，連電信端的 NAT 都疊了多層，這個架構積極演進中</li>
+    <li><strong>應用層的便利</strong>：「<em>使用者裝置不會被外面主動連到</em>」這個副作用其實被許多應用設計依賴（如行動 push 服務）</li>
+  </ol>
+  <p>因此，本書介紹的 NAT 穿越技術——hole punching、ICE、relay、DCUtR——在<strong>整個 2030 年代仍會是 P2P 系統的核心知識</strong>。
+  讀完本書你不會「白學」。</p>
+</div>
+
+<h2>16.9 章末提要</h2>
+
+<div class="callout callout-note">
+  <span class="callout-title">本章核心觀念</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>IPv6 把位址空間擴張到 128 bit，理論上消除 NAT 的根本動因。</li>
+    <li>2025 年全球 IPv6 普及率約 50%，但「<em>雙方都有 IPv6</em>」的機率僅 ~25%。</li>
+    <li>IPv6 仍有 stateful firewall——「<em>類 NAT 穿越</em>」概念仍適用。</li>
+    <li>過渡技術：dual-stack（普遍）、NAT64+DNS64（純 v6 訪問 v4）、464XLAT（行動電信）。</li>
+    <li>Happy Eyeballs 讓雙堆疊客戶端優雅處理 IPv6 失效的情境。</li>
+    <li>P2P 系統應把 IPv6 當第一公民並行嘗試，配合 PeerID 抗位址變動。</li>
+    <li>IPv6 隱私擴展（RFC 4941/8981）讓位址定期變化，破壞跨網段追蹤。</li>
+    <li>NAT 穿越知識在整個 2030 年代仍是 P2P 系統的核心——本書內容不會過時。</li>
+  </ul>
+</div>
+
+<h3>動腦時間</h3>
+<ol>
+  <li>用 <code>ip -6 addr show</code> 或 <code>ipconfig /all</code> 查看你電腦的 IPv6 位址。
+    觀察是否有多個位址，分別屬於哪種類型（global / link-local / temp）。</li>
+  <li>若全球 IPv6 普及到 80%，「<em>雙方都有 IPv6</em>」的機率是多少？
+    這對 P2P 系統的 IPv4 fallback 必要性還有多少影響？</li>
+  <li>研究 Apple 的 NAT64 audit——iOS App Store 上架前要在純 IPv6 網路測試。
+    這個政策對全球 IPv6 普及產生了什麼推力？</li>
+  <li>Happy Eyeballs 的 resolution delay 預設 50ms。若太短會發生什麼？太長呢？</li>
+  <li>論述題：若 ISP 給你家分配了 /48 IPv6 prefix，你能架設多少個獨立 /64 子網？
+    對家用網路設計有何啟發？</li>
+</ol>
+
+<h3>延伸閱讀</h3>
+<ul>
+  <li>RFC 8200（2017）— Internet Protocol, Version 6 Specification <span class="tag tag-rfc">RFC</span></li>
+  <li>RFC 8305（2017）— Happy Eyeballs Version 2 <span class="tag tag-rfc">RFC</span></li>
+  <li>RFC 6146 — Stateful NAT64</li>
+  <li>RFC 6877 — 464XLAT</li>
+  <li>RFC 8981 — Privacy Extensions for SLAAC</li>
+  <li>Google IPv6 Statistics — google.com/intl/en/ipv6/statistics.html（即時部署率）</li>
+  <li>APNIC IPv6 Capability Map — labs.apnic.net</li>
+</ul>
+
+<nav class="chapter-nav">
+  <a class="prev" href="ch15.html">
+    <span class="label">← PREV</span>
+    <span class="title">第 15 章 · 傳輸層的選擇</span>
+  </a>
+  <a class="next" href="ch17.html">
+    <span class="label">NEXT →</span>
+    <span class="title">第 17 章 · 安全考量</span>
+  </a>
+</nav>
+
+<footer>
+  <div>CHAPTER 16 / 19 · IPv6 是解藥嗎 · NAT TRAVERSAL × P2P TEXTBOOK</div>
+</footer>
+
+</main>
+
+<script src="../share/js/mermaid.min.js"></script>
+<script src="../share/js/textbook.js"></script>
+</body>
+</html>

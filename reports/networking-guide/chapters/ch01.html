@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 1 章 · 緒論：為什麼連線這麼困難？</title>
+<link rel="stylesheet" href="../share/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>NAT TRAVERSAL × P2P</span>
+  </div>
+  <nav>
+    <a href="../firewall-traversal-and-p2p-guide -index.html">封面</a>
+    <a href="ch01.html" class="current">CH 1</a>
+    <a href="ch02.html">CH 2</a>
+    <a href="ch03.html">CH 3</a>
+    <a href="cheatsheet.html">速查</a>
+    <a href="glossary.html">術語</a>
+    <button id="themeToggle" class="theme-toggle">暗色</button>
+  </nav>
+</header>
+
+<main class="page">
+
+<div class="chapter-meta">
+  <span class="dot"></span> PART I &nbsp;·&nbsp; 基礎與問題場景
+  <span class="dot"></span> CHAPTER 01
+</div>
+
+<h1>
+  <span class="chapter-num">CHAPTER 1</span>
+  緒論：為什麼連線這麼困難？
+</h1>
+
+<div class="chapter-intro">
+  <h4>本章導讀</h4>
+  <p>
+    本章從一個最樸素的提問出發：「為什麼我家裡的電腦不能直接被朋友連到？」我們會走過一段網路考古，從 IPv4 位址的供需失衡、
+    端對端原則（end-to-end principle）的破壞、到中介設備（middleboxes）的崛起，理解「連線困難」這個問題的本質。
+    讀完本章，你會明白接下來十八章想要解決的，並不是某個單一技術問題，而是一場長達三十年的工程妥協。
+  </p>
+</div>
+
+<div class="objectives">
+  <h4>📚 學習目標</h4>
+  <ul>
+    <li>能解釋 IPv4 位址枯竭如何驅動 NAT 的普及，並影響今日的網路架構。</li>
+    <li>能複述「端對端原則」並說明它為何被破壞、又為何至今仍是 P2P 設計的北極星。</li>
+    <li>能列舉至少四種因 NAT/防火牆而設計困難的應用場景。</li>
+    <li>能分辨「NAT 阻擋」與「防火牆阻擋」兩類本質不同的問題。</li>
+  </ul>
+</div>
+
+<h2>1.1 一個樸素的提問</h2>
+
+<p>
+  想像一個情境：你和朋友想透過一支自己寫的小程式，在兩台筆電之間傳遞檔案。你以為，網路就像郵差——只要知道對方的地址，
+  資料封包就能寄到家門口。於是你查了 <code>ipconfig</code>，看到自己 IP 是 <code>192.168.1.42</code>，告訴朋友：「往這個地址寄就好」。
+</p>
+
+<p>
+  結果，朋友怎麼寄都收不到。<strong>為什麼？</strong>
+</p>
+
+<p>
+  這個問題的答案，是這本書要花十八章來回答的。但讓我們先從最簡短的版本開始：
+  你的 <code>192.168.1.42</code> 不是一個真正能在網路上路由的地址，它只在你家的網域裡有意義。
+  從外面看你家，你和家裡的電視、手機、印表機共用同一個對外 IP；而這個對外 IP 後面藏了一道
+  叫做「<strong>NAT</strong>」的轉換層，它只放行<em>你主動發起的</em>連線回應，對所有未經邀請的封包一律丟棄。
+</p>
+
+<p class="lead">
+  「網路是平等的」這句話，在 1990 年之前還大致成立；
+  在那之後，它就成了一個技術人需要花生涯前段時間去逐步幻滅的浪漫。
+</p>
+
+<h2>1.2 端對端原則的興與衰</h2>
+
+<h3>1.2.1 原始設計的優雅</h3>
+
+<p>
+  1981 年，Saltzer、Reed 與 Clark 三位學者發表了一篇名為〈End-to-End Arguments in System Design〉的論文。
+  這篇文章雖然不是 RFC，卻深深影響了網際網路的根本哲學：<strong>網路核心應該保持簡單，複雜性放在端點。</strong>
+</p>
+
+<p>
+  在這個願景下，每一台連上網路的電腦都是<strong>對等的</strong>（peer）：
+  它擁有一個全球唯一的 IP 位址，可以自由地與任何其他 IP 對話。網路中段的路由器只負責把封包送到目的地，
+  不關心這封包是 email、檔案、還是視訊。在這樣的世界裡，<em>「server」與「client」只是角色差異，不是身份差異</em>——
+  任何一台主機都能同時扮演兩者。
+</p>
+
+<p>
+  這就是為什麼早期的網際網路應用，無論是 FTP、Telnet、SMTP、還是 IRC，都假設雙方可以直接連線。
+  那個時代的程式設計師，根本不需要「打洞」這個概念。
+</p>
+
+<h3>1.2.2 IPv4 位址的供需崩塌</h3>
+
+<p>
+  1983 年，IPv4 規範完成，總共能容納約 43 億個位址。
+  在當時的工程師看來，這是一個用不完的天文數字。但他們沒料到的是兩件事：
+  個人電腦的爆炸性普及、與行動裝置的崛起。
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+xychart-beta
+    title "全球連網裝置數量推估（單位：十億台）"
+    x-axis ["1995", "2000", "2005", "2010", "2015", "2020", "2025"]
+    y-axis "裝置數" 0 --> 60
+    bar [0.05, 0.4, 1.1, 5, 15, 30, 50]
+</div>
+<div class="caption">圖 1-1 ｜ 連網裝置數量遠超過 IPv4 位址容量（43 億），這是 NAT 普及的根本動因</div>
+</div>
+
+<p>
+  到了 1990 年代中期，網路工程界已意識到 IPv4 位址會枯竭。最徹底的解法是設計新的 IPv6 協議
+  （把位址擴張到 2<sup>128</sup>），但 IPv6 的部署遠比想像中困難——這個故事我們留到第 16 章。
+  與此同時，一個原本只是<em>權宜之計</em>的技術，迅速成為了網路的常態：<strong>網路位址轉換</strong>，Network Address Translation，NAT。
+</p>
+
+<h3>1.2.3 NAT 的妥協邏輯</h3>
+
+<p>
+  NAT 的概念極為樸素：
+</p>
+
+<blockquote>
+  既然全世界沒有那麼多 IP 可分，那就讓<em>很多裝置共用一個 IP</em>。
+  路由器在中間做地址翻譯：對內，每台裝置有一個私有 IP；對外，所有裝置都假裝是同一個公網 IP。
+</blockquote>
+
+<p>
+  這個技巧解決了位址枯竭的燃眉之急，但它<strong>徹底破壞了端對端原則</strong>。
+  從此以後，「主動發起連線」與「被動接收連線」變成兩件本質不同的事——
+  NAT 後方的裝置只能扮演 client，不再能輕易扮演 server。
+</p>
+
+<div class="callout callout-history">
+  <span class="callout-title">歷史插曲</span>
+  RFC 1631（1994）正式定義了 NAT，它的標題清楚寫著：<em>The IP Network Address Translator (NAT)</em>，
+  並坦言這是一個短期過渡方案。然而 IETF 從未預料到，三十年後我們仍在依賴它——而且還變本加厲，
+  電信業者把 NAT 疊了好幾層（CGNAT，第 19 章詳述）。
+</div>
+
+<h2>1.3 「不能被連到」造成了哪些問題？</h2>
+
+<p>
+  讓我們具體看看，當一台裝置「只能主動、不能被動」時，哪些應用會出問題。
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>應用場景</th>
+      <th>核心需求</th>
+      <th>NAT 帶來的困難</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>VoIP / 視訊會議</td>
+      <td>雙方互傳即時音視訊封包，越直接越好</td>
+      <td>雙方都在 NAT 後，沒有任何一方能主動 listen 來接受對方的 RTP 串流</td>
+    </tr>
+    <tr>
+      <td>線上遊戲（FPS / MOBA）</td>
+      <td>玩家互相傳遞遊戲狀態，避免中央伺服器延遲</td>
+      <td>P2P 模式無法建立，被迫使用集中式中繼，提高 ping 值</td>
+    </tr>
+    <tr>
+      <td>BitTorrent 等檔案分享</td>
+      <td>每個 peer 同時上傳/下載，越多 peer 互連越快</td>
+      <td>NAT 後的 peer 無法被連入，只能單向下載，破壞分享經濟</td>
+    </tr>
+    <tr>
+      <td>IoT 裝置遠端存取</td>
+      <td>使用者從外網連到家中攝影機、NAS</td>
+      <td>必須額外架設「跳板」或仰賴廠商雲端，增加成本與隱私風險</td>
+    </tr>
+    <tr>
+      <td>區塊鏈 / 去中心化應用</td>
+      <td>節點之間自由互連，避免單點審查</td>
+      <td>大量節點淪為「只接收不貢獻」的拖累者（leecher）</td>
+    </tr>
+    <tr>
+      <td>遠端開發 / SSH 進入家用機</td>
+      <td>從外面回到家中環境</td>
+      <td>需要動態 DNS + Port Forwarding 或 VPN，技術門檻高</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>
+  這張表想傳達的是：<strong>幾乎所有「兩個一般使用者之間的應用」都會撞上同一個牆</strong>。
+  伺服器/客戶端模型之所以變成主流，並不全是因為它「天生比較好」，而是因為它<em>是 NAT 後唯一還能用的模型</em>。
+  它是一個<u>結構性後果</u>，不是設計選擇。
+</p>
+
+<h2>1.4 兩種不同的「阻擋」</h2>
+
+<p>
+  在繼續往下讀之前，我們必須先建立一個關鍵的心智區分：
+</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>NAT 的阻擋</h4>
+    <p>NAT 設備本身<strong>沒有阻擋意圖</strong>。它的設計目的是位址轉換，不是安全。
+    但因為它必須維護一張「進來的封包要送給誰」的表，
+    對於沒在表裡的封包，它<em>不知道該送哪裡</em>，只好丟棄。</p>
+    <p style="color:var(--accent-secondary);">→ 因此可以「協作穿越」（hole punching、UPnP）</p>
+  </div>
+  <div class="cheat-card">
+    <h4>防火牆的阻擋</h4>
+    <p>防火牆<strong>明確意圖阻擋</strong>未授權流量。
+    它有政策、有規則、有審計。當你「穿越」防火牆時，
+    某種意義上你是在違反該網路擁有者的意願。</p>
+    <p style="color:var(--accent-danger);">→ 必須「偽裝穿越」（隧道、應用層封裝）</p>
+  </div>
+</div>
+
+<p>
+  這兩種阻擋的應對哲學完全不同。前者是<em>合作問題</em>——我們想讓 NAT 知道該怎麼幫忙；
+  後者是<em>對抗問題</em>——我們在試圖讓流量看起來像是允許的東西。
+  本書第二部會以前者為主，第 9 章與第 17 章會處理後者。
+</p>
+
+<div class="callout callout-warn">
+  <span class="callout-title">技術倫理提醒</span>
+  繞過企業防火牆（即使技術上做得到）通常違反公司資訊安全政策；
+  繞過國家級防火牆在某些司法管轄區可能涉及法律風險。
+  本書討論這些技術，是為了讓你<strong>理解</strong>它們如何運作，
+  以便防禦或合法使用。請對自己的行為負責。
+</div>
+
+<h2>1.5 解法的三種典型路線</h2>
+
+<p>
+  即使在現代網路中，要讓兩台被 NAT 與防火牆隔開的裝置直接通訊，本質上只有三條路：
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TB
+    Problem["💢 兩端都在 NAT 後<br/>無法直接連線"]:::problem
+
+    Problem --> R1["路線 A · 改變 NAT 行為<br/>請 NAT 開洞"]:::route
+    Problem --> R2["路線 B · 利用 NAT 規律<br/>同時對打"]:::route
+    Problem --> R3["路線 C · 借力使力<br/>透過第三方中繼"]:::route
+
+    R1 --> R1a["UPnP IGD<br/>NAT-PMP / PCP"]:::leaf
+    R1 --> R1b["手動 Port Forwarding"]:::leaf
+
+    R2 --> R2a["UDP Hole Punching"]:::leaf
+    R2 --> R2b["TCP Hole Punching"]:::leaf
+    R2 --> R2c["Port Prediction"]:::leaf
+
+    R3 --> R3a["TURN Relay"]:::leaf
+    R3 --> R3b["Circuit Relay v2<br/>(libp2p)"]:::leaf
+    R3 --> R3c["DERP / 應用層代理"]:::leaf
+
+    classDef problem fill:#7a1414,stroke:#7a1414,color:#fff,stroke-width:2px
+    classDef route fill:#b8761d,stroke:#b8761d,color:#fff,stroke-width:2px
+    classDef leaf fill:transparent,stroke:#8a7456,stroke-width:1px
+</div>
+<div class="caption">圖 1-2 ｜ NAT 穿越的三條典型路線——本書第二部會逐一拆解</div>
+</div>
+
+<p>
+  這三條路線並非互斥，<strong>真實系統幾乎都同時用了三種</strong>。
+  例如 WebRTC（第 12 章）的 ICE 框架，會先嘗試直接連線（Host candidate）、
+  再嘗試 STUN 探得的公網地址（路線 B 的前置條件）、最後退回 TURN 中繼（路線 C）。
+  libp2p（第 13 章）也是類似的多管齊下策略。
+</p>
+
+<h2>1.6 「現代」的修正：你不該死記的舊知識</h2>
+
+<p>
+  網路技術的書籍最大的風險，是把「歷史正確、但今日已過時」的觀念當成永恆真理。
+  以下是幾個本書會反覆強調、且與許多舊教材說法不同的當代觀點：
+</p>
+
+<div class="callout callout-info">
+  <span class="callout-title">修正 1 · 對稱式 NAT 沒那麼罕見</span>
+  許多老教材把對稱式 NAT（Symmetric NAT）描述為「邊緣案例」。
+  事實上，<strong>大量行動電信網路與公共 Wi-Fi 採用的就是對稱式 NAT</strong>。
+  在 2025 年，任何認真的 P2P 系統都必須假設「至少一方是對稱式 NAT」是常態。
+</div>
+
+<div class="callout callout-info">
+  <span class="callout-title">修正 2 · UDP 不一定優於 TCP</span>
+  傳統觀點認為 UDP hole punching 成功率遠高於 TCP。最新的大規模測量挑戰了這個說法——
+  在 IPFS 網路 440 萬次穿越嘗試的研究中，<strong>QUIC 與 TCP 的穿越成功率在統計上沒有顯著差異</strong>，
+  關鍵在於精準的 RTT 同步（DCUtR），而非傳輸層本身。
+</div>
+
+<div class="callout callout-info">
+  <span class="callout-title">修正 3 · IPv6 無法獨力解決問題</span>
+  「等 IPv6 普及，這些都不是問題」是十年前的常見說法。
+  現實是：<strong>IPv6 的部署是<em>部分的</em></strong>——一邊 IPv6、另一邊只有 IPv4 的場景仍是常態。
+  即使在 2026 年，IPv4/UDP hole punching 仍是大多數 P2P 系統的主路徑。
+</div>
+
+<div class="callout callout-info">
+  <span class="callout-title">修正 4 · 中繼伺服器並非「失敗」</span>
+  舊觀點視 TURN/relay 為「直連失敗時的不得已」。
+  現代系統（如 Tailscale 的 DERP）<strong>主動使用中繼來加速初始連線建立</strong>——
+  先用 relay 立刻通訊，再背景升級為直連。中繼從「failure mode」變成「always-on infrastructure」。
+</div>
+
+<h2>1.7 本書的章節地圖</h2>
+
+<p>以下是後續章節的閱讀地圖。每個方框對應一章；箭頭代表概念依賴。</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TD
+    subgraph P1["Part I · 基礎"]
+        C1["1. 緒論<br/>（你在這裡）"]
+        C2["2. NAT 原理"]
+        C3["3. 防火牆與中介設備"]
+    end
+
+    subgraph P2["Part II · 穿越技術"]
+        C4["4. UPnP / NAT-PMP / PCP"]
+        C5["5. STUN"]
+        C6["6. Hole Punching"]
+        C7["7. TURN / Relay"]
+        C8["8. ICE 整合"]
+        C9["9. 應用層隧道"]
+    end
+
+    subgraph P3["Part III · P2P 架構"]
+        C10["10. DHT / 拓樸"]
+        C11["11. BitTorrent"]
+        C12["12. WebRTC"]
+        C13["13. libp2p / DCUtR"]
+        C14["14. Mesh VPN"]
+    end
+
+    subgraph P4["Part IV · 進階主題"]
+        C15["15. UDP/TCP/QUIC"]
+        C16["16. IPv6"]
+        C17["17. 安全"]
+        C18["18. 部署與量測"]
+        C19["19. 未來"]
+    end
+
+    C1 --> C2 --> C3
+    C2 --> C4 & C5 & C6 & C7
+    C5 --> C6
+    C6 --> C8
+    C7 --> C8
+    C3 --> C9
+    C8 --> C12 & C13
+    C10 --> C11 & C13
+    C12 --> C14
+    C13 --> C14
+    C8 --> C15
+    C15 --> C16 & C17 & C18
+
+    classDef cur fill:#8b1a1a,stroke:#8b1a1a,color:#fff
+    class C1 cur
+</div>
+<div class="caption">圖 1-3 ｜ 章節依賴圖（紅色為當前章節）</div>
+</div>
+
+<h2>1.8 章末提要</h2>
+
+<div class="callout callout-note">
+  <span class="callout-title">本章核心觀念</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>「連線困難」的根源是 IPv4 位址枯竭迫使網路引入 NAT，破壞了端對端原則。</li>
+    <li>NAT 並非為了安全而存在，但它<em>實際上</em>變成了一道安全屏障——這是個歷史巧合。</li>
+    <li>「NAT 阻擋」與「防火牆阻擋」是兩種不同問題，需要不同解法。</li>
+    <li>所有穿越技術都是三條路線的組合：請 NAT 開洞、利用 NAT 規律、透過第三方中繼。</li>
+    <li>許多舊教材的結論在 2025+ 已不成立——本書會反覆校正這些「部落知識」。</li>
+  </ul>
+</div>
+
+<h3>動腦時間</h3>
+<ol>
+  <li>請描述至少三種「即使對方願意，你還是無法主動連到他電腦」的真實情境。</li>
+  <li>為什麼「使用 server-client 架構」雖然能繞過 NAT 問題，但對隱私與抗審查不利？</li>
+  <li>查詢你現在所處網路的對外 IP（可用 <code>curl ifconfig.me</code>），與你電腦的本地 IP 比較。
+    它們相同嗎？如果不同，差距告訴你什麼？</li>
+</ol>
+
+<h3>延伸閱讀</h3>
+<ul>
+  <li>RFC 1631（1994）— 定義 NAT 的原始文件 <span class="tag tag-rfc">RFC</span></li>
+  <li>RFC 2663（1999）— NAT 術語與概念 <span class="tag tag-rfc">RFC</span></li>
+  <li>Saltzer, Reed &amp; Clark, "End-to-End Arguments in System Design"（1981）— 端對端原則的經典論文</li>
+  <li>Bryan Ford et al., "Peer-to-Peer Communication Across Network Address Translators"（USENIX 2005）— hole punching 的奠基論文，第 6 章會深入討論</li>
+</ul>
+
+<nav class="chapter-nav">
+  <a class="prev disabled">
+    <span class="label">PREV</span>
+    <span class="title">—</span>
+  </a>
+  <a class="next" href="ch02.html">
+    <span class="label">NEXT →</span>
+    <span class="title">第 2 章 · NAT 原理</span>
+  </a>
+</nav>
+
+<footer>
+  <div>CHAPTER 1 / 19 · 緒論 · NAT TRAVERSAL × P2P TEXTBOOK</div>
+</footer>
+
+</main>
+
+<script src="../share/js/mermaid.min.js"></script>
+<script src="../share/js/textbook.js"></script>
+</body>
+</html>

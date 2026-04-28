@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 18 章 · 部署、量測與除錯</title>
+<link rel="stylesheet" href="../share/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>NAT TRAVERSAL × P2P</span>
+  </div>
+  <nav>
+    <a href="../firewall-traversal-and-p2p-guide -index.html">封面</a>
+    <a href="ch17.html">CH 17</a>
+    <a href="ch18.html" class="current">CH 18</a>
+    <a href="ch19.html">CH 19</a>
+    <a href="cheatsheet.html">速查</a>
+    <a href="glossary.html">術語</a>
+    <button id="themeToggle" class="theme-toggle">暗色</button>
+  </nav>
+</header>
+
+<main class="page">
+
+<div class="chapter-meta">
+  <span class="dot"></span> PART IV &nbsp;·&nbsp; 實作、安全與未來
+  <span class="dot"></span> CHAPTER 18
+</div>
+
+<h1>
+  <span class="chapter-num">CHAPTER 18</span>
+  部署、量測與除錯
+</h1>
+
+<div class="chapter-intro">
+  <h4>本章導讀</h4>
+  <p>
+    P2P 系統的<em>協議</em>學完了，但<em>運維</em>才是真實世界的考驗。本章是「實務手冊」——
+    架設 STUN/TURN/signaling 伺服器、規劃容量、選擇監控指標、用工具除錯典型問題。
+    我們會走過 coturn 完整生產配置、libp2p punchr 量測工具、Wireshark 抓包要點，
+    並列出 P2P 系統最常見的十個故障模式與修復路徑。讀完本章你能把前面 17 章的知識，
+    真正投入運行。
+  </p>
+</div>
+
+<div class="objectives">
+  <h4>📚 學習目標</h4>
+  <ul>
+    <li>能規劃 STUN/TURN 伺服器的容量、地理分布與冗餘。</li>
+    <li>能說出 P2P 系統至少八個必監控的核心指標。</li>
+    <li>能用 Wireshark 解析 STUN、ICE、DTLS 流量。</li>
+    <li>能識別 P2P 系統最常見的十個故障模式。</li>
+    <li>能說明 punchr 量測工具與 webrtc-internals 的使用方法。</li>
+  </ul>
+</div>
+
+<h2>18.1 基礎設施規劃</h2>
+
+<h3>18.1.1 你需要哪些後端服務？</h3>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TB
+    User1[Peer A]
+    User2[Peer B]
+
+    subgraph Infra["P2P 系統的後端"]
+        STUN[STUN Server<br/>位址發現]
+        TURN[TURN Server<br/>中繼後備]
+        SIG[Signaling Server<br/>SDP 交換]
+        BOOT[Bootstrap Nodes<br/>DHT 入口]
+        MON[Monitoring<br/>Prometheus + Grafana]
+    end
+
+    User1 --> STUN
+    User1 --> TURN
+    User1 --> SIG
+    User1 --> BOOT
+    User2 --> STUN
+    User2 --> TURN
+    User2 --> SIG
+    User2 --> BOOT
+
+    Infra -.指標.-> MON
+
+    User1 <==>|P2P 直連| User2
+
+    classDef infra fill:#1d4e7c,stroke:#1d4e7c,color:#fff
+    classDef peer fill:#2d5a3d,stroke:#2d5a3d,color:#fff
+    class STUN,TURN,SIG,BOOT,MON infra
+    class User1,User2 peer
+</div>
+<div class="caption">圖 18-1 ｜ P2P 系統的典型後端架構</div>
+</div>
+
+<p>
+  注意：「<em>P2P 不需要伺服器</em>」是常見誤解。真實 P2P 系統幾乎都有<strong>輔助基礎設施</strong>，
+  只是它不負責資料流量。設計目標是「<em>infra 故障時退化但不全死</em>」。
+</p>
+
+<h3>18.1.2 容量規劃</h3>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>STUN（極輕量）</h4>
+    <p>每請求 ~36 byte 入、~88 byte 出。一台 1 Gbps VPS 理論能處理 <strong>~1M QPS</strong>。
+    瓶頸在 PPS（每秒封包數）而非頻寬。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>TURN（最重）</h4>
+    <p>承擔實際媒體流量。單台 1 Gbps VPS 可服務：
+    視訊 ~150 通並發、語音 ~3000 通並發、純資料依需求。
+    必須<strong>水平擴展 + 地理就近</strong>。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Signaling（中等）</h4>
+    <p>每連線一條 WebSocket。一台 4 vCPU + 8 GB VPS ~10萬並發連線。
+    瓶頸通常是 file descriptor 與 memory，不是 CPU。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Bootstrap（中等）</h4>
+    <p>每分鐘約數百 QPS（新節點加入頻率）。一台小 VPS 足夠，
+    但需要<strong>高可用</strong>——bootstrap 掛了新節點進不來。</p>
+  </div>
+</div>
+
+<h3>18.1.3 地理分布</h3>
+
+<div class="callout callout-info">
+  <span class="callout-title">基礎設施應放在哪？</span>
+  <ul style="margin:0.5em 0 0;">
+    <li><strong>STUN</strong>：用 anycast 全球部署最佳；至少分 3 區域（美/歐/亞）</li>
+    <li><strong>TURN</strong>：必須<strong>就近</strong>使用者——RTT 直接影響通話品質。
+      Tailscale DERP 在全球 30+ 區域有節點</li>
+    <li><strong>Signaling</strong>：地理影響較小（建立連線一次性開銷），可集中部署</li>
+    <li><strong>Bootstrap</strong>：地理多樣性比效能重要，5-10 個區域分散</li>
+  </ul>
+</div>
+
+<h2>18.2 自架 STUN/TURN：coturn 生產配置</h2>
+
+<p>第 7 章給過 coturn 的最小設定；本節提供生產級完整配置：</p>
+
+<pre data-lang="conf"># /etc/turnserver.conf · 生產級
+
+# === 監聽 ===
+listening-port=3478
+tls-listening-port=5349
+listening-ip=0.0.0.0
+external-ip=YOUR.PUBLIC.IP/YOUR.PRIVATE.IP
+
+# === Realm 與認證 ===
+realm=turn.example.com
+fingerprint
+lt-cred-mech
+
+# 短期憑證（推薦給 WebRTC 應用）
+use-auth-secret
+static-auth-secret=YOUR_LONG_RANDOM_SECRET_HERE
+# 配合後端產生 username = "expiry:userid", password = HMAC-SHA1(secret, username)
+
+# === TLS ===
+cert=/etc/letsencrypt/live/turn.example.com/fullchain.pem
+pkey=/etc/letsencrypt/live/turn.example.com/privkey.pem
+cipher-list="ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256"
+
+# === 安全限制 ===
+no-tcp-relay              # 禁用 TCP 中繼（防 amplification）
+no-multicast-peers
+no-loopback-peers
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+allowed-peer-ip=YOUR_OWN_PRIVATE_RANGE  # 只開放必要的私網
+
+# === 速率限制 ===
+total-quota=1000          # 同時 allocations 總數
+user-quota=10             # 每使用者最多 10 個 allocations
+max-bps=1000000           # 每 allocation 1 Mbps
+bps-capacity=100000000    # 整台機器 100 Mbps 上限
+
+# === 日誌與監控 ===
+log-file=/var/log/turn/turnserver.log
+verbose
+syslog
+prometheus-port=9641      # 暴露 Prometheus 指標
+prometheus-username-labels=true</pre>
+
+<h3>18.2.1 監控 coturn</h3>
+
+<p>coturn 內建 Prometheus exporter。關鍵指標：</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>指標</th><th>意義</th><th>告警建議</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>turn_total_allocations</code></td><td>當前 active allocation 數</td><td>接近 total-quota 時告警</td></tr>
+    <tr><td><code>turn_total_traffic_bytes</code></td><td>累計中繼流量</td><td>頻寬使用率 &gt; 70%</td></tr>
+    <tr><td><code>turn_completed_session_seconds</code></td><td>會話時長分布</td><td>分位數（P50/P95/P99）</td></tr>
+    <tr><td><code>turn_relay_address_alloc_failed</code></td><td>分配失敗次數</td><td>突增即告警</td></tr>
+    <tr><td><code>process_resident_memory_bytes</code></td><td>記憶體使用</td><td>&gt; 80%</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>18.3 P2P 系統的核心監控指標</h2>
+
+<p>對 P2P 系統，<strong>從使用者角度</strong>必須監控的指標：</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>① 連線建立成功率</h4>
+    <p>從 ICE 開始到 connected 的成功比例。<strong>目標 &gt; 95%</strong>。
+    分桶：直連成功率、TURN 成功率、整體成功率。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>② TURN 使用率</h4>
+    <p>有多少連線最終靠 TURN 中繼？<strong>健康 20-30%；&gt; 40% 表示異常</strong>。
+    依網路類型細分（家用、行動、企業）。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>③ 連線建立時間（TTC）</h4>
+    <p>P50 / P95 / P99。<strong>P95 &lt; 1 秒是合格基準</strong>。
+    若 P99 突增，多半是某地區 STUN/TURN 故障。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>④ 媒體品質指標</h4>
+    <p>RTT、jitter、packet loss、framerate。WebRTC 透過 RTCStats API 暴露給應用。
+    建立基準線後追蹤異常。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>⑤ NAT 類型分布</h4>
+    <p>使用者群中 cone vs symmetric 比例。<strong>象徵著你的市場面對的網路環境</strong>。
+    可指導基礎設施投資。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>⑥ 重連率</h4>
+    <p>連線建立後在 N 分鐘內斷線重連的比例。<strong>&gt; 5% 表示穩定性問題</strong>。
+    多由 NAT 表 timeout 或網路切換引起。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>⑦ ICE Candidate 收集分布</h4>
+    <p>平均一個 client 收集到幾個 host / srflx / relay？分布異常表示 STUN 故障或網路問題。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>⑧ 客戶端版本分布</h4>
+    <p>WebRTC stack（瀏覽器版本）顯著影響成功率。
+    監控版本分布有助於識別「<em>新版本上線後成功率下降</em>」的回歸。</p>
+  </div>
+</div>
+
+<h2>18.4 量測工具：punchr 與 webrtc-internals</h2>
+
+<h3>18.4.1 libp2p 的 punchr</h3>
+
+<p>
+  punchr 是 libp2p 官方的 hole punching 量測工具，第 13 章引用的 2025 大規模測量就是用它收集的。
+  它包含：
+</p>
+
+<ul>
+  <li><strong>Honeypot</strong>——故意架設的「<em>NAT 後 listener</em>」，吸引 DCUtR 嘗試以收集資料</li>
+  <li><strong>gRPC Server</strong>——後端，接收測量結果並儲存到 PostgreSQL</li>
+  <li><strong>Punching Client</strong>——主動 dial honeypot 並上報結果</li>
+</ul>
+
+<pre data-lang="bash"># 跑自己的 punchr 量測（簡化版）
+$ git clone https://github.com/dennis-tra/punchr
+$ cd punchr/cmd/client
+$ go run main.go \
+    --bootstrap /dnsaddr/bootstrap.libp2p.io/p2p/QmNnoo... \
+    --duration 1h
+
+# 結果：每次嘗試的成功/失敗、所用 transport、延遲、relay 路徑等</pre>
+
+<p>對運行 P2P 服務的工程團隊，<strong>內部部署 punchr-like 工具持續量測自家網路</strong>是必要的。</p>
+
+<h3>18.4.2 Chrome webrtc-internals</h3>
+
+<p>
+  Chrome 的 <code>chrome://webrtc-internals</code> 是 WebRTC 工程師的必備工具：
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>頁籤</th><th>能看到</th><th>典型用途</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>RTCPeerConnection 列表</td><td>所有 active 連線</td><td>確認連線是否建立</td></tr>
+    <tr><td>ICE candidate pair</td><td>每對 candidate 的 priority、state、bytesSent/Received</td><td>確認用了哪條路徑（host vs srflx vs relay）</td></tr>
+    <tr><td>STUN check stats</td><td>多少 check 送出、多少回應、RTT</td><td>診斷 ICE 失敗</td></tr>
+    <tr><td>DTLS state</td><td>是否完成、用了哪個 cipher</td><td>確認加密健康</td></tr>
+    <tr><td>RTCStats 圖表</td><td>bitrate、packetloss、jitter</td><td>媒體品質追蹤</td></tr>
+    <tr><td>Dump button</td><td>下載完整 trace JSON</td><td>離線分析、bug 報告</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>18.4.3 Wireshark 抓包要點</h3>
+
+<p>P2P 流量除錯，Wireshark 是底層真相之源。常用 filter：</p>
+
+<pre data-lang="filter"># STUN 流量
+stun
+
+# 篩出 binding request/response
+stun.type.method == 0x001 && stun.type.class == 0x000   # request
+stun.type.method == 0x001 && stun.type.class == 0x002   # success response
+
+# DTLS 握手
+dtls.handshake
+
+# QUIC 流量
+quic
+
+# 特定 IP 對的所有流量
+ip.addr == 1.2.3.4 && ip.addr == 5.6.7.8
+
+# 找出 ICE 候選對的成功配對
+stun.attribute.type == 0x0020   # XOR-MAPPED-ADDRESS
+
+# UDP traffic on TURN ports
+udp.port == 3478 || udp.port == 5349</pre>
+
+<h2>18.5 十個常見故障模式</h2>
+
+<div class="callout callout-warn">
+  <span class="callout-title">P2P 系統 Top 10 故障</span>
+  <ol style="margin:0.5em 0 0;">
+    <li><strong>連線建立後 30~60 秒斷線</strong> → NAT 表 timeout，缺 keep-alive</li>
+    <li><strong>對稱式 NAT 場景全部失敗</strong> → 沒有 TURN fallback 或 TURN 故障</li>
+    <li><strong>連線建立極慢（&gt; 5s）</strong> → 沒用 Trickle ICE，等所有 candidate 才送 offer</li>
+    <li><strong>企業環境完全連不上</strong> → UDP 被擋，需要 TCP-only fallback 或 TURN/TLS:443</li>
+    <li><strong>手機切換 Wi-Fi/4G 後斷線</strong> → 沒有 ICE Restart 邏輯</li>
+    <li><strong>同 LAN 內兩台連不上</strong> → 沒有 host candidate 或 hairpinning 不支援</li>
+    <li><strong>TURN 流量突增</strong> → STUN 故障導致大量連線 fall back to relay</li>
+    <li><strong>音視訊有延遲漸增</strong> → 緩衝區設定錯誤或丟包率高</li>
+    <li><strong>少數使用者完全沒法用</strong> → 雙重 CGNAT / 行動電信特殊環境</li>
+    <li><strong>新版本上線後成功率下降</strong> → WebRTC stack 行為變化或 codec 不相容</li>
+  </ol>
+</div>
+
+<h2>18.6 故障排除流程</h2>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TD
+    Start{使用者回報<br/>連不上 / 體驗差}
+
+    Start --> Q1{自己能重現?}
+    Q1 -->|是| Repro[在 webrtc-internals<br/>看 ICE 流程]
+    Q1 -->|否| Telemetry[查使用者上報的<br/>RTCStats / 客戶端 log]
+
+    Repro --> Layer1{ICE 連通了嗎?}
+    Layer1 -->|否| ICE_Debug[查 ICE candidate / STUN check]
+    Layer1 -->|是| Layer2{DTLS 完成了嗎?}
+    Layer2 -->|否| DTLS_Debug[查 fingerprint 比對 / 證書]
+    Layer2 -->|是| Layer3{媒體在流動?}
+    Layer3 -->|否| Media_Debug[查 codec 協商 / SRTP key]
+    Layer3 -->|是| Quality[查 RTCStats 媒體品質]
+
+    Telemetry --> Pattern{是個案還是群體?}
+    Pattern -->|個案| Specific[查該使用者網路特殊情況]
+    Pattern -->|群體| Geographic[查地區 / ASN 分布<br/>看是否有區域故障]
+
+    classDef d fill:#b8761d,stroke:#b8761d,color:#fff
+    class ICE_Debug,DTLS_Debug,Media_Debug,Quality,Specific,Geographic d
+</div>
+<div class="caption">圖 18-2 ｜ P2P 系統故障排除決策樹</div>
+</div>
+
+<h2>18.7 容量規劃實例</h2>
+
+<p>
+  假設你正在做一個視訊會議產品，預期同時 10,000 通通話（每通 2-4 人）。需要哪些後端？
+</p>
+
+<pre data-lang="planning">假設：
+  - 平均每通 3 人，10,000 通 = 30,000 並發 peer
+  - 每對 peer 需要 ICE，假設並行 candidate 5 對 = 50,000 STUN check / 啟動
+  - 連線生命週期平均 30 分鐘
+
+STUN：
+  - 啟動時瞬時尖峰：50,000 STUN req
+  - 穩態 keep-alive 每 25s 一次：30,000/25 = 1,200 RPS
+  - 1 台 STUN 伺服器（甚至 1 個 vCPU）就足夠
+  - 為冗餘部署 2-3 個區域，每區一台
+
+TURN：
+  - 假設健康狀態 20% 通話需要 TURN = 2,000 通
+  - 每通 720p 視訊雙向 ~3 Mbps
+  - 總 TURN 頻寬：2,000 × 3 Mbps = 6 Gbps
+  - 部署 6-8 台 1 Gbps 機器，地理分布
+
+Signaling：
+  - 30,000 並發 WebSocket 連線
+  - 每連線 ~10 KB 記憶體 → 300 MB
+  - 1 台 4 vCPU 伺服器足夠，加 1-2 台冗餘
+
+總計：
+  - 約 10 台中型 VPS
+  - 月成本 $500-1500（依雲端供應商）
+
+對比集中式視訊會議（無 P2P）：
+  - 每通走完整 SFU，10,000 × 12 Mbps = 120 Gbps
+  - 月成本可能 $50,000+
+  
+P2P 為公司省了 30 倍以上的伺服器成本。</pre>
+
+<h2>18.8 章末提要</h2>
+
+<div class="callout callout-note">
+  <span class="callout-title">本章核心觀念</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>P2P 系統的後端：STUN（輕）、TURN（重）、Signaling（中）、Bootstrap（中）。</li>
+    <li>容量規劃：STUN 極輕，TURN 是頻寬瓶頸，地理分布對 TURN 至關重要。</li>
+    <li>核心監控指標八項：成功率、TURN 比例、TTC、媒體品質、NAT 分布、重連率、candidate 分布、版本分布。</li>
+    <li>punchr 是 libp2p 量測工具；webrtc-internals 是 WebRTC 除錯利器。</li>
+    <li>P2P 系統 Top 10 故障半數與 NAT/keep-alive 相關。</li>
+    <li>P2P 為公司省下大量伺服器成本，是其商業價值所在。</li>
+  </ul>
+</div>
+
+<h3>動腦時間</h3>
+<ol>
+  <li>規劃任務：你公司的 P2P 視訊會議產品要進入印度市場（IPv6 普及高、多重 CGNAT 常見）。
+    後端架構需要做哪些調整？</li>
+  <li>觀察 webrtc-internals 一次真實通話。記下所選 candidate pair 的類型、總 STUN check 數、成功的 check 比例。</li>
+  <li>監控設計：給「<em>連線建立成功率</em>」設計告警。閾值多少？告警觸發後查什麼？</li>
+  <li>架設一台 coturn 並用 <code>turnutils_uclient</code> 跑壓力測試。
+    記錄你能達到多少並發 allocations。</li>
+  <li>論述題：你發現 TURN 使用率突然從 25% 升到 60%。可能原因是什麼？怎麼診斷？</li>
+</ol>
+
+<h3>延伸閱讀</h3>
+<ul>
+  <li>coturn 官方文件 — github.com/coturn/coturn/wiki</li>
+  <li>punchr — github.com/dennis-tra/punchr</li>
+  <li>WebRTC Internals 文件 — webrtcforthecurious.com 之除錯章節</li>
+  <li>"Building a Production-Grade WebRTC Service" — 各 SFU 廠商的部署指引</li>
+  <li>RFC 7478 — Web Real-Time Communication Use Cases and Requirements</li>
+</ul>
+
+<nav class="chapter-nav">
+  <a class="prev" href="ch17.html">
+    <span class="label">← PREV</span>
+    <span class="title">第 17 章 · 安全考量</span>
+  </a>
+  <a class="next" href="ch19.html">
+    <span class="label">NEXT →</span>
+    <span class="title">第 19 章 · 邊緣議題與未來</span>
+  </a>
+</nav>
+
+<footer>
+  <div>CHAPTER 18 / 19 · 部署、量測與除錯 · NAT TRAVERSAL × P2P TEXTBOOK</div>
+</footer>
+
+</main>
+
+<script src="../share/js/mermaid.min.js"></script>
+<script src="../share/js/textbook.js"></script>
+</body>
+</html>

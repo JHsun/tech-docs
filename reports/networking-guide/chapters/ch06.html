@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 6 章 · 打洞技術（Hole Punching）</title>
+<link rel="stylesheet" href="../share/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>NAT TRAVERSAL × P2P</span>
+  </div>
+  <nav>
+    <a href="../firewall-traversal-and-p2p-guide -index.html">封面</a>
+    <a href="ch05.html">CH 5</a>
+    <a href="ch06.html" class="current">CH 6</a>
+    <a href="ch07.html">CH 7</a>
+    <a href="ch08.html">CH 8</a>
+    <a href="cheatsheet.html">速查</a>
+    <a href="glossary.html">術語</a>
+    <button id="themeToggle" class="theme-toggle">暗色</button>
+  </nav>
+</header>
+
+<main class="page">
+
+<div class="chapter-meta">
+  <span class="dot"></span> PART II &nbsp;·&nbsp; 穿越技術的核心方法
+  <span class="dot"></span> CHAPTER 06 &nbsp;·&nbsp; <em>核心章節</em>
+</div>
+
+<h1>
+  <span class="chapter-num">CHAPTER 6</span>
+  打洞技術（Hole Punching）
+</h1>
+
+<div class="chapter-intro">
+  <h4>本章導讀</h4>
+  <p>
+    Hole punching 是 NAT 穿越的「皇冠技術」——它看似魔法，實則只是<em>巧妙利用 NAT 表的副作用</em>。
+    本章是全書最重要的技術章節，從 Bryan Ford 等人 2005 年的奠基論文出發，
+    詳述 UDP hole punching 的三步驟、TCP 同時開啟的詭譎、symmetric NAT 的 port prediction，
+    一直到 2025 年最新的大規模測量結果——<strong>QUIC 與 TCP 的穿越成功率在精準同步下統計上無顯著差異</strong>。
+    讀完本章，你會明白為何 hole punching 至今仍是現代 P2P（WebRTC、libp2p）的核心技術。
+  </p>
+</div>
+
+<div class="objectives">
+  <h4>📚 學習目標</h4>
+  <ul>
+    <li>能完整描述 UDP hole punching 三步驟流程，並能畫出對應的 NAT 表變化。</li>
+    <li>能解釋為什麼 UDP hole punching 對 cone 類 NAT 有效但對 symmetric NAT 失效。</li>
+    <li>能說明 TCP hole punching 的兩種策略（同時 SYN、連線反向）與其失敗模式。</li>
+    <li>能描述 port prediction 對 symmetric NAT 的補救與其前提條件。</li>
+    <li>能引用最新測量數據評估各技術的真實成功率。</li>
+    <li>能寫出一個最小可行的 UDP hole punching 程式。</li>
+  </ul>
+</div>
+
+<h2>6.1 為什麼這稱作「打洞」？</h2>
+
+<p>
+  「Hole punching」一詞來自一個很視覺化的比喻：NAT 像一道牆，平常擋住所有外人。
+  當你<em>主動</em>對外送一個封包時，NAT 表會新增一條條目——這條目就是牆上「<strong>暫時開的洞</strong>」，
+  允許特定來源的封包進入。
+</p>
+
+<p>
+  Hole punching 的核心觀察是：<em>兩個 NAT 後的主機如果<strong>同時</strong>對外送包給對方，
+  兩邊的 NAT 各自開了一個洞，這兩個洞剛好能讓對方的封包進來</em>。
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant A as Alice
+    participant NA as Alice's NAT
+    participant NB as Bob's NAT
+    participant B as Bob
+
+    Note over A,B: 起點：兩邊都不能被連入
+
+    A->>NA: 送包給 Bob 的對外位址
+    Note over NA: 開洞：允許 Bob_NAT 的回包
+    NA-->>NB: 但這包到 NB 時被丟棄<br/>（Bob 沒先開洞）
+
+    par 幾乎同時
+        B->>NB: 送包給 Alice 的對外位址
+        Note over NB: 開洞：允許 Alice_NAT 的回包
+        NB-->>NA: 此包能進入 NA<br/>(因為 NA 已開洞)
+        NA->>A: ✓ Alice 收到 Bob 的包
+    and
+        A->>NA: 持續重送
+        NA->>NB: 此包能進入 NB<br/>(因為 NB 已開洞)
+        NB->>B: ✓ Bob 收到 Alice 的包
+    end
+
+    Note over A,B: 雙向通道建立！
+</div>
+<div class="caption">圖 6-1 ｜ Hole punching 的核心：雙方同時對打，互相為對方開門</div>
+</div>
+
+<p>
+  這個技巧的精妙之處在於——它不需要 NAT 做任何特殊配合，只要 NAT <em>有狀態</em>且<em>映射穩定</em>
+  （即第 2 章說的 EIM）就能成功。
+</p>
+
+<h2>6.2 三步驟：rendezvous → exchange → punch</h2>
+
+<p>
+  完整的 hole punching 需要一個眾所周知的<strong>第三方伺服器</strong>協助協調，
+  因為兩個 NAT 後的主機本身無法直接通信來「商量同時動手的時間」。
+  這個第三方稱為 <strong>rendezvous server</strong>（會合伺服器）或 <strong>signaling server</strong>。
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TB
+    subgraph Phase1["階段 1 · 註冊與發現"]
+        A1[Alice 連到 Rendezvous]
+        B1[Bob 連到 Rendezvous]
+        R1[Rendezvous 記錄雙方<br/>對外位址]
+        A1 --> R1
+        B1 --> R1
+    end
+
+    subgraph Phase2["階段 2 · 位址交換"]
+        R2[Rendezvous 把 Bob 的對外位址<br/>告訴 Alice，反之亦然]
+    end
+
+    subgraph Phase3["階段 3 · 同時打洞"]
+        AB[Alice & Bob 同時<br/>對對方的對外位址送包]
+        Done[直接連線建立<br/>Rendezvous 退場]
+        AB --> Done
+    end
+
+    Phase1 --> Phase2 --> Phase3
+
+    classDef phase1 fill:#1d4e7c,stroke:#1d4e7c,color:#fff
+    classDef phase2 fill:#b8761d,stroke:#b8761d,color:#fff
+    classDef phase3 fill:#2d5a3d,stroke:#2d5a3d,color:#fff
+    class A1,B1,R1 phase1
+    class R2 phase2
+    class AB,Done phase3
+</div>
+<div class="caption">圖 6-2 ｜ Hole punching 的三階段流程</div>
+</div>
+
+<h3>6.2.1 階段 1：註冊（Registration）</h3>
+
+<p>
+  Alice 與 Bob 各自連到 rendezvous server（這是<em>主動發出</em>連線，所以 NAT 不會擋）。
+  Rendezvous 透過觀察封包源位址，得知雙方的對外 endpoint
+  （這個動作本身就是 STUN 風格的反射，第 5 章）。
+</p>
+
+<p>
+  Rendezvous 同時記錄雙方的<em>本地</em> endpoint（透過應用層告知），
+  因為若兩個 peer 在同一個 NAT 後，可以走 hairpin 或直接內網連線。
+</p>
+
+<h3>6.2.2 階段 2：位址交換（Exchange）</h3>
+
+<p>
+  當 Alice 想找 Bob 時，rendezvous 把 Bob 的 endpoints 全部告訴 Alice：
+</p>
+
+<pre data-lang="json">{
+  "peer": "bob",
+  "endpoints": [
+    { "type": "local",  "ip": "192.168.1.42", "port": 6881 },
+    { "type": "public", "ip": "203.0.113.99", "port": 62000 },
+    { "type": "ipv6",   "ip": "2001:db8::1",  "port": 6881 }
+  ]
+}</pre>
+
+<p>同時通知 Bob：「Alice 來找你，這是她的 endpoints」。</p>
+
+<h3>6.2.3 階段 3：同時打洞（Punch）</h3>
+
+<p>
+  雙方收到對方的位址後，立即<em>同時</em>對所有候選 endpoint 送出探測封包。
+  「<strong>同時</strong>」這個詞至關重要——時間差過大會導致：
+</p>
+
+<ul>
+  <li>若 Alice 比 Bob 早太多，Alice 的包到 Bob_NAT 時 Bob_NAT 還沒開洞 → 丟棄；
+    且若 Bob_NAT 是 Address-Dependent Filtering，這個丟棄不會影響後續，但 RFC 4787 EIF 以外的 NAT 會記錄「Alice 是<em>未邀請者</em>」可能更嚴格阻擋後續</li>
+  <li>若雙方 NAT 都是 Port-Restricted，必須<em>都</em>主動送過包才會開洞</li>
+</ul>
+
+<p>
+  協調「同時」需要 rendezvous 量測 RTT，計算什麼時候各自送，
+  讓兩端的封包<em>剛好</em>在中間相遇。這個同步機制在 libp2p 的 DCUtR 中被優雅地實現
+  （第 13 章詳述）。
+</p>
+
+<h2>6.3 UDP Hole Punching 的詳細運作</h2>
+
+<h3>6.3.1 NAT 表的逐步變化</h3>
+
+<p>讓我們極細地看一次 punch 過程中兩個 NAT 表的變化。</p>
+
+<pre data-lang="state">────────── 初始狀態 ──────────
+Alice's NAT:  (空)
+Bob's NAT:    (空)
+
+────────── 步驟 ① Alice 對外打第一槍 ──────────
+Alice → Bob_public(203.0.113.99:62000)
+Alice's NAT 新增條目：
+  internal: 192.168.1.42:6881
+  external: 198.51.100.1:55001
+  remote:   203.0.113.99:62000
+  state:    "等待 Bob 回應"
+
+封包到 Bob's NAT 時：
+  src: 198.51.100.1:55001
+  dst: 203.0.113.99:62000
+Bob's NAT 查表：沒有對應條目 → 丟棄
+（但 Alice's NAT 已開好洞）
+
+────────── 步驟 ② Bob 對外打第一槍 ──────────
+Bob → Alice_public(198.51.100.1:55001)
+Bob's NAT 新增條目：
+  internal: 10.0.0.5:6881
+  external: 203.0.113.99:62000
+  remote:   198.51.100.1:55001
+  state:    "等待 Alice 回應"
+
+封包到 Alice's NAT 時：
+  src: 203.0.113.99:62000
+  dst: 198.51.100.1:55001
+Alice's NAT 查表：找到匹配條目 → 轉送！
+✓ Alice 收到 Bob 的封包
+
+────────── 步驟 ③ Alice 重送 ──────────
+Alice 持續送（因為她的第一槍可能也成功了，但保險起見）：
+封包到 Bob's NAT：
+  src: 198.51.100.1:55001
+  dst: 203.0.113.99:62000
+Bob's NAT 查表：找到匹配條目（步驟 ② 建立的）→ 轉送！
+✓ Bob 收到 Alice 的封包
+
+────────── 連線建立 ──────────
+雙方 NAT 都有對應條目，雙向流量暢通。</pre>
+
+<h3>6.3.2 對各種 NAT 類型的成功率</h3>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Alice 端 NAT</th>
+      <th>Bob 端 NAT</th>
+      <th>UDP punch 成功率</th>
+      <th>備註</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>Full Cone</td><td>任何</td><td>★★★★★ ~ 100%</td><td>Full Cone 端不需要 punch</td></tr>
+    <tr><td>Restricted Cone</td><td>Restricted Cone</td><td>★★★★★ ~ 100%</td><td>標準場景</td></tr>
+    <tr><td>Port-Restricted</td><td>Port-Restricted</td><td>★★★★ ~ 95%</td><td>需要更精準的位址，偶有失敗</td></tr>
+    <tr><td>Cone (任一)</td><td>Symmetric</td><td>★★ ~ 30~50%</td><td>需要 port prediction</td></tr>
+    <tr><td>Symmetric</td><td>Symmetric</td><td>★ ~ 5~20%</td><td>幾乎一定要 fall back to TURN</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>
+  Bryan Ford 等人 2005 年的奠基論文〈Peer-to-Peer Communication Across Network Address Translators〉
+  測試了當時部署中的 NAT，得出 <strong>約 82% 支援 UDP hole punching、64% 支援 TCP hole punching</strong>。
+  這個數字是「行業共識」的源頭。但要注意，2005 年的測試環境跟今天差很大——當時 symmetric NAT 比例低，
+  CGNAT 還沒興起。
+</p>
+
+<h2>6.4 TCP Hole Punching：難得多的兄弟</h2>
+
+<p>
+  UDP 是無連線的，雙方各自送包就行。TCP 不一樣——它有<strong>連線狀態</strong>（SYN、SYN-ACK、ACK 三次握手），
+  且作業系統 socket 預設只能扮演 client 或 server 之一，不能同時。
+  TCP hole punching 因此複雜得多。
+</p>
+
+<h3>6.4.1 策略一：TCP 同時開啟（Simultaneous Open）</h3>
+
+<p>
+  RFC 793 定義 TCP 時就考慮過一個罕見場景：<em>兩端同時主動 SYN 給對方</em>。
+  這時不會有單方扮演 server，而是雙方都進入 SYN-SENT 狀態，互相收到對方的 SYN，
+  變成「<strong>同時開啟</strong>」狀態，建立一條連線。
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant A as Alice (連線者)
+    participant NA as Alice's NAT
+    participant NB as Bob's NAT
+    participant B as Bob (連線者)
+
+    par 雙方幾乎同時 connect()
+        A->>NA: SYN seq=X
+        Note over NA: 開洞
+        NA->>NB: SYN
+    and
+        B->>NB: SYN seq=Y
+        Note over NB: 開洞
+        NB->>NA: SYN
+    end
+
+    NA->>A: 收到對方的 SYN<br/>(在 SYN-SENT 狀態)
+    NB->>B: 收到對方的 SYN
+    A->>NA: SYN-ACK ack=Y+1
+    B->>NB: SYN-ACK ack=X+1
+    NA->>NB: SYN-ACK
+    NB->>NA: SYN-ACK
+    NB->>B: SYN-ACK 收到，連線建立
+    NA->>A: SYN-ACK 收到，連線建立
+    Note over A,B: TCP 連線建立完成
+</div>
+<div class="caption">圖 6-3 ｜ TCP simultaneous open 流程</div>
+</div>
+
+<p>
+  問題是：作業系統與 NAT 對這個罕見路徑支援不一致。Linux 從 2.4 之後支援得不錯，
+  Windows XP SP1 之前根本不支援，許多老舊 NAT 也會把「未經完整三次握手就有對方 SYN」視為異常封包丟棄。
+  Ford 的測試顯示這條路成功率約 64%，但實作敏感度高。
+</p>
+
+<h3>6.4.2 策略二：連線反向（Connection Reversal）</h3>
+
+<p>
+  若雙方有一方在公網（例如 Bob 是公網主機），但連線方向反過來——
+  Alice 想連 Bob，但 Alice 在 NAT 後、Bob 在公網——這場景其實 Bob 主動連 Alice 才合理，
+  但 Alice 是發起方。
+</p>
+
+<p>
+  解法：透過 rendezvous 通知 Bob「請反向連 Alice」，
+  Alice 此時對 Bob 的 IP 開個洞（送一個 SYN，會被擋下來但 NAT 開了洞），
+  Bob 接著主動連 Alice 的對外位址，順利進入。
+</p>
+
+<h3>6.4.3 策略三：Predictable Port + Repeated Attempts</h3>
+
+<p>
+  對 symmetric NAT，用 port prediction（下一節）配合大量重試。
+  TCP 重試比 UDP 慢得多（每次 RST 都要等系統的 backoff），所以這條路不太實用。
+</p>
+
+<h3>6.4.4 為什麼現代 P2P 偏好 UDP / QUIC</h3>
+
+<p>
+  TCP hole punching 的不可靠，是現代 P2P 系統<strong>偏好 UDP/QUIC</strong>的主因之一。
+  Tailscale 的部落格直白地說：
+</p>
+
+<blockquote>
+  「<em>你可以用 TCP 做 NAT 穿越，但這會給已經夠複雜的問題再加一層複雜度，
+  甚至可能需要核心客製化。我們專注在 UDP；若你想要串流連線，請考慮基於 UDP 的 QUIC，
+  它能讓你既享受 UDP 穿越的容易，又有 stream 協議的便利</em>」
+</blockquote>
+
+<p>
+  這個建議在 2025 年成為主流——WebRTC（DataChannel over UDP/SCTP）、libp2p（QUIC 優先）、
+  Tailscale（WireGuard over UDP）都遵循這個哲學。
+</p>
+
+<h2>6.5 對抗 Symmetric NAT：Port Prediction</h2>
+
+<p>
+  Symmetric NAT 為每個遠端分配不同外部 port——這毀了 STUN 探得位址的有效性。
+  但若 NAT 的 port 分配是<em>確定性的</em>（例如 sequential：62000、62001、62002...），
+  就能<strong>預測</strong>下一個會分到的 port。
+</p>
+
+<h3>6.5.1 演算法骨架</h3>
+
+<pre data-lang="conceptual">階段 1：Alice 在 symmetric NAT 後，先對<em>多個</em> STUN 伺服器各送一次：
+  STUN1 (1.1.1.1) → 觀察到 Alice 對外是 198.51.100.1:62000
+  STUN2 (2.2.2.2) → 觀察到 Alice 對外是 198.51.100.1:62001
+  STUN3 (3.3.3.3) → 觀察到 Alice 對外是 198.51.100.1:62002
+
+→ 推論：Alice 的 NAT 採 sequential 分配，下一個會是 62003
+
+階段 2：Alice 對外送一個包給 Bob 的位址，
+       NAT 分配新 port，預期是 62003
+
+階段 3：告訴 Bob「猜我是 62003」（透過 rendezvous），
+       Bob 同時對 198.51.100.1:62003 送多個 punch 包
+
+階段 4：若 NAT 真的給了 62003（沒有別的併發連線打亂順序），
+       Bob 的包就能進入 → 成功</pre>
+
+<h3>6.5.2 預測技巧的進階：開多個 socket</h3>
+
+<p>
+  為了提高命中率，Alice 可以從<em>多個本地 port</em>同時對 Bob 送包，每個都產生一個外部 port，
+  讓 Bob 對連續一段範圍（例如 62000~62050）做<em>並行 punch</em>。一個成功就行。
+  這個技巧最早由 Yutaka Takeda（2003 年）提出，早稻田大學的研究團隊（2008 年）做了系統化分析。
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart LR
+    Alice[Alice<br/>symmetric NAT 後]
+
+    Alice --> SK1[Socket 1]
+    Alice --> SK2[Socket 2]
+    Alice --> SK3[Socket 3]
+    Alice --> SK4[Socket 4]
+    Alice --> SK5[Socket 5]
+
+    SK1 -->|"NAT 分配 62000"| Bob
+    SK2 -->|"分配 62001"| Bob
+    SK3 -->|"分配 62002"| Bob
+    SK4 -->|"分配 62003"| Bob
+    SK5 -->|"分配 62004"| Bob
+
+    Bob[Bob<br/>對 62000~62050<br/>全部送 punch]
+
+    classDef hi fill:#2d5a3d,stroke:#2d5a3d,color:#fff
+    class Bob hi
+</div>
+<div class="caption">圖 6-4 ｜ Multi-socket port prediction 提高 symmetric NAT 穿越率</div>
+</div>
+
+<h3>6.5.3 預測技巧的失敗條件</h3>
+
+<div class="callout callout-warn">
+  <span class="callout-title">什麼情況下 port prediction 失效？</span>
+  <ul style="margin:0.5em 0 0;">
+    <li><strong>NAT 採用隨機分配</strong>（多數現代 NAT 為了安全已隨機化）</li>
+    <li><strong>競爭條件</strong>：你預測時別的應用剛好併發開連線，把預期 port 搶走</li>
+    <li><strong>NAT 有 port 範圍限制</strong>：例如 50000-60000，需要更精準</li>
+    <li><strong>多層 NAT</strong>（CGNAT）：每一層都隨機，連乘下去命中率歸零</li>
+  </ul>
+</div>
+
+<p>
+  因此 port prediction 在 2025 年仍是「<em>偶爾管用的偏方</em>」，主流 P2P 系統不依賴它，
+  symmetric NAT 場景的標準解法仍是<strong>fall back to TURN 中繼</strong>（第 7 章）。
+</p>
+
+<h2>6.6 兩個 peer 在同一個 NAT 後的特殊情境</h2>
+
+<p>一個容易被忽略但實務上常見的場景：Alice 與 Bob 都在同一個家用網路內。</p>
+
+<h3>6.6.1 Hairpinning 的需求</h3>
+
+<p>
+  若 Alice 跟 Bob 透過 rendezvous 知道彼此的<em>對外</em>位址（例如都是 <code>203.0.113.99</code>），
+  然後試圖以對外位址連線，<em>封包必須繞回到自己的 NAT 再轉送回內網</em>——這就是第 2 章說的 hairpinning。
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart LR
+    A[Alice<br/>192.168.1.42] -->|"src=192.168.1.42<br/>dst=203.0.113.99 (對外 IP)"| NAT[Home NAT<br/>對外: 203.0.113.99]
+    NAT -->|"hairpin loopback<br/>必須改寫 src 也改寫 dst"| B[Bob<br/>192.168.1.55]
+
+    classDef nat fill:#b8761d,stroke:#b8761d,color:#fff
+    class NAT nat
+</div>
+<div class="caption">圖 6-5 ｜ Hairpinning：封包繞回 NAT 再回到內網</div>
+</div>
+
+<p>
+  並非所有 NAT 都支援 hairpinning。早期家用路由器很多不支援，會把這種「目的 IP 是自己對外 IP」的封包丟掉。
+  RFC 4787 強烈建議 NAT 支援 hairpinning，但市場執行率不一。
+</p>
+
+<h3>6.6.2 解法：交換本地位址</h3>
+
+<p>
+  正確做法是 rendezvous 同時記錄 peer 的<em>本地</em> endpoint，並一併告訴對方。
+  Alice 與 Bob 同時嘗試本地位址 + 對外位址，<strong>本地位址成功率較高且延遲更低</strong>。
+  這就是 ICE 收集 host candidate 的動機之一（第 8 章）。
+</p>
+
+<h2>6.7 同步機制的精細：DCUtR 的啟示</h2>
+
+<p>
+  我們前面說「同時打洞」很關鍵，但「同時」要多精準？
+  libp2p 的 DCUtR（Direct Connection Upgrade through Relay）給了一個漂亮的答案：
+  透過 RTT 量測，讓雙方<em>互相預測對方何時動手</em>。
+</p>
+
+<h3>6.7.1 DCUtR 的同步邏輯</h3>
+
+<pre data-lang="conceptual">[假設 Alice 與 Bob 已透過 relay 建立暫時連線，知道彼此 RTT = 200ms]
+
+Alice 對 Bob 送 Connect 訊息（透過 relay）
+       └─ 內含 Alice 的所有候選位址
+Alice 開始計時
+
+Bob 收到 Connect 後立即回 Connect
+       └─ 內含 Bob 的所有候選位址
+
+Alice 收到 Bob 的 Connect → 計算實際 RTT (假設 200ms)
+Alice 立即送 Sync 訊息（透過 relay）
+Alice <em>等待 100ms (= RTT/2)</em>，然後直接 dial Bob
+
+Bob 收到 Sync 訊息 → 立即直接 dial Alice
+
+預期結果：兩邊的封包剛好在中間相遇
+        → 同時為彼此開洞 → 直接連線建立</pre>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant A as Alice
+    participant R as Relay
+    participant B as Bob
+
+    A->>R: Connect (含 Alice 候選)
+    R->>B: 轉送
+    Note over A: T0 = 計時開始
+
+    B->>R: Connect (含 Bob 候選)
+    R->>A: 轉送
+    Note over A: T1 = 此刻<br/>RTT = T1 - T0
+
+    A->>R: Sync
+    R->>B: 轉送
+    Note over A: 等待 RTT/2
+
+    par 同時動作
+        A-->>B: 直接 dial（穿越 NAT）
+    and
+        B-->>A: 直接 dial（穿越 NAT）
+    end
+
+    Note over A,B: 兩邊封包在中間相遇<br/>各自為對方開洞
+</div>
+<div class="caption">圖 6-6 ｜ DCUtR 的精準同步機制</div>
+</div>
+
+<h3>6.7.2 為什麼這個機制重要？</h3>
+
+<p>
+  IPFS 網路在 2025 年發表了一份大規模測量研究——<strong>440 萬次穿越嘗試、
+  85,000+ 個獨立網路、167 個國家</strong>。研究結論：
+</p>
+
+<div class="callout callout-info">
+  <span class="callout-title">大規模測量的關鍵發現</span>
+  <ul style="margin:0.5em 0 0;">
+    <li><strong>整體 hole punching 成功率約 70%</strong>（±7.1%）——這是 2025 年的權威基準</li>
+    <li>多數成功在<strong>第一次嘗試</strong>就達成，得益於 RTT 同步</li>
+    <li>關鍵發現：<strong>QUIC 與 TCP 在精準同步下成功率統計上無顯著差異</strong>——
+      這推翻了「UDP 一定優於 TCP」的長期部落知識</li>
+    <li>連線反向（connection reversal）作為輔助機制顯著提升成功率</li>
+    <li>穿越成功後，延遲顯著下降（不再經 relay）</li>
+  </ul>
+</div>
+
+<p>
+  這個結果改寫了教科書——好的<em>同步機制</em>比好的<em>傳輸層</em>更重要。
+  TCP 不是不能 punch，而是<em>少了 DCUtR 這樣的精準同步工具</em>就不好 punch。
+</p>
+
+<h2>6.8 一個最小可行的 UDP Hole Punching 實作</h2>
+
+<p>用 Python 寫一個極簡 hole punching：rendezvous + 兩個客戶端。</p>
+
+<h3>6.8.1 Rendezvous Server</h3>
+
+<pre data-lang="python"># rendezvous.py - 極簡會合伺服器
+import socket, json
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind(('0.0.0.0', 9999))
+peers = {}  # name -> (ip, port)
+
+print("Rendezvous on UDP 9999")
+while True:
+    data, addr = sock.recvfrom(4096)
+    msg = json.loads(data.decode())
+    name = msg['name']
+    target = msg.get('connect_to')
+
+    # 記錄此 peer 的對外位址（即 addr）
+    peers[name] = addr
+    print(f"[register] {name} = {addr}")
+
+    if target and target in peers:
+        # 通知雙方對方的位址
+        info_to_a = json.dumps({'peer': target, 'addr': peers[target]})
+        info_to_b = json.dumps({'peer': name,   'addr': peers[name]})
+        sock.sendto(info_to_a.encode(), peers[name])
+        sock.sendto(info_to_b.encode(), peers[target])
+        print(f"[match]   {name} ↔ {target}")</pre>
+
+<h3>6.8.2 Peer 端程式</h3>
+
+<pre data-lang="python"># peer.py - 兩端各自執行
+import socket, json, sys, time, threading
+
+NAME, TARGET, RDV = sys.argv[1], sys.argv[2], sys.argv[3]
+RDV_HOST, RDV_PORT = RDV.split(':')
+RDV_ADDR = (RDV_HOST, int(RDV_PORT))
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind(('0.0.0.0', 0))   # 任意 port
+
+# 階段 1+2：註冊並查詢對方
+sock.sendto(json.dumps({
+    'name': NAME, 'connect_to': TARGET
+}).encode(), RDV_ADDR)
+
+data, _ = sock.recvfrom(4096)
+peer_info = json.loads(data.decode())
+peer_addr = tuple(peer_info['addr'])
+print(f"[info] 對方 {peer_info['peer']} 在 {peer_addr}")
+
+# 階段 3：同時打洞
+def receiver():
+    while True:
+        d, a = sock.recvfrom(4096)
+        if a == peer_addr:
+            print(f"&lt;&lt; 收到: {d.decode()}")
+
+threading.Thread(target=receiver, daemon=True).start()
+
+print("[punch] 開始打洞...")
+for i in range(20):
+    msg = f"{NAME} #{i}".encode()
+    sock.sendto(msg, peer_addr)
+    print(f"&gt;&gt; 送出 #{i} → {peer_addr}")
+    time.sleep(0.5)
+
+print("[done] 連線建立後可改用實際應用協議")</pre>
+
+<h3>6.8.3 執行</h3>
+
+<pre data-lang="bash"># 機器 X (公網): rendezvous server
+$ python rendezvous.py
+
+# 機器 Y (NAT 後 #1): peer Alice
+$ python peer.py alice bob 公網IP:9999
+
+# 機器 Z (NAT 後 #2): peer Bob
+$ python peer.py bob alice 公網IP:9999
+
+# 預期看到雙方互相 print "收到 alice #N" / "收到 bob #N"
+# 若 5 秒內看不到，至少一方是 symmetric NAT，本範例無法穿越</pre>
+
+<p>
+  這個範例不到 70 行，已經完整示範 hole punching 的全部精髓。實際生產環境還需考慮：
+  ICE 的多候選、TURN fallback、加密、認證、keep-alive 等。後續章節會逐一加上。
+</p>
+
+<h2>6.9 NAT keep-alive：讓洞不要關上</h2>
+
+<p>
+  Hole punching 成功不是結束——NAT 表項有 timeout（第 2 章），閒置一段時間就會失效。
+  必須定期送 keep-alive 包讓條目活著。
+</p>
+
+<h3>6.9.1 Keep-alive 的時機</h3>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>頻率</h4>
+    <p>建議每 <strong>15~25 秒</strong>一次。比 RFC 4787 的最低 UDP timeout（2 分鐘）留有足夠餘裕，
+    也避免太頻繁浪費頻寬。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>內容</h4>
+    <p>最小：1 byte 的「ping」即可。或用 STUN Binding Indication（不需回應的 STUN 訊息）。
+    WebRTC 用 consent freshness 作為 keep-alive。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>每連線獨立</h4>
+    <p>第 2 章提過：許多 NAT 把 timeout 綁在 (本地, 遠端) 對上。
+    若 Alice 同時與 Bob、Charlie 通訊，必須<strong>對兩者各自</strong>送 keep-alive。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>移動裝置考量</h4>
+    <p>手機 sleep 時 keep-alive 會被作業系統暫停。WebRTC 連線在手機鎖屏 30 秒後常常斷掉，
+    應用必須有重連邏輯。</p>
+  </div>
+</div>
+
+<h2>6.10 章末提要</h2>
+
+<div class="callout callout-note">
+  <span class="callout-title">本章核心觀念</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>Hole punching 利用 NAT 表的副作用——「主動送包→開洞」這個機制——讓雙方能直連。</li>
+    <li>三步驟：rendezvous 註冊、位址交換、同時打洞。</li>
+    <li>UDP punching 對 cone NAT 高度有效（&gt; 80%），對 symmetric NAT 失效。</li>
+    <li>TCP punching 透過 simultaneous open 或 connection reversal，但實作敏感、成功率較低。</li>
+    <li>Port prediction 對 symmetric NAT 有條件有效，但現代 NAT 多採隨機分配。</li>
+    <li><strong>同步精準度</strong>比傳輸層選擇更重要——DCUtR 證明 QUIC 與 TCP 成功率可相當。</li>
+    <li>2025 年 IPFS 大規模測量基準：去中心化 hole punching 整體成功率 70%。</li>
+    <li>Punch 成功後必須以 keep-alive 維持 NAT 表項。</li>
+  </ul>
+</div>
+
+<h3>動腦時間</h3>
+<ol>
+  <li>用本章程式碼，在你家網路與雲端 VM 之間做一次 hole punching 測試。
+    若失敗，從 NAT 行為角度分析原因。</li>
+  <li>為什麼 hole punching 需要 rendezvous server？能否設計一個「無 rendezvous」的方案？
+    （提示：DHT 可以扮演這個角色，第 10、13 章會看到）</li>
+  <li>Symmetric vs Symmetric 的 punch 為何幾乎不可能？除了 port prediction，還有什麼可能的補救？</li>
+  <li>研究 WebRTC 的 ICE consent freshness（RFC 7675），它跟本章說的 keep-alive 有什麼異同？</li>
+  <li>2025 年 IPFS 測量得到 70% 成功率。你認為剩下 30% 主要是什麼類型的網路？對 P2P 應用設計有何啟示？</li>
+</ol>
+
+<h3>延伸閱讀</h3>
+<ul>
+  <li><strong>Bryan Ford, P. Srisuresh, D. Kegel, "Peer-to-Peer Communication Across Network Address Translators" (USENIX 2005)</strong> — 奠基論文，必讀</li>
+  <li>RFC 5128（2008）— State of Peer-to-Peer Communication across NATs <span class="tag tag-rfc">RFC</span></li>
+  <li>Marten Seemann (Protocol Labs), "Decentralized Hole Punching" (2022) — DCUtR 設計論文</li>
+  <li>"Challenging Tribal Knowledge: Large Scale Measurement Campaign on Decentralized NAT Traversal" (2025) — 最新大規模測量</li>
+  <li>Tailscale Blog, "How NAT traversal works" — 業界視角的優秀解釋</li>
+</ul>
+
+<nav class="chapter-nav">
+  <a class="prev" href="ch05.html">
+    <span class="label">← PREV</span>
+    <span class="title">第 5 章 · STUN</span>
+  </a>
+  <a class="next" href="ch07.html">
+    <span class="label">NEXT →</span>
+    <span class="title">第 7 章 · TURN 與 Circuit Relay</span>
+  </a>
+</nav>
+
+<footer>
+  <div>CHAPTER 6 / 19 · 打洞技術 · NAT TRAVERSAL × P2P TEXTBOOK</div>
+</footer>
+
+</main>
+
+<script src="../share/js/mermaid.min.js"></script>
+<script src="../share/js/textbook.js"></script>
+</body>
+</html>

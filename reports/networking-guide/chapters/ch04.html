@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 4 章 · 控制面協作型穿越</title>
+<link rel="stylesheet" href="../share/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>NAT TRAVERSAL × P2P</span>
+  </div>
+  <nav>
+    <a href="../firewall-traversal-and-p2p-guide -index.html">封面</a>
+    <a href="ch03.html">CH 3</a>
+    <a href="ch04.html" class="current">CH 4</a>
+    <a href="ch05.html">CH 5</a>
+    <a href="ch06.html">CH 6</a>
+    <a href="cheatsheet.html">速查</a>
+    <a href="glossary.html">術語</a>
+    <button id="themeToggle" class="theme-toggle">暗色</button>
+  </nav>
+</header>
+
+<main class="page">
+
+<div class="chapter-meta">
+  <span class="dot"></span> PART II &nbsp;·&nbsp; 穿越技術的核心方法
+  <span class="dot"></span> CHAPTER 04
+</div>
+
+<h1>
+  <span class="chapter-num">CHAPTER 4</span>
+  控制面協作型穿越
+</h1>
+
+<div class="chapter-intro">
+  <h4>本章導讀</h4>
+  <p>
+    這是 Part II 的開場章節，也是最「樂觀」的一章——它假設 NAT 設備<em>願意配合</em>。
+    我們會看三套相關協議：UPnP IGD（最古老、最普及）、NAT-PMP（Apple 的反擊）、
+    以及 PCP（IETF 的整合方案）。它們都解決同一個問題：「<em>請 NAT 幫我開一個 port</em>」。
+    這條路線在家用環境威力強大，但在企業與行動網路幾乎無用——理解它的適用邊界，
+    跟理解協議本身一樣重要。
+  </p>
+</div>
+
+<div class="objectives">
+  <h4>📚 學習目標</h4>
+  <ul>
+    <li>能說明「協作型穿越」與「協作 NAT」這個概念光譜的位置。</li>
+    <li>能描述 UPnP IGD 的探索（SSDP）與控制（SOAP）兩階段流程。</li>
+    <li>能說明 NAT-PMP 為何在 UPnP 之後仍被設計出來。</li>
+    <li>能說明 PCP 相對前兩者的核心改進，以及為何它仍未取代它們。</li>
+    <li>能評估這類協議在現代部署中的安全性與可用性風險。</li>
+  </ul>
+</div>
+
+<h2>4.1 協作型穿越的哲學</h2>
+
+<p>
+  回顧第 1 章的三條穿越路線——本章屬於<strong>路線 A：請 NAT 開洞</strong>。
+  它的核心假設是：NAT 設備上跑著一個「<em>管理介面</em>」，端點裝置可以透過這個介面，
+  正式地請求 NAT 幫自己預留一個外部 port。
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart LR
+    EP[端點裝置] -->|① 我想被外面連<br/>請開 port 9999| NAT[NAT 路由器]
+    NAT -->|② 沒問題<br/>對外用 62000| EP
+    Outside[外部連線者] -->|③ 連到 198.51.100.1:62000| NAT
+    NAT -->|④ 轉送| EP
+
+    classDef ep fill:#2d5a3d,stroke:#2d5a3d,color:#fff
+    classDef nat fill:#b8761d,stroke:#b8761d,color:#fff
+    classDef out fill:#1d4e7c,stroke:#1d4e7c,color:#fff
+    class EP ep
+    class NAT nat
+    class Outside out
+</div>
+<div class="caption">圖 4-1 ｜ 協作型穿越的基本流程：端點主動請求、NAT 配合預留</div>
+</div>
+
+<p>
+  跟下一章要介紹的 STUN 不同——STUN 只是<em>觀察</em> NAT 的行為，
+  協作型協議則<strong>主動指揮</strong> NAT 改變行為。
+  這也是它的優點與致命缺陷：能力強大，但要求 NAT 願意聽命。
+</p>
+
+<h2>4.2 UPnP IGD：最普及但最尷尬</h2>
+
+<p>
+  <strong>UPnP</strong>（Universal Plug and Play）是微軟在 1999 年主導的家庭網路設備互通框架。
+  它的<strong>IGD</strong>（Internet Gateway Device）子協議專門處理 NAT 穿越。
+  到了 2026 年，UPnP IGD 仍然是最廣泛部署於家用路由器的穿越協議，但它有一個複雜的歷史包袱。
+</p>
+
+<h3>4.2.1 UPnP 的兩階段流程</h3>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant C as Client (192.168.1.42)
+    participant R as Router (UPnP IGD)
+    participant N as Multicast<br/>239.255.255.250:1900
+
+    Note over C,R: 階段一：探索 (SSDP)
+    C->>N: M-SEARCH<br/>(UDP, ssdp:discover)
+    N->>R: 廣播
+    R->>C: HTTP 200<br/>LOCATION: http://192.168.1.1:5000/desc.xml
+
+    Note over C,R: 階段二：取得設備描述
+    C->>R: GET /desc.xml
+    R->>C: XML（內含 controlURL）
+
+    Note over C,R: 階段三：操作（SOAP）
+    C->>R: POST controlURL<br/>SOAP: AddPortMapping
+    Note over R: 新增映射規則：<br/>External 9999 → 192.168.1.42:9999
+    R->>C: SOAP 200 OK
+</div>
+<div class="caption">圖 4-2 ｜ UPnP IGD 的探索 + 控制流程</div>
+</div>
+
+<p>
+  UPnP 的設計很「90 年代」——基於 HTTP + XML + SOAP，over UDP multicast。
+  它的探索協議叫 <strong>SSDP</strong>（Simple Service Discovery Protocol），
+  端點向 <code>239.255.255.250:1900</code> 廣播 <code>M-SEARCH</code>，
+  路由器若支援 IGD 就會回應自己的設備描述 URL。
+</p>
+
+<h3>4.2.2 一個 AddPortMapping 的真實 SOAP 請求</h3>
+
+<pre data-lang="http">POST /upnp/control/WANIPConn1 HTTP/1.1
+Host: 192.168.1.1:5000
+Content-Type: text/xml; charset="utf-8"
+SOAPAction: "urn:schemas-upnp-org:service:WANIPConnection:1#AddPortMapping"
+
+&lt;?xml version="1.0"?&gt;
+&lt;s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"&gt;
+  &lt;s:Body&gt;
+    &lt;u:AddPortMapping xmlns:u="urn:schemas-upnp-org:service:WANIPConnection:1"&gt;
+      &lt;NewRemoteHost&gt;&lt;/NewRemoteHost&gt;
+      &lt;NewExternalPort&gt;9999&lt;/NewExternalPort&gt;
+      &lt;NewProtocol&gt;UDP&lt;/NewProtocol&gt;
+      &lt;NewInternalPort&gt;9999&lt;/NewInternalPort&gt;
+      &lt;NewInternalClient&gt;192.168.1.42&lt;/NewInternalClient&gt;
+      &lt;NewEnabled&gt;1&lt;/NewEnabled&gt;
+      &lt;NewPortMappingDescription&gt;MyApp&lt;/NewPortMappingDescription&gt;
+      &lt;NewLeaseDuration&gt;3600&lt;/NewLeaseDuration&gt;
+    &lt;/u:AddPortMapping&gt;
+  &lt;/s:Body&gt;
+&lt;/s:Envelope&gt;</pre>
+
+<p>
+  這個請求要求路由器把「外部 UDP 9999」映射到「<code>192.168.1.42:9999</code>」，租期 3600 秒。
+  租期到了會自動失效，所以應用必須定期續租。
+</p>
+
+<h3>4.2.3 UPnP 在實作上的指令集</h3>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>SOAP Action</th>
+      <th>用途</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td><code>GetExternalIPAddress</code></td><td>取得 NAT 的對外公網 IP</td></tr>
+    <tr><td><code>AddPortMapping</code></td><td>新增一條 port forwarding 規則</td></tr>
+    <tr><td><code>DeletePortMapping</code></td><td>刪除規則</td></tr>
+    <tr><td><code>GetGenericPortMappingEntry</code></td><td>列出所有現有映射（用於診斷）</td></tr>
+    <tr><td><code>GetSpecificPortMappingEntry</code></td><td>查特定 port 的映射</td></tr>
+    <tr><td><code>AddAnyPortMapping</code> (IGD v2)</td><td>「給我任何可用的 port」</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>4.2.4 UPnP 的安全爭議</h3>
+
+<p>UPnP 的設計在當年是「方便至上」，但這份方便埋下深遠的安全債：</p>
+
+<div class="callout callout-danger">
+  <span class="callout-title">UPnP 三大安全問題</span>
+  <ul style="margin:0.5em 0 0;">
+    <li><strong>無認證</strong>：任何能訪問內網的程式（包括惡意軟體）都能新增 port mapping，把自己暴露到公網</li>
+    <li><strong>WAN 側暴露</strong>：曾經有為數驚人的家用路由器（2013 年估計超過 5000 萬台）把 UPnP 介面暴露在 WAN 側，攻擊者可遠端利用</li>
+    <li><strong>UPnProxy 攻擊</strong>：攻擊者用 UPnP 把路由器當代理，把自己的惡意流量轉送到內網主機</li>
+  </ul>
+</div>
+
+<p>
+  正因如此，許多企業 IT 政策強制關閉 UPnP，部分新版作業系統也預設不啟用客戶端。
+  在開發 P2P 應用時，把 UPnP 當作「<em>有就用，沒有也別意外</em>」是健康的心態。
+</p>
+
+<h3>4.2.5 程式範例（Python miniupnpc）</h3>
+
+<pre data-lang="python">import miniupnpc
+
+upnp = miniupnpc.UPnP()
+upnp.discoverdelay = 200
+n = upnp.discover()
+print(f"找到 {n} 台 IGD 裝置")
+
+upnp.selectigd()
+print(f"外部 IP: {upnp.externalipaddress()}")
+
+# 新增一條 UDP 9999 → 192.168.1.42:9999 的映射
+ok = upnp.addportmapping(
+    9999,            # external port
+    'UDP',
+    upnp.lanaddr,    # internal client (此機 IP)
+    9999,            # internal port
+    'MyP2PApp',      # description
+    ''               # remote host (空字串 = 任意)
+)
+print("AddPortMapping:", ok)</pre>
+
+<h2>4.3 NAT-PMP：Apple 的極簡反擊</h2>
+
+<p>
+  2005 年，Apple 對 UPnP 那套又重又難用的設計受夠了，推出了 <strong>NAT-PMP</strong>
+  （NAT Port Mapping Protocol，RFC 6886）。它的設計哲學是：<em>越簡單越好</em>。
+</p>
+
+<h3>4.3.1 NAT-PMP 的封包格式</h3>
+
+<p>
+  NAT-PMP 完全摒棄 HTTP/XML/SOAP，直接使用<strong>二進位 UDP 封包</strong>，
+  發送到路由器的 <code>port 5351</code>。一個請求只有 12 個位元組：
+</p>
+
+<pre data-lang="binary">┌────────┬────────┬─────────┬──────────┬──────────┬──────────┐
+│ 0      │ 1      │ 2-3     │ 4-5      │ 6-7      │ 8-11     │
+├────────┼────────┼─────────┼──────────┼──────────┼──────────┤
+│ Vers=0 │ Op=1/2 │ Reserved│ Internal │ External │ Lifetime │
+│        │ (UDP/  │  (= 0)  │   Port   │   Port   │ (秒)     │
+│        │  TCP)  │         │          │ (建議值) │          │
+└────────┴────────┴─────────┴──────────┴──────────┴──────────┘</pre>
+
+<p>對比 UPnP 的數百行 XML/SOAP，NAT-PMP 的精簡令人耳目一新。</p>
+
+<h3>4.3.2 NAT-PMP 的特色操作</h3>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>Op 0 · 取得外部 IP</h4>
+    <p>送一個 2 byte 的請求，路由器回應自己的 WAN IP。
+    比 UPnP 的整套 SOAP 流程簡單十倍。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Op 1/2 · 建立 UDP/TCP 映射</h4>
+    <p>送內部 port + 建議外部 port + 租期，
+    路由器回實際分配的外部 port（可能與建議值不同）。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Multicast 通知</h4>
+    <p>當 WAN IP 改變時，路由器主動廣播給所有客戶端，
+    這是 UPnP 沒有的優雅特性。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>無認證 (同 UPnP)</h4>
+    <p>內網任何人都能呼叫，這個問題 NAT-PMP 也沒解決。
+    要解決得等下一代 PCP。</p>
+  </div>
+</div>
+
+<h3>4.3.3 部署現狀</h3>
+
+<p>
+  NAT-PMP 在 Apple 的 AirPort 系列路由器中是一等公民，
+  在 OpenWrt、pfSense 等開源系統中也廣泛支援。
+  但 Windows 與多數家用路由器仍然以 UPnP 為主，所以實務上 P2P 應用通常會<strong>同時嘗試</strong>兩種協議。
+</p>
+
+<h2>4.4 PCP：IETF 的整合答案</h2>
+
+<p>
+  <strong>PCP</strong>（Port Control Protocol，RFC 6887，2013）是 NAT-PMP 的繼承者，
+  由 IETF 主導標準化。它把 NAT-PMP 的優點（簡單、二進位、UDP）保留下來，
+  並加上幾個關鍵新功能：
+</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>① 適用 IPv6 防火牆</h4>
+    <p>NAT-PMP 假設一定有 NAT。但 IPv6 通常無 NAT，<em>但仍有防火牆</em>。
+    PCP 設計成可以對 IPv6 防火牆說「請允許這個 port 的入站連線」。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>② 支援 CGNAT</h4>
+    <p>RFC 6887 明確設計了在多層 NAT（包含電信業者 CGNAT）下的協作流程，
+    讓終端能繞過 ISP 那層 NAT 申請外部映射。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>③ Anycast Server</h4>
+    <p>PCP 標準化了 anycast 位址 <code>192.0.0.9</code> (IPv4) 與 <code>2001::1</code> (IPv6)，
+    端點不必先發現路由器，直接送到 anycast 位址即可。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>④ MAP 與 PEER opcode</h4>
+    <p>除了傳統的 port mapping (MAP)，新增 PEER opcode：
+    告訴 NAT「我要連到這個遠端，請給我一條穩定的對外映射」。
+    對 P2P 應用更精準。</p>
+  </div>
+</div>
+
+<h3>4.4.1 PCP 對 P2P 的特殊意義：PEER opcode</h3>
+
+<p>
+  傳統 UPnP/NAT-PMP 的思路是「我要監聽，請開外部 port」——這是<em>伺服器</em>視角。
+  但 P2P 應用更常見的場景是「我要連這個 peer，請保持映射穩定」——這是<em>對等</em>視角。
+  PCP 的 PEER opcode 直接表達後者：
+</p>
+
+<pre data-lang="conceptual">PEER request:
+  internal_port:  54321
+  remote_peer_ip: 203.0.113.99
+  remote_peer_port: 6881
+  lifetime: 7200
+
+意思：「我要連 203.0.113.99:6881，
+       請給我一個穩定的對外 endpoint，並保持這個映射 2 小時」
+
+回應：
+  external_address: 198.51.100.1
+  external_port: 62000
+  
+端點現在可以告訴對方：「請連我 198.51.100.1:62000」</pre>
+
+<p>
+  這個機制本質上是 hole punching 的「正式版」——你不再需要透過 STUN 推測 NAT 行為，
+  而是直接<em>命令</em> NAT 給你一個穩定的映射。
+</p>
+
+<h3>4.4.2 為什麼 PCP 沒有取代 UPnP？</h3>
+
+<p>
+  從技術角度，PCP 全方面優於 UPnP IGD。但十幾年過去，UPnP 仍是部署主流。原因不在技術：
+</p>
+
+<div class="callout callout-warn">
+  <span class="callout-title">部署慣性 (deployment inertia)</span>
+  <ul style="margin:0.5em 0 0;">
+    <li><strong>路由器廠商</strong>已經在每台設備中放入 UPnP，重新整合 PCP 需要 firmware 大改</li>
+    <li><strong>應用開發者</strong>看到 UPnP 「能用」就不想多寫一套 PCP fallback</li>
+    <li><strong>IPv6 普及不如預期</strong>，PCP 對 IPv6 的優勢未能變現</li>
+    <li>整個產業的「<em>都還行</em>」心態，讓更好的技術無法取代「夠用」的舊技術</li>
+  </ul>
+</div>
+
+<p>
+  這是網路標準史上反覆上演的劇本：<em>better is the enemy of good enough</em>。
+  認識這一點，能讓你在做技術選型時更務實——不要押注於「未來會普及」的協議，
+  要設計成<strong>同時支援</strong>主流與最新方案。
+</p>
+
+<h2>4.5 三套協議的橫向比較</h2>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>面向</th>
+      <th>UPnP IGD</th>
+      <th>NAT-PMP</th>
+      <th>PCP</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>標準</td><td>UPnP Forum (1999~)</td><td>RFC 6886 (2013)</td><td>RFC 6887 (2013)</td></tr>
+    <tr><td>傳輸</td><td>HTTP + SOAP + XML</td><td>UDP/5351 二進位</td><td>UDP/5351 二進位</td></tr>
+    <tr><td>探索方式</td><td>SSDP multicast</td><td>固定 IP (default gateway)</td><td>Anycast 或 default gateway</td></tr>
+    <tr><td>支援 IPv6 防火牆</td><td>v2 後支援</td><td>不支援</td><td>原生支援</td></tr>
+    <tr><td>多層 NAT</td><td>無解</td><td>無解</td><td>有設計</td></tr>
+    <tr><td>P2P 對等視角</td><td>無</td><td>無</td><td>PEER opcode</td></tr>
+    <tr><td>認證</td><td>無</td><td>無</td><td>無 (但 PA-PCP 提案)</td></tr>
+    <tr><td>家用部署率</td><td>★★★★★</td><td>★★★（Apple 為主）</td><td>★（增長緩慢）</td></tr>
+    <tr><td>企業部署率</td><td>★（多數關閉）</td><td>★（罕見）</td><td>★（罕見）</td></tr>
+    <tr><td>行動電信網路</td><td>×</td><td>×</td><td>×</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>4.6 實務策略：fallback 鏈</h2>
+
+<p>
+  既然三套協議都不完美，且部署環境差異很大，正確的做法是<strong>依序嘗試</strong>：
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TD
+    Start([開始嘗試協作型穿越])
+    Start --> P1[嘗試 PCP<br/>送至 anycast 192.0.0.9]
+    P1 -->|成功| Done1[✓ 取得映射]
+    P1 -->|超時| P2[嘗試 NAT-PMP<br/>送至 default gateway:5351]
+    P2 -->|成功| Done2[✓ 取得映射]
+    P2 -->|超時或拒絕| P3[嘗試 UPnP IGD<br/>SSDP M-SEARCH]
+    P3 -->|找到 IGD| P3b[呼叫 AddPortMapping]
+    P3b -->|成功| Done3[✓ 取得映射]
+    P3 -->|找不到 / 拒絕| Fall[Fall back to STUN<br/>或 hole punching]
+    P3b -->|拒絕| Fall
+
+    classDef ok fill:#2d5a3d,stroke:#2d5a3d,color:#fff
+    classDef fb fill:#b8761d,stroke:#b8761d,color:#fff
+    class Done1,Done2,Done3 ok
+    class Fall fb
+</div>
+<div class="caption">圖 4-3 ｜ 協作型穿越的 fallback 鏈，最後仍可能落到後續章節的方法</div>
+</div>
+
+<p>
+  這個 fallback 設計有個重要細節：<strong>每個嘗試應該設超時</strong>（建議 250ms ~ 1s），
+  不要等太久。整個協作型穿越流程應在 3 秒內結束，否則會嚴重拖慢應用啟動體驗。
+</p>
+
+<h3>4.6.1 程式骨架（Python 偽代碼）</h3>
+
+<pre data-lang="python">async def try_collaborative_traversal(internal_port: int):
+    # PCP: 250ms timeout, 試 anycast 與 default gateway
+    for target in ['192.0.0.9', get_default_gateway()]:
+        try:
+            result = await pcp_request(target, internal_port, timeout=0.25)
+            if result.success:
+                return result.external_addr
+        except (TimeoutError, ConnectionRefusedError):
+            continue
+
+    # NAT-PMP: 500ms timeout
+    try:
+        result = await natpmp_request(get_default_gateway(),
+                                      internal_port, timeout=0.5)
+        if result.success:
+            return result.external_addr
+    except TimeoutError:
+        pass
+
+    # UPnP: 較慢，給 2s
+    try:
+        igd = await upnp_discover(timeout=2.0)
+        if igd:
+            ext_port = await igd.add_port_mapping(internal_port, 'UDP')
+            return (await igd.get_external_ip(), ext_port)
+    except Exception:
+        pass
+
+    # 全部失敗，呼叫者應 fall back
+    return None</pre>
+
+<h2>4.7 安全提示</h2>
+
+<div class="callout callout-warn">
+  <span class="callout-title">作為 P2P 應用開發者你應該注意</span>
+  <ol style="margin:0.5em 0 0;">
+    <li><strong>不要長期持有大量映射</strong>：用完即釋放，避免讓使用者的 NAT 表佔滿條目，影響其他應用</li>
+    <li><strong>明確設置租期</strong>：通常 1~2 小時，由應用主動續租，比要求永久映射更負責</li>
+    <li><strong>使用易識別的描述</strong>：在 PortMappingDescription 中寫明應用名，方便使用者除錯</li>
+    <li><strong>釋出時呼叫 DeletePortMapping</strong>：應用退出前清乾淨，避免「殭屍映射」</li>
+    <li><strong>不要重試到天荒地老</strong>：失敗就 fallback，不要瘋狂重試騷擾路由器</li>
+  </ol>
+</div>
+
+<div class="callout callout-danger">
+  <span class="callout-title">作為終端使用者你應該注意</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>確認你家路由器的 UPnP 介面<strong>沒有暴露在 WAN 側</strong>（用 <code>nmap -sU -p 1900</code> 從外部測）</li>
+    <li>定期檢查路由器後台的「目前 UPnP 映射」清單，看是否有不認識的條目</li>
+    <li>若不需要 P2P 應用穿越，<strong>直接關閉 UPnP</strong>是最安全的選擇</li>
+    <li>企業環境應一律關閉並改用 VPN / ZTNA</li>
+  </ul>
+</div>
+
+<h2>4.8 章末提要</h2>
+
+<div class="callout callout-note">
+  <span class="callout-title">本章核心觀念</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>協作型穿越是「請 NAT 開洞」，前提是 NAT 願意配合。</li>
+    <li>UPnP IGD 普及但設計沉重，且有嚴重歷史安全問題。</li>
+    <li>NAT-PMP 簡潔有力，但生態以 Apple 為主。</li>
+    <li>PCP 是 IETF 的繼承方案，技術全方位更優，但部署緩慢。</li>
+    <li>實務做法是<strong>依序 fallback</strong>：PCP → NAT-PMP → UPnP → STUN/hole punching。</li>
+    <li>所有協作型協議在企業與行動電信網路幾乎都<strong>無效</strong>，必須有後備方案。</li>
+  </ul>
+</div>
+
+<h3>動腦時間</h3>
+<ol>
+  <li>UPnP 沒有認證，任何內網程式都能新增映射。設想一個惡意軟體如何利用這個特性。
+    再思考：要為 UPnP 加上認證，會破壞它的什麼設計目標？</li>
+  <li>PCP 的 PEER opcode 想做什麼？它跟下一章 STUN 探得的位址有什麼相同與不同？</li>
+  <li>為什麼這三套協議都<em>不能</em>用在 CGNAT 環境？或者說，CGNAT 業者要怎麼樣才能讓 PCP 工作？</li>
+  <li>用 Wireshark 抓你的家用路由器在啟動時的 SSDP 廣播，看看有哪些 UPnP 服務被廣告。</li>
+</ol>
+
+<h3>延伸閱讀</h3>
+<ul>
+  <li>RFC 6886（2013）— NAT Port Mapping Protocol <span class="tag tag-rfc">RFC</span></li>
+  <li>RFC 6887（2013）— Port Control Protocol <span class="tag tag-rfc">RFC</span> <strong>核心讀物</strong></li>
+  <li>RFC 6970（2013）— UPnP IGD-PCP Interworking</li>
+  <li>UPnP Device Architecture v2.0（UPnP Forum, 2015）</li>
+  <li><code>miniupnpc</code>（C/Python）、<code>libnatpmp</code>、<code>libpcp</code> 三個開源庫的原始碼可作學習材料</li>
+</ul>
+
+<nav class="chapter-nav">
+  <a class="prev" href="ch03.html">
+    <span class="label">← PREV</span>
+    <span class="title">第 3 章 · 防火牆與中介設備</span>
+  </a>
+  <a class="next" href="ch05.html">
+    <span class="label">NEXT →</span>
+    <span class="title">第 5 章 · STUN：自我位址發現</span>
+  </a>
+</nav>
+
+<footer>
+  <div>CHAPTER 4 / 19 · 控制面協作型穿越 · NAT TRAVERSAL × P2P TEXTBOOK</div>
+</footer>
+
+</main>
+
+<script src="../share/js/mermaid.min.js"></script>
+<script src="../share/js/textbook.js"></script>
+</body>
+</html>

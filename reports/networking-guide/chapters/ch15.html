@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 15 章 · 傳輸層的選擇</title>
+<link rel="stylesheet" href="../share/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>NAT TRAVERSAL × P2P</span>
+  </div>
+  <nav>
+    <a href="../firewall-traversal-and-p2p-guide -index.html">封面</a>
+    <a href="ch14.html">CH 14</a>
+    <a href="ch15.html" class="current">CH 15</a>
+    <a href="ch16.html">CH 16</a>
+    <a href="ch17.html">CH 17</a>
+    <a href="cheatsheet.html">速查</a>
+    <a href="glossary.html">術語</a>
+    <button id="themeToggle" class="theme-toggle">暗色</button>
+  </nav>
+</header>
+
+<main class="page">
+
+<div class="chapter-meta">
+  <span class="dot"></span> PART IV &nbsp;·&nbsp; 實作、安全與未來
+  <span class="dot"></span> CHAPTER 15
+</div>
+
+<h1>
+  <span class="chapter-num">CHAPTER 15</span>
+  傳輸層的選擇：UDP、TCP、QUIC
+</h1>
+
+<div class="chapter-intro">
+  <h4>本章導讀</h4>
+  <p>
+    Part I-III 我們把 NAT 穿越與 P2P 系統各個側面都看過了。Part IV 開始把分散在各章的<strong>跨章節主題</strong>集中討論。
+    本章是這個收尾篇的開場——傳輸層選擇。對 P2P 系統而言這個問題尤為關鍵：
+    UDP 易於穿越但需自己重建可靠性；TCP 提供 stream 抽象但穿越成本高；
+    QUIC 兼有兩者優點，且自帶 TLS 1.3 與連線遷移。本章從 P2P 視角重新審視三者的取捨，
+    並援引第 6 章與第 13 章的測量結果——精準同步下 TCP ≈ QUIC 的最新發現。
+  </p>
+</div>
+
+<div class="objectives">
+  <h4>📚 學習目標</h4>
+  <ul>
+    <li>能列舉 UDP、TCP、QUIC 對 P2P 應用的優劣對比表。</li>
+    <li>能解釋為什麼 NAT 穿越歷史上偏好 UDP，並說明這個偏好在 2025+ 是否仍成立。</li>
+    <li>能描述 QUIC 的連線遷移（connection migration）對行動 P2P 的關鍵性。</li>
+    <li>能評估 QUIC 在企業與行動電信網路的可達性。</li>
+    <li>能說明 SCTP-over-DTLS 與 QUIC 兩者在 WebRTC DataChannel 上的繼承關係。</li>
+  </ul>
+</div>
+
+<h2>15.1 三種傳輸的本質差異</h2>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>面向</th><th>UDP</th><th>TCP</th><th>QUIC</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>可靠</td><td>❌ 自己處理</td><td>✓ 內建</td><td>✓ 內建</td></tr>
+    <tr><td>有序</td><td>❌</td><td>✓ 嚴格</td><td>✓ per-stream</td></tr>
+    <tr><td>多工 stream</td><td>❌</td><td>❌ 一條 = 一條</td><td>✓ 原生多 stream</td></tr>
+    <tr><td>Head-of-line blocking</td><td>❌</td><td>✓ 嚴重問題</td><td>❌ stream 間獨立</td></tr>
+    <tr><td>內建加密</td><td>❌</td><td>❌（需 TLS）</td><td>✓ TLS 1.3 強制</td></tr>
+    <tr><td>握手 RTT</td><td>0</td><td>1 (TCP) + 1 (TLS)</td><td>1（含加密）/ 0 (resumption)</td></tr>
+    <tr><td>連線遷移</td><td>✓ 自由</td><td>❌ 換 IP 即斷</td><td>✓ Connection ID</td></tr>
+    <tr><td>NAT 穿越</td><td>★★★★★</td><td>★★ 困難</td><td>★★★★★（基於 UDP）</td></tr>
+    <tr><td>Kernel / userspace</td><td>kernel</td><td>kernel</td><td>多在 userspace</td></tr>
+    <tr><td>中介盒友善度</td><td>偶有阻擋</td><td>普遍放行</td><td>逐漸普及</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>15.2 為什麼歷史上 NAT 穿越偏好 UDP？</h2>
+
+<p>
+  Tailscale 的部落格直白地寫過這段經典建議：
+</p>
+
+<blockquote>
+  「<em>你可以用 TCP 做 NAT 穿越，但這會給已經夠複雜的問題再加一層複雜度，
+  甚至可能需要核心客製化。我們專注在 UDP；若你想要串流連線，請考慮基於 UDP 的 QUIC。</em>」
+</blockquote>
+
+<p>UDP 之所以在穿越上勝出，有四個結構性原因：</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>① 無連線狀態</h4>
+    <p>UDP 沒有「<em>連線</em>」概念——任何兩個 endpoint 之間 send/receive 即可。
+    NAT 不需要追蹤 SYN/ACK 狀態機。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>② 同時雙向自然</h4>
+    <p>UDP hole punching 雙方都「<em>主動 send</em>」即可。TCP 的「<em>同時 SYN</em>」
+    需要作業系統與 NAT 都正確處理罕見路徑。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>③ NAT 行為較一致</h4>
+    <p>多數 NAT 對 UDP 的處理是「<em>查映射 + 轉送</em>」——簡單、可預測。
+    對 TCP 還會看 flag、做 sequence 驗證。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>④ Kernel 操控自由</h4>
+    <p>UDP socket 不像 TCP 受限於連線狀態機，應用層能自由操控
+    （產生重複 SYN、操控源 port 等技巧）。</p>
+  </div>
+</div>
+
+<h2>15.3 但是——2025 年的修正</h2>
+
+<p>
+  第 6 章我們已援引過 IPFS 大規模測量的結論：<strong>TCP 與 QUIC 在精準同步下成功率統計上無顯著差異</strong>。
+  本章正式擺出來分析。
+</p>
+
+<h3>15.3.1 老觀念 vs 新證據</h3>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+xychart-beta
+    title "TCP vs QUIC NAT 穿越成功率（同條件下）"
+    x-axis ["Bryan Ford 2005", "傳統教材", "DCUtR 2022", "IPFS 測量 2025"]
+    y-axis "成功率 %" 0 --> 100
+    bar [64, 50, 70, 70]
+    line [82, 82, 70, 70]
+</div>
+<div class="caption">圖 15-1 ｜ TCP（柱）vs UDP/QUIC（線）穿越成功率的歷史變化</div>
+</div>
+
+<p>
+  Ford 2005 年論文的「TCP 64% / UDP 82%」差距，在現代精準同步協議下幾乎消失。
+  這不是因為 NAT 變得對 TCP 更友善，而是因為<strong>同步機制的進步把原本的劣勢補了回來</strong>。
+</p>
+
+<h3>15.3.2 對工程決策的意義</h3>
+
+<div class="callout callout-info">
+  <span class="callout-title">2025+ 的 P2P 傳輸層選擇</span>
+  <ul style="margin:0.3em 0;">
+    <li>若你能寫精準同步協議（DCUtR-like）→ <strong>TCP 與 QUIC 都可</strong>，依其他需求選</li>
+    <li>若你寫不出來、用簡單 hole punching → 仍應選 <strong>UDP/QUIC</strong></li>
+    <li>需要 stream 多工、低延遲、自帶加密 → <strong>QUIC 是最佳選擇</strong></li>
+    <li>需要在嚴格企業環境 fallback → <strong>TCP over TLS:443</strong>（QUIC 的 UDP 仍可能被擋）</li>
+  </ul>
+</div>
+
+<h2>15.4 QUIC 深入：為什麼是現代 P2P 的首選</h2>
+
+<h3>15.4.1 QUIC 的設計哲學</h3>
+
+<p>
+  QUIC（Quick UDP Internet Connections）由 Google 於 2012 年發起，IETF 於 2021 年標準化（RFC 9000）。
+  設計目標：<em>把 TCP+TLS 的所有好處保留，把所有缺點修掉</em>。
+</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>修 1 · Head-of-Line Blocking</h4>
+    <p>TCP 一個 segment 丟了後面所有資料卡住。QUIC 多 stream 各自獨立——
+    一條 stream 卡住不影響其他 stream。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>修 2 · 握手成本</h4>
+    <p>TCP+TLS 1.2 = 3 RTT。QUIC = 1 RTT（首次）/ 0 RTT（resumption）。
+    對短連線（API 呼叫、P2P signaling）省下大量時間。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>修 3 · 連線遷移</h4>
+    <p>TCP 連線綁定 5-tuple，換 IP 就斷。QUIC 用 Connection ID 識別——
+    手機從 Wi-Fi 切到 4G 時，連線可<strong>無縫遷移</strong>。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>修 4 · 擁塞控制可演進</h4>
+    <p>TCP 的擁塞控制與 kernel 綁死，更新緩慢。QUIC 跑在 userspace，
+    可實驗性使用 BBR、CUBIC、自訂演算法。</p>
+  </div>
+</div>
+
+<h3>15.4.2 連線遷移：行動 P2P 的救星</h3>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant M as 手機<br/>(Wi-Fi → 4G)
+    participant S as 對端
+
+    Note over M: 在 Wi-Fi 上<br/>本地 IP = 192.168.1.42
+
+    M->>S: QUIC packets (Connection ID = ABC)
+    S->>M: response
+
+    Note over M: 切換到 4G<br/>本地 IP 變成 100.66.1.5
+    Note over M: TCP 此時必死
+
+    M->>S: QUIC packets from 新 IP<br/>(Connection ID 仍是 ABC)
+    Note over S: 看 Connection ID 認識<br/>更新 5-tuple，繼續通訊
+
+    S->>M: 路徑驗證 (PATH_CHALLENGE)
+    M->>S: PATH_RESPONSE
+    Note over M,S: 連線無痛遷移完成
+</div>
+<div class="caption">圖 15-2 ｜ QUIC Connection Migration：換網不斷線</div>
+</div>
+
+<p>
+  對 P2P 系統，連線遷移有兩個額外好處：
+</p>
+
+<ul>
+  <li><strong>NAT rebinding 後不需重建連線</strong>——NAT 表項過期重新分配 port 時，QUIC 也能優雅處理</li>
+  <li><strong>多路徑同時用</strong>（Multipath QUIC，正在標準化）——同時用 Wi-Fi 與 4G 提升可靠性</li>
+</ul>
+
+<h3>15.4.3 QUIC 在 P2P 中的整合</h3>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>libp2p</h4>
+    <p>QUIC 是首選 transport。go-libp2p 預設啟用 quic-v1。
+    DCUtR over QUIC 有最佳成功率（連線從 client hello 就能 punch）。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>WebTransport</h4>
+    <p>瀏覽器原生 QUIC API。瀏覽器可直接與 QUIC 伺服器或 libp2p 節點通訊，
+    彌補 WebRTC DataChannel 的不足。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>HTTP/3</h4>
+    <p>HTTP over QUIC。雖然不直接是 P2P，但讓 signaling、coordination、bootstrap 等流量
+    更快、更可靠。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>WebRTC over QUIC</h4>
+    <p>正在發展中——把 WebRTC 的 SCTP 換成 QUIC stream。
+    Chrome 已實驗性支援。簡化堆疊、提升性能。</p>
+  </div>
+</div>
+
+<h2>15.5 SCTP-over-DTLS 與 QUIC 的歷史</h2>
+
+<p>
+  WebRTC 的 RTCDataChannel 用 <strong>SCTP-over-DTLS</strong> 提供可靠串流（第 12 章）。
+  這個選擇在 2012 年是合理的——當時 QUIC 還是 Google 內部實驗。
+</p>
+
+<p>SCTP（RFC 4960）原本是電信業設計的協議，提供類似 TCP 的可靠 + 多 stream + 多歸屬（multi-homing）。但：</p>
+
+<ul>
+  <li>SCTP 在公網被中間盒廣泛阻擋（router 不認識協議號 132）</li>
+  <li>WebRTC 把它跑在 DTLS 上繞過了這個問題</li>
+  <li>但仍有許多歷史包袱（INIT/COOKIE 機制、DCEP 子協議）</li>
+</ul>
+
+<p>
+  QUIC 正是「<em>SCTP 設計理念 + UDP 中介盒友善度 + TLS 1.3 整合</em>」的合成。
+  WebRTC over QUIC 的提案就是用 QUIC 取代 SCTP-over-DTLS——
+  得到等價功能，且大幅降低協議堆疊複雜度。
+</p>
+
+<h2>15.6 真實世界的可達性：QUIC 能穿過企業嗎？</h2>
+
+<h3>15.6.1 QUIC 的部署現狀（2025）</h3>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>家用網路 ✓</h4>
+    <p>幾乎全部支援。家用 NAT 對 UDP 友善，QUIC 在 port 443 與普通網路無異。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>行動電信 ✓</h4>
+    <p>Verizon、T-Mobile、Vodafone 等大型業者全面支援 QUIC。
+    甚至有業者觀察到 QUIC 比 TCP 在弱網路下表現更好。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>消費級 CDN ✓</h4>
+    <p>Cloudflare、Fastly、Google 全面 HTTP/3。
+    意味著公網的 QUIC 流量已是常態，被中間盒誤殺機率低。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>企業網路 ⚠️</h4>
+    <p>仍有相當比例企業 firewall 阻擋 UDP/443。原因：
+    DPI 工具對 QUIC 加密流量無法檢查，企業傾向「<em>不認識的就擋</em>」。
+    這是 QUIC 在企業滲透率仍低的主因。</p>
+  </div>
+</div>
+
+<h3>15.6.2 解決方案：fallback 鏈</h3>
+
+<p>生產環境的 P2P 系統典型做法：</p>
+
+<pre data-lang="strategy">優先序：
+  1. 嘗試 QUIC（UDP/443）            ← 最快、最現代
+  2. 嘗試 WebSocket over TLS（TCP/443）← 企業最易穿透
+  3. fall back to TURN over TLS:443    ← 最後保險
+
+每一層都應該<strong>同時嘗試而非序列</strong>，配合 happy eyeballs 策略：
+  - 開始 QUIC 嘗試
+  - 250ms 後若無回應，並行開始 TCP 嘗試
+  - 哪個先連通就用哪個
+
+這個策略給 QUIC 一個短窗口優先發揮，但不讓 QUIC 失敗導致使用者等待。</pre>
+
+<h2>15.7 實務建議：給 P2P 開發者的選型決策樹</h2>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TD
+    Start[新 P2P 專案]
+    Start --> Q1{瀏覽器是<br/>主要平台?}
+    Q1 -->|是| WC[WebRTC<br/>DataChannel]
+    Q1 -->|否| Q2
+
+    Q2{需要 NAT 穿越?}
+    Q2 -->|否（純伺服器）| TCP[TCP 直接]
+    Q2 -->|是| Q3
+
+    Q3{有能力寫<br/>精準同步協議?}
+    Q3 -->|沒有| QUIC1[QUIC + 簡單 hole punching]
+    Q3 -->|有| Q4
+
+    Q4{需要 stream 多工?}
+    Q4 -->|是| QUIC2[QUIC + DCUtR-like]
+    Q4 -->|否| UDP[UDP + 自訂協議<br/>e.g. WireGuard 模式]
+
+    Q5[企業環境<br/>fallback]
+    QUIC1 --> Q5
+    QUIC2 --> Q5
+    WC --> Q5
+    Q5 --> WS[備援：WebSocket/TLS:443]
+    WS --> TURN[最後：TURN over TLS:443]
+
+    classDef rec fill:#2d5a3d,stroke:#2d5a3d,color:#fff
+    class WC,QUIC1,QUIC2,UDP rec
+</div>
+<div class="caption">圖 15-3 ｜ P2P 專案的傳輸層選型決策樹</div>
+</div>
+
+<h2>15.8 章末提要</h2>
+
+<div class="callout callout-note">
+  <span class="callout-title">本章核心觀念</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>三種傳輸：UDP（最易穿越但需自建可靠性）、TCP（內建可靠但穿越難）、QUIC（兩者結合）。</li>
+    <li>歷史上 P2P 偏好 UDP 的四個結構性原因：無連線、雙向自然、NAT 一致、kernel 自由。</li>
+    <li>2025 年測量推翻了「TCP 必輸 UDP」的部落知識——關鍵是<strong>同步機制</strong>。</li>
+    <li>QUIC 修補了 TCP 的四大問題：HoL blocking、握手成本、連線遷移、擁塞控制可演進。</li>
+    <li>連線遷移對行動 P2P 是革命性——換網不斷線。</li>
+    <li>WebRTC 的 SCTP-over-DTLS 正在被 QUIC 取代（WebRTC over QUIC）。</li>
+    <li>企業環境是 QUIC 滲透率最低的場景，必須有 TCP/443 fallback。</li>
+    <li>Happy eyeballs 策略：同時嘗試多種傳輸，哪個快用哪個。</li>
+  </ul>
+</div>
+
+<h3>動腦時間</h3>
+<ol>
+  <li>QUIC 把 TLS 整合進傳輸層。這帶來什麼安全優勢與運維挑戰？</li>
+  <li>連線遷移依賴 Connection ID。攻擊者若能偽造 Connection ID 會造成什麼風險？QUIC 怎麼緩解？</li>
+  <li>研究 Multipath QUIC（IETF 草案）。它如何讓「<em>同時用 Wi-Fi 與 4G</em>」？對 P2P 系統有什麼價值？</li>
+  <li>用 <code>curl --http3</code> 與 <code>curl --http2</code> 各打 cloudflare.com 100 次，比較延遲分布。</li>
+  <li>論述題：若你今天從零開始設計 WebRTC 2.0，會用什麼傳輸層？為什麼？</li>
+</ol>
+
+<h3>延伸閱讀</h3>
+<ul>
+  <li>RFC 9000（2021）— QUIC: A UDP-Based Multiplexed and Secure Transport <span class="tag tag-rfc">RFC</span></li>
+  <li>RFC 9001 — Using TLS to Secure QUIC</li>
+  <li>RFC 9002 — QUIC Loss Detection and Congestion Control</li>
+  <li>RFC 9114 — HTTP/3</li>
+  <li>RFC 4960 — Stream Control Transmission Protocol (SCTP)</li>
+  <li>"QUIC: A UDP-Based Secure and Reliable Transport for HTTP/2" Google 原始白皮書</li>
+  <li>Tailscale Blog, "How NAT traversal works"</li>
+</ul>
+
+<nav class="chapter-nav">
+  <a class="prev" href="ch14.html">
+    <span class="label">← PREV</span>
+    <span class="title">第 14 章 · 現代 Mesh VPN</span>
+  </a>
+  <a class="next" href="ch16.html">
+    <span class="label">NEXT →</span>
+    <span class="title">第 16 章 · IPv6 是解藥嗎？</span>
+  </a>
+</nav>
+
+<footer>
+  <div>CHAPTER 15 / 19 · 傳輸層的選擇 · NAT TRAVERSAL × P2P TEXTBOOK</div>
+</footer>
+
+</main>
+
+<script src="../share/js/mermaid.min.js"></script>
+<script src="../share/js/textbook.js"></script>
+</body>
+</html>

@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 19 章 · 邊緣議題與未來方向</title>
+<link rel="stylesheet" href="../share/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>NAT TRAVERSAL × P2P</span>
+  </div>
+  <nav>
+    <a href="../firewall-traversal-and-p2p-guide -index.html">封面</a>
+    <a href="ch18.html">CH 18</a>
+    <a href="ch19.html" class="current">CH 19</a>
+    <a href="cheatsheet.html">速查</a>
+    <a href="glossary.html">術語</a>
+    <button id="themeToggle" class="theme-toggle">暗色</button>
+  </nav>
+</header>
+
+<main class="page">
+
+<div class="chapter-meta">
+  <span class="dot"></span> PART IV &nbsp;·&nbsp; 實作、安全與未來
+  <span class="dot"></span> CHAPTER 19 &nbsp;·&nbsp; <em>終章</em>
+</div>
+
+<h1>
+  <span class="chapter-num">CHAPTER 19</span>
+  邊緣議題與未來方向
+</h1>
+
+<div class="chapter-intro">
+  <h4>本章導讀</h4>
+  <p>
+    這是本書的終章。前面 18 章把 NAT 穿越與 P2P 的核心知識體系建立完整。本章處理那些
+    「<em>不夠主流但越來越重要</em>」的議題：CGNAT 的多層套娃、5G 與 SRv6 的特殊行為、
+    IoT 場景的限制、零信任架構（ZTNA）對傳統穿越的取代、以及 Web3 與邊緣運算對 P2P 的新需求。
+    最後我們對「<em>P2P 還會重要多久</em>」做一個誠實的展望。
+  </p>
+</div>
+
+<div class="objectives">
+  <h4>📚 學習目標</h4>
+  <ul>
+    <li>能描述 CGNAT 的多層架構及其對 P2P 的根本挑戰。</li>
+    <li>能說明 5G 網路 slicing 對 P2P 連線的影響。</li>
+    <li>能比較 SRv6、QUIC migration 等新興技術對網路定址的衝擊。</li>
+    <li>能評估零信任架構（ZTNA）是否會「<em>取代</em>」傳統 NAT 穿越。</li>
+    <li>能分析 Web3、邊緣運算對 P2P 系統的新需求。</li>
+    <li>能對 P2P 技術的長期前景做有依據的判斷。</li>
+  </ul>
+</div>
+
+<h2>19.1 CGNAT：被忽視的常態</h2>
+
+<h3>19.1.1 什麼是 CGNAT？</h3>
+
+<p>
+  <strong>Carrier-Grade NAT</strong>（CGNAT）是電信業者部署的「<em>大型 NAT</em>」——
+  數百到數萬個用戶共用同一組公網 IP。這在 IPv4 位址枯竭的現實下幾乎是必然選擇。
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TB
+    subgraph Home["你家"]
+        Phone[手機]
+        Laptop[筆電]
+        TV[電視盒]
+    end
+
+    Home --> RG[家用路由器<br/>NAT #1<br/>對外: 100.64.x.y]
+
+    subgraph ISP["ISP 網路"]
+        RG --> CGN[CGNAT 設備<br/>NAT #2<br/>對外: 1.2.3.4 (與 1000+ 戶共用)]
+    end
+
+    CGN --> Net[Internet]
+
+    classDef home fill:#2d5a3d,stroke:#2d5a3d,color:#fff
+    classDef isp fill:#b8761d,stroke:#b8761d,color:#fff
+    classDef cgn fill:#7a1414,stroke:#7a1414,color:#fff
+    class Phone,Laptop,TV,RG home
+    class CGN cgn
+</div>
+<div class="caption">圖 19-1 ｜ CGNAT 的雙層 NAT 結構</div>
+</div>
+
+<p>
+  CGNAT 通常使用 <strong>100.64.0.0/10</strong> 這個 IETF 保留範圍（RFC 6598）作為 ISP 內部位址，
+  避免與你家內網的 192.168.x.x 衝突。從你家路由器的角度看，它的「<em>WAN IP</em>」是 100.64.x.y——
+  根本不是公網位址，外面世界看到的是 ISP 那層 NAT 後的位址。
+</p>
+
+<h3>19.1.2 為什麼 CGNAT 是 P2P 的噩夢</h3>
+
+<div class="callout callout-danger">
+  <span class="callout-title">CGNAT 的三大殺傷</span>
+  <ul style="margin:0.5em 0 0;">
+    <li><strong>port 池稀缺</strong>：上千用戶共用 65535 個 port，每用戶分得幾十到幾百個。
+      P2P 應用大量開連線會被 ISP 限制甚至斷線</li>
+    <li><strong>幾乎都是 symmetric NAT</strong>：CGNAT 為了管理簡單，多採對稱式映射——
+      hole punching 對它幾乎無效</li>
+    <li><strong>無協作介面</strong>：UPnP / NAT-PMP 都對家用路由器有效，但對 ISP CGNAT 無效。
+      只有 PCP 規範了 CGNAT 配合，但商業部署極少</li>
+  </ul>
+</div>
+
+<h3>19.1.3 兩種「<em>逃離 CGNAT</em>」的方案</h3>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>方案 A · 申請公網 IP</h4>
+    <p>許多 ISP 提供「<em>公網 IPv4</em>」附加服務（每月幾元到幾百元）。
+    若 P2P 是核心需求，這是最直接解法。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>方案 B · 用 IPv6</h4>
+    <p>CGNAT 通常只在 IPv4 平面，IPv6 是端到端的。
+    若雙方都有 IPv6（第 16 章），可繞過 CGNAT 直連。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>方案 C · 僅靠 TURN</h4>
+    <p>承認直連不可能，全靠中繼。對應用體驗的代價是延遲略高，但運作可靠。
+    Tailscale DERP 範式就是這樣設計的。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>方案 D · 反向通道</h4>
+    <p>由公網的協調伺服器主動連回 NAT 後的客戶端
+    （要求客戶端維持長連線）。這實質上是把 P2P 退化成 client-server。</p>
+  </div>
+</div>
+
+<h2>19.2 5G、Network Slicing 與行動 P2P</h2>
+
+<h3>19.2.1 5G 對 P2P 的特殊挑戰</h3>
+
+<p>
+  5G 不只是「<em>更快的 4G</em>」。它的網路架構引入了一些對 P2P 不友善的特性：
+</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>Network Slicing</h4>
+    <p>同一張 5G 物理網路被切分成多個邏輯「slice」——例如 eMBB（高頻寬）、URLLC（低延遲）、
+    mMTC（IoT）。P2P 流量可能被分配到不同 slice，<strong>同一電信兩個用戶可能跨 slice 通訊</strong>，
+    路徑與 NAT 行為比 4G 更難預測。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Edge Computing 集成</h4>
+    <p>5G MEC（Multi-access Edge Computing）讓運算下沉到基地台附近。
+    P2P 應用若能利用 MEC 做 relay，可獲得極低延遲——<strong>但這需要與電信業者深度整合</strong>，目前仍是研究議題。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>更激進的 CGNAT</h4>
+    <p>5G 終端 IPv4 位址池更稀缺，<strong>多層 CGNAT 是常態</strong>。
+    Apple iOS 強制 IPv6-only 部分原因就是繞過 5G CGNAT 困境。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>NB-IoT 限制</h4>
+    <p>窄頻 IoT 終端頻寬極低（kbps 等級）、有極長休眠期（小時級）。
+    P2P 連線管理的<em>所有假設</em>（keep-alive、timely RTT 量測）對它都不適用。</p>
+  </div>
+</div>
+
+<h3>19.2.2 SRv6：另一場位址革命</h3>
+
+<p>
+  <strong>Segment Routing v6</strong>（SRv6）正在改變 ISP 內部網路。
+  它把整條路徑編碼成一個 IPv6 位址列表，路由器按列表逐段轉送。對 P2P 的潛在影響：
+</p>
+
+<ul>
+  <li>「<em>位址</em>」與「<em>路徑</em>」邊界模糊化——一個 IPv6 「位址」可能是路徑指令</li>
+  <li>STUN 探得的位址可能在不同路徑下變化（破壞 EIM 假設）</li>
+  <li>SRv6-aware 應用可<em>選擇</em>路徑，繞過故障或減少延遲——但目前主要在電信內部使用，尚未對 P2P 應用開放</li>
+</ul>
+
+<h2>19.3 IoT 場景的特殊挑戰</h2>
+
+<h3>19.3.1 為什麼 IoT 不像桌面 P2P？</h3>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>面向</th><th>傳統 P2P</th><th>IoT P2P</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>裝置電力</td><td>插電 / 大電池</td><td>常電池供電（年單位）</td></tr>
+    <tr><td>CPU/RAM</td><td>充足</td><td>幾 KB ~ MB 級</td></tr>
+    <tr><td>網路</td><td>全時連線</td><td>大部分時間休眠</td></tr>
+    <tr><td>頻寬</td><td>Mbps+</td><td>kbps（NB-IoT、LoRa）</td></tr>
+    <tr><td>NAT/防火牆</td><td>家用 NAT</td><td>多層 NAT、強限制</td></tr>
+    <tr><td>升級</td><td>頻繁更新</td><td>裝了十年不動</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>19.3.2 主流 IoT 通訊模式</h3>
+
+<p>大多數 IoT 系統<em>不</em>用 P2P，而是用以下兩種模式：</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>Cloud-Mediated</h4>
+    <p>裝置只跟雲端 hub 通訊，使用者透過 hub 查詢/控制。
+    例：Nest、Ring、智慧家庭。<strong>所有 P2P 複雜性留給雲端</strong>。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>本地 Mesh（非 IP）</h4>
+    <p>裝置之間用 Zigbee、Z-Wave、Thread 等<em>非 IP</em>協議組 mesh。
+    一台 hub 把 mesh 接到 IP 網路。<strong>避開了所有 NAT 問題</strong>。</p>
+  </div>
+</div>
+
+<p>
+  純 IP P2P 在 IoT 領域是少數派。但 Tailscale 的 subnet router、Matter（智慧家庭新標準）的 IPv6 路由
+  正在改變這個生態——<strong>未來的 IoT 可能會更像本書介紹的 P2P 系統</strong>。
+</p>
+
+<h2>19.4 零信任架構（ZTNA）：取代還是共存？</h2>
+
+<h3>19.4.1 ZTNA 的核心理念</h3>
+
+<p>
+  <strong>Zero Trust Network Access</strong>（ZTNA）是 2010 年代興起的安全架構，核心信條：
+</p>
+
+<blockquote>
+  「<em>永不信任，總是驗證</em>。網路位置不再決定信任——身份才是。」
+</blockquote>
+
+<p>
+  傳統企業網路：「<em>進到 VPN 就什麼都能訪問</em>」。
+  ZTNA：「<em>每次訪問特定資源都要重新驗證身份、設備、上下文</em>」。
+  這個轉變幾乎消滅了「網路邊界」的概念——也順帶<em>降低</em>了 NAT 穿越的相關性。
+</p>
+
+<h3>19.4.2 ZTNA 怎麼處理 NAT？</h3>
+
+<p>大多數 ZTNA 產品（Cloudflare Access、Zscaler Private Access、Twingate、Tailscale）的做法：</p>
+
+<ol>
+  <li>使用者裝置裝 client</li>
+  <li>Client 主動連到雲端 ZTNA 服務（從 NAT 後出去無問題）</li>
+  <li>使用者要訪問內部資源時，client 透過該連線轉送請求</li>
+  <li>內部資源也跑 connector，主動連到 ZTNA 雲端</li>
+  <li>雲端把兩條連線「<em>橋接</em>」起來——本質上是<strong>應用層 relay</strong></li>
+</ol>
+
+<p>
+  這個架構巧妙地<strong>用集中協調避開 NAT 問題</strong>——既不需要傳統 VPN 集中器，也不需要 P2P 穿越。
+  代價是雲端服務對所有流量可見（雖然加密但元資料暴露）。
+</p>
+
+<h3>19.4.3 ZTNA 與 P2P 的關係</h3>
+
+<div class="callout callout-info">
+  <span class="callout-title">ZTNA 與 P2P 是互補不是取代</span>
+  <ul style="margin:0.3em 0;">
+    <li>純 ZTNA（如 Cloudflare Access）：簡單、雲端集中、適合企業遠距辦公</li>
+    <li>P2P + ZTNA 混合（如 Tailscale）：<strong>身份用 ZTNA 邏輯，傳輸用 P2P</strong>——
+      最佳組合：低延遲 + 高安全</li>
+    <li>純 P2P（如 IPFS）：去中心化目標，與 ZTNA 哲學不同領域</li>
+  </ul>
+  Tailscale 是這個融合的標桿——它本質上是「<em>P2P 化的 ZTNA</em>」。
+</div>
+
+<h2>19.5 Web3 與區塊鏈的 P2P 需求</h2>
+
+<h3>19.5.1 區塊鏈節點通訊的特殊性</h3>
+
+<p>
+  Bitcoin、Ethereum、Solana 等區塊鏈節點本質上都是 P2P 網路節點。
+  它們的需求與一般 P2P 應用不同：
+</p>
+
+<ul>
+  <li><strong>抗審查</strong>：節點必須能在敵對網路（國家防火牆）下找到彼此</li>
+  <li><strong>低交付延遲</strong>：新區塊要快速廣播給全網——延遲意味著 fork、孤塊</li>
+  <li><strong>抗 Eclipse</strong>：第 17 章提到，eclipse 攻擊在區塊鏈是嚴重風險（雙花）</li>
+  <li><strong>Sybil 抗性</strong>：仰賴 PoW、PoS 等經濟成本作為身份成本</li>
+</ul>
+
+<h3>19.5.2 為什麼區塊鏈節點仍多用 TCP？</h3>
+
+<div class="callout callout-info">
+  <span class="callout-title">一個有趣的觀察</span>
+  Bitcoin、Ethereum execution layer 至今仍主要用 TCP（不是 QUIC）。原因：
+  <ul style="margin:0.3em 0;">
+    <li>區塊鏈節點多為「<em>專業營運者</em>」（礦池、交易所、企業節點），多在公網或 datacenter</li>
+    <li>NAT 穿越不是首要問題（多數節點有公網 IP）</li>
+    <li>協議穩定性 &gt; 性能（節點程式十年不能換）</li>
+  </ul>
+  但 Ethereum consensus layer（PoS）採用了 libp2p + Gossipsub，符合本書介紹的現代設計。
+</div>
+
+<h3>19.5.3 Filecoin 與儲存激勵</h3>
+
+<p>
+  Filecoin 把 BitTorrent 的 P2P 理念加上經濟激勵——使用者付幣讓礦工提供持久儲存。
+  它建立在 libp2p + IPFS 之上，是本書多個概念的綜合體。
+  從技術角度看，Filecoin 沒太多新東西；從社經角度看，它把 P2P 從「<em>業餘合作</em>」推向「<em>商業基礎設施</em>」。
+</p>
+
+<h2>19.6 邊緣運算（Edge Computing）的新範式</h2>
+
+<p>
+  邊緣運算把計算與儲存從中央雲端推到「<em>網路邊緣</em>」——靠近使用者的小型 datacenter 或基地台。
+  這對 P2P 有兩層意義：
+</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>Edge 作為 always-on relay</h4>
+    <p>邊緣節點是天然的 always-on relay 候選。Tailscale DERP、Cloudflare Workers 等
+    可以提供「<em>就近 relay</em>」服務，即使無法直連也只多一跳。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Edge 作為 P2P 入口</h4>
+    <p>對行動裝置來說，連到邊緣節點 RTT &lt; 10ms。
+    把 P2P 的 signaling、bootstrap、coordination 部署在 edge 是優化方向。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Edge 加 P2P 的混合計算</h4>
+    <p>Web3 願景的「分散式計算」——任務在 P2P 網路中流轉，找到合適的 edge 節點處理。
+    Filecoin compute、Akash Network 是早期實驗。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Edge 模糊了 client 與 server</h4>
+    <p>當 edge 提供 5ms 延遲，「<em>誰是 client、誰是 server</em>」的傳統劃分變得無意義。
+    P2P 思維更貼近這個架構。</p>
+  </div>
+</div>
+
+<h2>19.7 P2P 還會重要多久？一個誠實的展望</h2>
+
+<p>本書終章，我們做一個有依據的展望：</p>
+
+<h3>19.7.1 短期（2026~2030）</h3>
+
+<div class="callout callout-info">
+  <span class="callout-title">未來 5 年</span>
+  <ul style="margin:0.3em 0;">
+    <li><strong>NAT 穿越仍是核心技能</strong>——CGNAT 普及、IPv6 部分推進，本書的 hole punching、ICE、DCUtR 知識長期有效</li>
+    <li><strong>Mesh VPN 持續普及</strong>——Tailscale、Headscale、競品搶占企業遠距市場</li>
+    <li><strong>libp2p 生態擴張</strong>——更多區塊鏈、去中心化應用採用</li>
+    <li><strong>WebRTC 仍是瀏覽器 P2P 標準</strong>——但會逐步 over QUIC 化</li>
+    <li><strong>QUIC 全面取代 TCP</strong>——企業環境是主要戰場</li>
+  </ul>
+</div>
+
+<h3>19.7.2 中期（2030~2040）</h3>
+
+<div class="callout callout-info">
+  <span class="callout-title">未來 10-15 年</span>
+  <ul style="margin:0.3em 0;">
+    <li><strong>IPv6 普及達 80%+</strong>——但仍有 IPv4 長尾，hole punching 不消失</li>
+    <li><strong>SRv6 與 segment routing 改變底層</strong>——P2P 應用需學習新編址哲學</li>
+    <li><strong>邊緣運算與 P2P 融合</strong>——「<em>就近 always-on relay</em>」成為基礎設施</li>
+    <li><strong>身份體系大變</strong>——可能基於 verifiable credentials、自主身份（SSI）</li>
+    <li><strong>後量子密碼學替換</strong>——所有 P2P 加密層遷移到 PQC</li>
+  </ul>
+</div>
+
+<h3>19.7.3 長期（2040+）</h3>
+
+<div class="callout callout-info">
+  <span class="callout-title">未來 20 年+</span>
+  <ul style="margin:0.3em 0;">
+    <li><strong>NAT 也許真的消失</strong>——若 IPv6 完全取代 IPv4。但這不會在 2040 前發生</li>
+    <li><strong>「網路位址」概念可能模糊</strong>——隨 SRv6、QUIC migration、虛擬網路普及</li>
+    <li><strong>P2P 與 client-server 邊界融合</strong>——所有應用都是混合模型</li>
+    <li><strong>太空網路（衛星通訊）成為新一階段挑戰</strong>——延遲、切換、間歇性可達都需新解</li>
+  </ul>
+</div>
+
+<h2>19.8 給讀者的最後一段話</h2>
+
+<p class="lead">
+  完成這本書的閱讀，你已掌握了從 NAT 機制到 libp2p 的完整知識體系。
+  這個知識的價值不只在於「<em>解決連線問題</em>」——它教你<strong>如何在不完美的世界中
+  建構可靠系統</strong>。
+</p>
+
+<p>
+  網際網路本身就是一系列權衡：理想 vs 部署、效率 vs 相容、簡單 vs 安全。
+  本書介紹的每一個技術——從 STUN 的 XOR 編碼到 DCUtR 的 RTT 同步——都是工程師面對<em>真實限制</em>的智慧結晶。
+</p>
+
+<p>
+  你可能不會每天用 hole punching 寫程式，但這些思維模式會在你解決<em>任何</em>分散式系統問題時派上用場：
+</p>
+
+<ul>
+  <li>「<em>不要對抗中間設備，理解它的行為</em>」——這是穿越的精髓，也是所有跨界系統設計的精髓</li>
+  <li>「<em>同步精準度比個別技術選擇更關鍵</em>」——DCUtR 教給我們的，適用於分散式共識</li>
+  <li>「<em>退路要先於主路</em>」——TURN fallback 的設計哲學，是所有可靠系統的共通智慧</li>
+  <li>「<em>身份不是位置</em>」——P2P 對 PeerID 的堅持，是現代軟體架構的轉捩點</li>
+</ul>
+
+<p>
+  最後感謝你讀到這裡。這本書 19 章涵蓋了一個技術領域 30 年的累積——
+  從 1994 年 RFC 1631 第一次定義 NAT，到 2025 年 IPFS 大規模測量。<strong>網路工程是「<em>長期主義</em>」的領域</strong>，
+  你今天學到的東西，在 2040 年仍然不會過時。
+</p>
+
+<div class="callout callout-history">
+  <span class="callout-title">後記</span>
+  本書多次強調「<em>NAT 穿越在 2030 年代仍是核心知識</em>」。
+  作為作者，我希望這個預測<strong>是錯的</strong>——希望 IPv6 真的全面普及，
+  希望端對端原則重新成為網際網路的常態，希望本書的部分章節在十年後變成「<em>歷史閱讀</em>」。
+  但即使那一天到來，本書背後的<em>工程哲學</em>仍會繼續發光。
+</div>
+
+<h2>19.9 章末提要</h2>
+
+<div class="callout callout-note">
+  <span class="callout-title">本章核心觀念</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>CGNAT 是現代行動電信的常態——P2P 系統必須假設它的存在。</li>
+    <li>5G、SRv6 帶來新的網路定址挑戰，但不會根本改變本書的知識體系。</li>
+    <li>純 IP P2P 在 IoT 領域是少數派；本地 mesh 與 cloud-mediated 是主流。</li>
+    <li>ZTNA 與 P2P 不是替代關係——Tailscale 等融合產品是最佳組合。</li>
+    <li>Web3 區塊鏈節點通訊是 P2P 的特殊應用，仰賴抗審查與低延遲廣播。</li>
+    <li>邊緣運算與 P2P 融合，產生「<em>就近 always-on relay</em>」新範式。</li>
+    <li>NAT 穿越知識在整個 2030 年代仍是核心；2040+ 才可能變成歷史閱讀。</li>
+    <li>本書的工程哲學——「不對抗、要理解；精準同步；退路先於主路；身份不是位置」——遠比具體技術更持久。</li>
+  </ul>
+</div>
+
+<h3>動腦時間</h3>
+<ol>
+  <li>調查你的行動電信業者是否使用 CGNAT。用 <code>curl ifconfig.me</code> 拿到對外 IP，
+    對比手機自身 IP 是否在 100.64.0.0/10 範圍。</li>
+  <li>論述題：「<em>5 年內 IPv6 會完全取代 NAT</em>」這個預測，請從技術、商業、政策三個角度評論其可能性。</li>
+  <li>設計練習：你要做一個低功耗 IoT 感測器網路（電池供電 5 年）。
+    請列出與本書介紹的 P2P 協議的至少五個不同設計考量。</li>
+  <li>研究 Tailscale 在 ZTNA 與 P2P 的融合。它的控制平面與本章介紹的 ZTNA 產品有什麼異同？</li>
+  <li>展望題：你認為下一個 10 年，最可能改變 P2P 工程實踐的<em>單一</em>技術變化是什麼？為什麼？</li>
+</ol>
+
+<h3>延伸閱讀</h3>
+<ul>
+  <li>RFC 6598 — IANA-Reserved IPv4 Prefix for Shared Address Space (CGNAT)</li>
+  <li>RFC 8200 — IPv6 Specification</li>
+  <li>RFC 8754 — IPv6 Segment Routing Header (SRv6)</li>
+  <li>"Zero Trust Networks" by Evan Gilman &amp; Doug Barth (O'Reilly)</li>
+  <li>Matter Specification — Connectivity Standards Alliance（IoT 新標準）</li>
+  <li>Filecoin Spec — github.com/filecoin-project/specs（區塊鏈儲存）</li>
+  <li>本書封面所列所有附錄資料（速查表、術語表、RFC 索引、實驗指引）</li>
+</ul>
+
+<nav class="chapter-nav">
+  <a class="prev" href="ch18.html">
+    <span class="label">← PREV</span>
+    <span class="title">第 18 章 · 部署、量測與除錯</span>
+  </a>
+  <a class="next" href="cheatsheet.html">
+    <span class="label">NEXT →</span>
+    <span class="title">附錄 A · 完整速查表</span>
+  </a>
+</nav>
+
+<footer>
+  <div>CHAPTER 19 / 19 · 終章 · NAT TRAVERSAL × P2P TEXTBOOK</div>
+  <div class="ornament">— ◆ 正文完 ◆ —</div>
+</footer>
+
+</main>
+
+<script src="../share/js/mermaid.min.js"></script>
+<script src="../share/js/textbook.js"></script>
+</body>
+</html>

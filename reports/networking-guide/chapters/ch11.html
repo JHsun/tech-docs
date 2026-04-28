@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 11 章 · BitTorrent 與檔案分享</title>
+<link rel="stylesheet" href="../share/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>NAT TRAVERSAL × P2P</span>
+  </div>
+  <nav>
+    <a href="../firewall-traversal-and-p2p-guide -index.html">封面</a>
+    <a href="ch10.html">CH 10</a>
+    <a href="ch11.html" class="current">CH 11</a>
+    <a href="ch12.html">CH 12</a>
+    <a href="ch13.html">CH 13</a>
+    <a href="cheatsheet.html">速查</a>
+    <a href="glossary.html">術語</a>
+    <button id="themeToggle" class="theme-toggle">暗色</button>
+  </nav>
+</header>
+
+<main class="page">
+
+<div class="chapter-meta">
+  <span class="dot"></span> PART III &nbsp;·&nbsp; P2P 網路架構
+  <span class="dot"></span> CHAPTER 11
+</div>
+
+<h1>
+  <span class="chapter-num">CHAPTER 11</span>
+  BitTorrent 與檔案分享
+</h1>
+
+<div class="chapter-intro">
+  <h4>本章導讀</h4>
+  <p>
+    BitTorrent 是迄今最成功的 P2P 應用，也是許多現代設計（包括 IPFS）的精神祖父。
+    它由 Bram Cohen 在 2001 年發表，核心創新在於：
+    <strong>把單一檔案切成許多 piece，讓 peer 們以「<em>tit-for-tat</em>」（一報還一報）的方式互相交換</strong>，
+    既解決了單一伺服器的頻寬瓶頸，又透過經濟激勵讓參與者誠實貢獻。
+    本章從 .torrent 檔案結構出發，講到 piece selection 演算法、tracker 與 DHT 的職責分工，
+    最後介紹 µTP 這個為 P2P 設計的傳輸協議。
+  </p>
+</div>
+
+<div class="objectives">
+  <h4>📚 學習目標</h4>
+  <ul>
+    <li>能解析 .torrent 檔案的 bencode 結構與 info_hash 的角色。</li>
+    <li>能描述 tracker、DHT、PEX 三種 peer discovery 機制及其差異。</li>
+    <li>能解釋 tit-for-tat 與 optimistic unchoking 的經濟設計。</li>
+    <li>能描述 rarest-first piece selection 為何是核心策略。</li>
+    <li>能說明 magnet link 如何徹底去中心化 BitTorrent。</li>
+    <li>能解釋 µTP 為何不直接用 TCP。</li>
+  </ul>
+</div>
+
+<h2>11.1 BitTorrent 的核心洞見</h2>
+
+<p>2001 年 Bram Cohen 觀察到傳統檔案分享有兩個問題：</p>
+
+<ol>
+  <li><strong>HTTP/FTP 下載</strong>：所有人都從伺服器下載，伺服器頻寬就是瓶頸；<em>越熱門越塞</em>。</li>
+  <li><strong>Napster / Gnutella 模式</strong>：peer 一邊下載一邊上傳，但缺乏激勵——大量「leecher」只下載不分享。</li>
+</ol>
+
+<p>BitTorrent 的解決方案綜合三個關鍵設計：</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>① 切 Piece</h4>
+    <p>檔案切成等大小的 piece（典型 256 KB ~ 4 MB），每個 piece 有 SHA-1 hash。
+    peer 一拿到任何完整 piece 就能立刻分享，<strong>不必等整個檔案下完</strong>。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>② Tit-for-Tat</h4>
+    <p>「<em>你給我，我才給你</em>」——peer 優先把上傳頻寬給<strong>正在給自己上傳的對方</strong>。
+    純 leecher 自然吃不到頻寬。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>③ Rarest-First</h4>
+    <p>peer 優先下載「<em>所有對等節點中持有率最低</em>」的 piece，
+    避免熱門 piece 過度集中、稀有 piece 消失。</p>
+  </div>
+</div>
+
+<p>
+  這三個設計組合起來，讓 BitTorrent 成為<strong>越多人下載越快</strong>的網路——
+  與傳統 client-server 完全相反的擴展曲線。
+</p>
+
+<h2>11.2 .torrent 檔案結構</h2>
+
+<h3>11.2.1 Bencode 編碼</h3>
+
+<p>
+  BitTorrent 使用一種叫 <strong>bencode</strong> 的簡單序列化格式。四種類型：
+</p>
+
+<pre data-lang="bencode">字串：&lt;長度&gt;:&lt;內容&gt;       例：4:spam = "spam"
+整數：i&lt;數字&gt;e            例：i42e   = 42
+list：l&lt;item1&gt;...e        例：l4:spam4:eggse = ["spam","eggs"]
+dict：d&lt;key1&gt;&lt;val1&gt;...e   例：d3:cow3:moo4:spam4:eggse
+                              = {cow:"moo", spam:"eggs"}
+                              （key 必須是字串且按字典序排列）</pre>
+
+<p>
+  bencode 設計目標：簡單、可預測、保證唯一序列化（同樣資料只有一種編碼）。
+  這個唯一性保證對 info_hash 的計算極為關鍵。
+</p>
+
+<h3>11.2.2 .torrent 檔的結構</h3>
+
+<pre data-lang="bencode">{
+  "announce": "http://tracker.example.com:6969/announce",
+  "announce-list": [["http://tracker1..."], ["http://tracker2..."]],
+  "creation date": 1714000000,
+  "comment": "Linux ISO",
+  "created by": "Transmission/3.0",
+
+  "info": {
+    "name": "ubuntu-24.04.iso",
+    "piece length": 262144,            ← 256 KB
+    "pieces": "&lt;每 20 byte 是一個 SHA-1, 串連起來&gt;",
+    "length": 4500000000               ← 單檔模式
+  }
+}
+
+# 多檔案模式時，info 裡用 "files" 陣列代替 "length"</pre>
+
+<h3>11.2.3 info_hash：torrent 的唯一身份</h3>
+
+<p>
+  <code>info_hash = SHA-1(bencode(info_dict))</code>。
+  這個 hash 是該 torrent 在整個 BitTorrent 世界的<strong>唯一身份</strong>——
+  tracker 用它識別 swarm、DHT 用它當 key、peer 之間握手要互報它。
+</p>
+
+<div class="callout callout-info">
+  <span class="callout-title">為什麼 bencode 的「唯一性」很重要</span>
+  若兩個程式對同一個 dict 序列化結果不同，產生的 info_hash 就不同——
+  會被當成<em>不同的</em> torrent。bencode 規定 dict key 必須按字典序，
+  數字不能有前導 0 等規則，正是為了確保<strong>確定性編碼</strong>。
+  這是「<em>用簡單的協議達成複雜的一致性</em>」的優美案例。
+</div>
+
+<h2>11.3 三種 Peer Discovery 機制</h2>
+
+<p>有了 .torrent，下一個問題是：怎麼找到其他正在下載/上傳同一個 torrent 的 peer？</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TB
+    Me[我的 Client]
+
+    subgraph Discovery["Peer Discovery 三條路"]
+        T[Tracker<br/>HTTP/UDP 中心式]
+        D[DHT<br/>去中心式 Kademlia]
+        P[PEX<br/>peer-to-peer exchange]
+    end
+
+    Me --> T
+    Me --> D
+    Me --> P
+
+    T -->|peer list| Me
+    D -->|peer list| Me
+    P -->|peer list| Me
+
+    classDef central fill:#7a1414,stroke:#7a1414,color:#fff
+    classDef decent fill:#2d5a3d,stroke:#2d5a3d,color:#fff
+    class T central
+    class D,P decent
+</div>
+<div class="caption">圖 11-1 ｜ BitTorrent 的三種 peer discovery 機制</div>
+</div>
+
+<h3>11.3.1 Tracker（中心式）</h3>
+
+<p>
+  最古老的方式。Tracker 是一台公網伺服器，每個 swarm（同一 torrent 的所有 peer）的所有成員定期向它報到。
+  Client 透過 HTTP GET 請求拿到 peer 清單：
+</p>
+
+<pre data-lang="http">GET /announce?info_hash=...&peer_id=...&port=6881
+       &uploaded=0&downloaded=0&left=4500000000
+       &event=started
+
+Response (bencoded):
+{
+  "interval": 1800,              ← 多久後再 announce
+  "peers": &lt;binary peer list&gt;     ← 6 byte/peer (4 IP + 2 port)
+}</pre>
+
+<p>
+  優點：簡單、low overhead。<br>
+  缺點：<strong>單點失效</strong>——tracker 掛了整個 swarm 就斷；也容易被法律攻擊。
+</p>
+
+<h3>11.3.2 DHT（去中心式）</h3>
+
+<p>
+  BEP 5 定義了 BitTorrent 的 DHT 機制（基於 Kademlia，第 10 章詳述）。
+  在 DHT 中：
+</p>
+
+<ul>
+  <li>每個 peer 節點有 160-bit Node ID（隨機產生）</li>
+  <li><strong>info_hash 直接是 DHT 中的 key</strong></li>
+  <li>對該 key 「儲存」的不是檔案內容，而是<em>一個 peer 清單</em>（IP, port）</li>
+  <li>新 peer 對 info_hash 做 <code>get_peers</code> 查詢，拿到 swarm 成員清單</li>
+  <li>同時做 <code>announce_peer</code> 把自己加入該 swarm</li>
+</ul>
+
+<p>
+  DHT 讓 BitTorrent 從「<em>需要 tracker</em>」變成「<em>不需要 tracker</em>」——
+  只要有 info_hash 與一個 bootstrap node，就能找到所有 peer。
+  這是 magnet link 的基礎。
+</p>
+
+<h3>11.3.3 PEX（Peer Exchange）</h3>
+
+<p>
+  最簡單的機制——<strong>peer 之間互相交換各自認識的 peer 清單</strong>。
+  我認識 A、B、C；你認識 D、E、F；我們交換後我多認識了 D、E、F。
+  PEX 是一種 epidemic 傳播，讓網路不必依賴 tracker/DHT 也能擴散 peer 資訊。
+</p>
+
+<h2>11.4 Magnet Link：徹底去中心化</h2>
+
+<p>
+  傳統做法是先下載 .torrent 檔再開始。Magnet link 進一步省略這步——
+  只要一個 URI 就能開始：
+</p>
+
+<pre data-lang="uri">magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a
+       &dn=ubuntu-24.04.iso
+       &tr=http://tracker.example.com:6969/announce</pre>
+
+<p>關鍵欄位：</p>
+
+<ul>
+  <li><code>xt</code>（exact topic）= <code>urn:btih:&lt;info_hash&gt;</code>——torrent 身份</li>
+  <li><code>dn</code>（display name）= 檔名提示</li>
+  <li><code>tr</code>（tracker）= 可選的 tracker 提示</li>
+</ul>
+
+<h3>11.4.1 從 Magnet 開始的完整流程</h3>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant U as User
+    participant C as Client
+    participant DHT as DHT 網路
+    participant P as 已有 metadata 的 peer
+
+    U->>C: 開啟 magnet link
+    C->>C: 解析 info_hash
+    Note over C: 此時 client <strong>沒有</strong> .torrent 內容！
+
+    C->>DHT: get_peers(info_hash)
+    DHT->>C: peer list
+
+    C->>P: TCP 連線 + handshake
+    Note over C,P: handshake 含 BEP 10 ext message: ut_metadata
+
+    C->>P: ut_metadata: request piece 0
+    P->>C: ut_metadata: piece 0 內容
+    Note over C: 連續請求所有 metadata pieces
+
+    C->>C: 重組 metadata，驗證 SHA-1 == info_hash ✓
+    Note over C: 現在 client 有完整 .torrent 內容
+
+    C->>P: 開始下載實際檔案 piece
+    P->>C: piece data
+</div>
+<div class="caption">圖 11-2 ｜ Magnet link → DHT → metadata extension → 真正下載</div>
+</div>
+
+<p>這個流程展示了 BitTorrent 的優雅：<strong>整個系統不需要 .torrent 檔的儲存伺服器</strong>。
+info_hash 既是身份、也是驗證——只要 info_hash 正確、其他都能從網路重建。</p>
+
+<h2>11.5 Peer Wire Protocol</h2>
+
+<h3>11.5.1 Handshake</h3>
+
+<p>兩個 peer 建立 TCP 連線後，先交換 68 byte 的 handshake：</p>
+
+<pre data-lang="binary">[1 byte ] pstrlen = 19
+[19 byte] pstr    = "BitTorrent protocol"
+[8 byte ] reserved (主要是 extension flags)
+[20 byte] info_hash
+[20 byte] peer_id
+
+雙方比較 info_hash 一致才繼續。</pre>
+
+<h3>11.5.2 訊息類型</h3>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>ID</th><th>名稱</th><th>意義</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>0</td><td><code>choke</code></td><td>「我暫時不上傳給你」</td></tr>
+    <tr><td>1</td><td><code>unchoke</code></td><td>「我願意上傳給你」</td></tr>
+    <tr><td>2</td><td><code>interested</code></td><td>「我對你的 piece 有興趣」</td></tr>
+    <tr><td>3</td><td><code>not interested</code></td><td>「對你那邊沒新東西要的」</td></tr>
+    <tr><td>4</td><td><code>have</code></td><td>「我剛拿到 piece N」</td></tr>
+    <tr><td>5</td><td><code>bitfield</code></td><td>「我目前持有哪些 piece 的位元圖」</td></tr>
+    <tr><td>6</td><td><code>request</code></td><td>「請給我 piece I 的 [offset, len] 區段」</td></tr>
+    <tr><td>7</td><td><code>piece</code></td><td>「這是你要的資料」</td></tr>
+    <tr><td>8</td><td><code>cancel</code></td><td>「取消之前的 request」</td></tr>
+    <tr><td>20</td><td><code>extended</code></td><td>BEP 10 擴展訊息（PEX、metadata 等）</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>11.5.3 Choking 演算法（Tit-for-Tat 的實作）</h3>
+
+<p>每個 peer 對其他 peer 維護兩個狀態：</p>
+
+<ul>
+  <li><code>am_choking</code>：<em>我</em>是否在 choke 對方</li>
+  <li><code>peer_interested</code>：<em>對方</em>是否表示有興趣</li>
+</ul>
+
+<p>典型 client（如 mainline、libtorrent）的 unchoke 策略：</p>
+
+<pre data-lang="algorithm">每 10 秒（regular unchoke round）：
+  從所有 peer 中，挑出「過去 20 秒給我上傳速率最高」的前 4 個
+  → 對它們 unchoke
+  → 對其他全部 choke
+
+每 30 秒（optimistic unchoke）：
+  從 choked 但 interested 的 peer 中，<strong>隨機挑一個</strong>
+  → 額外 unchoke 它
+  → 給新 peer 一個機會證明自己
+
+純 leecher 拿不到 unchoke → 速度 0
+慷慨上傳的 peer 互相發現 → 速度爆發</pre>
+
+<div class="callout callout-info">
+  <span class="callout-title">Optimistic Unchoke 的賽局意涵</span>
+  Tit-for-Tat 嚴格執行會造成「<strong>新 peer 永遠進不來</strong>」——
+  沒人給你頻寬你也沒得回報，鎖死。Optimistic unchoke 是<em>主動的善意</em>：
+  「我隨機選一個沒互相給的 peer 試試看」。這個小小的隨機性讓網路充滿活力，
+  也讓誠實的新 peer 能逐步建立關係。Cohen 的這個設計是賽局理論在 P2P 的經典範例。
+</div>
+
+<h2>11.6 Piece Selection：Rarest-First</h2>
+
+<h3>11.6.1 為什麼不能隨機？</h3>
+
+<p>
+  若 peer 隨機選 piece 下，會發生：
+</p>
+
+<ul>
+  <li>熱門 piece 被反覆下載——浪費</li>
+  <li>稀有 piece 沒人想要——可能因 seeder 離線而<em>永遠丟失</em></li>
+  <li>後加入的 peer 很難找到能<em>反過來上傳</em>的 piece</li>
+</ul>
+
+<h3>11.6.2 Rarest-First 演算法</h3>
+
+<pre data-lang="algorithm">每次需要選下一個 piece 下載時：
+  1. 看所有 peer 的 bitfield，統計每個 piece 在 swarm 中的副本數
+  2. 排除自己已有的
+  3. 從持有率最低的開始挑——副本越少越優先
+
+例外：First Phase（剛開始下載）
+  ・ 此時自己沒任何 piece，無法跟人交換
+  ・ 改用「random first piece」策略：隨機選 1 個下，趕快有東西能交換
+  ・ 等下到 4 個 piece，切換到 rarest-first
+
+例外：Endgame Mode（接近完成）
+  ・ 剩最後幾個 piece 時，<em>同時</em>對多個 peer 發 request
+  ・ 收到任何一個就立即 cancel 其他
+  ・ 避免被慢 peer 拖住</pre>
+
+<h2>11.7 µTP：為 P2P 訂做的傳輸層</h2>
+
+<h3>11.7.1 為什麼 TCP 不夠</h3>
+
+<p>BitTorrent 早期跑在 TCP 上，但發現幾個問題：</p>
+
+<div class="callout callout-warn">
+  <span class="callout-title">TCP 對 P2P 的不友善</span>
+  <ul style="margin:0.5em 0 0;">
+    <li><strong>佔滿家用上行頻寬</strong>：TCP 的 AIMD 會吃滿頻寬，導致使用者其他應用（瀏覽、視訊通話）變慢</li>
+    <li><strong>對多連線不友善</strong>：BitTorrent 同時開十幾個連線，每個 TCP 都搶頻寬</li>
+    <li><strong>NAT 穿越困難</strong>：TCP hole punching 比 UDP 難（第 6 章）</li>
+    <li><strong>對 ISP 不友善</strong>：ISP 的 CGNAT 對大量 TCP 連線消耗 conntrack 表</li>
+  </ul>
+</div>
+
+<h3>11.7.2 µTP 的核心創新</h3>
+
+<p>
+  <strong>µTP</strong>（Micro Transport Protocol，BEP 29）由 BitTorrent Inc. 在 2009 年推出，
+  跑在 UDP 上但提供<em>類 TCP 的可靠串流</em>。它的特殊之處是<strong>LEDBAT 擁塞控制</strong>：
+</p>
+
+<pre data-lang="conceptual">傳統 TCP：佔滿可用頻寬，遇到丟包才退讓
+LEDBAT：偵測網路<em>排隊延遲</em>的增加，在<u>達到頻寬上限前</u>就退讓
+
+直觀解釋：
+  TCP = 「我用全力，撞到牆才退」
+  LEDBAT = 「我感覺路上開始塞，提前讓位」
+
+效果：
+  ・ 同一連線內 BT 流量自動讓位給瀏覽、視訊通話
+  ・ 使用者體感「BT 還在跑但網路不卡」
+  ・ ISP 對 BT 的不滿大幅下降</pre>
+
+<p>
+  µTP 也順便享受了 UDP 的所有好處：易於 NAT 穿越、無 head-of-line blocking、可疊在 TLS 上。
+  現代 BT client（µTorrent、qBittorrent、Transmission）預設啟用 µTP，TCP 只當 fallback。
+</p>
+
+<h2>11.8 BitTorrent 與 NAT 穿越的關係</h2>
+
+<p>
+  BitTorrent 是<strong>真正壓力測試 NAT 穿越技術的實戰場</strong>。對 BT 而言：
+</p>
+
+<ul>
+  <li>NAT 後的 peer <em>能下載</em>但<em>無法上傳到</em>外面的 NAT 後 peer——形成 leecher 階級</li>
+  <li>µTorrent 等主流 client 早就支援 UPnP / NAT-PMP（第 4 章）</li>
+  <li>µTP 的 UDP 化讓 hole punching（第 6 章）對它更可行</li>
+  <li>BEP 55 定義了 BitTorrent 的 hole punching 擴展，讓 peer 之間互助打洞</li>
+</ul>
+
+<p>
+  事實上，本書的許多現代 P2P 設計都站在 BitTorrent 巨人的肩膀上——
+  IPFS 的 bitswap、libp2p 的 transport 抽象，都受到 BT 經驗深遠影響。
+</p>
+
+<h2>11.9 衍生與後續</h2>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>WebTorrent</h4>
+    <p>把 BT 帶到瀏覽器：用 WebRTC DataChannel 取代 TCP/µTP，info_hash 保持相容。
+    讓網頁能直接成為 BT peer。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>IPFS</h4>
+    <p>「做對的 BitTorrent」：內容定址（CID 取代 info_hash）、單一全域 swarm 而非每 torrent 獨立、
+    bitswap 取代 peer wire protocol。第 13 章呼應。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>BitTorrent v2</h4>
+    <p>2020 年發表的協議升級：用 SHA-256 取代 SHA-1（後者已不安全）、
+    Merkle tree 取代 piece hash list、更小的 metadata。普及緩慢。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Filecoin / Storj</h4>
+    <p>把 P2P 儲存加上經濟激勵的區塊鏈衍生物。
+    與 BT 不同的是它們提供「<em>持久儲存</em>」而非「<em>暫存交換</em>」。</p>
+  </div>
+</div>
+
+<h2>11.10 章末提要</h2>
+
+<div class="callout callout-note">
+  <span class="callout-title">本章核心觀念</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>BitTorrent 三大設計：piece 切片、tit-for-tat 激勵、rarest-first 選擇。</li>
+    <li>.torrent 用 bencode 編碼；info_hash 是 swarm 唯一身份。</li>
+    <li>三種 peer discovery：Tracker（中心）、DHT（去中心）、PEX（互傳）。</li>
+    <li>Magnet link + DHT + metadata extension = 完全去中心化的 BT。</li>
+    <li>Peer wire protocol 透過 choke/unchoke 實現 tit-for-tat；optimistic unchoke 給新 peer 機會。</li>
+    <li>Rarest-first 兼顧效率與資料保存，配合 first-phase / endgame 例外。</li>
+    <li>µTP 用 LEDBAT 擁塞控制，讓 BT 流量自動讓位給互動應用。</li>
+    <li>BT 是 NAT 穿越技術的實戰場，許多技術經驗被現代 P2P 系統繼承。</li>
+  </ul>
+</div>
+
+<h3>動腦時間</h3>
+<ol>
+  <li>計算：一個 4 GB 的 ISO，piece size = 256 KB，pieces 欄位的 size 是多少？這對小 torrent 跟大 torrent 分別意味著什麼？</li>
+  <li>為什麼 BitTorrent 的 DHT 是「儲存 peer list」而不是「儲存檔案內容」？這個決定如何讓 DHT 規模可控？</li>
+  <li>Optimistic unchoke 給壞 peer（純 leecher）一個 30 秒的搭便車時間。為什麼這個漏洞是<em>必要</em>的？能不能設計一個更精準的機制？</li>
+  <li>研究 BEP 55（hole punching extension），對比第 6 章學的通用 hole punching，BT 在實作細節上做了哪些針對性優化？</li>
+  <li>µTP 是 BT 的內部協議，但也被 WebTorrent、libtorrent 用於非 BT 場景。它的 LEDBAT 在「友善背景流量」場景的價值是什麼？</li>
+</ol>
+
+<h3>延伸閱讀</h3>
+<ul>
+  <li>Cohen, Bram. "Incentives Build Robustness in BitTorrent" (2003) — 原論文，必讀</li>
+  <li>BEP 3 — The BitTorrent Protocol Specification</li>
+  <li>BEP 5 — DHT Protocol</li>
+  <li>BEP 9 — Extension for Peers to Send Metadata Files</li>
+  <li>BEP 29 — uTorrent transport protocol (µTP)</li>
+  <li>BEP 55 — Holepunch extension</li>
+  <li>libtorrent 原始碼 — 工業級 BT 實作學習材料</li>
+</ul>
+
+<nav class="chapter-nav">
+  <a class="prev" href="ch10.html">
+    <span class="label">← PREV</span>
+    <span class="title">第 10 章 · DHT 與 P2P 拓樸</span>
+  </a>
+  <a class="next" href="ch12.html">
+    <span class="label">NEXT →</span>
+    <span class="title">第 12 章 · WebRTC</span>
+  </a>
+</nav>
+
+<footer>
+  <div>CHAPTER 11 / 19 · BitTorrent · NAT TRAVERSAL × P2P TEXTBOOK</div>
+</footer>
+
+</main>
+
+<script src="../share/js/mermaid.min.js"></script>
+<script src="../share/js/textbook.js"></script>
+</body>
+</html>

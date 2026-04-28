@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 7 章 · TURN 與 Circuit Relay</title>
+<link rel="stylesheet" href="../share/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>NAT TRAVERSAL × P2P</span>
+  </div>
+  <nav>
+    <a href="../firewall-traversal-and-p2p-guide -index.html">封面</a>
+    <a href="ch06.html">CH 6</a>
+    <a href="ch07.html" class="current">CH 7</a>
+    <a href="ch08.html">CH 8</a>
+    <a href="ch09.html">CH 9</a>
+    <a href="cheatsheet.html">速查</a>
+    <a href="glossary.html">術語</a>
+    <button id="themeToggle" class="theme-toggle">暗色</button>
+  </nav>
+</header>
+
+<main class="page">
+
+<div class="chapter-meta">
+  <span class="dot"></span> PART II &nbsp;·&nbsp; 穿越技術的核心方法
+  <span class="dot"></span> CHAPTER 07
+</div>
+
+<h1>
+  <span class="chapter-num">CHAPTER 7</span>
+  中繼穿越：TURN 與 Circuit Relay
+</h1>
+
+<div class="chapter-intro">
+  <h4>本章導讀</h4>
+  <p>
+    當 hole punching 失敗（最常見於 symmetric NAT 對 symmetric NAT），
+    我們需要一條「<strong>退路</strong>」——讓所有流量透過第三方公網主機<em>中繼</em>。
+    本章介紹兩種設計哲學的中繼方案：IETF 的 <strong>TURN</strong>（集中式、規範化）與
+    libp2p 的 <strong>Circuit Relay v2</strong>（去中心化、資源約束）。
+    讀完本章，你會理解為什麼現代系統把中繼從「失敗時的最後手段」轉為「總是在線的基礎設施」——
+    Tailscale 的 DERP 是這個轉變的標竿案例。
+  </p>
+</div>
+
+<div class="objectives">
+  <h4>📚 學習目標</h4>
+  <ul>
+    <li>能說明 TURN 與 STUN 在訊息結構上的繼承關係。</li>
+    <li>能描述 TURN 的 Allocate / CreatePermission / Send / Channel 四個關鍵操作。</li>
+    <li>能評估 TURN 的成本（頻寬、延遲）與部署考量。</li>
+    <li>能說明 Circuit Relay v2 的 reservation 機制與資源約束哲學。</li>
+    <li>能對比集中式（TURN）與去中心化（Circuit Relay）兩種設計的取捨。</li>
+    <li>能理解 Tailscale DERP 的「always-on relay」設計範式。</li>
+  </ul>
+</div>
+
+<h2>7.1 為什麼需要中繼？</h2>
+
+<p>
+  Hole punching 對 cone 類 NAT 高效，但對 <strong>symmetric NAT vs symmetric NAT</strong> 場景
+  幾乎一定失敗。考慮到行動電信網路、CGNAT、企業安全閘道大量採用 symmetric NAT，
+  在現實 P2P 系統中，<em>有相當比例的連線無法靠 punching 建立</em>。
+  此時必須有一條「退路」——所有流量透過一台<em>能被雙方主動連到的</em>公網主機轉送。
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TB
+    subgraph Box1["❌ 直連失敗"]
+        A1[Alice<br/>symmetric NAT] -.被擋.- B1[Bob<br/>symmetric NAT]
+    end
+
+    subgraph Box2["✅ 透過中繼"]
+        A2[Alice] --> R[公網中繼]
+        B2[Bob] --> R
+        R --> A2
+        R --> B2
+    end
+
+    classDef fail fill:#7a1414,stroke:#7a1414,color:#fff
+    classDef ok fill:#2d5a3d,stroke:#2d5a3d,color:#fff
+    class A1,B1 fail
+    class A2,B2,R ok
+</div>
+<div class="caption">圖 7-1 ｜ 中繼從根本繞過 NAT 問題：雙方都「主動連出」一台公網主機</div>
+</div>
+
+<p>
+  中繼的代價是：<strong>頻寬</strong>（所有流量都過一台主機）、<strong>延遲</strong>（多了一跳）、
+  <strong>單點</strong>（中繼掛了就斷線）。但它的<em>普世性</em>讓它成為 P2P 系統的最後保險。
+</p>
+
+<h2>7.2 TURN：STUN 的延伸</h2>
+
+<p>
+  <strong>TURN</strong>（Traversal Using Relays around NAT，RFC 5766/8656）是 IETF 為 WebRTC、
+  SIP/VoIP 等場景設計的標準中繼協議。它的訊息格式直接繼承自 STUN——共享 magic cookie、
+  TLV attribute 結構、20 byte header——這是工程上的優雅選擇，
+  讓 STUN 客戶端能輕鬆擴展為 TURN 客戶端。
+</p>
+
+<h3>7.2.1 TURN 的核心概念</h3>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>Relayed Transport Address</h4>
+    <p>TURN 伺服器在自己的公網位址上，<strong>幫客戶端配一個專屬 port</strong>，
+    這個位址叫 relayed transport address，是客戶端對外的「替身位址」。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Server-Reflexive Address</h4>
+    <p>跟 STUN 一樣，TURN 也順便告訴客戶端「<em>從我這看你是這個位址</em>」，
+    這是 server-reflexive address，可給 ICE 嘗試直連。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Permission</h4>
+    <p>客戶端必須<strong>先告訴 TURN「允許這個 peer 透過我中繼來找我」</strong>，
+    才能接收該 peer 的封包。這是 TURN 防濫用的關鍵機制。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Allocation Lifetime</h4>
+    <p>每個 TURN 分配（一個 relayed address）有租期，預設 10 分鐘。
+    客戶端必須定期 refresh 否則自動釋放。</p>
+  </div>
+</div>
+
+<h3>7.2.2 完整流程</h3>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant C as Client (Alice)
+    participant T as TURN Server
+    participant P as Peer (Bob)
+
+    Note over C,T: 階段 1：Allocate
+    C->>T: Allocate Request<br/>(REQUESTED-TRANSPORT=UDP)
+    T->>C: 401 Unauthorized<br/>(REALM, NONCE)
+    C->>T: Allocate Request<br/>(USERNAME, MESSAGE-INTEGRITY)
+    T->>C: Allocate Success<br/>RELAYED-ADDRESS=relay:50001<br/>XOR-MAPPED-ADDRESS=alice_public<br/>LIFETIME=600
+
+    Note over C,T: 階段 2：CreatePermission
+    C->>T: CreatePermission<br/>(XOR-PEER-ADDRESS=bob_public)
+    T->>C: CreatePermission Success
+
+    Note over C,P: 階段 3：開始通訊（雙向）
+    C->>T: Send Indication<br/>(XOR-PEER-ADDRESS=bob, DATA="Hi")
+    T->>P: 從 relay:50001 送出<br/>原始資料 "Hi"
+
+    P->>T: 直接送到 relay:50001<br/>原始資料 "Hello"
+    T->>C: Data Indication<br/>(XOR-PEER-ADDRESS=bob, DATA="Hello")
+
+    Note over C,T: 階段 4：定期 Refresh
+    loop 每 5 分鐘
+        C->>T: Refresh Request
+        T->>C: Refresh Success
+    end
+</div>
+<div class="caption">圖 7-2 ｜ TURN 的完整生命週期：Allocate → Permission → Send/Data → Refresh</div>
+</div>
+
+<h3>7.2.3 Send Indication vs Channel</h3>
+
+<p>
+  TURN 提供兩種轉送資料的機制：
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>面向</th>
+      <th>Send / Data Indication</th>
+      <th>Channel Mechanism</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>每個訊息開銷</td>
+      <td>~36 byte STUN header + attributes</td>
+      <td>4 byte ChannelData header</td>
+    </tr>
+    <tr>
+      <td>需要先建立</td>
+      <td>無（每包獨立）</td>
+      <td>需先 ChannelBind</td>
+    </tr>
+    <tr>
+      <td>適用場景</td>
+      <td>低頻控制訊息</td>
+      <td>音視訊串流、高頻資料</td>
+    </tr>
+    <tr>
+      <td>peer 識別</td>
+      <td>每包都帶 XOR-PEER-ADDRESS</td>
+      <td>用 channel number 對應</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>
+  Channel 機制是 TURN 為了高頻資料設計的優化——把 peer 位址壓縮成一個 16 bit 的 channel number，
+  封包額外開銷從幾十 byte 降到 4 byte。WebRTC 視訊串流幾乎都用 channel。
+</p>
+
+<h3>7.2.4 認證：Long-Term Credential</h3>
+
+<p>
+  TURN 不像 STUN 可以匿名使用——中繼意味著消耗伺服器頻寬，必須<strong>嚴格認證</strong>，
+  否則任何人都可拿你的 TURN 當 amplifier 攻擊或匿名代理。
+</p>
+
+<pre data-lang="conceptual">Long-term credential 認證流程：
+
+1. Client 首次發 Allocate 不帶認證
+2. Server 回 401 Unauthorized，帶 NONCE 與 REALM
+3. Client 計算 HMAC-SHA1(message, key)
+   其中 key = MD5(username + ":" + realm + ":" + password)
+4. Client 重發，附 USERNAME、REALM、NONCE、MESSAGE-INTEGRITY
+5. Server 用同樣方式計算驗證
+6. Server 同意分配，後續訊息都帶 MESSAGE-INTEGRITY</pre>
+
+<div class="callout callout-warn">
+  <span class="callout-title">短期憑證的好實踐</span>
+  生產環境不建議使用靜態 username/password。WebRTC 廠商常用「<strong>短期憑證</strong>」模式：
+  後端服務器用一個共享密鑰（HMAC key），動態產生<em>限時</em>的 TURN 憑證
+  （username = "expiry:userid"、password = HMAC(key, username)）。
+  這樣即使憑證外洩也只在短時間內可用。
+</div>
+
+<h3>7.2.5 TURN over TLS / DTLS</h3>
+
+<p>
+  在企業網路中，UDP 常被嚴格限制。TURN 規範因此支援多種傳輸：
+</p>
+
+<ul>
+  <li><strong>TURN over UDP</strong>（預設，port 3478）— 效率最高</li>
+  <li><strong>TURN over TCP</strong>（port 3478）— 當 UDP 被擋時的備援</li>
+  <li><strong>TURN over TLS</strong>（port 5349）— 加密傳輸，可偽裝成 HTTPS 流量</li>
+  <li><strong>TURN over DTLS</strong>（port 5349）— UDP 上的 TLS</li>
+</ul>
+
+<p>
+  企業環境最有效的選擇是 <strong>TURN over TLS on port 443</strong>——
+  讓中繼流量看起來跟 HTTPS 沒兩樣，幾乎能穿越所有防火牆。
+  這是許多 WebRTC 廠商生產環境的預設配置。
+</p>
+
+<h2>7.3 部署 TURN：以 coturn 為例</h2>
+
+<p>
+  <strong>coturn</strong> 是業界事實標準的開源 STUN/TURN 伺服器，
+  Google Hangouts、Discord 早期、Jitsi 都使用過它。
+</p>
+
+<h3>7.3.1 最小可用設定</h3>
+
+<pre data-lang="conf"># /etc/turnserver.conf
+
+listening-port=3478
+tls-listening-port=5349
+
+# 公網 IP（NAT 後的雲機要寫對外 IP）
+external-ip=YOUR_PUBLIC_IP/YOUR_PRIVATE_IP
+
+# Realm（任意，建議用域名）
+realm=turn.example.com
+
+# 認證模式
+lt-cred-mech                # long-term credentials
+user=alice:my_secret_pass   # 簡單測試用
+# 生產環境建議用 use-auth-secret 配合動態 token
+
+# 強烈建議
+no-tcp-relay                # 禁用 TCP 中繼（防 amplification）
+no-multicast-peers          # 禁止對 multicast 中繼
+no-loopback-peers           # 禁止對 loopback 中繼
+denied-peer-ip=10.0.0.0-10.255.255.255   # 禁止對私網中繼
+denied-peer-ip=192.168.0.0-192.168.255.255
+
+# TLS 憑證（建議用 Let's Encrypt）
+cert=/etc/letsencrypt/live/turn.example.com/fullchain.pem
+pkey=/etc/letsencrypt/live/turn.example.com/privkey.pem
+
+# 日誌
+syslog
+log-file=/var/log/turnserver.log
+verbose</pre>
+
+<h3>7.3.2 客戶端使用（WebRTC iceServers）</h3>
+
+<pre data-lang="javascript">const pc = new RTCPeerConnection({
+  iceServers: [
+    {
+      urls: [
+        'stun:turn.example.com:3478',
+        'turn:turn.example.com:3478?transport=udp',
+        'turn:turn.example.com:3478?transport=tcp',
+        'turns:turn.example.com:5349?transport=tcp'
+      ],
+      username: 'alice',
+      credential: 'my_secret_pass'
+    }
+  ]
+});</pre>
+
+<h3>7.3.3 容量規劃</h3>
+
+<div class="callout callout-info">
+  <span class="callout-title">TURN 頻寬估算</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>一通 720p 視訊通話：上下行各約 <strong>1.5 Mbps</strong>，雙向中繼 <strong>= 3 Mbps</strong></li>
+    <li>一台 1 Gbps 頻寬的 VPS：理論上撐 <strong>~330 通</strong>同時 720p 視訊</li>
+    <li>實際因 overhead 與 burst 應折半：<strong>~150 通</strong>是穩健估計</li>
+    <li>若目標是「直連 80%、TURN 20%」（合理的健康比例），1 Gbps VPS 約能服務 <strong>750 通</strong>整體連線</li>
+  </ul>
+</div>
+
+<p>
+  Medium 上一篇 2026 年的 WebRTC 實務文章建議：<strong>監控 TURN 使用率，
+  健康的 P2P 應用應控制在 20~30%；超過 40% 表示網路異常或需檢討策略</strong>。
+  這個指標值得寫進你的監控儀表板。
+</p>
+
+<h2>7.4 libp2p Circuit Relay v2：去中心化的中繼</h2>
+
+<p>
+  libp2p 採取了與 TURN 截然不同的設計哲學。它的 Circuit Relay v2 協議
+  讓<strong>網路中任何公網節點</strong>都能擔任 relay，
+  不需要架專屬基礎設施。為了避免被濫用，它引入了精細的<em>資源約束</em>機制。
+</p>
+
+<h3>7.4.1 設計哲學的對比</h3>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>面向</th>
+      <th>TURN（IETF）</th>
+      <th>Circuit Relay v2（libp2p）</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>誰當中繼</td><td>專門部署的 TURN 伺服器</td><td>網路中任何公網節點</td></tr>
+    <tr><td>認證</td><td>username/password 或短期 token</td><td>密碼學身份（PeerID）</td></tr>
+    <tr><td>資源控制</td><td>由業者選擇授權誰用</td><td>協議層內建 reservation 機制</td></tr>
+    <tr><td>計費</td><td>業者承擔頻寬成本</td><td>分散到全網，無中心成本</td></tr>
+    <tr><td>對 hole punching 的關係</td><td>fallback only</td><td>必經之路（DCUtR 用 relay 協調）</td></tr>
+    <tr><td>適合場景</td><td>商業 WebRTC、VoIP 服務</td><td>IPFS、Filecoin、去中心化網路</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>7.4.2 Reservation 機制</h3>
+
+<p>
+  Circuit Relay v2 的關鍵創新是 <strong>reservation</strong>——
+  想被當作「可中繼到達」的節點，必須先<em>主動向</em>某個 relay 申請預留：
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant A as Listener<br/>(在 NAT 後)
+    participant R as Relay<br/>(公網)
+    participant B as Dialer
+
+    Note over A,R: 階段 1：A 申請成為「透過 R 可達」
+    A->>R: HOP RESERVE 請求
+    R->>A: HOP RESERVE 回應<br/>(限制：1分鐘 / 100 KB)
+    Note over A: A 現在可被外面以<br/>/p2p/R/p2p-circuit/p2p/A 找到
+
+    Note over A,B: 階段 2：B 透過 R 連到 A
+    B->>R: HOP CONNECT (target=A)
+    R->>A: STOP CONNECT (initiator=B)
+    A->>R: STOP CONNECT 確認
+    R->>B: HOP CONNECT 確認
+
+    Note over A,B: 階段 3：透過 relay 雙向通訊（受限）
+    B-->>R: 加密資料
+    R-->>A: 轉送
+    A-->>R: 加密資料
+    R-->>B: 轉送
+
+    Note over A,R: 限額用完或時限到 → 連線結束<br/>（DCUtR 通常已在此前升級為直連）
+</div>
+<div class="caption">圖 7-3 ｜ Circuit Relay v2 的 reservation 與 relay 流程</div>
+</div>
+
+<h3>7.4.3 資源限制：每個 reservation 的約束</h3>
+
+<p>
+  Relay v2 規範允許 relay 對每個 reservation 強制執行以下限制（由 relay 決定具體值）：
+</p>
+
+<ul>
+  <li><strong>時間限制</strong>：reservation 過期時間（典型 1 小時）</li>
+  <li><strong>位元組限制</strong>：透過此 relay 中繼的總流量（典型 100 KB ~ 1 MB）</li>
+  <li><strong>連線數限制</strong>：同時透過此 relay 的活躍連線數</li>
+</ul>
+
+<p>
+  這些限制設計的目的——讓<em>每個公網節點都能無痛當 relay 而不被資源耗盡</em>——
+  正是 IPFS 上每個節點都能被找到的關鍵。一旦透過 relay 短暫通訊建立，
+  就會立刻嘗試 DCUtR 升級為直連（第 6 章），釋放 relay 資源。
+</p>
+
+<div class="callout callout-info">
+  <span class="callout-title">設計範式的轉變</span>
+  TURN 的世界觀：「<em>中繼是稀缺資源，由專人營運</em>」。<br>
+  Circuit Relay v2 的世界觀：「<em>中繼是社會公共財，每個人貢獻一點點</em>」。<br>
+  這個差異折射了兩個社群的根本立場：商業 WebRTC vs 去中心化網路。
+</div>
+
+<h2>7.5 Tailscale DERP：「Always-On Relay」範式</h2>
+
+<p>
+  Tailscale 的 DERP（Designated Encrypted Relay for Packets）採取了第三條路：
+  把中繼從「<em>失敗時的後備</em>」變成「<strong>總是在線的基礎設施</strong>」。
+</p>
+
+<h3>7.5.1 DERP 的角色定位</h3>
+
+<p>
+  Tailscale 部落格直白地寫：「<em>每一條連線在技術上都從 DERP 開始，
+  之後若可能升級為直連</em>」。這個設計改變了 P2P 的啟動曲線：
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant A as Node A
+    participant D as DERP Relay
+    participant B as Node B
+
+    Note over A,B: T = 0ms：使用者觸發連線
+    A->>D: 透過 DERP 送出資料 (立即)
+    D->>B: 轉送
+    B->>D: 回應
+    D->>A: 轉送
+    Note over A,B: 使用者已經能用了！
+
+    par 背景並行
+        A-->>B: NAT traversal 嘗試 (UDP)
+        B-->>A: NAT traversal 嘗試
+        Note over A,B: 失敗或 latency 高時繼續走 DERP
+    end
+
+    Note over A,B: T = 200ms：直連成功
+    A->>B: 直接通訊（旁路 DERP）
+    B->>A: 直接通訊
+    Note over A,B: 流量無痛切換到直連<br/>體感無延遲
+</div>
+<div class="caption">圖 7-4 ｜ Tailscale 的 always-on relay 範式：先連通，後升級</div>
+</div>
+
+<p>
+  這個設計的好處：使用者體感是「<em>瞬間連通</em>」，不必等 ICE 嘗試所有候選。
+  Tailscale 的內部數據顯示——<strong>超過 90% 的連線最終會升級為直連</strong>，
+  DERP 只在初始時被使用，或在無法直連的網路條件下作為長期通道。
+</p>
+
+<h3>7.5.2 DERP 的特殊設計</h3>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>HTTPS-friendly</h4>
+    <p>DERP 跑在 <strong>port 443 上的 HTTPS</strong>，封裝協議讓它幾乎能穿越所有企業防火牆。
+    對防火牆而言，DERP 連線跟瀏覽 GitHub 沒兩樣。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>End-to-End 加密</h4>
+    <p>DERP 看不到內容——所有流量在端點之間用 WireGuard 加密，
+    DERP 只是傳遞密文。這讓「使用第三方 relay」的隱私風險可以接受。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>全球節點與 anycast</h4>
+    <p>Tailscale 在全球部署多個 DERP 節點，客戶端透過延遲測試自動選最近的。
+    這壓低了即使透過 relay 的 RTT。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>升級為直連是常態</h4>
+    <p>連線建立後立即背景嘗試 NAT 穿越，成功則無痛切換。
+    使用者感受不到「relay → direct」的切換時刻。</p>
+  </div>
+</div>
+
+<h2>7.6 三種中繼設計的橫向對比</h2>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>面向</th>
+      <th>TURN</th>
+      <th>Circuit Relay v2</th>
+      <th>Tailscale DERP</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>標準化</td><td>RFC 5766/8656</td><td>libp2p spec</td><td>Tailscale 自有</td></tr>
+    <tr><td>使用時機</td><td>punch 失敗才用</td><td>punch 前用 / DCUtR 用</td><td>總是先用</td></tr>
+    <tr><td>誰當 relay</td><td>專屬伺服器</td><td>網路任何公網節點</td><td>業者部署</td></tr>
+    <tr><td>資源約束</td><td>業者控制（quota）</td><td>協議內建（時間/byte）</td><td>業者控制</td></tr>
+    <tr><td>加密</td><td>視應用</td><td>libp2p 必加密</td><td>WireGuard E2E</td></tr>
+    <tr><td>透過 HTTPS:443</td><td>TURN/TLS over 5349 或 443</td><td>WebSocket 變體可</td><td>原生 HTTPS</td></tr>
+    <tr><td>典型場景</td><td>WebRTC</td><td>IPFS / 去中心化</td><td>Mesh VPN</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>7.7 何時用何種：選型指引</h2>
+
+<div class="callout callout-info">
+  <span class="callout-title">如果你正在做……</span>
+  <ul style="margin:0.5em 0 0;">
+    <li><strong>WebRTC 應用</strong>（視訊會議、線上教育）→ 用 TURN（成熟、整合度高）</li>
+    <li><strong>去中心化應用</strong>（檔案分享、區塊鏈節點通訊）→ 用 Circuit Relay v2（無需自架）</li>
+    <li><strong>Mesh VPN / 內部辦公</strong>（公司內網跨地點）→ 用 always-on relay 範式（如自架 DERP）</li>
+    <li><strong>嚴企業環境</strong>（必經 proxy、TLS inspection）→ TURN over TLS:443 是最後保險</li>
+  </ul>
+</div>
+
+<h2>7.8 中繼的安全考量</h2>
+
+<h3>7.8.1 防止 Amplification 攻擊</h3>
+
+<p>
+  TURN 曾被研究發現可被當 amplifier——攻擊者偽造受害者 IP 為 source，
+  讓 TURN 把放大的 reply 流量打向受害者。RFC 8656 強化了這方面：
+</p>
+
+<ul>
+  <li>強制要求認證（不接受匿名 Allocate）</li>
+  <li>禁用對 private IP 的 relay（防止內網掃描）</li>
+  <li>速率限制 per-user / per-IP</li>
+  <li>禁止 relayed-address 是組播或廣播</li>
+</ul>
+
+<h3>7.8.2 中繼隱私</h3>
+
+<div class="callout callout-warn">
+  <span class="callout-title">中繼伺服器看得到什麼？</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>看得到：兩端的<strong>對外 IP、流量大小、時序</strong></li>
+    <li>看得到：訊息<strong>密文長度</strong>（可能洩漏應用類型——視訊？文字？）</li>
+    <li><strong>看不到</strong>：訊息內容（前提是雙方有 E2E 加密，如 WebRTC 的 DTLS-SRTP、libp2p 的 Noise、Tailscale 的 WireGuard）</li>
+  </ul>
+  在敏感場景（記者、社運人士），即使中繼看不到內容，<em>知道誰跟誰通訊</em>就已是相當的洩漏。
+  自架中繼或使用支援匿名的中繼（如 Tor）是進一步選擇。
+</div>
+
+<h2>7.9 章末提要</h2>
+
+<div class="callout callout-note">
+  <span class="callout-title">本章核心觀念</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>中繼是 P2P 系統面對 symmetric NAT、嚴格防火牆時的最終保險。</li>
+    <li>TURN 繼承 STUN 的訊息格式，提供 Allocate / Permission / Send / Channel 機制。</li>
+    <li>Channel 機制把開銷從 36 byte 壓到 4 byte，是視訊串流必備優化。</li>
+    <li>TURN 必須認證；生產環境用短期動態憑證更安全。</li>
+    <li>TURN over TLS:443 是穿越企業防火牆的最後手段。</li>
+    <li>libp2p Circuit Relay v2 把中繼能力分散到所有公網節點，配合 reservation 限額避免濫用。</li>
+    <li>Tailscale DERP 開創「always-on relay」範式：先連通、後升級為直連。</li>
+    <li>中繼掌握流量元資料；E2E 加密保護內容但不保護「誰在跟誰通訊」這個事實。</li>
+  </ul>
+</div>
+
+<h3>動腦時間</h3>
+<ol>
+  <li>為什麼 TURN 規範禁止對 private IP 中繼？若不禁，攻擊者能做什麼？</li>
+  <li>Channel 機制把每包開銷從 36 byte 壓到 4 byte，但需要先 ChannelBind。
+    對哪些應用<em>不適合</em>用 channel？</li>
+  <li>架設一個 coturn 並用 <code>turnutils_uclient</code> 測試。觀察 Allocate Request/Response 的封包內容。</li>
+  <li>Circuit Relay v2 的 reservation 限額（時間、byte）若太緊，會發生什麼問題？太鬆呢？
+    libp2p 怎麼為公網節點設定預設值？</li>
+  <li>對比 TURN 與 DERP：兩者在「使用時機」與「升級為直連的優先級」上有什麼根本差異？</li>
+</ol>
+
+<h3>延伸閱讀</h3>
+<ul>
+  <li>RFC 8656（2020）— TURN（取代 RFC 5766）<span class="tag tag-rfc">RFC</span> <strong>主讀</strong></li>
+  <li>RFC 7065（2013）— TURN URI scheme</li>
+  <li>libp2p Circuit Relay v2 spec — github.com/libp2p/specs/tree/master/relay</li>
+  <li>Tailscale Blog, "How Tailscale works" — DERP 設計揭密</li>
+  <li>coturn 官方文件 — 參考設定範例</li>
+</ul>
+
+<nav class="chapter-nav">
+  <a class="prev" href="ch06.html">
+    <span class="label">← PREV</span>
+    <span class="title">第 6 章 · Hole Punching</span>
+  </a>
+  <a class="next" href="ch08.html">
+    <span class="label">NEXT →</span>
+    <span class="title">第 8 章 · ICE 整合框架</span>
+  </a>
+</nav>
+
+<footer>
+  <div>CHAPTER 7 / 19 · TURN 與 Circuit Relay · NAT TRAVERSAL × P2P TEXTBOOK</div>
+</footer>
+
+</main>
+
+<script src="../share/js/mermaid.min.js"></script>
+<script src="../share/js/textbook.js"></script>
+</body>
+</html>

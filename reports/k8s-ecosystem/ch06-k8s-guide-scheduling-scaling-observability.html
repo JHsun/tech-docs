@@ -1,0 +1,1357 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CH.06 Scheduling、Scaling、Observability · Kubernetes 快速學習手冊</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #faf8f3;
+  --bg-elevated: #ffffff;
+  --bg-code: #f3efe6;
+  --border: #e5ddc8;
+  --border-strong: #c9bfa3;
+  --text: #1f2430;
+  --text-muted: #6b6456;
+  --accent: #1e4d8b;
+  --accent-soft: #e8eef7;
+  --highlight: #d97706;
+  --success: #15803d;
+  --warning: #b45309;
+  --danger: #b91c1c;
+  --info: #0369a1;
+  --shadow: 0 2px 8px rgba(31,36,48,.06), 0 12px 32px rgba(31,36,48,.08);
+  --radius: 12px;
+  --radius-sm: 6px;
+  --mono: 'JetBrains Mono', 'Consolas', monospace;
+  --display: 'Space Grotesk', 'Noto Sans TC', sans-serif;
+  --body: 'Noto Sans TC', 'Space Grotesk', sans-serif;
+}
+
+[data-theme="dark"] {
+  --bg: #0f1419;
+  --bg-elevated: #1a1f28;
+  --bg-code: #0a0e13;
+  --border: #2a3441;
+  --border-strong: #3d4a5c;
+  --text: #e8eef2;
+  --text-muted: #8896a8;
+  --accent: #4db8a8;
+  --accent-soft: #16302d;
+  --highlight: #f59e0b;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --info: #60a5fa;
+  --shadow: 0 2px 8px rgba(0,0,0,.3), 0 12px 32px rgba(0,0,0,.4);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--body); background: var(--bg); color: var(--text);
+  line-height: 1.75; transition: background .3s, color .3s;
+}
+
+.topbar {
+  position: sticky; top: 0; z-index: 100;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 28px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.brand {
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--display); font-weight: 600; font-size: 15px;
+  text-decoration: none; color: var(--text);
+}
+.brand-mark {
+  width: 30px; height: 30px; background: var(--accent); color: white;
+  border-radius: 6px; display: grid; place-items: center;
+  font-family: var(--mono); font-weight: 700; font-size: 14px;
+  transform: rotate(-5deg); box-shadow: 2px 2px 0 var(--highlight);
+}
+.topbar-right { display: flex; gap: 10px; align-items: center; }
+.back-link {
+  color: var(--text-muted); text-decoration: none;
+  font-size: 13px; font-family: var(--mono);
+  padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px;
+  transition: all .2s;
+}
+.back-link:hover { color: var(--accent); border-color: var(--accent); }
+.theme-toggle {
+  background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text);
+  padding: 6px 14px; border-radius: 999px; cursor: pointer;
+  font-family: var(--body); font-size: 13px; font-weight: 500;
+  display: flex; align-items: center; gap: 6px; transition: all .2s;
+}
+.theme-toggle:hover { border-color: var(--accent); }
+
+.layout {
+  display: grid; grid-template-columns: 260px 1fr;
+  max-width: 1400px; margin: 0 auto; gap: 40px; padding: 32px 28px;
+}
+
+.toc {
+  position: sticky; top: 80px; align-self: start;
+  height: calc(100vh - 100px); overflow-y: auto; padding-right: 12px;
+}
+.toc-title {
+  font-family: var(--mono); font-size: 11px;
+  text-transform: uppercase; letter-spacing: .15em;
+  color: var(--text-muted); margin-bottom: 12px; font-weight: 600;
+}
+.toc ul { list-style: none; border-left: 2px solid var(--border); }
+.toc li a {
+  display: block; padding: 6px 14px; font-size: 13px;
+  color: var(--text-muted); text-decoration: none;
+  margin-left: -2px; border-left: 2px solid transparent;
+  transition: all .15s; line-height: 1.5;
+}
+.toc li a:hover, .toc li a.active {
+  color: var(--accent); border-left-color: var(--accent); background: var(--accent-soft);
+}
+.toc li.sub a { padding-left: 28px; font-size: 12px; }
+.toc-section {
+  font-family: var(--mono); font-size: 10px;
+  color: var(--highlight); font-weight: 700;
+  letter-spacing: .1em; padding: 14px 14px 6px;
+  text-transform: uppercase;
+}
+
+.content { min-width: 0; max-width: 880px; }
+
+.chapter-header {
+  margin-bottom: 48px; padding-bottom: 24px; border-bottom: 2px solid var(--border);
+}
+.chapter-label {
+  font-family: var(--mono); font-size: 13px; color: var(--highlight);
+  letter-spacing: .15em; text-transform: uppercase; margin-bottom: 10px;
+}
+.chapter-header h1 {
+  font-family: var(--display); font-size: clamp(32px, 5vw, 48px);
+  font-weight: 700; letter-spacing: -.02em; line-height: 1.1; margin-bottom: 14px;
+}
+.chapter-header p { color: var(--text-muted); font-size: 17px; max-width: 720px; }
+
+h2 {
+  font-family: var(--display); font-size: 28px; font-weight: 700;
+  letter-spacing: -.015em; margin: 56px 0 20px; scroll-margin-top: 80px;
+  display: flex; align-items: baseline; gap: 12px;
+}
+h2::before {
+  content: "#"; font-family: var(--mono); color: var(--highlight);
+  font-weight: 500; font-size: 22px;
+}
+/* 大段落分隔 */
+.part-divider {
+  margin: 72px 0 0;
+  padding: 20px 24px;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--highlight) 100%);
+  color: white;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.part-divider .part-num {
+  font-family: var(--mono); font-size: 12px;
+  letter-spacing: .15em; opacity: .8; text-transform: uppercase;
+}
+.part-divider .part-title {
+  font-family: var(--display); font-size: 28px;
+  font-weight: 700; letter-spacing: -.02em; margin-top: 4px;
+}
+.part-divider .part-desc {
+  font-size: 14px; margin-top: 6px; opacity: .9;
+}
+
+h3 {
+  font-family: var(--display); font-size: 20px; font-weight: 600;
+  margin: 32px 0 14px; scroll-margin-top: 80px;
+}
+h4 {
+  font-family: var(--display); font-size: 16px; font-weight: 600;
+  margin: 24px 0 10px; color: var(--text);
+}
+p { margin-bottom: 14px; }
+.content a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+strong { font-weight: 600; color: var(--text); }
+
+code {
+  font-family: var(--mono); font-size: .88em;
+  background: var(--bg-code); padding: 2px 6px; border-radius: 4px;
+  color: var(--accent); border: 1px solid var(--border);
+}
+
+.code-block {
+  position: relative; background: var(--bg-code);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  margin: 18px 0; overflow: hidden;
+}
+[data-theme="dark"] .code-block { background: #0a0e13; }
+.code-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 14px; background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono); font-size: 11px; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .08em;
+}
+[data-theme="dark"] .code-head { background: #141922; }
+.copy-btn {
+  background: transparent; border: 1px solid var(--border);
+  color: var(--text-muted); padding: 3px 8px; border-radius: 4px;
+  cursor: pointer; font-family: var(--mono); font-size: 10px; transition: all .15s;
+}
+.copy-btn:hover { color: var(--accent); border-color: var(--accent); }
+.copy-btn.copied { color: var(--success); border-color: var(--success); }
+
+pre {
+  padding: 16px 18px; overflow-x: auto;
+  font-family: var(--mono); font-size: 13px; line-height: 1.65; color: var(--text);
+}
+pre code { background: none; border: none; padding: 0; color: inherit; font-size: inherit; }
+
+.kw { color: var(--accent); font-weight: 500; }
+.str { color: var(--success); }
+.cm { color: var(--text-muted); font-style: italic; }
+.num { color: var(--highlight); }
+
+.callout {
+  border-left: 4px solid var(--accent); background: var(--accent-soft);
+  padding: 14px 18px; margin: 20px 0; border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.callout-label {
+  font-family: var(--mono); font-size: 11px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase;
+  margin-bottom: 4px; color: var(--accent);
+}
+.callout.warn {
+  border-left-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, var(--bg));
+}
+.callout.warn .callout-label { color: var(--warning); }
+.callout.danger {
+  border-left-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg));
+}
+.callout.danger .callout-label { color: var(--danger); }
+.callout.tip {
+  border-left-color: var(--success);
+  background: color-mix(in srgb, var(--success) 8%, var(--bg));
+}
+.callout.tip .callout-label { color: var(--success); }
+
+.table-wrap {
+  overflow-x: auto; margin: 18px 0;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td {
+  padding: 10px 14px; text-align: left;
+  border-bottom: 1px solid var(--border); vertical-align: top;
+}
+th {
+  background: var(--bg-elevated); font-weight: 600;
+  font-family: var(--display); color: var(--text); font-size: 13px;
+}
+tr:nth-child(even) td { background: color-mix(in srgb, var(--bg-elevated) 60%, transparent); }
+tr:last-child td { border-bottom: none; }
+td code { font-size: 12px; }
+
+.compare-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px; margin: 18px 0;
+}
+.compare-card {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-left: 4px solid var(--accent); border-radius: var(--radius-sm);
+  padding: 16px 18px;
+}
+.compare-card.alt { border-left-color: var(--highlight); }
+.compare-card h4 { margin-top: 0; margin-bottom: 6px; font-size: 15px; }
+.compare-card p { font-size: 13px; color: var(--text-muted); margin: 0; }
+
+.step-list { counter-reset: step; list-style: none; margin: 18px 0; }
+.step-list li {
+  counter-increment: step; position: relative;
+  padding: 10px 14px 10px 44px; margin-bottom: 6px;
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); font-size: 14px;
+}
+.step-list li::before {
+  content: counter(step); position: absolute; left: 12px; top: 50%;
+  transform: translateY(-50%); width: 22px; height: 22px;
+  background: var(--accent); color: white; border-radius: 50%;
+  display: grid; place-items: center;
+  font-family: var(--mono); font-weight: 700; font-size: 11px;
+}
+
+/* Probe comparison */
+.probe-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0;
+}
+.probe-card {
+  background: var(--bg-elevated); border: 2px solid var(--border);
+  border-radius: var(--radius-sm); padding: 18px;
+}
+.probe-card.startup { border-color: var(--info); }
+.probe-card.liveness { border-color: var(--danger); }
+.probe-card.readiness { border-color: var(--success); }
+.probe-icon {
+  width: 40px; height: 40px; border-radius: 50%;
+  display: grid; place-items: center; color: white;
+  font-family: var(--mono); font-weight: 700; margin-bottom: 10px;
+  font-size: 18px;
+}
+.probe-card.startup .probe-icon { background: var(--info); }
+.probe-card.liveness .probe-icon { background: var(--danger); }
+.probe-card.readiness .probe-icon { background: var(--success); }
+.probe-card h5 { font-family: var(--display); font-size: 16px; margin-bottom: 6px; }
+.probe-card p { font-size: 13px; color: var(--text-muted); margin: 0 0 8px; }
+.probe-card .behavior {
+  font-size: 12px; padding: 6px 10px; background: var(--bg-code);
+  border-radius: 4px; font-family: var(--mono);
+}
+
+/* Scheduling decision tree */
+.decision {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 22px; margin: 20px 0;
+}
+.decision-title {
+  font-family: var(--display); font-weight: 600; margin-bottom: 14px;
+}
+
+/* Three pillars of observability */
+.pillars {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 18px 0;
+}
+.pillar {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 18px;
+  border-top: 4px solid var(--accent);
+  text-align: center;
+}
+.pillar.metrics { border-top-color: var(--info); }
+.pillar.logs { border-top-color: var(--highlight); }
+.pillar.traces { border-top-color: var(--success); }
+.pillar-icon {
+  font-size: 28px; margin-bottom: 8px;
+}
+.pillar h5 {
+  font-family: var(--display); font-size: 16px; margin-bottom: 6px;
+}
+.pillar p { font-size: 12px; color: var(--text-muted); margin: 0; line-height: 1.5; }
+
+.chap-nav {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  margin-top: 72px; padding-top: 32px; border-top: 1px solid var(--border);
+}
+.chap-nav a {
+  display: block; padding: 16px 20px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  text-decoration: none; color: var(--text); transition: all .2s;
+}
+.chap-nav a:hover { border-color: var(--accent); background: var(--accent-soft); }
+.chap-nav .dir { font-family: var(--mono); font-size: 11px; color: var(--text-muted); letter-spacing: .08em; }
+.chap-nav .t { font-family: var(--display); font-weight: 600; margin-top: 4px; }
+.chap-nav a.next { text-align: right; }
+.chap-nav a.disabled { opacity: .5; pointer-events: none; }
+
+@media (max-width: 960px) {
+  .layout { grid-template-columns: 1fr; padding: 20px; }
+  .toc {
+    position: relative; top: 0; height: auto; max-height: none;
+    margin-bottom: 20px; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 14px;
+  }
+  .probe-grid { grid-template-columns: 1fr; }
+  .pillars { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="index.html" class="brand">
+    <div class="brand-mark">K8</div>
+    <span>Kubernetes 快速學習手冊</span>
+  </a>
+  <div class="topbar-right">
+    <a href="index.html" class="back-link">← 主索引</a>
+    <button class="theme-toggle" onclick="toggleTheme()" aria-label="切換佈景主題">
+      <span id="theme-icon">🌙</span>
+      <span id="theme-label">暗色</span>
+    </button>
+  </div>
+</div>
+
+<div class="layout">
+
+<aside class="toc">
+  <div class="toc-title">本章目錄</div>
+  <ul>
+    <li><div class="toc-section">PART 1 · 排程</div></li>
+    <li><a href="#scheduler-flow">6.1　Scheduler 運作流程</a></li>
+    <li><a href="#resource-requests">6.2　Resource Requests/Limits</a></li>
+    <li><a href="#node-selector">6.3　NodeSelector</a></li>
+    <li><a href="#affinity">6.4　Affinity / Anti-Affinity</a></li>
+    <li><a href="#taints">6.5　Taint & Toleration</a></li>
+    <li><a href="#topology">6.6　Topology Spread</a></li>
+    <li><a href="#priority">6.7　PriorityClass 與搶佔</a></li>
+    <li><a href="#pdb">6.8　PodDisruptionBudget</a></li>
+
+    <li><div class="toc-section">PART 2 · 自動擴縮</div></li>
+    <li><a href="#hpa">6.9　HPA 水平擴縮</a></li>
+    <li><a href="#vpa">6.10　VPA 垂直擴縮</a></li>
+    <li><a href="#keda">6.11　KEDA 事件驅動</a></li>
+    <li><a href="#cluster-autoscaler">6.12　Cluster Autoscaler</a></li>
+
+    <li><div class="toc-section">PART 3 · 健康檢查</div></li>
+    <li><a href="#probes">6.13　三種 Probe</a></li>
+    <li><a href="#probe-example">6.14　Probe 實戰</a></li>
+
+    <li><div class="toc-section">PART 4 · 觀測性</div></li>
+    <li><a href="#three-pillars">6.15　三大支柱</a></li>
+    <li><a href="#logging">6.16　Logging</a></li>
+    <li><a href="#metrics">6.17　Metrics</a></li>
+    <li><a href="#events">6.18　Events</a></li>
+    <li><a href="#debug">6.19　kubectl debug</a></li>
+
+    <li><a href="#summary">6.20　本章速查</a></li>
+  </ul>
+</aside>
+
+<main class="content">
+
+<div class="chapter-header">
+  <div class="chapter-label">CHAPTER 06 · 排程、擴縮、觀測</div>
+  <h1>走向生產級叢集</h1>
+  <p>
+    前五章讓 Pod「跑起來」；這章讓 Pod「跑得好」。包含四大主題：怎麼讓 Pod 排到合適的 Node、
+    流量變大時如何自動擴縮、如何確保容器真的可服務、以及怎麼看見 Cluster 內部發生了什麼。
+    這是從「會用」到「能營運」的關鍵跳躍。
+  </p>
+</div>
+
+<!-- ============================================================ -->
+<!-- PART 1 -->
+<!-- ============================================================ -->
+<div class="part-divider">
+  <div class="part-num">Part 01</div>
+  <div class="part-title">Scheduling · 排程控制</div>
+  <div class="part-desc">決定 Pod 跑在哪個 Node 上，才能做到資源隔離、高可用、合規</div>
+</div>
+
+<h2 id="scheduler-flow">Scheduler 運作流程</h2>
+
+<p>
+  CH.01 講過 kube-scheduler 分兩階段工作，這裡展開細節。當一個 Pod 處於 <code>Pending</code> 且 <code>spec.nodeName</code> 為空時：
+</p>
+
+<ol class="step-list">
+  <li><strong>Filtering（過濾）</strong>：套用一連串 predicate，淘汰不合格的 Node。例如資源不足、Node 壞了、Taint 不匹配、Pod 指定 nodeSelector 不符。</li>
+  <li><strong>Scoring（評分）</strong>：對剩下的 Node 用多個 plugin 打分（0-100），通常加權平均。</li>
+  <li><strong>Binding（綁定）</strong>：選擇最高分 Node，把 <code>nodeName</code> 寫回 apiserver。kubelet 發現後開始拉映像、啟動容器。</li>
+</ol>
+
+<div class="callout">
+  <div class="callout-label">🧭 排程控制三個層次</div>
+  由寬到嚴：<strong>資源請求</strong>（最基本）→ <strong>NodeSelector / Affinity</strong>（表明偏好）→ <strong>Taint / Toleration</strong>（Node 拒絕不合格的 Pod）。一個正確設計的生產 Cluster 會三者並用。
+</div>
+
+<!-- ============================================ -->
+<h2 id="resource-requests">Resource Requests 與 Limits</h2>
+
+<p>
+  <strong>requests</strong>：Pod 保證分到的資源，也是 scheduler 找 Node 的依據。<br>
+  <strong>limits</strong>：Pod 最多能用到的上限，超過會被限流（CPU）或 OOMKilled（Memory）。
+</p>
+
+<div class="code-block">
+  <div class="code-head">
+    <span>resources.yaml</span>
+    <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+  </div>
+<pre><code><span class="kw">containers</span>:
+- <span class="kw">name</span>: app
+  <span class="kw">image</span>: <span class="str">myapp:1.0</span>
+  <span class="kw">resources</span>:
+    <span class="kw">requests</span>:            <span class="cm"># Scheduler 用這個找 Node</span>
+      <span class="kw">cpu</span>: <span class="str">"250m"</span>      <span class="cm"># 0.25 核</span>
+      <span class="kw">memory</span>: <span class="str">"256Mi"</span>
+    <span class="kw">limits</span>:              <span class="cm"># Runtime 強制上限</span>
+      <span class="kw">cpu</span>: <span class="str">"1000m"</span>     <span class="cm"># 1 核</span>
+      <span class="kw">memory</span>: <span class="str">"512Mi"</span></code></pre>
+</div>
+
+<h4>三種 QoS 等級（自動判定）</h4>
+<div class="table-wrap">
+<table>
+<thead><tr><th>QoS Class</th><th>條件</th><th>優先級</th><th>OOM 時誰先死</th></tr></thead>
+<tbody>
+<tr><td><code>Guaranteed</code></td><td>每個容器 requests == limits（CPU 與 memory 都有設）</td><td>最高</td><td>最後</td></tr>
+<tr><td><code>Burstable</code></td><td>至少有一個 request 或 limit，但不滿足 Guaranteed</td><td>中等</td><td>中間</td></tr>
+<tr><td><code>BestEffort</code></td><td>完全沒設 requests/limits</td><td>最低</td><td>最先</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout warn">
+  <div class="callout-label">⚠️ CPU limit 的爭議</div>
+  CPU 用 CFS throttling 限流，實務上高延遲敏感應用常因此遇到 tail latency 飆升。<strong>社群普遍建議：設 request 但不設 CPU limit</strong>（或設很寬鬆）。Memory limit 仍必設，避免失控的記憶體洩漏拖垮 Node。
+</div>
+
+<!-- ============================================ -->
+<h2 id="node-selector">NodeSelector：最簡單的限定</h2>
+
+<p>只跑在有特定 label 的 Node 上。語法簡單，但功能陽春（只支援 AND、無法模糊匹配）。</p>
+
+<div class="code-block">
+  <div class="code-head">
+    <span>node-selector.yaml</span>
+    <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+  </div>
+<pre><code><span class="cm"># 先給 Node 加 label</span>
+kubectl label nodes worker-1 disktype=ssd gpu=nvidia-t4
+
+<span class="cm"># Pod 指定要跑在 SSD + GPU 機器</span>
+<span class="kw">spec</span>:
+  <span class="kw">nodeSelector</span>:
+    disktype: ssd
+    gpu: nvidia-t4</code></pre>
+</div>
+
+<!-- ============================================ -->
+<h2 id="affinity">Affinity / Anti-Affinity：進階排程</h2>
+
+<p>
+  Affinity 分兩類：<strong>nodeAffinity</strong>（對 Node 的偏好）與 <strong>podAffinity / podAntiAffinity</strong>（相對於其他 Pod）。
+  每種都有兩個嚴格度：
+</p>
+
+<div class="compare-grid">
+  <div class="compare-card">
+    <h4>required...DuringScheduling</h4>
+    <p><strong>硬性規則</strong>。找不到符合的 Node，Pod 卡在 Pending。</p>
+  </div>
+  <div class="compare-card alt">
+    <h4>preferred...DuringScheduling</h4>
+    <p><strong>偏好</strong>。找不到理想 Node 會退而求其次，仍能排程。</p>
+  </div>
+</div>
+
+<h4>nodeAffinity：替代 nodeSelector 的加強版</h4>
+<div class="code-block">
+  <div class="code-head">
+    <span>node-affinity.yaml</span>
+    <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+  </div>
+<pre><code><span class="kw">spec</span>:
+  <span class="kw">affinity</span>:
+    <span class="kw">nodeAffinity</span>:
+      <span class="kw">requiredDuringSchedulingIgnoredDuringExecution</span>:
+        <span class="kw">nodeSelectorTerms</span>:
+        - <span class="kw">matchExpressions</span>:
+          - <span class="kw">key</span>: topology.kubernetes.io/zone
+            <span class="kw">operator</span>: In
+            <span class="kw">values</span>: [ap-northeast-1a, ap-northeast-1c]
+          - <span class="kw">key</span>: node.kubernetes.io/instance-type
+            <span class="kw">operator</span>: NotIn
+            <span class="kw">values</span>: [t2.micro, t3.nano]
+      <span class="kw">preferredDuringSchedulingIgnoredDuringExecution</span>:
+      - <span class="kw">weight</span>: <span class="num">100</span>
+        <span class="kw">preference</span>:
+          <span class="kw">matchExpressions</span>:
+          - <span class="kw">key</span>: disktype
+            <span class="kw">operator</span>: In
+            <span class="kw">values</span>: [nvme]</code></pre>
+</div>
+
+<h4>podAntiAffinity：散開部署避免單點故障</h4>
+<p>典型用途：同一個 Deployment 的 Pod <strong>分散在不同 Node</strong>。</p>
+
+<div class="code-block">
+  <div class="code-head">
+    <span>pod-antiaffinity.yaml</span>
+    <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+  </div>
+<pre><code><span class="kw">spec</span>:
+  <span class="kw">affinity</span>:
+    <span class="kw">podAntiAffinity</span>:
+      <span class="kw">requiredDuringSchedulingIgnoredDuringExecution</span>:
+      - <span class="kw">labelSelector</span>:
+          <span class="kw">matchLabels</span>:
+            app: web       <span class="cm"># 避開也帶 app=web 標籤的 Pod</span>
+        <span class="kw">topologyKey</span>: kubernetes.io/hostname   <span class="cm"># 以 Node 為粒度散開</span></code></pre>
+</div>
+
+<div class="callout tip">
+  <div class="callout-label">💡 topologyKey 是關鍵</div>
+  常用值：<code>kubernetes.io/hostname</code>（散到不同 Node）、<code>topology.kubernetes.io/zone</code>（散到不同 AZ）、<code>topology.kubernetes.io/region</code>（散到不同 region）。生產 Cluster 通常要求副本至少散布於不同 AZ。
+</div>
+
+<!-- ============================================ -->
+<h2 id="taints">Taint 與 Toleration：Node 反向拒絕</h2>
+
+<p>
+  Affinity 是 Pod 挑 Node；<strong>Taint</strong> 則相反——Node 宣告「我有某個標記，只有能『忍受』的 Pod 才能來」。
+</p>
+
+<h4>三種 effect</h4>
+<div class="table-wrap">
+<table>
+<thead><tr><th>effect</th><th>對新 Pod</th><th>對已跑的 Pod</th></tr></thead>
+<tbody>
+<tr><td><code>NoSchedule</code></td><td>沒 toleration 則不排程</td><td>不影響</td></tr>
+<tr><td><code>PreferNoSchedule</code></td><td>盡量不排，但可以</td><td>不影響</td></tr>
+<tr><td><code>NoExecute</code></td><td>不排程</td><td><strong>驅逐出去！</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="code-block">
+  <div class="code-head">
+    <span>Bash · 常見 Taint 操作</span>
+    <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+  </div>
+<pre><code><span class="cm"># 專用 GPU Node：只有請求 GPU 的 Pod 才能進</span>
+kubectl taint nodes gpu-1 dedicated=gpu:NoSchedule
+
+<span class="cm"># Control plane Node：預設已有 Taint</span>
+kubectl describe node master | grep Taints
+<span class="cm"># Taints: node-role.kubernetes.io/control-plane:NoSchedule</span>
+
+<span class="cm"># 移除 Taint（末尾加 -）</span>
+kubectl taint nodes gpu-1 dedicated=gpu:NoSchedule-</code></pre>
+</div>
+
+<h4>對應的 Toleration</h4>
+<div class="code-block">
+  <div class="code-head">
+    <span>toleration.yaml</span>
+    <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+  </div>
+<pre><code><span class="kw">spec</span>:
+  <span class="kw">tolerations</span>:
+  - <span class="kw">key</span>: dedicated
+    <span class="kw">operator</span>: Equal
+    <span class="kw">value</span>: gpu
+    <span class="kw">effect</span>: NoSchedule
+  <span class="cm"># 容忍 Node 臨時不健康最多 60 秒</span>
+  - <span class="kw">key</span>: node.kubernetes.io/not-ready
+    <span class="kw">operator</span>: Exists
+    <span class="kw">effect</span>: NoExecute
+    <span class="kw">tolerationSeconds</span>: <span class="num">60</span></code></pre>
+</div>
+
+<div class="callout">
+  <div class="callout-label">🧠 記憶法</div>
+  <strong>Affinity = Pod 說「我要去這種 Node」；Taint = Node 說「只有特定 Pod 能來」</strong>。兩者結合：GPU Node 打 Taint（排斥一般 Pod），GPU Pod 同時有 Toleration + nodeAffinity（鎖定 GPU Node）。
+</div>
+
+<!-- ============================================ -->
+<h2 id="topology">Topology Spread Constraints：更均衡的散布</h2>
+
+<p>
+  podAntiAffinity 只能說「不要跟誰同 Node」，但無法精細控制「每個 AZ 最多幾個」。
+  <strong>Topology Spread Constraints</strong>（v1.19+）解決這個。
+</p>
+
+<div class="code-block">
+  <div class="code-head">
+    <span>spread.yaml · 跨 AZ 均衡部署</span>
+    <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+  </div>
+<pre><code><span class="kw">spec</span>:
+  <span class="kw">topologySpreadConstraints</span>:
+  - <span class="kw">maxSkew</span>: <span class="num">1</span>                     <span class="cm"># AZ 間 Pod 數差距最多 1</span>
+    <span class="kw">topologyKey</span>: topology.kubernetes.io/zone
+    <span class="kw">whenUnsatisfiable</span>: DoNotSchedule  <span class="cm"># 或 ScheduleAnyway</span>
+    <span class="kw">labelSelector</span>:
+      <span class="kw">matchLabels</span>:
+        app: web</code></pre>
+</div>
+
+<p>
+  若有 3 個 AZ、<code>replicas: 6</code>，上面設定會確保各 AZ 各 2 個 Pod。若只有 2 個 AZ、<code>replicas: 7</code>，
+  會分成 4/3 或 3/4（skew=1 內）。
+</p>
+
+<!-- ============================================ -->
+<h2 id="priority">PriorityClass 與搶佔（Preemption）</h2>
+
+<p>
+  資源不夠時誰先跑？<strong>PriorityClass</strong> 給 Pod 排序，高優先級 Pod 可以<strong>搶佔</strong>（驅逐）低優先級 Pod 來騰出空間。
+</p>
+
+<div class="code-block">
+  <div class="code-head">
+    <span>priorityclass.yaml</span>
+    <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+  </div>
+<pre><code><span class="kw">apiVersion</span>: scheduling.k8s.io/v1
+<span class="kw">kind</span>: PriorityClass
+<span class="kw">metadata</span>:
+  <span class="kw">name</span>: high-priority
+<span class="kw">value</span>: <span class="num">1000000</span>                <span class="cm"># 數字越大越優先</span>
+<span class="kw">globalDefault</span>: <span class="num">false</span>
+<span class="kw">description</span>: <span class="str">"關鍵業務"</span>
+<span class="kw">preemptionPolicy</span>: PreemptLowerPriority  <span class="cm"># 或 Never（不搶佔）</span>
+---
+<span class="kw">spec</span>:
+  <span class="kw">priorityClassName</span>: high-priority</code></pre>
+</div>
+
+<div class="callout warn">
+  <div class="callout-label">⚠️ 內建保留名稱</div>
+  K8s 預設兩個 PriorityClass：<code>system-cluster-critical</code>（20 億）與 <code>system-node-critical</code>（20 億+1）。僅用於系統組件（kube-dns 等），應用不能用。
+</div>
+
+<!-- ============================================ -->
+<h2 id="pdb">PodDisruptionBudget：有計畫中斷的底線</h2>
+
+<p>
+  <strong>有計畫中斷</strong>（Voluntary Disruption）包括：Node 排水升級、Cluster Autoscaler 收縮、kubectl drain。
+  <strong>PDB</strong> 保證這類操作不會讓可用 Pod 數掉到安全線以下。
+</p>
+
+<div class="code-block">
+  <div class="code-head">
+    <span>pdb.yaml</span>
+    <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+  </div>
+<pre><code><span class="kw">apiVersion</span>: policy/v1
+<span class="kw">kind</span>: PodDisruptionBudget
+<span class="kw">metadata</span>:
+  <span class="kw">name</span>: web-pdb
+<span class="kw">spec</span>:
+  <span class="kw">minAvailable</span>: <span class="num">2</span>             <span class="cm"># 至少 2 個 Pod 隨時可用</span>
+  <span class="cm"># maxUnavailable: 25%       # 或用最多多少比例不可用</span>
+  <span class="kw">selector</span>:
+    <span class="kw">matchLabels</span>:
+      app: web</code></pre>
+</div>
+
+<div class="callout tip">
+  <div class="callout-label">💡 與 Deployment replicas 搭配</div>
+  replicas: 3、minAvailable: 2 → 同時最多只能動 1 個。replicas: 10、maxUnavailable: 20% → 同時最多動 2 個。PDB 並<strong>不影響應用崩潰這類非計畫中斷</strong>。
+</div>
+
+<!-- ============================================================ -->
+<!-- PART 2 -->
+<!-- ============================================================ -->
+<div class="part-divider">
+  <div class="part-num">Part 02</div>
+  <div class="part-title">Autoscaling · 自動擴縮</div>
+  <div class="part-desc">依負載自動加減副本、調整資源、甚至加減 Node，做到成本與效能的平衡</div>
+</div>
+
+<h2 id="hpa">HPA：Horizontal Pod Autoscaler</h2>
+
+<p>
+  <strong>水平擴縮</strong>：依指標（CPU / Memory / 自訂）動態調整 Pod 副本數。
+  前提是 Cluster 有安裝 <code>metrics-server</code>（提供基本 CPU/Memory）或 Prometheus Adapter（自訂指標）。
+</p>
+
+<div class="code-block">
+  <div class="code-head">
+    <span>hpa.yaml · v2 範本</span>
+    <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+  </div>
+<pre><code><span class="kw">apiVersion</span>: autoscaling/v2
+<span class="kw">kind</span>: HorizontalPodAutoscaler
+<span class="kw">metadata</span>:
+  <span class="kw">name</span>: web-hpa
+<span class="kw">spec</span>:
+  <span class="kw">scaleTargetRef</span>:
+    <span class="kw">apiVersion</span>: apps/v1
+    <span class="kw">kind</span>: Deployment
+    <span class="kw">name</span>: web
+  <span class="kw">minReplicas</span>: <span class="num">3</span>
+  <span class="kw">maxReplicas</span>: <span class="num">20</span>
+  <span class="kw">metrics</span>:
+  - <span class="kw">type</span>: Resource
+    <span class="kw">resource</span>:
+      <span class="kw">name</span>: cpu
+      <span class="kw">target</span>:
+        <span class="kw">type</span>: Utilization
+        <span class="kw">averageUtilization</span>: <span class="num">70</span>    <span class="cm"># 平均 CPU 使用率超過 70% 擴容</span>
+  - <span class="kw">type</span>: Resource
+    <span class="kw">resource</span>:
+      <span class="kw">name</span>: memory
+      <span class="kw">target</span>:
+        <span class="kw">type</span>: AverageValue
+        <span class="kw">averageValue</span>: <span class="str">"512Mi"</span>
+  <span class="kw">behavior</span>:                      <span class="cm"># v2 可細調擴縮速率</span>
+    <span class="kw">scaleDown</span>:
+      <span class="kw">stabilizationWindowSeconds</span>: <span class="num">300</span>   <span class="cm"># 5 分鐘穩定期才縮</span>
+      <span class="kw">policies</span>:
+      - <span class="kw">type</span>: Percent
+        <span class="kw">value</span>: <span class="num">50</span>
+        <span class="kw">periodSeconds</span>: <span class="num">60</span>
+    <span class="kw">scaleUp</span>:
+      <span class="kw">stabilizationWindowSeconds</span>: <span class="num">0</span>     <span class="cm"># 立刻擴</span>
+      <span class="kw">policies</span>:
+      - <span class="kw">type</span>: Percent
+        <span class="kw">value</span>: <span class="num">100</span>
+        <span class="kw">periodSeconds</span>: <span class="num">30</span></code></pre>
+</div>
+
+<div class="callout warn">
+  <div class="callout-label">⚠️ HPA 能運作的前提</div>
+  Pod 必須設 <code>resources.requests</code>，否則 HPA 沒有計算基準。<strong>沒 requests，HPA 根本不會動作</strong>。
+</div>
+
+<!-- ============================================ -->
+<h2 id="vpa">VPA：Vertical Pod Autoscaler</h2>
+
+<p>
+  不加副本，而是<strong>調整單個 Pod 的 CPU/Memory requests</strong>。適合批次任務、單體應用、無法水平擴縮的工作負載。
+  VPA 不是 K8s 內建，需另外安裝。
+</p>
+
+<div class="code-block">
+  <div class="code-head">
+    <span>vpa.yaml</span>
+    <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+  </div>
+<pre><code><span class="kw">apiVersion</span>: autoscaling.k8s.io/v1
+<span class="kw">kind</span>: VerticalPodAutoscaler
+<span class="kw">metadata</span>:
+  <span class="kw">name</span>: worker-vpa
+<span class="kw">spec</span>:
+  <span class="kw">targetRef</span>:
+    <span class="kw">apiVersion</span>: apps/v1
+    <span class="kw">kind</span>: Deployment
+    <span class="kw">name</span>: worker
+  <span class="kw">updatePolicy</span>:
+    <span class="kw">updateMode</span>: Auto            <span class="cm"># Off / Initial / Auto / Recreate</span>
+  <span class="kw">resourcePolicy</span>:
+    <span class="kw">containerPolicies</span>:
+    - <span class="kw">containerName</span>: worker
+      <span class="kw">minAllowed</span>:
+        <span class="kw">cpu</span>: <span class="str">"100m"</span>
+        <span class="kw">memory</span>: <span class="str">"128Mi"</span>
+      <span class="kw">maxAllowed</span>:
+        <span class="kw">cpu</span>: <span class="str">"4"</span>
+        <span class="kw">memory</span>: <span class="str">"8Gi"</span></code></pre>
+</div>
+
+<div class="callout danger">
+  <div class="callout-label">🚫 HPA + VPA 同時用要小心</div>
+  <strong>同時啟用 HPA（基於 CPU）+ VPA（調整 CPU requests）會相互干擾</strong>——VPA 把 requests 調大，HPA 算出來的 utilization 變小，可能造成反覆震盪。建議：HPA 只用自訂指標（如 QPS）；或 VPA 設 <code>updateMode: Off</code> 只做建議。
+</div>
+
+<!-- ============================================ -->
+<h2 id="keda">KEDA：事件驅動擴縮</h2>
+
+<p>
+  HPA 限於資源指標與 Prometheus 自訂指標。要依<strong>外部事件源</strong>擴縮（Kafka lag、SQS 訊息數、PostgreSQL 查詢、cron 時間段）就需要 <strong>KEDA</strong>（Kubernetes Event-Driven Autoscaler，CNCF graduated project）。
+</p>
+
+<div class="code-block">
+  <div class="code-head">
+    <span>keda-kafka.yaml · 依 Kafka consumer lag 擴縮</span>
+    <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+  </div>
+<pre><code><span class="kw">apiVersion</span>: keda.sh/v1alpha1
+<span class="kw">kind</span>: ScaledObject
+<span class="kw">metadata</span>:
+  <span class="kw">name</span>: kafka-consumer
+<span class="kw">spec</span>:
+  <span class="kw">scaleTargetRef</span>:
+    <span class="kw">name</span>: consumer-deployment
+  <span class="kw">minReplicaCount</span>: <span class="num">0</span>                 <span class="cm"># 可縮到 0！無訊息時完全不花錢</span>
+  <span class="kw">maxReplicaCount</span>: <span class="num">50</span>
+  <span class="kw">triggers</span>:
+  - <span class="kw">type</span>: kafka
+    <span class="kw">metadata</span>:
+      <span class="kw">bootstrapServers</span>: kafka:9092
+      <span class="kw">consumerGroup</span>: my-group
+      <span class="kw">topic</span>: orders
+      <span class="kw">lagThreshold</span>: <span class="str">"10"</span>           <span class="cm"># 每有 10 個積壓訊息多起 1 個 Pod</span></code></pre>
+</div>
+
+<div class="callout tip">
+  <div class="callout-label">💡 Scale to Zero</div>
+  KEDA 最大賣點：<strong>無事件時可縮到 0</strong>。這讓批次工作、非 24/7 應用成本大幅下降——幾乎是 serverless 體驗但仍跑在自己 Cluster。
+</div>
+
+<!-- ============================================ -->
+<h2 id="cluster-autoscaler">Cluster Autoscaler 與 Karpenter</h2>
+
+<p>
+  HPA/VPA/KEDA 都是在<strong>現有 Node 上</strong>調整 Pod。當 Cluster 根本沒空間了怎麼辦？需要<strong>加 Node</strong>。
+</p>
+
+<div class="compare-grid">
+  <div class="compare-card">
+    <h4>Cluster Autoscaler (CA)</h4>
+    <p>檢查是否有 Pending Pod 因資源不足卡住。會觸發雲端 Node Group（Auto Scaling Group）擴容。綁定預先定義的 Node 群組。</p>
+  </div>
+  <div class="compare-card alt">
+    <h4>Karpenter（AWS 首推、已跨雲）</h4>
+    <p>不用預設 Node 群組——看 Pending Pod 的需求<strong>直接挑最便宜的 EC2 類型</strong>開出來。排程更快、成本更省。</p>
+  </div>
+</div>
+
+<h4>完整擴縮層級圖</h4>
+<div class="code-block">
+  <div class="code-head">
+    <span>擴縮責任分層</span>
+    <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+  </div>
+<pre><code>外部事件源 (Kafka/SQS) ──→ <span class="kw">KEDA</span>     ──→ 改 HPA target
+CPU / 自訂指標        ──→ <span class="kw">HPA</span>      ──→ 改 replica count
+容器資源需求          ──→ <span class="kw">VPA</span>      ──→ 改 requests/limits
+Pod 卡 Pending        ──→ <span class="kw">CA / Karpenter</span> ──→ 加 Node</code></pre>
+</div>
+
+<!-- ============================================================ -->
+<!-- PART 3 -->
+<!-- ============================================================ -->
+<div class="part-divider">
+  <div class="part-num">Part 03</div>
+  <div class="part-title">Probes · 健康檢查</div>
+  <div class="part-desc">讓 K8s 知道你的應用何時準備好、何時該重啟、何時需要更多時間初始化</div>
+</div>
+
+<h2 id="probes">三種 Probe</h2>
+
+<div class="probe-grid">
+  <div class="probe-card startup">
+    <div class="probe-icon">⏱</div>
+    <h5>Startup Probe</h5>
+    <p>容器是否完成啟動？通過前 Liveness/Readiness 不會執行。</p>
+    <div class="behavior">失敗 → kill 容器</div>
+  </div>
+  <div class="probe-card liveness">
+    <div class="probe-icon">💓</div>
+    <h5>Liveness Probe</h5>
+    <p>容器還活著嗎？死鎖、當掉這類情況用。</p>
+    <div class="behavior">失敗 → kill 容器重啟</div>
+  </div>
+  <div class="probe-card readiness">
+    <div class="probe-icon">🚦</div>
+    <h5>Readiness Probe</h5>
+    <p>可以接流量了嗎？啟動緩慢、暖機、相依服務未就緒用。</p>
+    <div class="behavior">失敗 → 從 Service 摘掉</div>
+  </div>
+</div>
+
+<h4>檢查方式三種</h4>
+<div class="table-wrap">
+<table>
+<thead><tr><th>方式</th><th>描述</th><th>適合</th></tr></thead>
+<tbody>
+<tr><td><code>httpGet</code></td><td>HTTP GET 指定 path，2xx/3xx 視為成功</td><td>Web / API 服務（最常用）</td></tr>
+<tr><td><code>tcpSocket</code></td><td>能建立 TCP 連線就成功</td><td>資料庫、訊息佇列等非 HTTP 服務</td></tr>
+<tr><td><code>exec</code></td><td>在容器內執行指令，exit 0 成功</td><td>自訂邏輯（如檢查檔案）</td></tr>
+<tr><td><code>grpc</code>（v1.24+）</td><td>gRPC Health Checking 協議</td><td>gRPC 服務</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ============================================ -->
+<h2 id="probe-example">Probe 實戰設定</h2>
+
+<div class="code-block">
+  <div class="code-head">
+    <span>probes.yaml · 完整三種配合</span>
+    <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+  </div>
+<pre><code><span class="kw">containers</span>:
+- <span class="kw">name</span>: app
+  <span class="kw">image</span>: <span class="str">myapp:1.0</span>
+  <span class="kw">ports</span>:
+  - <span class="kw">containerPort</span>: <span class="num">8080</span>
+
+  <span class="kw">startupProbe</span>:           <span class="cm"># 慢啟動應用必備，給它最多 5 分鐘</span>
+    <span class="kw">httpGet</span>:
+      <span class="kw">path</span>: /healthz
+      <span class="kw">port</span>: <span class="num">8080</span>
+    <span class="kw">periodSeconds</span>: <span class="num">10</span>
+    <span class="kw">failureThreshold</span>: <span class="num">30</span>    <span class="cm"># 10s × 30 = 300s</span>
+
+  <span class="kw">livenessProbe</span>:
+    <span class="kw">httpGet</span>:
+      <span class="kw">path</span>: /healthz
+      <span class="kw">port</span>: <span class="num">8080</span>
+    <span class="kw">periodSeconds</span>: <span class="num">10</span>
+    <span class="kw">timeoutSeconds</span>: <span class="num">3</span>
+    <span class="kw">failureThreshold</span>: <span class="num">3</span>     <span class="cm"># 連續 3 次失敗才重啟</span>
+
+  <span class="kw">readinessProbe</span>:
+    <span class="kw">httpGet</span>:
+      <span class="kw">path</span>: /ready       <span class="cm"># 通常與 liveness 不同 endpoint</span>
+      <span class="kw">port</span>: <span class="num">8080</span>
+    <span class="kw">periodSeconds</span>: <span class="num">5</span>
+    <span class="kw">timeoutSeconds</span>: <span class="num">2</span>
+    <span class="kw">failureThreshold</span>: <span class="num">2</span></code></pre>
+</div>
+
+<h4>關鍵參數</h4>
+<div class="table-wrap">
+<table>
+<thead><tr><th>參數</th><th>預設</th><th>用途</th></tr></thead>
+<tbody>
+<tr><td><code>initialDelaySeconds</code></td><td>0</td><td>容器啟動後等多久才開始檢查（有 startupProbe 時可設 0）</td></tr>
+<tr><td><code>periodSeconds</code></td><td>10</td><td>檢查間隔</td></tr>
+<tr><td><code>timeoutSeconds</code></td><td>1</td><td>單次檢查 timeout</td></tr>
+<tr><td><code>successThreshold</code></td><td>1</td><td>連續幾次成功算通過（liveness/startup 只能 1）</td></tr>
+<tr><td><code>failureThreshold</code></td><td>3</td><td>連續幾次失敗才判失敗</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout warn">
+  <div class="callout-label">⚠️ Liveness vs Readiness 的致命差異</div>
+  <strong>Liveness 失敗會殺掉容器重啟；Readiness 失敗只是暫時從 Service 摘掉</strong>。如果只該「暫時不接流量」的情境用了 Liveness（比如等待相依服務），應用會陷入<strong>重啟迴圈 + 串聯故障</strong>。記住：<em>能自己修好的用 readiness，自己修不好的才用 liveness</em>。
+</div>
+
+<div class="callout tip">
+  <div class="callout-label">💡 慢啟動的正確姿勢</div>
+  Java/.NET 應用啟動可能要數十秒到數分鐘。以前用 <code>initialDelaySeconds: 180</code>；<strong>現在應該用 startupProbe</strong>——失敗重啟時不用再浪費 3 分鐘空轉，且 liveness 可以設比較緊（快速偵測死鎖）。
+</div>
+
+<!-- ============================================================ -->
+<!-- PART 4 -->
+<!-- ============================================================ -->
+<div class="part-divider">
+  <div class="part-num">Part 04</div>
+  <div class="part-title">Observability · 觀測性</div>
+  <div class="part-desc">看不見就沒辦法修。從日誌、指標、追蹤、事件四個角度看穿 Cluster 內部</div>
+</div>
+
+<h2 id="three-pillars">三大支柱</h2>
+
+<div class="pillars">
+  <div class="pillar metrics">
+    <div class="pillar-icon">📊</div>
+    <h5>Metrics</h5>
+    <p>數值型時序資料。<br>CPU、記憶體、QPS、延遲。<br>Prometheus 生態為主。</p>
+  </div>
+  <div class="pillar logs">
+    <div class="pillar-icon">📜</div>
+    <h5>Logs</h5>
+    <p>文字型事件記錄。<br>應用 log、錯誤堆疊。<br>ELK / Loki / Splunk。</p>
+  </div>
+  <div class="pillar traces">
+    <div class="pillar-icon">🔗</div>
+    <h5>Traces</h5>
+    <p>跨服務的請求軌跡。<br>分散式微服務除錯。<br>Jaeger / Tempo / OTel。</p>
+  </div>
+</div>
+
+<p>K8s 還有第四種資訊：<strong>Events</strong>——Cluster 自身發生的事件（Pod 被排程、映像拉失敗、Liveness 失敗...）。這是除錯的金礦。</p>
+
+<!-- ============================================ -->
+<h2 id="logging">Logging：容器日誌</h2>
+
+<h4>預設行為</h4>
+<p>
+  應用把日誌寫到 stdout / stderr，容器運行時轉寫到 Node 本機檔案（<code>/var/log/containers/</code>）。
+  <code>kubectl logs</code> 實際是透過 kubelet 讀這些檔案。
+</p>
+
+<div class="code-block">
+  <div class="code-head">
+    <span>Bash · kubectl logs 常用</span>
+    <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+  </div>
+<pre><code><span class="cm"># 看當前日誌</span>
+kubectl logs &lt;pod&gt;
+
+<span class="cm"># 多容器 Pod 指定容器</span>
+kubectl logs &lt;pod&gt; -c &lt;container&gt;
+
+<span class="cm"># 持續追蹤（像 tail -f）</span>
+kubectl logs -f &lt;pod&gt;
+
+<span class="cm"># 看上次重啟前的日誌（CrashLoopBackOff 必用）</span>
+kubectl logs &lt;pod&gt; --previous
+
+<span class="cm"># 最近 5 分鐘</span>
+kubectl logs &lt;pod&gt; --since=5m
+
+<span class="cm"># Deployment 下所有 Pod 的日誌</span>
+kubectl logs -l app=web --tail=100
+
+<span class="cm"># 合併時間戳</span>
+kubectl logs &lt;pod&gt; --timestamps</code></pre>
+</div>
+
+<h4>集中式日誌架構</h4>
+<p>單一 Pod 用 <code>kubectl logs</code> 夠用，大規模生產環境需要中央化：</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>組件</th><th>角色</th><th>常見選擇</th></tr></thead>
+<tbody>
+<tr><td>Agent（每 Node 一份）</td><td>收集 Node 上所有容器日誌</td><td>Fluent Bit、Fluentd、Promtail、Vector</td></tr>
+<tr><td>儲存 / 索引</td><td>長期保存與快速查詢</td><td>Elasticsearch、Loki、OpenSearch、Splunk</td></tr>
+<tr><td>視覺化</td><td>查詢 UI</td><td>Kibana、Grafana</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout tip">
+  <div class="callout-label">💡 結構化日誌的威力</div>
+  應用輸出 JSON 格式日誌（level、timestamp、trace_id、message），agent 可直接解析欄位，查詢時能做 <code>level=error AND service=payment</code> 這類精確過濾。比純文字好用 10 倍。
+</div>
+
+<!-- ============================================ -->
+<h2 id="metrics">Metrics：指標與警報</h2>
+
+<h4>兩種指標管線</h4>
+<div class="compare-grid">
+  <div class="compare-card">
+    <h4>Resource Metrics (metrics-server)</h4>
+    <p>K8s 內建基礎，由 metrics-server 提供 <code>kubectl top</code>、HPA 用的 CPU/Memory。保留 60 秒，不做長期。</p>
+  </div>
+  <div class="compare-card alt">
+    <h4>Custom Metrics (Prometheus)</h4>
+    <p>事實標準。Prometheus Operator + kube-state-metrics + node-exporter 幾乎是 K8s 標配。</p>
+  </div>
+</div>
+
+<div class="code-block">
+  <div class="code-head">
+    <span>Bash · metrics-server 基本用法</span>
+    <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+  </div>
+<pre><code><span class="cm"># 各 Node 資源使用</span>
+kubectl top nodes
+
+<span class="cm"># 各 Pod 資源使用</span>
+kubectl top pods -A --sort-by=cpu
+kubectl top pods -n production --sort-by=memory
+
+<span class="cm"># 特定 Pod 內每個容器</span>
+kubectl top pod &lt;pod&gt; --containers</code></pre>
+</div>
+
+<h4>Prometheus 生態核心組件</h4>
+<ul style="margin-left:20px;margin-bottom:14px;">
+  <li><strong>Prometheus Server</strong>：抓取、儲存 metrics</li>
+  <li><strong>kube-state-metrics</strong>：把 K8s 物件狀態（Deployment 副本數、Pod 狀態）轉成 metrics</li>
+  <li><strong>node-exporter</strong>：每 Node 一個 DaemonSet，暴露 Node 層 metrics</li>
+  <li><strong>Alertmanager</strong>：處理警報路由、去重、靜音</li>
+  <li><strong>Grafana</strong>：視覺化儀表板</li>
+  <li><strong>kube-prometheus-stack</strong>（Helm）：一鍵部署以上全部</li>
+</ul>
+
+<!-- ============================================ -->
+<h2 id="events">Events：Cluster 的日記</h2>
+
+<p>Events 是 K8s 紀錄「發生了什麼」的原生機制。Pod 排程失敗、映像拉不到、Liveness 失敗都會產生 event。</p>
+
+<div class="code-block">
+  <div class="code-head">
+    <span>Bash · 查看 Events</span>
+    <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+  </div>
+<pre><code><span class="cm"># 整個 namespace 所有事件（按時間排序）</span>
+kubectl get events -n default --sort-by='.lastTimestamp'
+
+<span class="cm"># 只看 Warning</span>
+kubectl get events --field-selector type=Warning -A
+
+<span class="cm"># 針對特定 Pod 的事件</span>
+kubectl describe pod &lt;pod&gt;  <span class="cm"># 底部有 Events 段</span>
+
+<span class="cm"># 持續追蹤（像 tail -f）</span>
+kubectl get events -w</code></pre>
+</div>
+
+<div class="callout warn">
+  <div class="callout-label">⚠️ Events 有保存時間</div>
+  預設 Events 只保留 <strong>1 小時</strong>（<code>event-ttl</code>）！要長期追蹤需發到外部系統。建議把 Events 也納入日誌管線（Fluent Bit 有專屬 plugin）。
+</div>
+
+<!-- ============================================ -->
+<h2 id="debug">kubectl debug：神器</h2>
+
+<p>
+  生產容器為了安全，通常沒有 shell、沒有 curl、沒有 ps。怎麼除錯？<br>
+  <code>kubectl debug</code>（v1.25 穩定）可以<strong>附加一個臨時除錯容器到現有 Pod</strong>，共享網路與 process namespace。
+</p>
+
+<div class="code-block">
+  <div class="code-head">
+    <span>Bash · kubectl debug 四大招</span>
+    <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+  </div>
+<pre><code><span class="cm"># 1. 附加 ephemeral container 到現有 Pod（最常用）</span>
+kubectl debug -it &lt;pod&gt; --image=nicolaka/netshoot --target=app
+
+<span class="cm"># 2. 複製 Pod 並注入新容器（原 Pod 有 readOnlyRootFs 等限制時用）</span>
+kubectl debug &lt;pod&gt; -it --image=busybox --copy-to=debug-pod --share-processes
+
+<span class="cm"># 3. 換掉 command 重啟一份複製 Pod（用於 CrashLoopBackOff 時探索環境）</span>
+kubectl debug &lt;pod&gt; -it --copy-to=shell-copy --image=busybox \
+  --container=app -- sh
+
+<span class="cm"># 4. 對 Node 開除錯容器（存取 Node 檔案系統）</span>
+kubectl debug node/&lt;node-name&gt; -it --image=ubuntu</code></pre>
+</div>
+
+<h4>netshoot 映像：網路除錯瑞士刀</h4>
+<p>推薦預設用 <code>nicolaka/netshoot</code>，內含 <code>curl</code>、<code>dig</code>、<code>tcpdump</code>、<code>nmap</code>、<code>mtr</code>、<code>ss</code>、<code>iperf</code>... 網路問題一套搞定。</p>
+
+<h4>常用除錯流程</h4>
+<div class="code-block">
+  <div class="code-head">
+    <span>Bash · 典型除錯組合拳</span>
+    <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+  </div>
+<pre><code><span class="cm"># Pod 有問題先看這個</span>
+kubectl describe pod &lt;pod&gt;
+
+<span class="cm"># 進 Pod 看看</span>
+kubectl exec -it &lt;pod&gt; -- sh
+
+<span class="cm"># 沒 shell？ 注入 debug 容器</span>
+kubectl debug -it &lt;pod&gt; --image=nicolaka/netshoot --target=&lt;container&gt;
+
+<span class="cm"># 測試 Service DNS 解析</span>
+kubectl run -it --rm dns-test --image=busybox --restart=Never -- \
+  nslookup my-service.default.svc.cluster.local
+
+<span class="cm"># 本機存取 Cluster 內服務</span>
+kubectl port-forward svc/my-service 8080:80
+
+<span class="cm"># Node 層除錯</span>
+kubectl debug node/worker-1 -it --image=ubuntu</code></pre>
+</div>
+
+<!-- ============================================ -->
+<h2 id="summary">本章速查</h2>
+
+<h4>🎯 必記重點（按主題）</h4>
+
+<h4>排程</h4>
+<ol class="step-list">
+  <li>Scheduler 兩階段：Filter 過濾不合格 Node，Score 打分選最高。</li>
+  <li>requests 決定排程、limits 決定上限；memory 超 limit 會 OOMKilled。</li>
+  <li>三級 QoS：Guaranteed（requests=limits）> Burstable > BestEffort，OOM 先殺 BestEffort。</li>
+  <li>Affinity 是 Pod 挑 Node；Taint 是 Node 拒絕 Pod。</li>
+  <li>topologyKey 常用三個：hostname、zone、region。</li>
+  <li>生產環境一定要設 PodDisruptionBudget 保護可用副本數。</li>
+</ol>
+
+<h4>擴縮</h4>
+<ol class="step-list">
+  <li>HPA 改副本數、VPA 改 requests、KEDA 依外部事件（可到 0）、CA/Karpenter 改 Node 數。</li>
+  <li>HPA 前提：Pod 有設 resources.requests。</li>
+  <li>HPA + VPA 同時用會震盪，謹慎搭配。</li>
+  <li>Karpenter 比傳統 CA 更彈性（不綁 Node Group），AWS 環境首選。</li>
+</ol>
+
+<h4>Probes</h4>
+<ol class="step-list">
+  <li>三 probe：startup（等啟動）、liveness（活著嗎）、readiness（能接流量嗎）。</li>
+  <li>Liveness 失敗殺容器、Readiness 失敗只摘 Service。</li>
+  <li>慢啟動應用用 startupProbe，別再用 initialDelaySeconds: 180。</li>
+  <li>不要濫用 Liveness——能自己恢復的用 Readiness。</li>
+</ol>
+
+<h4>觀測性</h4>
+<ol class="step-list">
+  <li>三大支柱 + Events 是除錯四大資源。</li>
+  <li>Events 預設只存 1 小時，重要的要轉到中央日誌。</li>
+  <li>metrics-server 提供 kubectl top 與 HPA；Prometheus 做生產級 metrics。</li>
+  <li>結構化日誌（JSON）比純文字好查詢 10 倍。</li>
+  <li><code>kubectl debug</code> 是現代 distroless 映像除錯必備。</li>
+</ol>
+
+<h4>🔧 速查指令表</h4>
+<div class="table-wrap">
+<table>
+<thead><tr><th>目的</th><th>指令</th></tr></thead>
+<tbody>
+<tr><td>看 Node 資源</td><td><code>kubectl top nodes</code></td></tr>
+<tr><td>看 Pod 資源</td><td><code>kubectl top pods -A --sort-by=cpu</code></td></tr>
+<tr><td>幫 Node 加 label</td><td><code>kubectl label nodes &lt;n&gt; key=value</code></td></tr>
+<tr><td>幫 Node 加 taint</td><td><code>kubectl taint nodes &lt;n&gt; key=value:NoSchedule</code></td></tr>
+<tr><td>看 HPA 當前狀態</td><td><code>kubectl get hpa -w</code></td></tr>
+<tr><td>看 Events</td><td><code>kubectl get events --sort-by='.lastTimestamp'</code></td></tr>
+<tr><td>追蹤 Pod 日誌</td><td><code>kubectl logs -f &lt;pod&gt;</code></td></tr>
+<tr><td>上次重啟前日誌</td><td><code>kubectl logs &lt;pod&gt; --previous</code></td></tr>
+<tr><td>注入除錯容器</td><td><code>kubectl debug -it &lt;pod&gt; --image=nicolaka/netshoot</code></td></tr>
+<tr><td>Cordon Node（禁新排）</td><td><code>kubectl cordon &lt;node&gt;</code></td></tr>
+<tr><td>Drain Node（排空）</td><td><code>kubectl drain &lt;node&gt; --ignore-daemonsets</code></td></tr>
+<tr><td>恢復 Node</td><td><code>kubectl uncordon &lt;node&gt;</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout tip">
+  <div class="callout-label">🚀 下一章預告</div>
+  <strong>CH.07 kubectl 速查手冊</strong>——前六章建立了概念，下一章純工具。kubectl 完整指令分類、JSONPath 與 go-template、shell 別名、Context 切換、kubeconfig 結構、plugin 機制。遇到任何操作查這章就夠。
+</div>
+
+<div class="chap-nav">
+  <a href="ch05-config-security.html" class="prev">
+    <div class="dir">← 上一章</div>
+    <div class="t">CH.05 Configuration & Security</div>
+  </a>
+  <a href="ch07-kubectl-cheatsheet.html" class="next">
+    <div class="dir">下一章 →</div>
+    <div class="t">CH.07 kubectl 速查手冊</div>
+  </a>
+</div>
+
+</main>
+</div>
+
+<script>
+(function() {
+  const saved = localStorage.getItem('k8s-docs-theme');
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const initial = saved || (prefersDark ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', initial);
+  updateIcon(initial);
+})();
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme');
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('k8s-docs-theme', next);
+  updateIcon(next);
+}
+function updateIcon(theme) {
+  const icon = document.getElementById('theme-icon');
+  const label = document.getElementById('theme-label');
+  if (theme === 'dark') { icon.textContent = '☀️'; label.textContent = '亮色'; }
+  else { icon.textContent = '🌙'; label.textContent = '暗色'; }
+}
+function copyCode(btn) {
+  const pre = btn.closest('.code-block').querySelector('pre');
+  const text = pre.innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    const original = btn.textContent;
+    btn.textContent = '✓ COPIED';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = original; btn.classList.remove('copied'); }, 1500);
+  });
+}
+const tocLinks = document.querySelectorAll('.toc a');
+const headings = Array.from(document.querySelectorAll('h2[id], h3[id]'));
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const id = entry.target.id;
+      tocLinks.forEach(link => {
+        link.classList.toggle('active', link.getAttribute('href') === '#' + id);
+      });
+    }
+  });
+}, { rootMargin: '-80px 0px -70% 0px' });
+headings.forEach(h => observer.observe(h));
+</script>
+
+</body>
+</html>

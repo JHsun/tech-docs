@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 5 章 · STUN：自我位址發現</title>
+<link rel="stylesheet" href="../share/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>NAT TRAVERSAL × P2P</span>
+  </div>
+  <nav>
+    <a href="../firewall-traversal-and-p2p-guide -index.html">封面</a>
+    <a href="ch04.html">CH 4</a>
+    <a href="ch05.html" class="current">CH 5</a>
+    <a href="ch06.html">CH 6</a>
+    <a href="ch07.html">CH 7</a>
+    <a href="cheatsheet.html">速查</a>
+    <a href="glossary.html">術語</a>
+    <button id="themeToggle" class="theme-toggle">暗色</button>
+  </nav>
+</header>
+
+<main class="page">
+
+<div class="chapter-meta">
+  <span class="dot"></span> PART II &nbsp;·&nbsp; 穿越技術的核心方法
+  <span class="dot"></span> CHAPTER 05
+</div>
+
+<h1>
+  <span class="chapter-num">CHAPTER 5</span>
+  STUN：自我位址發現
+</h1>
+
+<div class="chapter-intro">
+  <h4>本章導讀</h4>
+  <p>
+    STUN 是現代 NAT 穿越的「眼睛」。它本身不打洞、不中繼、不改變 NAT 行為——
+    它只做一件事：<strong>告訴你「從外面看，你長什麼樣」</strong>。本章從 RFC 5389/8489 出發，
+    詳細解析 STUN 封包格式、Binding Request 機制、XOR-MAPPED-ADDRESS 的設計動機，
+    並澄清一個普遍的誤解：<em>STUN 不是穿越工具，它是穿越工具的前置條件</em>。
+  </p>
+</div>
+
+<div class="objectives">
+  <h4>📚 學習目標</h4>
+  <ul>
+    <li>能精確說出 STUN 解決什麼問題、不解決什麼問題。</li>
+    <li>能描述 STUN 訊息格式（header + attributes）與 magic cookie 的歷史背景。</li>
+    <li>能解釋為什麼有 XOR-MAPPED-ADDRESS 而不直接用 MAPPED-ADDRESS。</li>
+    <li>能寫出一個最小可行的 STUN client。</li>
+    <li>能列舉現代 STUN 的延伸用途（ICE 連通性檢查、TURN 認證等）。</li>
+  </ul>
+</div>
+
+<h2>5.1 STUN 在做什麼？一句話版本</h2>
+
+<p class="lead">
+  STUN（Session Traversal Utilities for NAT）讓一個在 NAT 後的主機，
+  透過一個公網伺服器，<strong>得知自己在公網上呈現的 IP 與 port</strong>。
+</p>
+
+<p>
+  注意這個句子的精確性：「呈現的 IP 與 port」——不是「自己的真實 IP」，而是<em>外人看到的</em>位址。
+  這個區別正是 NAT 後的主機所面對的核心困境。
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant A as Alice<br/>192.168.1.42:54321
+    participant N as NAT
+    participant S as STUN Server<br/>198.51.100.99:3478
+
+    Note over A: 我以為自己是 192.168.1.42:54321<br/>但這對外面沒意義
+    A->>N: Binding Request<br/>src=192.168.1.42:54321
+    N->>S: Binding Request<br/>src=198.51.100.1:62000
+    Note over S: 觀察到 src=198.51.100.1:62000<br/>這就是 Alice 對外的樣子
+    S->>N: Binding Response<br/>包含 XOR-MAPPED-ADDRESS<br/>= 198.51.100.1:62000
+    N->>A: Binding Response
+    Note over A: 啊哈！<br/>原來我對外是 198.51.100.1:62000
+</div>
+<div class="caption">圖 5-1 ｜ STUN 的核心工作：請伺服器當「鏡子」反射你的對外位址</div>
+</div>
+
+<h2>5.2 它<u>不</u>做什麼</h2>
+
+<p>初學者最常見的誤解，是把 STUN 當作整套穿越方案。實際上：</p>
+
+<div class="callout callout-warn">
+  <span class="callout-title">STUN 不能做的事</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>❌ 不會改變 NAT 行為（不像 UPnP/PCP）</li>
+    <li>❌ 不會幫你建立連線到 peer（這是 hole punching 的事，第 6 章）</li>
+    <li>❌ 不會中繼任何流量（這是 TURN 的事，第 7 章）</li>
+    <li>❌ 不能對 symmetric NAT「探得正確位址」（因為對不同遠端 NAT 給不同 port）</li>
+    <li>❌ 不能讓你被外面主動連到（除非配合 hole punching）</li>
+  </ul>
+</div>
+
+<p>
+  那 STUN 為什麼這麼重要？因為它是 hole punching 的<strong>前置步驟</strong>——
+  在你能告訴對方「來這個位址找我」之前，你必須先知道這個位址是什麼。
+  STUN 就是回答這個「我在哪？」的工具。
+</p>
+
+<h2>5.3 STUN 訊息結構</h2>
+
+<p>STUN 訊息有兩部分：固定 20 byte 的 header，加上零或多個 attributes。</p>
+
+<h3>5.3.1 訊息 Header</h3>
+
+<pre data-lang="binary"> 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|0 0|     STUN Message Type     |         Message Length        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                         Magic Cookie                          |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|                     Transaction ID (96 bits)                  |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+[尾隨：零或多個 attribute，每個都是 TLV 格式]</pre>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>前 2 bit (== 0)</h4>
+    <p>固定為 <code>00</code>，這是 STUN 與其他協議共用 port 時的區分機制
+    （例如 RTP 與 STUN 都跑在同一個 UDP port 時靠這個區別）。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Message Type (14 bit)</h4>
+    <p>編碼了 method + class。常見組合：
+    <code>0x0001</code> = Binding Request、<code>0x0101</code> = Binding Success Response、
+    <code>0x0111</code> = Binding Error Response、<code>0x0011</code> = Binding Indication。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Magic Cookie</h4>
+    <p>固定值 <code>0x2112A442</code>。這是 RFC 5389 為了與舊版 RFC 3489 區分而加入的。
+    若收到的封包這個欄位不對，可能是來自舊式 STUN 或根本不是 STUN。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Transaction ID (96 bit)</h4>
+    <p>客戶端隨機產生，伺服器回應時原樣帶回。用於匹配請求與回應，
+    也用於 XOR-MAPPED-ADDRESS 的編碼。<strong>必須有足夠隨機性</strong>，否則容易被欺騙。</p>
+  </div>
+</div>
+
+<h3>5.3.2 Attribute 格式（TLV）</h3>
+
+<p>所有 attribute 都是 type-length-value 結構：</p>
+
+<pre data-lang="binary"> 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|         Type (16 bit)         |        Length (16 bit)        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                         Value (Length 個 byte)                 |
+|                       (補齊到 4 byte 邊界)                      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+</pre>
+
+<h3>5.3.3 重要的 attribute 類型</h3>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>名稱</th>
+      <th>用途</th>
+      <th>是否必填</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td><code>0x0001</code></td><td>MAPPED-ADDRESS</td><td>舊式回傳客戶端的對外位址</td><td>已棄用</td></tr>
+    <tr><td><code>0x0020</code></td><td>XOR-MAPPED-ADDRESS</td><td>新式回傳對外位址（XOR 編碼）</td><td>★ 必有</td></tr>
+    <tr><td><code>0x0006</code></td><td>USERNAME</td><td>身份識別（在 ICE 與 TURN 中用）</td><td>視場景</td></tr>
+    <tr><td><code>0x0008</code></td><td>MESSAGE-INTEGRITY</td><td>HMAC-SHA1 完整性驗證</td><td>視場景</td></tr>
+    <tr><td><code>0x8028</code></td><td>FINGERPRINT</td><td>CRC-32 校驗，輔助與其他協議區分</td><td>建議有</td></tr>
+    <tr><td><code>0x8022</code></td><td>SOFTWARE</td><td>客戶端/伺服器軟體版本</td><td>選填</td></tr>
+    <tr><td><code>0x0009</code></td><td>ERROR-CODE</td><td>錯誤回應</td><td>視場景</td></tr>
+    <tr><td><code>0x0014</code></td><td>REALM</td><td>長期認證的 realm</td><td>TURN 用</td></tr>
+    <tr><td><code>0x0015</code></td><td>NONCE</td><td>長期認證的 nonce</td><td>TURN 用</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>5.4 為什麼是 XOR-MAPPED-ADDRESS？</h2>
+
+<p>
+  RFC 3489 定義的舊式 MAPPED-ADDRESS 直接寫明文 IP/port。RFC 5389 引入 XOR 版本，
+  把位址跟 magic cookie 與 transaction ID 做 XOR。為什麼要這麼麻煩？
+</p>
+
+<h3>5.4.1 動機：避開 NAT 的 ALG 改寫</h3>
+
+<p>
+  許多 NAT/ALG 會「自作主張」掃描封包內容，看到符合 IPv4 位址格式的 4 byte，
+  就以為是嵌入式位址而<strong>把它改寫</strong>為對外位址。這對 STUN 是災難——
+  STUN 想要的就是「<em>原始的對外位址</em>」，被 NAT 偷改之後反而錯了。
+</p>
+
+<p>
+  XOR 一下之後，那 4 byte 看起來像隨機數據，NAT 不會把它當 IP 改寫。
+  客戶端收到後再 XOR 回來，就是真正的對外位址。
+</p>
+
+<h3>5.4.2 XOR 編碼的具體公式</h3>
+
+<pre data-lang="conceptual">XOR-MAPPED-ADDRESS 的 value 編碼：
+
+[Family]        : 1 byte (0x01 = IPv4, 0x02 = IPv6)
+[Reserved]      : 1 byte (0x00)
+[X-Port]        : Port XOR (Magic Cookie 的高 16 bit)
+[X-Address]     :
+  IPv4: Address XOR (Magic Cookie 全 32 bit)
+  IPv6: Address XOR (Magic Cookie + Transaction ID 共 128 bit)
+
+例子（IPv4）：
+  Real Port    : 62000 (0xF230)
+  Magic Cookie : 0x2112A442
+  X-Port       : 0xF230 XOR 0x2112 = 0xD322
+
+  Real Address : 198.51.100.1 (0xC6336401)
+  X-Address    : 0xC6336401 XOR 0x2112A442 = 0xE721C043</pre>
+
+<div class="callout callout-history">
+  <span class="callout-title">標準演進的縮影</span>
+  XOR-MAPPED-ADDRESS 是「<em>協議遇到中間設備惡作劇後的妥協</em>」的經典案例。
+  原本最直觀的設計（直接寫位址）在現實中被破壞，於是要加上看似多餘的編碼層來保護。
+  類似的故事在 HTTP/2 over TLS（避開 middlebox 干擾）、QUIC over UDP（避開 firewall 對新 TCP option 的不友善）反覆上演。
+</div>
+
+<h2>5.5 一個最小可行的 STUN Client</h2>
+
+<p>不用任何函式庫，純手寫：</p>
+
+<pre data-lang="python">import os, socket, struct
+
+# Binding Request 的 message type
+MSG_BINDING_REQUEST = 0x0001
+MAGIC_COOKIE = 0x2112A442
+
+def build_binding_request():
+    # Header: type(2) + length(2) + cookie(4) + tx_id(12) = 20 bytes
+    tx_id = os.urandom(12)
+    header = struct.pack(
+        '!HHI',
+        MSG_BINDING_REQUEST,
+        0,                      # body length = 0 (no attributes)
+        MAGIC_COOKIE
+    ) + tx_id
+    return header, tx_id
+
+def parse_xor_mapped_address(data, tx_id):
+    # data 從 attribute body 開始（跳過 4 byte TLV header）
+    family = data[1]
+    x_port = struct.unpack('!H', data[2:4])[0]
+    port = x_port ^ (MAGIC_COOKIE >> 16)
+    if family == 0x01:  # IPv4
+        x_addr = struct.unpack('!I', data[4:8])[0]
+        addr = x_addr ^ MAGIC_COOKIE
+        ip = socket.inet_ntoa(struct.pack('!I', addr))
+        return (ip, port)
+    elif family == 0x02:  # IPv6
+        cookie_and_tx = struct.pack('!I', MAGIC_COOKIE) + tx_id
+        x_addr = data[4:20]
+        addr_bytes = bytes(a ^ b for a, b in zip(x_addr, cookie_and_tx))
+        ip = socket.inet_ntop(socket.AF_INET6, addr_bytes)
+        return (ip, port)
+
+def stun_request(server_host='stun.l.google.com', server_port=19302):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.settimeout(2.0)
+
+    req, tx_id = build_binding_request()
+    sock.sendto(req, (server_host, server_port))
+
+    data, _ = sock.recvfrom(4096)
+
+    # 解析 header
+    msg_type, msg_len, cookie = struct.unpack('!HHI', data[0:8])
+    assert cookie == MAGIC_COOKIE
+    assert msg_type == 0x0101  # Binding Success Response
+    assert data[8:20] == tx_id
+
+    # 解析 attributes
+    pos = 20
+    while pos &lt; 20 + msg_len:
+        attr_type, attr_len = struct.unpack('!HH', data[pos:pos+4])
+        attr_value = data[pos+4 : pos+4+attr_len]
+        if attr_type == 0x0020:  # XOR-MAPPED-ADDRESS
+            return parse_xor_mapped_address(attr_value, tx_id)
+        pos += 4 + ((attr_len + 3) // 4) * 4  # align to 4 bytes
+
+    raise RuntimeError("沒找到 XOR-MAPPED-ADDRESS")
+
+if __name__ == '__main__':
+    addr = stun_request()
+    print(f"我的對外位址是: {addr[0]}:{addr[1]}")</pre>
+
+<p>
+  這個程式不到 60 行，已經能在多數 NAT 後正確探得對外位址。
+  把它跑兩次，比較<em>同一個 sock</em>的兩次結果，可以判斷你是否是 EIM 映射；
+  改用<em>不同的 STUN 伺服器</em>跑一次，比較結果是否相同，可以判斷你是否是對稱式 NAT。
+</p>
+
+<h2>5.6 用 STUN 探測 NAT 類型</h2>
+
+<p>
+  傳統 RFC 3489 定義了一個基於 STUN 的 NAT 類型探測流程，使用多個 IP 上的 STUN 伺服器，
+  透過比較不同情境的 mapped address 來推斷 NAT 行為。雖然 RFC 5389 棄用了這套流程，
+  它對教學仍極有價值。
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TD
+    Start([Test 1: 一般 Binding Request])
+    Start --> T1{有回應?}
+    T1 -->|否| Blocked[UDP 全擋]
+    T1 -->|是| T1b{Mapped IP == 本機 IP?}
+    T1b -->|是| OpenInet[公網直連<br/>無 NAT]
+    T1b -->|否| Test2
+
+    Test2[Test 2: 請伺服器<br/>從另一個 IP+port 回應]
+    Test2 --> T2{有收到?}
+    T2 -->|是| FullCone[Full Cone NAT]
+    T2 -->|否| Test1B
+
+    Test1B[Test 1B: 用另一台<br/>STUN 伺服器再做一次 Test 1]
+    Test1B --> T1B{兩次 mapped 相同?}
+    T1B -->|否| Sym[Symmetric NAT]
+    T1B -->|是| Test3
+
+    Test3[Test 3: 請伺服器<br/>從同 IP 但不同 port 回應]
+    Test3 --> T3{有收到?}
+    T3 -->|是| Restricted[Restricted Cone]
+    T3 -->|否| PortRestricted[Port-Restricted Cone]
+
+    classDef good fill:#2d5a3d,stroke:#2d5a3d,color:#fff
+    classDef bad fill:#7a1414,stroke:#7a1414,color:#fff
+    class OpenInet,FullCone good
+    class Sym,Blocked bad
+</div>
+<div class="caption">圖 5-2 ｜ 經典的 STUN-based NAT 類型探測流程（RFC 3489 風格）</div>
+</div>
+
+<div class="callout callout-info">
+  <span class="callout-title">為何 RFC 5389 棄用了這套探測？</span>
+  因為它假設 NAT 行為「夠規律」可以分四類，但真實 NAT 行為（如第 2 章 RFC 4787 所述）
+  比這四類豐富得多。新版的建議是<strong>不要先探測 NAT 類型再做策略，而是直接執行 ICE
+  並根據實際結果判斷</strong>——這也是現代 WebRTC、libp2p 的做法。
+</div>
+
+<h2>5.7 STUN 在現代協議中的延伸用途</h2>
+
+<p>STUN 不只是探得對外位址。在後續章節要看的協議中，它扮演了多種角色：</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>① ICE 連通性檢查</h4>
+    <p>第 8 章會看到，ICE 用 STUN Binding Request 在每對候選位址之間做連通性測試。
+    這時 STUN 不是發給公網伺服器，而是發給 peer。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>② TURN 認證與分配</h4>
+    <p>第 7 章 TURN 的訊息格式直接擴充自 STUN（共享 magic cookie、attribute TLV 結構）。
+    Allocate、CreatePermission 等都是 STUN 訊息變體。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>③ Consent Freshness (RFC 7675)</h4>
+    <p>WebRTC 在連線建立後仍持續送 STUN Binding Request 確認對方還在收，
+    若收不到回應一段時間就斷線。這是防止「殭屍連線」的機制。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>④ NAT keep-alive</h4>
+    <p>定期送 STUN Binding Indication（不需回應）作為 keep-alive 維持 NAT 表項。
+    比應用層心跳輕量。</p>
+  </div>
+</div>
+
+<h2>5.8 公開 STUN 伺服器與部署</h2>
+
+<h3>5.8.1 常用公開伺服器</h3>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>伺服器</th>
+      <th>位址 / port</th>
+      <th>備註</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>Google</td><td><code>stun.l.google.com:19302</code></td><td>最廣泛使用，全球節點多</td></tr>
+    <tr><td>Cloudflare</td><td><code>stun.cloudflare.com:3478</code></td><td>低延遲，2024 年公開</td></tr>
+    <tr><td>Twilio</td><td><code>global.stun.twilio.com:3478</code></td><td>WebRTC 老牌服務</td></tr>
+    <tr><td>Mozilla</td><td><code>stun.services.mozilla.com</code></td><td>Firefox 預設用</td></tr>
+    <tr><td>Nextcloud Talk</td><td><code>stun.nextcloud.com:443</code></td><td>3478 被擋時的 443 替代</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout callout-warn">
+  <span class="callout-title">使用公開 STUN 的注意事項</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>免費伺服器有<strong>速率限制</strong>——大量請求會被丟棄或封禁</li>
+    <li><strong>沒有 SLA</strong>——重要應用建議至少 2 個 STUN 伺服器作冗餘</li>
+    <li>STUN 流量本身<strong>未加密</strong>，雖然只回傳對外位址（不算敏感）但攻擊者可推斷你在用 P2P</li>
+    <li>STUN over TLS（STUN/TLS）與 STUN over DTLS 在 RFC 7350 中定義，但部署不普及</li>
+  </ul>
+</div>
+
+<h3>5.8.2 自架 STUN 伺服器</h3>
+
+<p>STUN 伺服器極輕量。最廣泛的開源實作是 <strong>coturn</strong>（同時支援 TURN）：</p>
+
+<pre data-lang="bash"># Ubuntu / Debian
+$ sudo apt install coturn
+
+# /etc/turnserver.conf 最小設定
+listening-port=3478
+external-ip=YOUR_PUBLIC_IP
+no-tls
+no-dtls
+no-auth          # 純 STUN，無認證
+syslog
+realm=stun.example.com
+
+# 啟動
+$ sudo systemctl enable --now coturn
+
+# 測試
+$ stunclient stun.example.com 3478</pre>
+
+<p>
+  純 STUN 服務的資源占用極低，一台小型 VPS 可以服務數萬個並發查詢。
+  若同時要提供 TURN 中繼，頻寬就不可忽視，第 7 章會詳述。
+</p>
+
+<h2>5.9 安全考量</h2>
+
+<h3>5.9.1 STUN 不是身份驗證機制</h3>
+
+<p>
+  一個重要警示：STUN 回傳的「<em>對外位址</em>」是觀察值，不是<em>身份</em>。
+  攻擊者可以：
+</p>
+
+<ul>
+  <li><strong>偽造 STUN 回應</strong>：若攻擊者能 MITM 你的網路，可以偽造一個假的對外位址讓你誤以為是公網主機</li>
+  <li><strong>重播攻擊</strong>：截獲合法的 STUN 回應重播——但 transaction ID 機制能防</li>
+  <li><strong>Amplification 攻擊</strong>：STUN 回應比請求大，可被 DDoS 攻擊放大利用（曾在 2014 年被觀察到）</li>
+</ul>
+
+<p>
+  因此後續的 ICE、TURN 都加了 MESSAGE-INTEGRITY（HMAC）與長期認證。
+  純 STUN 主要用於「<em>我自己問我自己對外是誰</em>」這個低安全需求場景。
+</p>
+
+<h3>5.9.2 隱私洩漏</h3>
+
+<p>
+  使用第三方 STUN 伺服器，對方就<strong>知道你的對外 IP</strong>（這本來就是它的工作）。
+  若你介意被某廠商日誌記錄，自架 STUN 是必要的。WebRTC 還有個著名的<em>WebRTC IP leak</em>問題——
+  即使使用者透過 VPN，瀏覽器仍可能透過 STUN 探得真實對外 IP 並洩漏給網站，這是隱私社群關注多年的議題。
+</p>
+
+<h2>5.10 章末提要</h2>
+
+<div class="callout callout-note">
+  <span class="callout-title">本章核心觀念</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>STUN 只做一件事：<strong>讓你知道自己對外的 IP/port</strong>，不做穿越、不做中繼。</li>
+    <li>STUN 訊息 = 20 byte header + 多個 TLV attributes，magic cookie 區分新舊版本。</li>
+    <li>XOR-MAPPED-ADDRESS 的設計是為了避開 ALG 自動改寫位址的副作用。</li>
+    <li>傳統 RFC 3489 的 NAT 類型探測流程已被棄用，現代做法是「直接 ICE，不先探測」。</li>
+    <li>STUN 是 ICE、TURN、consent freshness、NAT keep-alive 的基礎設施。</li>
+    <li>STUN 不提供身份驗證，敏感場景需配合 MESSAGE-INTEGRITY 或 TLS。</li>
+  </ul>
+</div>
+
+<h3>動腦時間</h3>
+<ol>
+  <li>用本章的程式碼，分別對 <code>stun.l.google.com</code> 與 <code>stun.cloudflare.com</code> 各打一次。
+    若你拿到的對外 port 不一樣，這證明了什麼？</li>
+  <li>為什麼 STUN 對 symmetric NAT「探得位址後也沒用」？
+    具體推導：你打給 STUN 拿到 port X，告訴 peer 連 X，peer 真的能連到嗎？</li>
+  <li>STUN over TCP（RFC 5389 也定義了）是何時有用的？相比 UDP 它有什麼缺點？</li>
+  <li>研究你瀏覽器的 <code>chrome://webrtc-internals</code>（Chrome）或 <code>about:webrtc</code>（Firefox），
+    看一次 WebRTC 連線中發出多少 STUN 訊息、發給誰。</li>
+</ol>
+
+<h3>延伸閱讀</h3>
+<ul>
+  <li>RFC 8489（2020）— STUN 最新版本（取代 RFC 5389）<span class="tag tag-rfc">RFC</span> <strong>主讀</strong></li>
+  <li>RFC 7350（2014）— STUN over TLS / DTLS</li>
+  <li>RFC 7675（2015）— Session Traversal Utilities for NAT (STUN) Usage for Consent Freshness</li>
+  <li>coturn 原始碼（GitHub）— 學習工業級 STUN/TURN 實作</li>
+  <li><code>pystun3</code>、<code>node-stun</code>、Pion's <code>stun</code>（Go）— 不同語言的範例</li>
+</ul>
+
+<nav class="chapter-nav">
+  <a class="prev" href="ch04.html">
+    <span class="label">← PREV</span>
+    <span class="title">第 4 章 · UPnP / NAT-PMP / PCP</span>
+  </a>
+  <a class="next" href="ch06.html">
+    <span class="label">NEXT →</span>
+    <span class="title">第 6 章 · Hole Punching</span>
+  </a>
+</nav>
+
+<footer>
+  <div>CHAPTER 5 / 19 · STUN · NAT TRAVERSAL × P2P TEXTBOOK</div>
+</footer>
+
+</main>
+
+<script src="../share/js/mermaid.min.js"></script>
+<script src="../share/js/textbook.js"></script>
+</body>
+</html>

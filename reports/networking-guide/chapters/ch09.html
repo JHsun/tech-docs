@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 9 章 · 應用層隧道穿越</title>
+<link rel="stylesheet" href="../share/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>NAT TRAVERSAL × P2P</span>
+  </div>
+  <nav>
+    <a href="../firewall-traversal-and-p2p-guide -index.html">封面</a>
+    <a href="ch08.html">CH 8</a>
+    <a href="ch09.html" class="current">CH 9</a>
+    <a href="ch10.html">CH 10</a>
+    <a href="ch11.html">CH 11</a>
+    <a href="cheatsheet.html">速查</a>
+    <a href="glossary.html">術語</a>
+    <button id="themeToggle" class="theme-toggle">暗色</button>
+  </nav>
+</header>
+
+<main class="page">
+
+<div class="chapter-meta">
+  <span class="dot"></span> PART II &nbsp;·&nbsp; 穿越技術的核心方法
+  <span class="dot"></span> CHAPTER 09
+</div>
+
+<h1>
+  <span class="chapter-num">CHAPTER 9</span>
+  應用層隧道穿越
+</h1>
+
+<div class="chapter-intro">
+  <h4>本章導讀</h4>
+  <p>
+    前面八章都在處理「<em>NAT 無心阻擋</em>」這類問題。本章轉到光譜的另一端：
+    當你面對的是<strong>有意阻擋</strong>的防火牆——企業 NGFW、學校網管、國家審查——
+    傳統穿越技術通通失效。此時的工程哲學從「<em>請設備配合</em>」變成「<em>不讓設備發現</em>」。
+    我們會看 HTTP CONNECT、SOCKS、TLS 偽裝、WebSocket、域前置（domain fronting）、
+    以及流量混淆（traffic obfuscation）。本章也會明確界定<strong>技術倫理界線</strong>——
+    這些技術是雙面刃。
+  </p>
+</div>
+
+<div class="objectives">
+  <h4>📚 學習目標</h4>
+  <ul>
+    <li>能說明「協作型穿越」與「對抗型穿越」的根本哲學差異。</li>
+    <li>能描述 HTTP CONNECT、SOCKS5、SSH 動態 forward 三種傳統隧道的差異。</li>
+    <li>能解釋為什麼 TLS over 443 是現代企業環境的最後保險。</li>
+    <li>能說明域前置（domain fronting）的原理與其終結（CDN 政策變化）。</li>
+    <li>能列舉至少三種流量混淆技術並說明其對抗的 DPI 層級。</li>
+    <li>能對技術倫理風險做出明確判斷。</li>
+  </ul>
+</div>
+
+<h2>9.1 兩種「穿越」的哲學差異</h2>
+
+<p>第 1 章我們區分過兩類阻擋。本章對應的是其中比較棘手的一類：</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>協作型穿越（Ch.4-8）</h4>
+    <p><strong>對 NAT 說</strong>：「請開個洞讓我用」<br>
+    技術重點：探測、協調、重試<br>
+    成本：低（普通工程）<br>
+    倫理：通常無爭議</p>
+  </div>
+  <div class="cheat-card">
+    <h4>對抗型穿越（本章）</h4>
+    <p><strong>對防火牆說</strong>：「我不是你想攔的那種流量」<br>
+    技術重點：偽裝、混淆、規避<br>
+    成本：高（要對抗持續演進的偵測）<br>
+    倫理：高度依場景</p>
+  </div>
+</div>
+
+<div class="callout callout-warn">
+  <span class="callout-title">技術倫理前提</span>
+  本章描述的技術，部分在某些司法管轄區或組織政策下使用是<strong>違規甚至違法</strong>的。
+  作者提供這些知識是為了讓你<strong>理解</strong>它們如何運作——以便：
+  <ul style="margin:0.5em 0 0;">
+    <li>在合法場景（如：在自家網路除錯、合規的安全研究、保護記者來源）中正確使用</li>
+    <li>在企業/政府防禦角色中能識別與防護</li>
+    <li>對它們的技術極限與倫理代價有清醒認知</li>
+  </ul>
+  你需對自己的行為負責。
+</div>
+
+<h2>9.2 HTTP CONNECT：最古老的隧道</h2>
+
+<p>
+  HTTPS 普及之前，企業 proxy 早就需要「轉送加密流量」這個能力。
+  RFC 7231 標準化了 <strong>CONNECT 方法</strong>——
+  客戶端透過 HTTP 請求 proxy 開一條到目的地的「<em>透明 TCP 通道</em>」。
+</p>
+
+<h3>9.2.1 CONNECT 的基本流程</h3>
+
+<pre data-lang="http">────── 客戶端 → Proxy ──────
+CONNECT example.com:443 HTTP/1.1
+Host: example.com:443
+User-Agent: Mozilla/5.0 ...
+Proxy-Authorization: Basic dXNlcjpwYXNz   (可選)
+
+────── Proxy → 客戶端 ──────
+HTTP/1.1 200 Connection Established
+Proxy-Agent: corporate-proxy/1.0
+
+────── 此後雙向透明轉送 raw TCP bytes ──────
+[客戶端開始 TLS 握手]
+[example.com:443 收到 TLS ClientHello]
+...</pre>
+
+<p>
+  Proxy 看到 200 回應後，<em>停止解析 HTTP</em>，純粹當 TCP 中繼。
+  這讓 HTTPS 流量可以穿越企業 proxy 而 proxy 無法（不解密的話）看到內容。
+</p>
+
+<h3>9.2.2 CONNECT 的合法用途與限制</h3>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>合法用途</h4>
+    <ul>
+      <li>正規的企業 HTTPS 透明轉送</li>
+      <li>SSH over HTTPS（透過 proxy 連 SSH 跳板機）</li>
+      <li>RDP、VNC、TURN over TLS 等 TCP-based 服務的代理</li>
+    </ul>
+  </div>
+  <div class="cheat-card">
+    <h4>常見限制</h4>
+    <ul>
+      <li>Proxy 通常<strong>白名單</strong>目的 port（只允 443）</li>
+      <li>需要 Proxy-Authorization（Basic / NTLM / Kerberos）</li>
+      <li>TLS Inspector 可能解密 CONNECT 後的內容</li>
+      <li>無法承載 UDP（CONNECT 是 TCP-only）</li>
+    </ul>
+  </div>
+</div>
+
+<h2>9.3 SOCKS：通用代理協議</h2>
+
+<p>
+  <strong>SOCKS</strong>（最初是 SOCKetS 的縮寫）是另一種流行的代理協議，比 HTTP CONNECT 更通用。
+  SOCKS5（RFC 1928）是當前主流版本，支援 TCP 與 UDP。
+</p>
+
+<h3>9.3.1 SOCKS5 握手流程</h3>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant C as Client
+    participant S as SOCKS5 Server
+    participant T as Target
+
+    Note over C,S: 階段 1：認證協商
+    C->>S: VER=5 NMETHODS=2 [no-auth, user/pwd]
+    S->>C: VER=5 METHOD=user/pwd
+
+    Note over C,S: 階段 2：使用者認證 (RFC 1929)
+    C->>S: USER alice PASS secret
+    S->>C: STATUS=success
+
+    Note over C,S: 階段 3：請求建立連線
+    C->>S: CMD=CONNECT ATYP=domain<br/>ADDR=example.com PORT=443
+    S->>T: TCP connect to example.com:443
+    S->>C: REP=success BND.ADDR=... BND.PORT=...
+
+    Note over C,T: 階段 4：透明轉送
+    C->>S: TCP payload
+    S->>T: 轉送
+    T->>S: TCP payload
+    S->>C: 轉送
+</div>
+<div class="caption">圖 9-1 ｜ SOCKS5 的四階段流程</div>
+</div>
+
+<h3>9.3.2 SOCKS vs HTTP CONNECT</h3>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>面向</th>
+      <th>HTTP CONNECT</th>
+      <th>SOCKS5</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>支援協議</td><td>TCP</td><td>TCP + UDP（透過 UDP ASSOCIATE）</td></tr>
+    <tr><td>位址類型</td><td>DNS 名稱 + port</td><td>IPv4 / IPv6 / domain</td></tr>
+    <tr><td>認證</td><td>HTTP Basic / NTLM / Kerberos</td><td>SOCKS5 user/pwd / GSSAPI</td></tr>
+    <tr><td>典型使用</td><td>瀏覽器、企業 proxy</td><td>Tor、SSH、應用代理</td></tr>
+    <tr><td>協議開銷</td><td>HTTP 訊息頭</td><td>較小（二進位）</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>9.3.3 SOCKS 在 P2P 中的角色</h3>
+
+<p>
+  Tor 客戶端對應用提供 SOCKS5 介面（預設 9050），所以任何<em>支援 SOCKS5</em>的應用，
+  幾乎都能透過 Tor 跑。這也是為什麼許多 P2P 軟體（包括 BitTorrent client）支援
+  「<em>把流量丟給 SOCKS5</em>」這個選項——便於串接到 Tor、Shadowsocks 等隱私工具。
+</p>
+
+<h2>9.4 SSH 動態端口轉送：個人版隧道</h2>
+
+<p>
+  如果你有<strong>一台公網的 SSH 主機</strong>，OpenSSH 內建一個強大功能：
+  <code>-D</code> 選項把 SSH 連線變成本機 SOCKS5 代理。
+</p>
+
+<pre data-lang="bash"># 在你的筆電上執行
+$ ssh -D 1080 -N user@my-server.example.com
+
+# 此時本機 localhost:1080 = SOCKS5 proxy
+# 任何丟到此 proxy 的流量都從 my-server.example.com 出去
+
+# 設定瀏覽器 proxy = SOCKS5 localhost:1080
+# 或讓特定指令走它：
+$ curl --socks5 localhost:1080 https://example.com
+$ git -c http.proxy=socks5://localhost:1080 clone ...</pre>
+
+<p>
+  這個技巧在出差、咖啡廳、機場 Wi-Fi、或<em>限制較多</em>的網路環境中極為實用——
+  只要 SSH（port 22 或 443）能出，所有流量都能間接出去。
+  本書也用這個技巧做過 P2P 應用的內網除錯。
+</p>
+
+<h2>9.5 TLS over 443：終極偽裝</h2>
+
+<p>
+  企業防火牆<em>幾乎一定</em>放行對外的 HTTPS（port 443）流量——這是現代網際網路的命脈。
+  把任何協議封裝成「看起來像 HTTPS」的流量丟到 443，是最廣泛的隧道策略。
+</p>
+
+<h3>9.5.1 TLS 隧道的層次</h3>
+
+<pre data-lang="layered">┌────────────────────────────┐
+│  [應用流量：BT / SSH / VPN] │
+├────────────────────────────┤
+│  [偽裝層：HTTP/2 / WebSocket]│  ← 讓流量「看起來像」HTTPS
+├────────────────────────────┤
+│  [TLS 1.3]                  │  ← 加密
+├────────────────────────────┤
+│  [TCP, port 443]            │  ← 偽裝成 HTTPS
+└────────────────────────────┘</pre>
+
+<h3>9.5.2 為什麼 TLS-only 不夠？</h3>
+
+<p>
+  「我把 SSH 包進 TLS 不就好了？」這個直覺對抗不了現代 DPI。
+  TLS 提供了加密，但 TLS 握手本身有 fingerprint：
+</p>
+
+<ul>
+  <li><strong>JA3/JA4 fingerprint</strong>：根據 ClientHello 的 cipher suites 順序、extensions、ALPN，產生指紋——能區分 OpenSSL、BoringSSL、各瀏覽器、Tor</li>
+  <li><strong>SNI（Server Name Indication）</strong>：明文中帶有目的網域，讓 DPI 直接看到你連哪</li>
+  <li><strong>封包大小與時序</strong>：HTTPS 瀏覽是 burst-and-idle，影音串流是穩定流，BT 是雙向對等——機器學習分類器一眼識破</li>
+</ul>
+
+<h3>9.5.3 ECH（Encrypted Client Hello）</h3>
+
+<p>
+  IETF 正在標準化 <strong>ECH</strong>（Encrypted ClientHello），把 SNI 也加密。
+  Cloudflare 與部分瀏覽器已開始實驗性部署。一旦 ECH 普及，DPI 將難以根據 SNI 過濾——
+  這是隱私保護方面的重大進展，但也使得防火牆運維更難。
+</p>
+
+<h2>9.6 WebSocket：對 P2P 友善的隧道</h2>
+
+<p>
+  WebSocket（RFC 6455）原本是為瀏覽器即時通訊設計的協議——
+  從 HTTP/HTTPS 升級為持久雙向連線。它的特性對 P2P 隧道極友善：
+</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>跑在 80/443 之上</h4>
+    <p>對防火牆而言，WebSocket 連線跟一個普通 HTTP 升級請求沒兩樣，
+    幾乎所有環境都能穿越。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>瀏覽器原生支援</h4>
+    <p>純 JavaScript 即可建立連線，不需要插件或特殊權限。
+    libp2p 的 browser node、WebRTC signaling 都常用。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>雙向訊息</h4>
+    <p>不像普通 HTTP 是 request-response，WebSocket 是 full-duplex。
+    可承載任何 P2P 訊號協議。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>可承載二進位</h4>
+    <p>支援 binary frames，可以裝任何協議的 raw 封包。
+    libp2p 的 ws/wss transport 直接這樣用。</p>
+  </div>
+</div>
+
+<h3>9.6.1 WebSocket 升級握手</h3>
+
+<pre data-lang="http">────── Client → Server ──────
+GET /ws HTTP/1.1
+Host: signal.example.com
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+Sec-WebSocket-Version: 13
+
+────── Server → Client ──────
+HTTP/1.1 101 Switching Protocols
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+
+────── 此後雙向 WebSocket 訊息 ──────</pre>
+
+<h2>9.7 域前置（Domain Fronting）：曾經的銀彈</h2>
+
+<p>
+  域前置是一個極具爭議的技巧——<strong>利用 CDN 的特性</strong>，
+  讓你連線 <em>看似</em>連到一個無爭議的網站（如 google.com），
+  但 HTTPS 內部的 Host header 指向真正的目標。
+</p>
+
+<h3>9.7.1 原理</h3>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant C as Client (受審查網路)
+    participant FW as 防火牆
+    participant CDN as CDN (例：Google)
+    participant T as 目標伺服器
+
+    Note over C,T: 設定：CDN 同時為 google.com 與 secret.org 服務
+
+    C->>FW: TLS ClientHello SNI=google.com
+    Note over FW: 看到 SNI 是 google.com<br/>放行（無人敢擋 Google）
+    FW->>CDN: 轉送
+
+    Note over C,CDN: TLS 握手完成，建立加密通道
+    C->>CDN: HTTP/2 加密請求<br/>:authority = secret.org
+    Note over CDN: 看內部 Host header<br/>路由到 secret.org
+
+    CDN->>T: 轉送請求
+    T->>CDN: 回應
+    CDN->>C: 回應 (走原連線)
+</div>
+<div class="caption">圖 9-2 ｜ 域前置：外面看是 google.com，裡面實是 secret.org</div>
+</div>
+
+<p>
+  Tor 的 meek pluggable transport、Telegram、Signal 等都曾使用過域前置，
+  在各國防火牆面前極為有效——攔截 google.com 等於攔截整個搜尋引擎，沒有國家敢這樣做。
+</p>
+
+<h3>9.7.2 域前置的終結</h3>
+
+<div class="callout callout-history">
+  <span class="callout-title">2018 年的轉折</span>
+  <strong>2018 年 4 月，Google 與 AWS 幾乎同時宣布禁止域前置</strong>。
+  CDN 開始要求 SNI 與 Host header 一致，違反就拒絕服務。
+  Signal 因此失去了在伊朗、阿拉伯聯合大公國等地穿透審查的能力。
+  域前置的時代基本結束，新一代技術轉向 ECH 與其他混淆方案。
+</div>
+
+<h2>9.8 流量混淆（Traffic Obfuscation）</h2>
+
+<p>
+  即使你成功用 TLS 包裝流量，DPI 仍可能根據<em>流量行為</em>識破——
+  封包大小分布、時序、雙向比例。對抗這類偵測需要主動<strong>偽造</strong>流量特徵，
+  讓你的流量看起來像目標流量類型。
+</p>
+
+<h3>9.8.1 主流混淆技術譜系</h3>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>技術</th>
+      <th>偽裝目標</th>
+      <th>對抗的偵測層級</th>
+      <th>狀態</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>obfs2 / obfs3</strong></td>
+      <td>隨機看似熵</td>
+      <td>關鍵字 / signature</td>
+      <td>已棄用</td>
+    </tr>
+    <tr>
+      <td><strong>obfs4</strong></td>
+      <td>偽隨機 + IAT 模糊化</td>
+      <td>主動探測 + 流量分析</td>
+      <td>仍主流（Tor）</td>
+    </tr>
+    <tr>
+      <td><strong>meek</strong></td>
+      <td>HTTPS over CDN</td>
+      <td>SNI/Host 過濾</td>
+      <td>因域前置被禁而衰退</td>
+    </tr>
+    <tr>
+      <td><strong>Snowflake</strong></td>
+      <td>偽裝成 WebRTC</td>
+      <td>協議分類器</td>
+      <td>Tor 重要工具</td>
+    </tr>
+    <tr>
+      <td><strong>Shadowsocks</strong></td>
+      <td>無狀態加密代理</td>
+      <td>主動探測（已被部分破解）</td>
+      <td>Shadowsocks-2022 改良中</td>
+    </tr>
+    <tr>
+      <td><strong>v2ray / Xray</strong></td>
+      <td>多層偽裝協議</td>
+      <td>機器學習分類</td>
+      <td>持續演化</td>
+    </tr>
+    <tr>
+      <td><strong>WireGuard over TLS</strong></td>
+      <td>正常 HTTPS 流量</td>
+      <td>UDP 阻擋</td>
+      <td>新興</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h3>9.8.2 obfs4 的設計亮點</h3>
+
+<p>
+  obfs4 是 Tor Pluggable Transport 中最成熟的混淆協議，幾個關鍵設計：
+</p>
+
+<ul>
+  <li><strong>Bridge identifier</strong>：客戶端必須先有伺服器的 public key（防主動探測）</li>
+  <li><strong>偽隨機加密</strong>：所有 byte 看起來像均勻隨機，沒有可識別 fingerprint</li>
+  <li><strong>IAT (inter-arrival time) 模糊化</strong>：隨機 padding 與延遲，破壞時序分析</li>
+  <li><strong>抗主動探測</strong>：無 key 的探測者收到「看似隨機」的回應，無法確認是不是 obfs4 server</li>
+</ul>
+
+<h3>9.8.3 Snowflake：用 WebRTC 對抗審查</h3>
+
+<p>
+  Snowflake 是個聰明的設計——把 Tor 流量偽裝成<strong>普通的 WebRTC</strong>視訊通話。
+  防火牆若擋 WebRTC，會誤傷大量視訊會議使用者，所以幾乎不能擋。
+  Snowflake 的「proxy」是普通使用者透過瀏覽器擴充當志願者參與，<em>動態</em>提供入口——
+  防火牆難以維護黑名單。
+</p>
+
+<div class="callout callout-info">
+  <span class="callout-title">Snowflake 對 P2P 開發者的啟示</span>
+  Snowflake 證明了：<em>P2P 技術本身能成為審查規避工具</em>。
+  這不是因為 P2P 有特殊隱私，而是因為 P2P 流量已經夠普遍——
+  視訊通話、雲端遊戲、Tailscale-like VPN——擋它的代價已經很高。
+  「<strong>大眾化</strong>」本身就是一種反審查武器。
+</div>
+
+<h2>9.9 透過非典型協議的隧道</h2>
+
+<p>
+  Wikipedia 的 Tunneling protocol 條目清楚指出：
+  <strong>能繞過防火牆的隧道方法包括 DNS、MQTT、SMS 等不同協議</strong>。
+  這些「<em>不像通訊管道的通訊管道</em>」在某些極端封鎖環境下是最後手段。
+</p>
+
+<h3>9.9.1 DNS 隧道</h3>
+
+<p>
+  DNS 永遠不會被擋——即使最嚴格的網路也得讓 DNS 出去解析網域。
+  DNS 隧道把資料編碼進 DNS 查詢與回應：
+</p>
+
+<pre data-lang="conceptual">客戶端要送資料 "Hello"：
+  DNS 查詢: aGVsbG8.tunnel.attacker.com  ← Base32 編碼的 "Hello"
+  
+DNS 伺服器（攻擊者控制）回應：
+  TXT record = "dGFhYXM"  ← 編碼回送的資料
+
+優點：幾乎所有網路都放行 DNS
+缺點：頻寬極低（每次查詢只能編幾十 byte）
+      偵測：行為異常的 DNS 查詢（過長、過頻、TXT 為主）容易被 IDS 發現
+
+工具：iodine（IPv4-over-DNS）、dnscat2</pre>
+
+<p>
+  DNS 隧道頻寬低（典型 1-100 Kbps），不適合一般使用，
+  但作為<em>緊急回連通道</em>（exfiltration、命令通道）在攻擊與防禦領域都有實際應用。
+</p>
+
+<h3>9.9.2 ICMP 隧道</h3>
+
+<p>
+  類似 DNS，把資料藏在 ICMP echo request/reply 的 payload 中。
+  比 DNS 更冷門但實作更簡單。工具：<code>ptunnel</code>。
+</p>
+
+<h2>9.10 防禦視角：怎麼識別這些隧道</h2>
+
+<p>本章不只給攻擊面知識，也應提供防禦面的對應思路：</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>對抗 HTTPS 隧道</h4>
+    <ul>
+      <li>TLS Inspector 解密檢查（破壞 E2E）</li>
+      <li>SNI 白名單</li>
+      <li>JA3/JA4 fingerprint 比對</li>
+      <li>流量行為分析</li>
+    </ul>
+  </div>
+  <div class="cheat-card">
+    <h4>對抗 DNS 隧道</h4>
+    <ul>
+      <li>DNS 流量基線分析（query 長度、頻率）</li>
+      <li>限制 TXT/NULL 記錄查詢</li>
+      <li>強制使用受控 DNS resolver</li>
+      <li>查詢量異常告警</li>
+    </ul>
+  </div>
+  <div class="cheat-card">
+    <h4>對抗混淆代理</h4>
+    <ul>
+      <li>機器學習流量分類</li>
+      <li>IP reputation 黑名單（雲端 VPS 公開 range）</li>
+      <li>主動探測（probe + fingerprint）</li>
+    </ul>
+  </div>
+  <div class="cheat-card">
+    <h4>策略層</h4>
+    <ul>
+      <li>零信任架構（ZTNA）取代邊界</li>
+      <li>EDR 在端點側監控</li>
+      <li>網路流量加密 + 集中認證</li>
+    </ul>
+  </div>
+</div>
+
+<h2>9.11 倫理界線：什麼是合理使用？</h2>
+
+<div class="callout callout-danger">
+  <span class="callout-title">明確的倫理界線</span>
+  <p style="margin-top:0.3em;">本章描述的技術，使用合理性從<strong>無爭議</strong>到<strong>明顯違法</strong>是一個光譜：</p>
+  <ul style="margin:0.3em 0;">
+    <li>✅ <strong>明確合理</strong>：在自家網路測試、合規的安全研究、保護記者來源、突破國家審查保命</li>
+    <li>⚠️ <strong>需評估</strong>：繞過學校封鎖、家長控制、隱私保護用途</li>
+    <li>❌ <strong>明確不合理</strong>：未授權繞過企業政策、繞過反詐騙系統、攻擊他人網路、商業間諜</li>
+  </ul>
+  <p style="margin-bottom:0;">技術知識本身中立，但使用上下文不是。讀完本書你需要養成的判斷力是：
+  <em>在按下 enter 之前，先問自己「我若被別人這麼對待，會怎麼想？」</em></p>
+</div>
+
+<h2>9.12 章末提要</h2>
+
+<div class="callout callout-note">
+  <span class="callout-title">本章核心觀念</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>對抗型穿越的核心哲學是<em>偽裝</em>，不再是<em>請求配合</em>。</li>
+    <li>HTTP CONNECT、SOCKS5、SSH -D 是傳統三大隧道工具。</li>
+    <li>TLS over 443 是現代企業環境的最後保險，但 TLS fingerprint（JA3/JA4）使其不再隱形。</li>
+    <li>WebSocket 是對 P2P 友善的隧道載體，廣泛用於 signaling 與 libp2p。</li>
+    <li>域前置曾是反審查銀彈，2018 年因 CDN 政策變化基本失效。</li>
+    <li>流量混淆是與 DPI 的軍備競賽：obfs4、Snowflake、Shadowsocks 各有戰場。</li>
+    <li>非典型協議隧道（DNS、ICMP）頻寬低但極難擋，用於最後手段。</li>
+    <li>所有對抗型穿越都是<strong>持續演化</strong>的——沒有一次部署一勞永逸的方案。</li>
+  </ul>
+</div>
+
+<h3>動腦時間</h3>
+<ol>
+  <li>你在咖啡廳發現 Wi-Fi 限制只能訪問特定網站。請設計一個<em>合法</em>的方案，
+    讓你能用自己家裡的網路安全工作。需要哪些前置條件？</li>
+  <li>JA3/JA4 fingerprint 是怎麼計算的？為什麼即使不解密 TLS 也能識別客戶端類型？</li>
+  <li>研究 Snowflake 的工作原理。為什麼防火牆難以區分「真的 WebRTC 視訊」vs「Snowflake 包裝的 Tor 流量」？</li>
+  <li>從防禦者角度設計一個 DNS tunnel 偵測規則。要看哪些指標？怎麼避免誤報？</li>
+  <li>道德問題：如果你的雇主政策禁止使用個人 VPN，但你發現公司 Wi-Fi 對所有員工的私人裝置做 TLS inspection 蒐集瀏覽資料，
+    你會怎麼權衡？</li>
+</ol>
+
+<h3>延伸閱讀</h3>
+<ul>
+  <li>RFC 7231 §4.3.6 — HTTP CONNECT 方法 <span class="tag tag-rfc">RFC</span></li>
+  <li>RFC 1928 — SOCKS Protocol Version 5 <span class="tag tag-rfc">RFC</span></li>
+  <li>RFC 6455 — The WebSocket Protocol <span class="tag tag-rfc">RFC</span></li>
+  <li>Tor Project, Pluggable Transports specification</li>
+  <li>"How the Great Firewall of China Detects and Blocks Fully Encrypted Traffic" (USENIX 2023) — 中國防火牆對流量混淆的對抗</li>
+  <li>Cloudflare blog on ECH (Encrypted ClientHello) deployment</li>
+  <li>Signal Blog, "A letter from Amazon" (2018) — 域前置被禁的紀錄</li>
+</ul>
+
+<nav class="chapter-nav">
+  <a class="prev" href="ch08.html">
+    <span class="label">← PREV</span>
+    <span class="title">第 8 章 · ICE 整合框架</span>
+  </a>
+  <a class="next" href="ch10.html">
+    <span class="label">NEXT →</span>
+    <span class="title">第 10 章 · DHT 與 P2P 拓樸</span>
+  </a>
+</nav>
+
+<footer>
+  <div>CHAPTER 9 / 19 · 應用層隧道穿越 · NAT TRAVERSAL × P2P TEXTBOOK</div>
+</footer>
+
+</main>
+
+<script src="../share/js/mermaid.min.js"></script>
+<script src="../share/js/textbook.js"></script>
+</body>
+</html>

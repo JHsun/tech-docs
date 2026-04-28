@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 3 章 · 防火牆與中介設備</title>
+<link rel="stylesheet" href="../share/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>NAT TRAVERSAL × P2P</span>
+  </div>
+  <nav>
+    <a href="../firewall-traversal-and-p2p-guide -index.html">封面</a>
+    <a href="ch01.html">CH 1</a>
+    <a href="ch02.html">CH 2</a>
+    <a href="ch03.html" class="current">CH 3</a>
+    <a href="ch04.html">CH 4</a>
+    <a href="cheatsheet.html">速查</a>
+    <a href="glossary.html">術語</a>
+    <button id="themeToggle" class="theme-toggle">暗色</button>
+  </nav>
+</header>
+
+<main class="page">
+
+<div class="chapter-meta">
+  <span class="dot"></span> PART I &nbsp;·&nbsp; 基礎與問題場景
+  <span class="dot"></span> CHAPTER 03
+</div>
+
+<h1>
+  <span class="chapter-num">CHAPTER 3</span>
+  防火牆與中介設備
+</h1>
+
+<div class="chapter-intro">
+  <h4>本章導讀</h4>
+  <p>
+    第 2 章告訴你 NAT 是<em>無心阻擋</em>連線；本章告訴你還有一群設備是<em>有意阻擋</em>連線——
+    它們是防火牆、應用層閘道（ALG）、深度封包檢測（DPI）、企業 Proxy。理解這些設備的設計意圖
+    與行為，是規劃應用層隧道（第 9 章）與安全防護（第 17 章）的前提。
+    這章也會點出一個常被學生混淆的觀念：
+    <strong>NAT 跟防火牆雖然常在同一個盒子裡，但它們解決的是兩個不同問題</strong>。
+  </p>
+</div>
+
+<div class="objectives">
+  <h4>📚 學習目標</h4>
+  <ul>
+    <li>能說明有狀態防火牆（stateful firewall）與封包過濾器（stateless filter）的本質差異。</li>
+    <li>能解釋 ALG 為何曾經是必要設計，以及為何今日多數人想關掉它。</li>
+    <li>能說明深度封包檢測（DPI）如何偵測加密流量背後的協議。</li>
+    <li>能列舉企業環境中常見的中介設備，並理解它們對 P2P 的影響。</li>
+    <li>能用「NAT 阻擋 vs 防火牆阻擋」二分法對任意連線失敗場景做初步診斷。</li>
+  </ul>
+</div>
+
+<h2>3.1 防火牆的本質：政策的執行者</h2>
+
+<p>
+  防火牆與 NAT 表面上做同一件事——<em>不放某些封包通過</em>。但兩者的設計動機天差地別：
+</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>NAT 的視角</h4>
+    <p>「我<em>想</em>讓內部裝置通訊，但因為位址不夠，必須做翻譯。<strong>翻譯不出來的就只好丟掉</strong>。」</p>
+    <p style="color:var(--accent-secondary);">→ 阻擋是<em>副作用</em>，可協作</p>
+  </div>
+  <div class="cheat-card">
+    <h4>防火牆的視角</h4>
+    <p>「網路擁有者制定了一份<strong>政策</strong>，我的工作是執行它。
+    符合政策的放行，不符合的攔截、記錄、警報。」</p>
+    <p style="color:var(--accent-danger);">→ 阻擋是<em>主動意圖</em>，需偽裝</p>
+  </div>
+</div>
+
+<p>
+  這個哲學差異，決定了你寫穿越程式碼的策略——對 NAT 你是「請它幫忙」，對防火牆你是「不讓它發現」。
+</p>
+
+<h3>3.1.1 防火牆的三個世代</h3>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+timeline
+    title 防火牆技術的演進
+    1980 年代後期 : 第一代<br/>封包過濾器 (Packet Filter)
+                 : 看 IP/port 決定放行<br/>無狀態、規則靜態
+    1990 年代中期 : 第二代<br/>有狀態防火牆 (Stateful)
+                 : 追蹤 TCP 連線狀態<br/>能識別「回程封包」
+    2000 年代    : 第三代<br/>應用層防火牆 (App-aware)
+                 : 看 HTTP / SMTP / DNS 內容<br/>ALG、Proxy 模式
+    2010 年代後期 : 次世代防火牆 (NGFW)
+                 : DPI、TLS 攔截<br/>整合 IPS、AV、行為分析
+    2020 年代    : 雲端 / 零信任 (ZTNA)
+                 : 「永不信任，總是驗證」<br/>身份取代邊界
+</div>
+<div class="caption">圖 3-1 ｜ 防火牆從靜態規則到身份導向的演進</div>
+</div>
+
+<h3>3.1.2 第一代：封包過濾器（Packet Filter）</h3>
+
+<p>
+  最古老、最簡單的防火牆。它逐個檢查封包，根據五元組
+  <code>(源IP, 源port, 目的IP, 目的port, 協議)</code>對照規則表，決定放行或丟棄。
+  典型實作如早期 Cisco ACL、Linux <code>ipchains</code>、BSD <code>ipfw</code> 的 stateless 模式。
+</p>
+
+<p>
+  它的弱點是<strong>無狀態</strong>——不知道某個進來的封包是不是某個出去封包的「回應」。
+  為了讓 TCP 連線的回程封包能進來，工程師必須開放<em>所有</em>常見高位 port（&gt; 1024），
+  這幾乎等於沒設防。
+</p>
+
+<pre data-lang="iptables"># 一個樸素的 packet filter 例子
+iptables -A INPUT -p tcp --dport 22 -j ACCEPT       # 允許 SSH
+iptables -A INPUT -p tcp --dport 80 -j ACCEPT       # 允許 HTTP
+iptables -A INPUT -j DROP                           # 其餘全擋
+
+# 問題：客戶端從 1024+ 隨機 port 主動發起 HTTP，
+# 回程封包的目的 port 是 1024+，這條規則擋不住也允許不對。
+# 必須加：
+iptables -A INPUT -p tcp --sport 80 -j ACCEPT
+# 但這意味著「任何源 port 80 的封包都進得來」——攻擊者可以偽裝。</pre>
+
+<h3>3.1.3 第二代：有狀態防火牆（Stateful Firewall）</h3>
+
+<p>
+  這是今天「防火牆」一詞的預設意義。它維護一張類似 NAT 的<strong>連線追蹤表</strong>（conntrack），
+  記錄每一條合法連線的狀態（NEW、ESTABLISHED、RELATED）。
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+stateDiagram-v2
+    [*] --> NEW: 收到新的 SYN
+    NEW --> ESTABLISHED: 三次握手完成
+    NEW --> [*]: 超時或被拒絕
+    ESTABLISHED --> RELATED: 衍生連線<br/>(如 FTP data)
+    ESTABLISHED --> CLOSING: 收到 FIN
+    RELATED --> ESTABLISHED: 子連線建立
+    CLOSING --> [*]: 連線關閉<br/>或 timeout
+</div>
+<div class="caption">圖 3-2 ｜ 有狀態防火牆追蹤的連線狀態（簡化版）</div>
+</div>
+
+<pre data-lang="iptables"># 有狀態防火牆的標準寫法
+iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+iptables -A INPUT -p tcp --dport 22 -j ACCEPT       # 允許新進 SSH
+iptables -A INPUT -j DROP
+
+# 解讀：
+# - 如果是現有連線的回程封包 (ESTABLISHED) → 放行
+# - 如果是相關連線 (RELATED，如 FTP 資料通道) → 放行  
+# - 如果是<新連線>但目的是 SSH → 放行
+# - 其餘新連線 → 丟棄</pre>
+
+<p>
+  這個機制的<em>副作用</em>跟 NAT 高度相似——只放行<em>內部主動發起</em>連線的回應。
+  從 P2P 應用的角度看，<strong>它跟一個 Port-Restricted Cone NAT 沒什麼兩樣</strong>。
+  這就是為什麼第 6 章的 hole punching 技術同時對 NAT 與有狀態防火牆都管用。
+</p>
+
+<div class="callout callout-info">
+  <span class="callout-title">NAT ≈ 防火牆？</span>
+  在<em>家用</em>場景，這個近似很成立——家用 NAT 路由器就是一個簡化版的 stateful firewall。
+  但在<em>企業</em>場景，差距就大了：企業防火牆會看到 Layer 7（HTTP method、SNI、URL），
+  甚至會解密 TLS 流量（透過受信 CA 注入），做深度政策執行。家用 NAT 完全不會做這些事。
+</div>
+
+<h2>3.2 應用層閘道（ALG）：好心做壞事</h2>
+
+<p>
+  ALG（Application-Level Gateway）是 NAT/防火牆中的一個小程式，專門理解某些應用層協議
+  並做必要的協助處理。最經典的例子是 <strong>FTP ALG</strong>。
+</p>
+
+<h3>3.2.1 為什麼有 ALG？以 FTP 為例</h3>
+
+<p>
+  傳統 FTP 使用兩條 TCP 連線：控制連線（port 21）與資料連線。在 active mode 下，
+  客戶端在控制連線上送一個 <code>PORT 192,168,1,42,7,196</code> 命令，告訴伺服器
+  「請主動連到 192.168.1.42:2020」（port 計算是 7×256+196=2020）。
+</p>
+
+<p>問題顯而易見：<code>192.168.1.42</code> 是私有位址，伺服器連不到！</p>
+
+<p>
+  FTP ALG 的工作就是<strong>偷看控制連線的內容</strong>，當看到 PORT 命令時：
+</p>
+
+<ol>
+  <li>把命令裡的私有 IP/port 改寫成 NAT 的對外 IP/port</li>
+  <li>在 NAT 表中預先建立一條「等待中」的條目，讓伺服器主動發起的資料連線能正確轉送回客戶端</li>
+</ol>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant C as Client<br/>192.168.1.42
+    participant N as NAT + FTP ALG
+    participant S as FTP Server
+
+    C->>N: PORT 192,168,1,42,7,196
+    Note over N: ALG 偵測到 PORT 命令<br/>改寫為對外 IP:Port<br/>並預開 NAT 表項
+    N->>S: PORT 198,51,100,1,242,16
+    Note over S: 知道要連到 198.51.100.1:62000
+
+    S->>N: 主動連到 198.51.100.1:62000
+    Note over N: 查到預先建立的條目<br/>轉送到 192.168.1.42:2020
+    N->>C: 資料連線建立
+</div>
+<div class="caption">圖 3-3 ｜ FTP ALG 改寫 PORT 命令並預開 NAT 表項</div>
+</div>
+
+<h3>3.2.2 ALG 的副作用</h3>
+
+<p>
+  ALG 的設計初衷是好的，但它有兩個嚴重副作用：
+</p>
+
+<div class="callout callout-warn">
+  <span class="callout-title">副作用 1：對加密流量無效</span>
+  ALG 必須<em>讀</em>應用層內容才能改寫。若協議走 TLS（如 FTPS），ALG 看到的是密文，毫無作用。
+  因此<strong>加密化的協議普及反而讓 ALG 失能</strong>。
+</div>
+
+<div class="callout callout-warn">
+  <span class="callout-title">副作用 2：對 SIP / VoIP 常常做錯</span>
+  SIP 協議在訊息體中內嵌了 SDP（Session Description Protocol），裡面寫著「請對方送 RTP 到我這個 IP:port」。
+  SIP ALG 試圖改寫這些位址，但因為 SIP 訊息結構複雜（多次 INVITE/200 OK/ACK、不同 dialog），
+  錯誤改寫的情況極為普遍。資深 VoIP 工程師有句口號：
+  <strong>「碰到 SIP 不通，先把路由器的 SIP ALG 關了再說」</strong>。
+</div>
+
+<p>
+  現代 P2P 系統的設計哲學，已經<em>不再仰賴</em>ALG。WebRTC、libp2p 都假設中間設備
+  完全不理解自己的協議，所有位址協商都透過 STUN/ICE 在<em>應用內部</em>處理。
+  從這個角度看，ALG 是個歷史包袱，正在逐步淡出。
+</p>
+
+<h2>3.3 深度封包檢測（DPI）：看穿你的流量</h2>
+
+<p>
+  Stateful firewall 看到的是 IP/port，最多 TCP flags。<strong>DPI（Deep Packet Inspection）</strong>則更進一步——
+  它檢查封包<em>內容</em>，識別應用層協議，甚至從加密流量中提取特徵。
+</p>
+
+<h3>3.3.1 DPI 的識別技術光譜</h3>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>識別等級</th>
+      <th>技術</th>
+      <th>能看到什麼</th>
+      <th>對抗難度</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>L1 · Port</td>
+      <td>看 destination port</td>
+      <td>僅標準 port（443=HTTPS）</td>
+      <td>容易（換 port 即可）</td>
+    </tr>
+    <tr>
+      <td>L2 · Signature</td>
+      <td>找協議關鍵字（"GET /"、"BitTorrent protocol"）</td>
+      <td>明文協議的 fingerprint</td>
+      <td>中（用加密就破解）</td>
+    </tr>
+    <tr>
+      <td>L3 · Behavior</td>
+      <td>看流量模式（封包大小分布、時序、雙向比例）</td>
+      <td>BT 種子、視訊串流、SSH</td>
+      <td>難（需要 obfuscation）</td>
+    </tr>
+    <tr>
+      <td>L4 · TLS Fingerprint</td>
+      <td>分析 TLS ClientHello（JA3/JA4）</td>
+      <td>用了哪個 TLS 函式庫、哪個應用</td>
+      <td>很難（需要 fingerprint 偽造）</td>
+    </tr>
+    <tr>
+      <td>L5 · ML 分類</td>
+      <td>機器學習分類器</td>
+      <td>幾乎所有流量類型</td>
+      <td>極難（需 adversarial 對抗）</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h3>3.3.2 為什麼 P2P 開發者需要關心 DPI？</h3>
+
+<p>
+  即使你成功穿越了 NAT，封包仍可能被 DPI 認出是「未經授權的 P2P 流量」而被丟棄。
+  常見場景：
+</p>
+
+<ul>
+  <li><strong>學校 / 企業網路</strong>禁止 BitTorrent 等 P2P 應用，DPI 識別 BT handshake 後阻斷</li>
+  <li><strong>某些 ISP</strong>會限速 P2P 流量（traffic shaping），即使法律上不應該</li>
+  <li><strong>國家防火牆</strong>會封鎖 VPN/Tor，這些通常基於 DPI fingerprint</li>
+</ul>
+
+<p>
+  對抗 DPI 的技術通常稱為<strong>流量混淆</strong>（traffic obfuscation），第 9 章會專門處理。
+  常見方案如 obfs4、Shadowsocks、Cloak、meek（透過 CDN 域前置）等。
+</p>
+
+<div class="callout callout-history">
+  <span class="callout-title">DPI 的軍備競賽</span>
+  Tor 與某些國家防火牆之間有一場長達十年的軍備競賽。Tor 從明文 → 用 TLS → 用 obfs2/3/4
+  → 用 meek（偽裝成正常 HTTPS 到 CDN）→ 用 Snowflake（透過 WebRTC 借用普通使用者）。
+  每一次升級都是對 DPI 進步的回應。這個歷史告訴我們：
+  <strong>沒有永久的混淆，只有持續的演化。</strong>
+</div>
+
+<h2>3.4 中介設備生態</h2>
+
+<p>
+  「Middleboxes」是 IETF 對所有<em>位於兩個端點之間、會干預流量</em>的設備的統稱。
+  RFC 3234（2002）列出了 22 種 middleboxes，今天這個清單只會更長。
+</p>
+
+<h3>3.4.1 你會在企業網路中遇到的中介設備</h3>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>🛡️ NGFW (Next-Gen Firewall)</h4>
+    <p>整合了傳統 stateful FW + DPI + IPS + AV + URL 過濾。
+    典型廠商：Palo Alto、Fortinet、Check Point。會看 TLS SNI、HTTP method 做政策。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>🧱 IDS / IPS</h4>
+    <p>入侵偵測 / 預防系統。基於規則 (Suricata、Snort) 或行為分析。
+    對 P2P 開發者影響：<em>奇怪的</em> hole punching 流量可能被誤判為攻擊。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>🌐 Forward Proxy</h4>
+    <p>例如 Squid、Zscaler。所有 HTTP/HTTPS 出站流量被強制經過代理，
+    可能解密 TLS（用內建 CA）、可能拒絕非標準 CONNECT 目的地。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>📡 Web Gateway / SWG</h4>
+    <p>Secure Web Gateway，雲端版的 forward proxy。
+    透過 PAC 檔或 explicit proxy 強制端點走它，做 SaaS 流量管控。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>🔐 TLS Inspector / Break-and-Inspect</h4>
+    <p>解密所有出站 TLS 流量做檢查再重新加密。
+    要求端點安裝企業根憑證（這也是 cert pinning 在這類網路會壞掉的原因）。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>📊 Network Tap / DLP</h4>
+    <p>Data Loss Prevention。被動監聽流量，偵測機敏資料外洩。
+    通常不阻擋，但會記錄與警報。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>⚖️ Load Balancer</h4>
+    <p>L4 (TCP/UDP) 或 L7 (HTTP) LB。對 P2P 是透明的，但若 LB 改寫源 IP（SNAT mode），
+    會造成你看到的對方 IP 跟實際不同。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>🗜️ WAN Optimizer</h4>
+    <p>跨資料中心的流量壓縮 / 去重設備（Riverbed 等）。
+    對加密流量幾乎失效，逐步淡出。</p>
+  </div>
+</div>
+
+<h3>3.4.2 一張圖看完現代企業網路</h3>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TB
+    subgraph Office["企業辦公室"]
+        EP[端點裝置]
+    end
+
+    subgraph Edge["邊界層"]
+        FW[NGFW]
+        IPS[IPS / IDS]
+        SWG[SWG / Proxy]
+        TLS[TLS Inspector]
+    end
+
+    subgraph WAN["WAN / 雲端"]
+        ZTNA[ZTNA / SASE]
+    end
+
+    Internet[(Internet)]
+
+    EP --> FW
+    FW --> IPS
+    IPS --> TLS
+    TLS --> SWG
+    SWG --> ZTNA
+    ZTNA --> Internet
+
+    EP -.可選.-> ZTNA
+</div>
+<div class="caption">圖 3-4 ｜ 一個普通的 HTTPS 請求要穿過的中介設備鏈</div>
+</div>
+
+<p>
+  這張圖想傳達的是：<strong>在企業網路裡寫 P2P 應用，比在家裡困難一個數量級</strong>。
+  你的 STUN binding request 可能被 NGFW 認出是非標準 UDP 而丟掉；
+  你的 TURN over TLS 可能被 SWG 拒絕（因為目的地不在白名單）；
+  你的 WebRTC ICE 可能被 IPS 誤判為惡意掃描。
+</p>
+
+<h2>3.5 連線追蹤的限制</h2>
+
+<p>
+  我們在 2.3 節介紹了 NAT 的 conntrack 表。防火牆也有自己的 conntrack 表，
+  且兩者通常共用實作（Linux netfilter 的 conntrack 模組）。這張表是有限的。
+</p>
+
+<h3>3.5.1 conntrack 表的容量問題</h3>
+
+<pre data-lang="bash"># 查看 Linux conntrack 容量
+$ sysctl net.netfilter.nf_conntrack_max
+net.netfilter.nf_conntrack_max = 262144
+
+# 查看當前使用量
+$ sysctl net.netfilter.nf_conntrack_count
+net.netfilter.nf_conntrack_count = 14238
+
+# 接近上限會發生什麼？
+$ dmesg | grep conntrack
+[1234567.89] nf_conntrack: table full, dropping packet</pre>
+
+<p>
+  當 conntrack 表滿時，<strong>新連線會被丟棄</strong>——這在大型 NAT、爆量 DDoS、或者
+  某個程式產生大量短連線時都可能發生。對 P2P 系統而言，這意味著：
+</p>
+
+<ul>
+  <li>節點不應同時開啟過多<em>持久連線</em>，否則會撐爆中間設備的 conntrack 表</li>
+  <li>BitTorrent 等 P2P 軟體曾因這個原因觸發家用路由器當機，廠商不得不加上連線數上限</li>
+  <li>若連線突然全斷又無法重連，第一個要懷疑的就是中間某台設備的 conntrack 滿了</li>
+</ul>
+
+<h3>3.5.2 不對稱路由的詛咒</h3>
+
+<p>
+  Stateful firewall 假設一條連線的<em>進與出</em>走<em>同一台</em>防火牆。在簡單拓樸下這成立，
+  但在多 ISP 連線、複雜雲端 VPC、SD-WAN 等場景，可能<strong>進出走不同路徑</strong>。
+  此時防火牆 A 看到 SYN，防火牆 B 看到 SYN-ACK，雙方都認為對方那條是異常的，
+  把 ACK 之後的封包全擋掉。
+</p>
+
+<p>
+  這在 P2P 場景特別容易出問題：兩個 peer 之間的 hole punching 涉及<em>同時</em>從兩端發包，
+  若中間設備是 stateful + 不對稱路由，幾乎必然失敗。
+</p>
+
+<h2>3.6 「NAT 阻擋」vs「防火牆阻擋」的診斷流程</h2>
+
+<p>
+  當你的 P2P 應用連不通時，怎麼判斷是哪一類問題？以下是一個實務診斷流程圖：
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TD
+    Start{連線失敗了}
+    Start --> Q1{雙方任一端<br/>能 ping 通對方公網 IP?}
+    Q1 -->|不能| F1[ICMP 被擋<br/>但這不一定代表 TCP/UDP 也擋]
+    Q1 -->|能| Q2
+
+    F1 --> Q2{能用 nc/curl<br/>到 Public Server 的<br/>同 port 嗎?}
+    Q2 -->|能| Q3
+    Q2 -->|不能| D1[出站被擋<br/>= 防火牆問題]
+
+    Q3{用 STUN 探到的位址<br/>在每次連線都一樣嗎?}
+    Q3 -->|不一樣| D2[Symmetric NAT<br/>= NAT 問題]
+    Q3 -->|一樣| Q4
+
+    Q4{對方主動連你<br/>STUN 探到的位址<br/>能進來嗎?}
+    Q4 -->|不能| Q5
+    Q4 -->|能| D3[沒事，重試即可]
+
+    Q5{先送一個 keep-alive<br/>再讓對方連，能進嗎?}
+    Q5 -->|能| D4[Restricted Cone<br/>= 需要 hole punching]
+    Q5 -->|不能| D5[嚴格防火牆<br/>= 需要 TURN 或<br/>應用層隧道]
+
+    classDef nat fill:#b8761d,stroke:#b8761d,color:#fff
+    classDef fw fill:#7a1414,stroke:#7a1414,color:#fff
+    classDef ok fill:#2d5a3d,stroke:#2d5a3d,color:#fff
+    class D2,D4 nat
+    class D1,D5 fw
+    class D3 ok
+</div>
+<div class="caption">圖 3-5 ｜ 連線失敗的快速診斷流程</div>
+</div>
+
+<h2>3.7 案例研究：三種真實網路環境</h2>
+
+<h3>3.7.1 家用網路</h3>
+
+<pre data-lang="environment">[拓樸]
+  Laptop ──→ 家用路由器 (NAT + Stateful FW) ──→ ISP ──→ Internet
+
+[特徵]
+  ・ 通常是 Port-Restricted Cone NAT
+  ・ 出站幾乎不限
+  ・ 入站無 port forward 即全擋
+  ・ UPnP 通常開啟（第 4 章）
+  ・ UDP timeout 約 60-180 秒
+
+[P2P 難度]  ★★ 中等
+[推薦策略]  STUN + UDP hole punching</pre>
+
+<h3>3.7.2 行動網路（4G/5G）</h3>
+
+<pre data-lang="environment">[拓樸]
+  Phone ──→ 基地台 ──→ ISP CGNAT ──→ Internet
+
+[特徵]
+  ・ 多半是 Symmetric NAT（且常常多層 CGNAT）
+  ・ 公網 IPv4 可能 100 戶共用
+  ・ UDP 出站可能被速率限制
+  ・ 大部分電信業者已部署 IPv6（值得優先嘗試）
+  ・ 切換基地台時 NAT 表可能被清
+
+[P2P 難度]  ★★★★ 困難
+[推薦策略]  IPv6 直連 → 失敗則 fall back to TURN</pre>
+
+<h3>3.7.3 企業網路</h3>
+
+<pre data-lang="environment">[拓樸]
+  Laptop → 802.1X 認證 → NGFW → SWG/Proxy → TLS Inspector → Internet
+
+[特徵]
+  ・ UDP 通常被嚴格限制（只放 DNS:53、QUIC:443）
+  ・ HTTPS 可能被解密檢查
+  ・ 非白名單域名可能被擋
+  ・ STUN/TURN public servers 可能被歸類為「未授權通訊」
+  ・ 部分企業強制 split tunnel 流量回 corporate
+
+[P2P 難度]  ★★★★★ 極困難
+[推薦策略]  TURN over TLS:443 + 自建中繼伺服器於企業核可域名下</pre>
+
+<h2>3.8 章末提要</h2>
+
+<div class="callout callout-note">
+  <span class="callout-title">本章核心觀念</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>NAT 阻擋與防火牆阻擋是兩種本質不同的問題：前者可協作，後者需偽裝。</li>
+    <li>有狀態防火牆（stateful firewall）對 P2P 的影響跟 Port-Restricted Cone NAT 類似——hole punching 對兩者都有效。</li>
+    <li>ALG 是好心做壞事的歷史包袱，現代 P2P 系統都假設它不存在或已關閉。</li>
+    <li>DPI 能識別加密流量背後的協議特徵（JA3/JA4、流量行為模式），對抗它需要混淆技術。</li>
+    <li>企業網路的中介設備鏈遠比家用複雜，P2P 在此環境的成功率顯著下降。</li>
+    <li>Conntrack 表的容量與 timeout 是<em>所有</em>有狀態中介設備的軟肋；P2P 系統必須做 keep-alive 與連線數控制。</li>
+  </ul>
+</div>
+
+<h3>動腦時間</h3>
+<ol>
+  <li>為什麼說「ALG 對加密流量無效」是 ALG 在 2020 年代逐步淡出的主因之一？
+    這對 NAT/防火牆廠商的產品策略有什麼啟示？</li>
+  <li>畫一個情境：兩個朋友都在公司內網，無法在公司網路內 P2P 通訊（即使技術上可行）。
+    需要哪些政策、設備配置才能讓這發生？</li>
+  <li>研究你公司或學校網路：能用 <code>nmap</code> 從外部測試自己連入的可能性嗎？
+    若不行，是哪個環節擋住的？</li>
+  <li>有狀態防火牆對「不對稱路由」很敏感。在什麼情境下你會在家用網路也遇到不對稱路由？</li>
+</ol>
+
+<h3>延伸閱讀</h3>
+<ul>
+  <li>RFC 3234（2002）— Middleboxes: Taxonomy and Issues <span class="tag tag-rfc">RFC</span></li>
+  <li>RFC 2979（2000）— Behavior of and Requirements for Internet Firewalls <span class="tag tag-rfc">RFC</span></li>
+  <li>Linux netfilter 文件 — <code>man conntrack</code>、<code>man nf_conntrack</code></li>
+  <li>Suricata 與 Zeek 開源 IDS 文件，了解現代 IDS 規則寫法</li>
+  <li>Tor Project, "Pluggable Transports" 文件，了解流量混淆的最新進展</li>
+</ul>
+
+<nav class="chapter-nav">
+  <a class="prev" href="ch02.html">
+    <span class="label">← PREV</span>
+    <span class="title">第 2 章 · NAT 原理</span>
+  </a>
+  <a class="next" href="ch04.html">
+    <span class="label">NEXT →</span>
+    <span class="title">第 4 章 · UPnP / NAT-PMP / PCP</span>
+  </a>
+</nav>
+
+<footer>
+  <div>CHAPTER 3 / 19 · 防火牆與中介設備 · NAT TRAVERSAL × P2P TEXTBOOK</div>
+</footer>
+
+</main>
+
+<script src="../share/js/mermaid.min.js"></script>
+<script src="../share/js/textbook.js"></script>
+</body>
+</html>

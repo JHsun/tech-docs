@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 14 章 · 現代 Mesh VPN</title>
+<link rel="stylesheet" href="../share/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>NAT TRAVERSAL × P2P</span>
+  </div>
+  <nav>
+    <a href="../firewall-traversal-and-p2p-guide -index.html">封面</a>
+    <a href="ch13.html">CH 13</a>
+    <a href="ch14.html" class="current">CH 14</a>
+    <a href="ch15.html">CH 15</a>
+    <a href="ch16.html">CH 16</a>
+    <a href="cheatsheet.html">速查</a>
+    <a href="glossary.html">術語</a>
+    <button id="themeToggle" class="theme-toggle">暗色</button>
+  </nav>
+</header>
+
+<main class="page">
+
+<div class="chapter-meta">
+  <span class="dot"></span> PART III &nbsp;·&nbsp; P2P 網路架構
+  <span class="dot"></span> CHAPTER 14
+</div>
+
+<h1>
+  <span class="chapter-num">CHAPTER 14</span>
+  現代 Mesh VPN：Tailscale、ZeroTier、Nebula
+</h1>
+
+<div class="chapter-intro">
+  <h4>本章導讀</h4>
+  <p>
+    傳統 VPN 是「<em>Hub-and-Spoke</em>」星型——所有流量繞回中央伺服器。
+    現代 Mesh VPN 反其道——讓<strong>每兩台裝置之間都能直接連線</strong>，中央只負責協調與認證。
+    本章介紹三套主流 Mesh VPN：<strong>Tailscale</strong>（基於 WireGuard，business-friendly）、
+    <strong>ZeroTier</strong>（自建協議，全球 anycast 根伺服器）、<strong>Nebula</strong>（Slack 開源）。
+    它們是本書所有概念的<em>商業應用結晶</em>——把 STUN、hole punching、DERP relay、加密、身份系統，
+    全部包裝成「<em>裝個客戶端、登入、就連通</em>」的開發者體驗。
+  </p>
+</div>
+
+<div class="objectives">
+  <h4>📚 學習目標</h4>
+  <ul>
+    <li>能說明 Mesh VPN 與傳統 VPN 在拓樸上的差異。</li>
+    <li>能描述 Tailscale 的「coordination plane / data plane」分離設計。</li>
+    <li>能解釋 WireGuard 為何是現代 VPN 的密碼學基礎。</li>
+    <li>能比較 Tailscale、ZeroTier、Nebula 三者的設計取捨。</li>
+    <li>能描述 ACL 與身份識別在 mesh VPN 中的角色。</li>
+    <li>能評估 Mesh VPN 在企業遠距辦公與 IoT 的應用。</li>
+  </ul>
+</div>
+
+<h2>14.1 從 Hub-Spoke 到 Mesh：拓樸演進</h2>
+
+<h3>14.1.1 傳統 VPN 的瓶頸</h3>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TB
+    subgraph Old["傳統 VPN：Hub-and-Spoke"]
+        H[VPN 集中器<br/>OpenVPN / IPSec gateway]
+        L1[使用者 A<br/>東京]
+        L2[使用者 B<br/>東京]
+        L3[使用者 C<br/>巴黎]
+        L1 --- H
+        L2 --- H
+        L3 --- H
+
+        L1 -.-> H -.-> L2
+        Note1["A 跟 B 都在東京<br/>但 talk 要繞美國 hub<br/>~ 200ms RTT"]
+    end
+
+    classDef hub fill:#7a1414,stroke:#7a1414,color:#fff
+    class H hub
+</div>
+<div class="caption">圖 14-1 ｜ 傳統 VPN 的繞路問題：同地辦公的同事流量繞地球</div>
+</div>
+
+<p>
+  傳統企業 VPN（OpenVPN、IPSec、SSL VPN）採 hub-and-spoke：所有遠端使用者連到一個或數個 VPN 集中器，
+  彼此通訊都要繞回 hub。問題：
+</p>
+
+<ul>
+  <li><strong>延遲</strong>：兩個東京使用者透過美國 hub 對話，RTT 200ms+</li>
+  <li><strong>頻寬瓶頸</strong>：所有流量過 hub，hub 頻寬就是上限</li>
+  <li><strong>單點失效</strong>：hub 掛了所有人斷線</li>
+  <li><strong>成本</strong>：高頻寬 hub 維護費用昂貴</li>
+</ul>
+
+<h3>14.1.2 Mesh VPN 的願景</h3>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TB
+    subgraph New["Mesh VPN"]
+        C[Coordination Server<br/>只做控制，不過流量]
+
+        N1((Node A))
+        N2((Node B))
+        N3((Node C))
+        N4((Node D))
+
+        N1 -.- C
+        N2 -.- C
+        N3 -.- C
+        N4 -.- C
+
+        N1 === N2
+        N1 === N3
+        N1 === N4
+        N2 === N3
+        N2 === N4
+        N3 === N4
+    end
+
+    classDef ctrl fill:#1d4e7c,stroke:#1d4e7c,color:#fff
+    classDef node fill:#2d5a3d,stroke:#2d5a3d,color:#fff
+    class C ctrl
+    class N1,N2,N3,N4 node
+</div>
+<div class="caption">圖 14-2 ｜ Mesh VPN：節點兩兩直連，中央只協調</div>
+</div>
+
+<p>
+  關鍵設計：<strong>把控制平面（control plane）與資料平面（data plane）分離</strong>——
+  中央伺服器負責認證、ACL、key 分發；實際流量走 P2P。
+  這個架構需要本書前面幾乎所有技術——身份、加密、NAT 穿越、relay fallback。
+</p>
+
+<h2>14.2 WireGuard：現代 VPN 的密碼學基礎</h2>
+
+<p>
+  Mesh VPN 之所以能在 2018 年後爆發，<strong>WireGuard</strong> 是關鍵推手。
+  它由 Jason Donenfeld 設計，2020 年正式進入 Linux kernel。設計哲學「<em>少即是多</em>」：
+</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>極簡程式碼</h4>
+    <p>核心約 4000 行 C（OpenVPN 約 10 萬行）。攻擊面小、易審計、可整合進 kernel。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>一個密碼學套件</h4>
+    <p>固定使用 ChaCha20-Poly1305、Curve25519、BLAKE2、HKDF——
+    不像 OpenVPN/IPSec 有 cipher 協商。<strong>沒有 cipher downgrade 攻擊</strong>。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>UDP-only</h4>
+    <p>只跑 UDP，沒 TCP 模式。在企業環境靠 wireguard-go 或 udp2tcp 等轉換。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>無連線狀態</h4>
+    <p>每個 peer 用 public key 識別，雙方有對方 pub key 就能直接通訊。
+    沒有 handshake 重新協商的複雜狀態機。</p>
+  </div>
+</div>
+
+<h3>14.2.1 WireGuard 的限制——為什麼還需要外殼？</h3>
+
+<p>純 WireGuard 是<em>極簡</em>的：</p>
+
+<ul>
+  <li>需要手動分發每個 peer 的 public key</li>
+  <li>需要手動配置每個 peer 的 endpoint（IP:port）</li>
+  <li>沒有身份驗證（key 就是身份，誰偷到 key 就能用）</li>
+  <li>沒有 NAT 穿越——預設只支援「<em>有公網 endpoint</em>」的場景</li>
+  <li>沒有 ACL、沒有使用者管理</li>
+</ul>
+
+<p>
+  Mesh VPN 廠商（Tailscale、Netbird、Headscale）做的事，
+  本質上就是<strong>把 WireGuard 包裝成可運維的產品</strong>——
+  加上 SSO 認證、自動 key 分發、自動 NAT 穿越、ACL、稽核日誌。
+</p>
+
+<h2>14.3 Tailscale 深度剖析</h2>
+
+<p>
+  Tailscale 是 Mesh VPN 領域最廣為人知的商業產品，創辦人之一 Avery Pennarun
+  也是 sshuttle 與 dvcs-autosync 的作者。它的設計直接影響了整個產業。
+</p>
+
+<h3>14.3.1 兩平面架構</h3>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TB
+    subgraph CP["Control Plane (Tailscale Coordination Server)"]
+        AUTH[OAuth / SSO / SAML]
+        KEY[Key Exchange]
+        ACL[ACL Policy]
+        MAP[NetworkMap 廣播]
+    end
+
+    subgraph DP["Data Plane (P2P 直連)"]
+        WG[WireGuard 加密 tunnel]
+        NAT[Hole Punching 機制]
+        DERP[DERP Relay (fallback)]
+    end
+
+    User[使用者裝置]
+    User -.控制信令.-> CP
+    User <==>|實際資料| DP
+
+    CP -.提供 key + ACL.-> DP
+
+    classDef ctrl fill:#1d4e7c,stroke:#1d4e7c,color:#fff
+    classDef data fill:#2d5a3d,stroke:#2d5a3d,color:#fff
+    class AUTH,KEY,ACL,MAP ctrl
+    class WG,NAT,DERP data
+</div>
+<div class="caption">圖 14-3 ｜ Tailscale 的雙平面分離設計</div>
+</div>
+
+<h3>14.3.2 NetworkMap：協調的核心</h3>
+
+<p>
+  Tailscale coordination server 對每個節點維護一個「NetworkMap」——
+  包含網路中<em>所有 peer</em> 的 PubKey、可能的 endpoint 候選、ACL 策略。
+  當有新節點加入或變動，server 推送更新給所有相關節點。
+</p>
+
+<pre data-lang="json">{
+  "self": {
+    "id": "alice@example.com",
+    "key": "AAAA...",
+    "addresses": ["100.64.0.1/32"]
+  },
+  "peers": [
+    {
+      "id": "bob@example.com",
+      "key": "BBBB...",
+      "endpoints": [
+        "192.168.1.55:41641",        ← LAN
+        "203.0.113.99:41641",        ← public (STUN 探得)
+        "derp-tokyo.tailscale.com"   ← relay fallback
+      ],
+      "allowed_ips": ["100.64.0.2/32"]
+    }
+  ]
+}</pre>
+
+<h3>14.3.3 連線建立的時序</h3>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant A as Alice
+    participant CS as Coordination Server
+    participant D as DERP
+    participant B as Bob
+
+    A->>CS: 登入 (OAuth)
+    CS->>A: NetworkMap (含 Bob 候選)
+
+    A->>D: 透過 DERP 立即建立 tunnel<br/>(t = ~50ms 已可通)
+    D->>B: 轉送
+    Note over A,B: ★ 使用者已能用 ★
+
+    par 背景並行嘗試直連
+        A-->>B: 對 Bob 的 LAN endpoint 嘗試
+        A-->>B: 對 Bob 的 public endpoint 嘗試
+        B-->>A: 反向同樣嘗試
+    end
+
+    Note over A,B: 多數情況下 200~500ms 內成功 hole punch
+
+    A->>B: 升級為直連 WireGuard<br/>(無感切換)
+    Note over A,B: ★ 高速直連 ★
+
+    Note over D: DERP 連線保留作為 fallback<br/>但流量已不經過
+</div>
+<div class="caption">圖 14-4 ｜ Tailscale 的「先連通後升級」流程</div>
+</div>
+
+<h3>14.3.4 DERP：Tailscale 的特色 relay</h3>
+
+<p>第 7 章已介紹過 DERP 的「always-on relay」範式。回顧重點：</p>
+
+<ul>
+  <li>所有連線「<em>技術上</em>」從 DERP 開始，立刻可通</li>
+  <li>背景嘗試 NAT 穿越；成功則無痛升級</li>
+  <li>內部數據顯示 <strong>&gt; 90% 的連線</strong>最終升級為直連</li>
+  <li>DERP 跑在 HTTPS 443 上，幾乎能穿越所有企業防火牆</li>
+  <li>所有流量在端對端 WireGuard 加密下，DERP 看不到內容</li>
+</ul>
+
+<h3>14.3.5 MagicDNS 與 100.x.x.x 位址空間</h3>
+
+<p>Tailscale 給每個節點分配一個 100.64.0.0/10 範圍的 IP（CGNAT 保留範圍，不會與真實 LAN 衝突）。</p>
+
+<pre data-lang="example">$ tailscale status
+100.64.0.1   alice-laptop    macOS    -
+100.64.0.2   bob-laptop      Windows  active; direct
+100.64.0.3   home-server     Linux    active; relay "derp-tokyo"
+
+# 此後 SSH/HTTP/任何協議都能直接用：
+$ ssh alice-laptop                # MagicDNS 自動解析
+$ curl http://home-server:8080
+$ ping 100.64.0.2</pre>
+
+<p>
+  這個體驗是 Mesh VPN 的核心賣點——「<em>裝起來就像把所有裝置放進同一個區網</em>」。
+  使用者完全不需要關心 NAT、防火牆、port forwarding——這些複雜性被 Tailscale 用本書前 12 章的技術抽象掉了。
+</p>
+
+<h2>14.4 ZeroTier 對比：另一條路</h2>
+
+<p>
+  ZeroTier 比 Tailscale 早 5 年（2014 年），採用了不同的設計選擇：
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>面向</th><th>Tailscale</th><th>ZeroTier</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>底層協議</td><td>WireGuard</td><td>自有協議（基於 ECC + libsodium）</td></tr>
+    <tr><td>網路層</td><td>L3 (IP)</td><td>L2 (Ethernet) — 可廣播 ARP、DHCP</td></tr>
+    <tr><td>關鍵路徑</td><td>DERP (商業擁有)</td><td>全球 root servers (anycast)</td></tr>
+    <tr><td>身份驗證</td><td>SSO / SAML / OAuth</td><td>自有帳號或自架</td></tr>
+    <tr><td>價格定位</td><td>商業優先</td><td>免費仁慈、付費企業</td></tr>
+    <tr><td>自架選項</td><td>Headscale (社群)</td><td>原生支援自建 root</td></tr>
+    <tr><td>NAT 穿越成功率</td><td>高（~90%）</td><td>中（依賴 root server 中繼）</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>
+  ZeroTier 走 L2 是有趣的選擇——能模擬「<em>同一個交換機</em>」的環境，
+  舊應用（依賴 broadcast、依賴 DHCP）能無痛遷移。代價是更高的協議複雜度與廣播流量。
+</p>
+
+<h2>14.5 Nebula：Slack 的開源選擇</h2>
+
+<p>
+  Nebula 由 Slack 在 2019 年開源，是上述兩者的<em>輕量自託管</em>替代方案。
+  特色：
+</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>純自託管</h4>
+    <p>沒有商業中央伺服器。使用者自己建 lighthouse（類 coordination server），
+    全部基礎設施可控。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>PKI 證書</h4>
+    <p>用 X.509-like 證書簽發，CA 私鑰本地保管。
+    每個 host 證書包含 IP、群組標籤、過期時間。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Lighthouse 機制</h4>
+    <p>少數 lighthouse 節點維護「誰在哪裡」的資訊。
+    新節點啟動時對 lighthouse 註冊，查詢時也問 lighthouse。
+    類似 Tailscale coordination server 但更輕量。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>無 GUI 工具</h4>
+    <p>Slack 把它設計給有運維能力的團隊用——
+    純 CLI、純 config 檔。對 SRE 友善，對普通使用者門檻較高。</p>
+  </div>
+</div>
+
+<p>選擇 Nebula 的場景：</p>
+<ul>
+  <li>不想把網路 metadata 交給商業廠商</li>
+  <li>有運維能力，想自託管所有元件</li>
+  <li>純伺服器之間的網路（不是員工筆電）</li>
+  <li>有合規要求（如 air-gapped）</li>
+</ul>
+
+<h2>14.6 ACL：Mesh VPN 的精髓</h2>
+
+<p>
+  傳統 VPN「<em>進來了就什麼都看得到</em>」是現代零信任反對的。Mesh VPN 都內建細粒度 ACL：
+</p>
+
+<pre data-lang="hujson">// Tailscale ACL 範例
+{
+  "groups": {
+    "group:engineers":  ["alice@", "bob@", "carol@"],
+    "group:contractors": ["external@"]
+  },
+  "tagOwners": {
+    "tag:server":     ["group:engineers"],
+    "tag:dev-only":   ["group:engineers"]
+  },
+  "acls": [
+    // 工程師可訪問所有伺服器
+    {
+      "action": "accept",
+      "src": ["group:engineers"],
+      "dst": ["tag:server:*"]
+    },
+    // 外部承包商僅可訪問 dev-only 機器的 80/443
+    {
+      "action": "accept",
+      "src": ["group:contractors"],
+      "dst": ["tag:dev-only:80,443"]
+    },
+    // 預設 deny（隱含）
+  ],
+  "ssh": [
+    // 工程師可 SSH 進伺服器，但要 reauth 每天
+    {
+      "action": "check",
+      "src": ["group:engineers"],
+      "dst": ["tag:server"],
+      "users": ["root", "ubuntu"],
+      "checkPeriod": "24h"
+    }
+  ]
+}</pre>
+
+<p>
+  這份 ACL 體現了「<em>身份-資源</em>」級別的政策——不再是「<em>網段-網段</em>」級別。
+  搬離了傳統 firewall 的局限，是零信任架構（ZTNA）的具體展現。
+</p>
+
+<h2>14.7 應用案例</h2>
+
+<h3>14.7.1 遠距辦公</h3>
+
+<p>
+  這是 Mesh VPN 最大的市場。COVID-19 後，企業急需讓遠端員工<em>安全地</em>連回公司資源，
+  傳統 VPN 集中器頻寬撐不住、體驗也差。Tailscale 的「<em>安裝 → 登入 → 連通</em>」三步驟，
+  比 IT 部門配置 OpenVPN profile 給每個員工順暢一個數量級。
+</p>
+
+<h3>14.7.2 家用 NAS / 自架服務</h3>
+
+<p>
+  熱門 self-hosted 場景。把家裡的 Synology、Plex、Home Assistant 加入 mesh，
+  外面手機就能直接連——不需要 port forwarding、不需要動態 DNS、不需要繳網域費。
+  Tailscale 與 ZeroTier 在這個社群極受歡迎。
+</p>
+
+<h3>14.7.3 IoT 與邊緣裝置</h3>
+
+<p>
+  邊緣裝置（智慧電表、攝影機、感測器）通常在 NAT 後且無 inbound 能力。
+  傳統做法是輪詢中央 API；Mesh VPN 讓它們<em>看起來像在公司內網</em>，
+  維運可以直接 SSH 進去除錯。Tailscale 的 subnet router 模式特別適合這類場景。
+</p>
+
+<h3>14.7.4 多雲互連（Multi-cloud）</h3>
+
+<p>
+  AWS、GCP、Azure 之間的網路互通向來複雜（要設定 VPN gateway、BGP、peering）。
+  把每個 VM 都加入 mesh 後，跨雲通訊就跟本地一樣——大幅簡化雲架構。
+</p>
+
+<h2>14.8 評估與選型指引</h2>
+
+<div class="callout callout-info">
+  <span class="callout-title">何時選哪個？</span>
+  <ul style="margin:0.5em 0 0;">
+    <li><strong>個人 / 小團隊 / 自家 NAS</strong> → Tailscale 免費版（&lt; 100 裝置）</li>
+    <li><strong>企業遠距辦公 + SSO 整合</strong> → Tailscale 商業版</li>
+    <li><strong>需要 L2 廣播 / 模擬區網</strong> → ZeroTier</li>
+    <li><strong>純伺服器互連、不想商業依賴</strong> → Nebula 或 Headscale + WireGuard</li>
+    <li><strong>有 IT 維運能力，要完全自託管 Tailscale 體驗</strong> → Headscale（開源 coordinator）</li>
+    <li><strong>軍工、高合規環境</strong> → Nebula 或自建 IPSec</li>
+  </ul>
+</div>
+
+<h2>14.9 章末提要</h2>
+
+<div class="callout callout-note">
+  <span class="callout-title">本章核心觀念</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>Mesh VPN 把流量從 hub-and-spoke 解放成 N×N 直連，控制平面與資料平面分離。</li>
+    <li>WireGuard 是現代 mesh VPN 的密碼學基礎——極簡、固定 cipher、kernel-level。</li>
+    <li>Tailscale 用 coordination server + DERP relay + WireGuard，達到「<em>裝即用</em>」體驗。</li>
+    <li>「<em>先用 relay 連通、後升級為直連</em>」是 Tailscale DERP 的標誌性設計。</li>
+    <li>ZeroTier 走 L2 + 自有協議，適合需要廣播語意的舊應用。</li>
+    <li>Nebula 純自託管，適合有運維能力且不想依賴商業廠商的團隊。</li>
+    <li>ACL 從「網段-網段」進化到「身份-資源」級，是零信任架構的具體表現。</li>
+    <li>Mesh VPN 是本書前 13 章技術的<strong>商業終極形態</strong>——把所有複雜性打包成「裝個 client、登入」的體驗。</li>
+  </ul>
+</div>
+
+<h3>動腦時間</h3>
+<ol>
+  <li>Tailscale 的 DERP 數據顯示 90%+ 連線會升級為直連。剩下 10% 主要在什麼情境？回想第 6 章測量數據與本章內容。</li>
+  <li>WireGuard 沒有 cipher 協商機制。這個設計如何避免 downgrade 攻擊？又有什麼代價？</li>
+  <li>從零信任的角度：傳統「進到 VPN 就什麼都能訪問」與 Tailscale 的細粒度 ACL，
+    哪些攻擊面被消除了？</li>
+  <li>動手任務：在你家裡建 Tailscale tailnet，把筆電與一台 VPS 加入，觀察 <code>tailscale status</code>
+    顯示「direct」或「relay」。若是 relay，研究為什麼直連失敗。</li>
+  <li>研究 Headscale（社群開源的 Tailscale coordinator 替代品），思考「self-hosted Tailscale」
+    與「商業 Tailscale」的取捨。</li>
+</ol>
+
+<h3>延伸閱讀</h3>
+<ul>
+  <li>Donenfeld, "WireGuard: Next Generation Kernel Network Tunnel" (NDSS 2017) — WireGuard 原論文</li>
+  <li>Tailscale Blog, "How NAT traversal works" — 業界視角的 NAT 教程</li>
+  <li>Tailscale Blog, "How Tailscale works" — 系統架構深度文章</li>
+  <li>ZeroTier Manual — zerotier.com/manual</li>
+  <li>Nebula on GitHub — github.com/slackhq/nebula</li>
+  <li>Headscale — github.com/juanfont/headscale（開源 Tailscale coordinator）</li>
+</ul>
+
+<nav class="chapter-nav">
+  <a class="prev" href="ch13.html">
+    <span class="label">← PREV</span>
+    <span class="title">第 13 章 · libp2p 與 DCUtR</span>
+  </a>
+  <a class="next" href="ch15.html">
+    <span class="label">NEXT →</span>
+    <span class="title">第 15 章 · 傳輸層的選擇</span>
+  </a>
+</nav>
+
+<footer>
+  <div>CHAPTER 14 / 19 · 現代 Mesh VPN · NAT TRAVERSAL × P2P TEXTBOOK</div>
+</footer>
+
+</main>
+
+<script src="../share/js/mermaid.min.js"></script>
+<script src="../share/js/textbook.js"></script>
+</body>
+</html>

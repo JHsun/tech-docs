@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 13 章 · libp2p 與去中心化打洞</title>
+<link rel="stylesheet" href="../share/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>NAT TRAVERSAL × P2P</span>
+  </div>
+  <nav>
+    <a href="../firewall-traversal-and-p2p-guide -index.html">封面</a>
+    <a href="ch12.html">CH 12</a>
+    <a href="ch13.html" class="current">CH 13</a>
+    <a href="ch14.html">CH 14</a>
+    <a href="ch15.html">CH 15</a>
+    <a href="cheatsheet.html">速查</a>
+    <a href="glossary.html">術語</a>
+    <button id="themeToggle" class="theme-toggle">暗色</button>
+  </nav>
+</header>
+
+<main class="page">
+
+<div class="chapter-meta">
+  <span class="dot"></span> PART III &nbsp;·&nbsp; P2P 網路架構
+  <span class="dot"></span> CHAPTER 13 &nbsp;·&nbsp; <em>核心章節</em>
+</div>
+
+<h1>
+  <span class="chapter-num">CHAPTER 13</span>
+  libp2p 與去中心化打洞
+</h1>
+
+<div class="chapter-intro">
+  <h4>本章導讀</h4>
+  <p>
+    libp2p 是「<em>P2P 的 lego 積木</em>」——它把網路堆疊每一層都做成可替換模組，讓你能用同一套 API
+    跑 TCP、QUIC、WebRTC、WebTransport，套用 Noise 或 TLS 加密，掛上 Kademlia DHT 或 Gossipsub。
+    它是 IPFS、Filecoin、Polkadot、Ethereum 共識層、Lotus 的共同網路基礎。本章的高潮是
+    <strong>DCUtR</strong>（Direct Connection Upgrade through Relay）——這是 ICE 在去中心化網路的對應方案，
+    用更簡單的精準同步機制達到甚至超越 ICE 的成功率。我們會援引 2025 年 IPFS 大規模測量結果，
+    看看 DCUtR 在真實世界的成績單。
+  </p>
+</div>
+
+<div class="objectives">
+  <h4>📚 學習目標</h4>
+  <ul>
+    <li>能說明 libp2p 的模組化設計哲學與五大核心抽象。</li>
+    <li>能描述 multiaddr 的階層式編址與其相對 IP:port 的優勢。</li>
+    <li>能解釋 PeerID 如何作為密碼學身份。</li>
+    <li>能描述 AutoNAT、Identify、Circuit Relay v2、DCUtR 的協作流程。</li>
+    <li>能說明 DCUtR 為何在精準同步下讓 TCP 與 QUIC 表現相當。</li>
+    <li>能引用 2025 年 IPFS 測量數據評估真實世界成功率。</li>
+  </ul>
+</div>
+
+<h2>13.1 libp2p 的設計哲學</h2>
+
+<p>
+  libp2p 由 Protocol Labs 在 2014 年從 IPFS 中分拆出來，目標是「<em>解耦</em>」P2P 網路堆疊的每一層，
+  讓開發者能像組樂高一樣組合自己的 P2P 系統。核心設計原則：
+</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>① Transport Agnostic</h4>
+    <p>不假設特定傳輸——TCP、QUIC、WebRTC、WebTransport、藍牙、TOR 都是 transport 模組。
+    應用層程式碼<strong>不需改寫</strong>就能切換 transport。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>② Address Agnostic</h4>
+    <p>不假設 IP+port——multiaddr 描述任意層級的位址（IPv4 / IPv6 / DNS / Tor / I2P / Bluetooth），
+    且能<strong>巢狀</strong>表達（如 relay 路徑）。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>③ Identity-First</h4>
+    <p>身份不是 IP，是<strong>密碼學金鑰</strong>。PeerID = hash(public_key)，
+    全網唯一、不可偽造、與位址無關。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>④ Streams over Connections</h4>
+    <p>一條 transport 連線可以多工 N 條獨立 stream（類似 HTTP/2 / QUIC 概念）。
+    每條 stream 跑不同協議。</p>
+  </div>
+</div>
+
+<div class="callout callout-info">
+  <span class="callout-title">和 WebRTC 的對照</span>
+  WebRTC 也是 P2P，但它<em>融合</em>了所有層次——你不能輕易抽掉 ICE 換成別的、不能不用 SDP。
+  libp2p 反過來——每一層都是<em>可替換模組</em>。這個彈性的代價是<em>複雜度</em>，
+  但它讓 libp2p 能跑在任何環境（資料中心、瀏覽器、嵌入式裝置、Tor 暗網）。
+</div>
+
+<h2>13.2 五大核心抽象</h2>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TB
+    App[應用層協議<br/>例：bitswap, kad-dht, gossipsub]
+
+    subgraph Layer["libp2p 五大抽象"]
+        Stream[Stream Multiplexer<br/>yamux / mplex]
+        Sec[Connection Security<br/>Noise / TLS 1.3]
+        Trans[Transport<br/>TCP / QUIC / WebRTC / WebTransport]
+        PI[PeerID & PeerStore]
+        MA[Multiaddr]
+    end
+
+    App --> Stream --> Sec --> Trans
+    PI -.cross-cutting.- Stream
+    PI -.cross-cutting.- Sec
+    MA -.cross-cutting.- Trans
+
+    classDef lay fill:#b8761d,stroke:#b8761d,color:#fff
+    classDef app fill:#1d4e7c,stroke:#1d4e7c,color:#fff
+    class Stream,Sec,Trans,PI,MA lay
+    class App app
+</div>
+<div class="caption">圖 13-1 ｜ libp2p 的五大核心抽象</div>
+</div>
+
+<h3>13.2.1 PeerID：密碼學身份</h3>
+
+<pre data-lang="conceptual">PeerID 產生流程：
+  1. 節點啟動時產生 keypair (Ed25519 / RSA / Secp256k1)
+  2. PeerID = multihash(serialize(public_key))
+  3. 文字表示：<strong>12D3KooWGRS...</strong> 或 <strong>QmYwAPJ...</strong>
+
+特性：
+  ・ 全網唯一（碰撞機率近於零）
+  ・ 自我驗證（持有對應私鑰才能宣稱身份）
+  ・ 與網路位址解耦（節點換 IP，PeerID 不變）
+  ・ 用於簽章、加密、DHT key、檔案 provider record</pre>
+
+<h3>13.2.2 Multiaddr：階層式位址</h3>
+
+<p>
+  multiaddr 是個漂亮的設計——把網路位址表達為<strong>逐層協議堆疊</strong>：
+</p>
+
+<pre data-lang="examples">傳統 IP:port:
+  192.168.1.42:6881
+
+multiaddr：
+  /ip4/192.168.1.42/tcp/6881
+  /ip6/2001:db8::1/udp/443/quic-v1
+  /dns4/example.com/tcp/443/wss
+  /ip4/1.2.3.4/udp/4001/quic-v1/p2p/12D3KooWGRS...
+
+巢狀（透過 relay）：
+  /ip4/1.2.3.4/tcp/4001/p2p/12D3KooWRELAY/<strong>p2p-circuit</strong>/p2p/12D3KooWTARGET
+
+意思：「先連 Relay 節點 12D3KooWRELAY，<br/>
+       透過它的 circuit 找到 12D3KooWTARGET」</pre>
+
+<p>
+  這個編址比傳統 URL 強大得多——它能精確描述「<em>怎麼到達某節點</em>」的完整路徑，
+  包含中繼、加密層、傳輸協議。每個 <code>/protocol/value</code> 段都是可解析的二進位元素。
+</p>
+
+<h3>13.2.3 Stream Multiplexer：一連多用</h3>
+
+<p>
+  libp2p 在一條底層連線（TCP/QUIC）之上跑 stream multiplexer——
+  讓多個邏輯 stream 並存，每條跑不同上層協議：
+</p>
+
+<pre data-lang="diagram">┌──────── 一條 TCP 連線 ────────┐
+│                                │
+│  Stream 1: /ipfs/kad/1.0.0     │  ← Kademlia 查詢
+│  Stream 2: /ipfs/bitswap/1.2.0 │  ← 檔案資料交換
+│  Stream 3: /ipfs/id/1.0.0      │  ← Identify 協議
+│  Stream 4: /libp2p/dcutr       │  ← DCUtR 同步
+│                                │
+└────────────────────────────────┘
+
+Multiplexer 負責封包 framing 與 stream 識別。
+常見實作：yamux（基於 SPDY）、mplex（libp2p 原生）</pre>
+
+<h3>13.2.4 Connection Security：Noise vs TLS</h3>
+
+<p>libp2p 兩種主流安全層：</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>面向</th><th>Noise</th><th>TLS 1.3</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>來源</td><td>WhatsApp / Signal Protocol 系出同門</td><td>HTTPS 標準</td></tr>
+    <tr><td>握手 RTT</td><td>1 RTT (XX pattern)</td><td>1 RTT (TLS 1.3)</td></tr>
+    <tr><td>身份驗證</td><td>原生支援自我簽章 PeerID</td><td>需要 X.509 套殼</td></tr>
+    <tr><td>程式碼複雜度</td><td>較簡單</td><td>較重（OpenSSL 等大型函式庫）</td></tr>
+    <tr><td>libp2p 預設</td><td>Noise 是首選</td><td>TLS 1.3 是相容選項</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>13.3 連線建立的多重升級路徑</h2>
+
+<p>
+  libp2p 對 NAT 後節點的處理，是本書前面所有章節的<strong>集大成應用</strong>。
+  完整路徑如下：
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TD
+    Start[節點啟動]
+
+    Start --> Identify[Identify 協議<br/>取得自身候選位址]
+    Identify --> AutoNAT[AutoNAT 探測<br/>確認是否被外面可達]
+
+    AutoNAT --> Public{是公網節點?}
+    Public -->|是| Listen[直接 listen<br/>等待對方來連]
+    Public -->|否| Relay[與 Circuit Relay v2<br/>申請 reservation]
+
+    Relay --> Adv[在 DHT 廣告<br/>含 relay 路徑的 multiaddr]
+
+    OtherDial[其他節點想連]
+    OtherDial --> Lookup[DHT 找到 multiaddr]
+    Lookup --> ConnRelay[透過 relay 建立暫時連線]
+    ConnRelay --> DCUtR[啟動 DCUtR<br/>精準同步打洞]
+
+    DCUtR --> Result{打洞成功?}
+    Result -->|是| Direct[升級為直連<br/>釋放 relay]
+    Result -->|否| Continue[繼續用 relay<br/>受限額]
+
+    classDef start fill:#1d4e7c,stroke:#1d4e7c,color:#fff
+    classDef ok fill:#2d5a3d,stroke:#2d5a3d,color:#fff
+    classDef fb fill:#b8761d,stroke:#b8761d,color:#fff
+    class Start start
+    class Direct ok
+    class Continue fb
+</div>
+<div class="caption">圖 13-2 ｜ libp2p 的完整連線升級路徑</div>
+</div>
+
+<h2>13.4 AutoNAT：libp2p 的「STUN 替代」</h2>
+
+<p>
+  在 ICE 世界，節點透過 STUN 探得自己對外位址。在 libp2p 世界，這個工作由 <strong>AutoNAT</strong> 完成——
+  且做得更<em>嚴謹</em>。
+</p>
+
+<h3>13.4.1 為什麼不用 STUN？</h3>
+
+<div class="callout callout-info">
+  <span class="callout-title">AutoNAT vs STUN 的關鍵差異</span>
+  STUN 只告訴你「<em>STUN 伺服器看到你長什麼樣</em>」——但這不一定等於「<em>其他人能不能連到你</em>」。
+  考慮這個情境：你的 NAT 是 Endpoint-Independent Mapping（友善），但
+  Endpoint-Dependent Filtering（過濾嚴）。STUN 看到的位址完美，但其他人主動連<em>仍然連不到</em>。
+  <br><br>
+  AutoNAT 不是觀察，而是<strong>實測</strong>：節點 A 請隨機幾個其他節點 B、C、D 主動 dial 回來，
+  若它們都成功 → A 是公網可達；若全部失敗 → A 在 NAT 後。<em>實測比觀察可靠</em>。
+</div>
+
+<h3>13.4.2 AutoNAT 的工作流程</h3>
+
+<pre data-lang="conceptual">節點 A 想知道自己是否公網可達：
+
+1. A 從 PeerStore 中選 K 個隨機 peer (例如 K=4)
+2. 對每個 peer P，發送 AutoNAT DialRequest:
+   "請在這些位址 [/ip4/.../tcp/.../, /ip4/.../udp/.../quic] dial 我"
+3. 每個 P 嘗試 dial 那些位址
+4. P 回傳 DialResponse:
+   ・ DIAL_SUCCESS（連通了），附上實際成功的位址
+   ・ DIAL_ERROR（全部失敗）
+5. A 統計結果：
+   ・ 多數成功 → 確定是公網
+   ・ 多數失敗 → 確定在 NAT 後
+   ・ 結果不一 → 重試或標為「不確定」
+
+A 根據結論調整行為：
+  ・ 公網 → 接受入站連線
+  ・ NAT 後 → 啟動 Circuit Relay reservation</pre>
+
+<p>
+  AutoNAT 有個漂亮特性：它順便提供了<em>位址驗證</em>——若 A 宣稱自己有某位址但 dial 失敗，
+  該位址會被 PeerStore 標記為 unreliable，避免誤導其他節點。
+</p>
+
+<h3>13.4.3 為什麼 libp2p spec 中還是提到 STUN？</h3>
+
+<p>
+  瀏覽器是個例外——<strong>libp2p 在瀏覽器中跑時，必須使用瀏覽器內建的 WebRTC stack，
+  那個 stack 只支援 STUN 不支援 AutoNAT</strong>。所以在 browser-to-browser 場景下，
+  libp2p 仍依賴 STUN。在原生節點之間（go-libp2p、rust-libp2p），AutoNAT 是首選。
+</p>
+
+<h2>13.5 Circuit Relay v2：分散式 TURN</h2>
+
+<p>第 7 章已介紹過 Circuit Relay v2 的核心機制。本章補充它在 libp2p 整體中的位置：</p>
+
+<h3>13.5.1 Reservation 流程</h3>
+
+<pre data-lang="protocol">Listener (NAT 後) ──► Relay (公網):
+  /libp2p/circuit/relay/0.2.0/hop  HOP RESERVE
+
+Relay 回應：
+  STATUS = OK
+  Reservation:
+    expire: 在 2024-04-28T11:30:00Z 過期
+    voucher: &lt;簽章 voucher&gt;  ← 證明 reservation 真實
+  Limit:
+    duration: 60 seconds
+    data: 128 KiB
+
+Listener 收到後，把以下 multiaddr 加入自己的廣告位址：
+  /ip4/1.2.3.4/tcp/4001/p2p/RelayPeerID/p2p-circuit/p2p/MyPeerID</pre>
+
+<h3>13.5.2 Dial 流程</h3>
+
+<pre data-lang="protocol">Dialer 發現 multiaddr（透過 DHT 或 PEX）：
+  /ip4/RELAY_IP/tcp/4001/p2p/RelayID/p2p-circuit/p2p/TargetID
+
+1. Dialer 連到 RelayID
+2. 在連線上開新 stream:
+   /libp2p/circuit/relay/0.2.0/hop  HOP CONNECT  TargetID
+3. Relay 收到後對 TargetID 開新 stream:
+   /libp2p/circuit/relay/0.2.0/stop  STOP CONNECT  DialerID
+4. Target 接受，雙方各自確認
+5. Relay 在兩個 stream 之間 byte-pump（純 raw 轉送）
+6. Dialer 與 Target 在這條 relay 連線上做 Noise/TLS 握手 + multiplex
+7. ★ <strong>立即啟動 DCUtR 嘗試升級為直連</strong></pre>
+
+<h2>13.6 DCUtR：本書理論的最高峰</h2>
+
+<p>
+  Direct Connection Upgrade through Relay 是 libp2p 對 ICE 的<em>去中心化重新詮釋</em>。
+  我們在第 6 章已介紹過它的同步機制；本章看它在 libp2p 整體中的位置與細節。
+</p>
+
+<h3>13.6.1 完整協議流程</h3>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant A as Alice (NAT 後)
+    participant R as Relay
+    participant B as Bob (NAT 後)
+
+    Note over A,B: 前置：Alice 透過 Relay 連到 Bob<br/>已建立 secured + multiplexed 連線
+
+    A->>R: 開新 stream: /libp2p/dcutr
+    R->>B: 轉送
+
+    Note over A: T0 = 現在
+    A->>R: Connect msg (含 Alice 候選位址清單)
+    R->>B: 轉送
+
+    B->>R: Connect msg (含 Bob 候選位址清單)
+    R->>A: 轉送
+    Note over A: T1 = 現在<br/>RTT = T1 - T0 (例 200ms)
+
+    A->>R: Sync msg
+    R->>B: 轉送
+
+    Note over A: 等待 RTT/2 = 100ms
+    Note over B: 收到 Sync 立即動作
+
+    par 精準同時 dial
+        A-->>B: 對 Bob 候選 dial (TCP / QUIC)
+    and
+        B-->>A: 對 Alice 候選 dial (TCP / QUIC)
+    end
+
+    Note over A,B: 兩端封包在 NAT 中相遇<br/>同時為對方開洞 → 直連成功
+
+    A->>B: 在新 direct connection 上重新 multiplex
+    Note over R: Relay 連線可釋放<br/>(libp2p 通常保留以便日後快速回退)
+</div>
+<div class="caption">圖 13-3 ｜ DCUtR 完整協議：在 relay 連線上協調精準同時打洞</div>
+</div>
+
+<h3>13.6.2 設計亮點</h3>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>RTT-based 同步</h4>
+    <p>不像 ICE 的 freezing/throttling 啟發式機制，DCUtR 直接量 RTT、等半 RTT。
+    <strong>數學上的精準勝過工程啟發法</strong>。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>無集中 signaling 伺服器</h4>
+    <p>relay 本身就是 signaling channel——不需要額外的 WebSocket 伺服器、不需要規劃 signaling 協議。
+    對去中心化網路至關重要。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>對 TCP 與 QUIC 都有效</h4>
+    <p>QUIC 上 DCUtR 比 TCP 簡單（QUIC 連線從 client hello 包開始就能用 path migration）。
+    TCP 需要 simultaneous open + 多次重試。但兩者都行。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>連線反向作為輔助</h4>
+    <p>當 Sync 訊息沒被回應、但對方有公網位址時，DCUtR 會 fall back to「<em>請對方反向 dial 我</em>」。
+    這對「一邊公網、一邊 NAT」的非對稱場景極友好。</p>
+  </div>
+</div>
+
+<h3>13.6.3 為什麼 RTT/2 等待？</h3>
+
+<pre data-lang="reasoning">假設 RTT = 200ms（A 到 B 的 round-trip 透過 relay）
+
+Alice 的視角時序：
+  T = 0   發 Connect
+  T = 200 收到 Bob 的 Connect (RTT 量得)
+  T = 200 發 Sync
+  T = 300 「按公式應該動手」(等了 RTT/2 = 100ms)
+
+Bob 的視角時序：
+  T = 100 收到 Alice 的 Connect (假設網路對稱，relay 在中間)
+  T = 100 發回 Connect
+  T = 300 收到 Alice 的 Sync
+  T = 300 立刻動手
+
+→ Alice 與 Bob 在 T = 300 (絕對時間) 同時 dial
+→ Dial 包在中間相遇（每包單程 ~RTT/2）
+→ 雙方 NAT 同時為對方開洞
+→ 成功！
+
+直觀理解：「等半 RTT」是因為 Sync 訊息走了 RTT/2 到達 Bob，
+       Alice 此時直接 dial 也走 RTT/2 在中間與 Bob 的 dial 相遇。</pre>
+
+<h2>13.7 真實世界的成績單：2025 年 IPFS 大規模測量</h2>
+
+<p>
+  2025 年 ArXiv 上發表的論文〈Challenging Tribal Knowledge: Large Scale Measurement Campaign on
+  Decentralized NAT Traversal〉提供了 DCUtR 在<em>實際生產網路</em>的權威數據。
+</p>
+
+<h3>13.7.1 研究規模</h3>
+
+<ul>
+  <li><strong>440 萬次</strong>穿越嘗試</li>
+  <li>橫跨 <strong>85,000+</strong> 個獨立網路</li>
+  <li>覆蓋 <strong>167 個</strong>國家</li>
+  <li>觀察期間 1 年以上</li>
+  <li>透過 libp2p 的 <code>punchr</code> 工具收集</li>
+</ul>
+
+<h3>13.7.2 五大發現</h3>
+
+<div class="callout callout-info">
+  <span class="callout-title">發現 1 · 整體成功率</span>
+  整體 hole punching 成功率約 <strong>70% (±7.1%)</strong>。這是迄今為止<em>去中心化</em>NAT 穿越的最權威基準。
+  注意這是「DCUtR 階段」的成功率，不含因網路故障無法到達 relay 的情況。
+</div>
+
+<div class="callout callout-info">
+  <span class="callout-title">發現 2 · 同步效率極高</span>
+  成功的穿越中，<strong>絕大多數在<em>第一次</em>嘗試就成功</strong>。
+  這證明 RTT-based 同步機制非常精準——不需要 ICE 那樣多輪嘗試。
+</div>
+
+<div class="callout callout-info">
+  <span class="callout-title">發現 3 · TCP ≈ QUIC（推翻部落知識）</span>
+  最重要的發現：<strong>TCP 與 QUIC 的穿越成功率<em>統計上沒有顯著差異</em></strong>。
+  這推翻了「UDP 一定優於 TCP」的長期信念。關鍵在於<em>有沒有精準同步</em>，
+  而非傳輸層本身。Bryan Ford 2005 年論文中 TCP 64% / UDP 82% 的差距，
+  在現代精準同步協議下幾乎消失。
+</div>
+
+<div class="callout callout-info">
+  <span class="callout-title">發現 4 · Relay 特性影響不大</span>
+  穿越成功率與所選 relay 的特性（頻寬、延遲、地理位置）<em>幾乎無關</em>。
+  這證明 DCUtR 的設計成功與 relay 解耦——relay 只是 signaling channel。
+</div>
+
+<div class="callout callout-info">
+  <span class="callout-title">發現 5 · Connection Reversal 顯著加分</span>
+  當其中一方有公網位址但對方在 NAT 後時，「連線反向」機制顯著提升成功率。
+  這在「公網 server 與 NAT 後 client」場景特別重要。
+</div>
+
+<h3>13.7.3 給 P2P 設計者的啟示</h3>
+
+<p>
+  這份研究的意義不只在數字。它告訴我們：
+</p>
+
+<ul>
+  <li><strong>不要再用 2005 年的 TCP/UDP 偏見來做架構決定</strong>——現在 QUIC 與 TCP 都是合理選項</li>
+  <li><strong>同步精準度才是關鍵</strong>——任何新協議都應該學 DCUtR 量 RTT 的智慧</li>
+  <li><strong>70% 是基準線</strong>——你的系統若低於這個數字，需要檢討；高於它需要量化證明</li>
+  <li><strong>剩下 30% 主要是 symmetric × symmetric 雙重 NAT 場景</strong>——這部分仍需 relay</li>
+</ul>
+
+<h2>13.8 一個 libp2p Hello World</h2>
+
+<p>用 Go 寫一個極簡 libp2p 節點：</p>
+
+<pre data-lang="go">package main
+
+import (
+    "context"
+    "fmt"
+    libp2p "github.com/libp2p/go-libp2p"
+    "github.com/libp2p/go-libp2p/core/host"
+    "github.com/libp2p/go-libp2p/core/peer"
+)
+
+func main() {
+    // 建立 host - 自動選擇 transport, security, multiplexer
+    h, err := libp2p.New(
+        libp2p.ListenAddrStrings(
+            "/ip4/0.0.0.0/tcp/0",
+            "/ip4/0.0.0.0/udp/0/quic-v1",
+        ),
+        libp2p.NATPortMap(),       // 自動嘗試 UPnP/NAT-PMP
+        libp2p.EnableHolePunching(), // ← DCUtR 自動啟用
+        libp2p.EnableAutoRelay(),  // ← Circuit Relay 自動申請 reservation
+    )
+    if err != nil { panic(err) }
+
+    fmt.Println("PeerID:", h.ID())
+    for _, addr := range h.Addrs() {
+        fmt.Printf("  %s/p2p/%s\n", addr, h.ID())
+    }
+
+    // 連到一個 bootstrap node
+    bootstrap, _ := peer.AddrInfoFromString(
+        "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
+    )
+    h.Connect(context.Background(), *bootstrap)
+
+    select {} // 永久運行
+}</pre>
+
+<p>
+  這 30 行程式碼啟動了一個完整 libp2p 節點：
+  支援 TCP + QUIC、Noise/TLS 加密、yamux multiplex、自動 NAT 穿越（UPnP + AutoNAT + Relay + DCUtR）、
+  並透過 bootstrap 進入 IPFS 全球網路。在 ICE/STUN/TURN 的世界寫等價程式至少要 500 行。
+</p>
+
+<h2>13.9 libp2p 之上的協議</h2>
+
+<p>libp2p 只是 transport 層；真正的 P2P 應用建立在它之上的<strong>應用協議</strong>：</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>Kademlia DHT</h4>
+    <p>第 10 章詳述。libp2p 的版本叫 kad-dht，用於 peer routing 與 content routing。
+    IPFS 的 provider records 都存這。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Bitswap</h4>
+    <p>IPFS 的「<em>BitTorrent 的繼承者</em>」。內容定址、單一全球 swarm、需要哪個 block 就向 wantlist 廣告。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Gossipsub</h4>
+    <p>抗 Sybil 的 pub/sub 協議——把訊息廣播到「<em>有興趣的</em>」節點。Ethereum 的 consensus layer
+    用它做區塊與 attestation 廣播。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Noise / TLS Identity</h4>
+    <p>身份驗證協議——透過密碼學金鑰證明 PeerID。所有 libp2p 連線都先做這個握手。</p>
+  </div>
+</div>
+
+<h2>13.10 章末提要</h2>
+
+<div class="callout callout-note">
+  <span class="callout-title">本章核心觀念</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>libp2p 是模組化 P2P 框架，每一層（transport / security / multiplex）都可替換。</li>
+    <li>PeerID 是密碼學身份，與位址解耦；multiaddr 是階層式編址，能巢狀表達 relay 路徑。</li>
+    <li>AutoNAT 用實測（不是觀察）判斷可達性，比 STUN 嚴謹；瀏覽器場景 fallback 到 STUN。</li>
+    <li>Circuit Relay v2 用 reservation 機制與 voucher，讓任何公網節點都能無痛當 relay。</li>
+    <li><strong>DCUtR</strong> 用 RTT 量測 + 半 RTT 等待，達到精準同步打洞，無需集中 signaling。</li>
+    <li>2025 年 IPFS 測量：<strong>70% 整體成功率、TCP ≈ QUIC、第一次嘗試多半成功</strong>。</li>
+    <li>libp2p hello world 30 行 Go 即可，等價 WebRTC 至少需 500 行。</li>
+  </ul>
+</div>
+
+<h3>動腦時間</h3>
+<ol>
+  <li>multiaddr 的階層式編址相對「IP:port」的最大優勢是什麼？舉一個傳統編址無法表達的例子。</li>
+  <li>AutoNAT 用實測代替觀察。請設計一個攻擊：當一個攻擊者控制了多個 peer，能不能誤導某個受害者誤以為自己是公網？</li>
+  <li>DCUtR 假設 relay 路徑的網路延遲對稱（A→B 與 B→A 透過 relay 的時間相當）。
+    若不對稱（例如 ISP 路由不對稱），會發生什麼？libp2p 怎麼處理？</li>
+  <li>2025 年測量發現 TCP ≈ QUIC。這個結論對你的 P2P 系統選型有什麼影響？是否仍應預設 QUIC？</li>
+  <li>研究 libp2p 的 punchr 工具，跑一次自家網路的測量。對比官方報告的 70%，你的結果如何？</li>
+</ol>
+
+<h3>延伸閱讀</h3>
+<ul>
+  <li>libp2p 官方規範 — github.com/libp2p/specs（必看 connections/、relay/、autonat/）</li>
+  <li>Marten Seemann, "Decentralized Hole Punching" (2022) — DCUtR 設計論文</li>
+  <li>"Challenging Tribal Knowledge" (arXiv 2510.27500, 2025) — 大規模測量</li>
+  <li>"Hole punching in libp2p - Overcoming Firewalls" — IPFS Blog 入門文</li>
+  <li>libp2p workshop 影片 — youtube libp2p workshop 系列</li>
+</ul>
+
+<nav class="chapter-nav">
+  <a class="prev" href="ch12.html">
+    <span class="label">← PREV</span>
+    <span class="title">第 12 章 · WebRTC</span>
+  </a>
+  <a class="next" href="ch14.html">
+    <span class="label">NEXT →</span>
+    <span class="title">第 14 章 · 現代 Mesh VPN</span>
+  </a>
+</nav>
+
+<footer>
+  <div>CHAPTER 13 / 19 · libp2p 與 DCUtR · NAT TRAVERSAL × P2P TEXTBOOK</div>
+</footer>
+
+</main>
+
+<script src="../share/js/mermaid.min.js"></script>
+<script src="../share/js/textbook.js"></script>
+</body>
+</html>

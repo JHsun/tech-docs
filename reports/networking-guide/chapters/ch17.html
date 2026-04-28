@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 17 章 · 安全考量</title>
+<link rel="stylesheet" href="../share/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>NAT TRAVERSAL × P2P</span>
+  </div>
+  <nav>
+    <a href="../firewall-traversal-and-p2p-guide -index.html">封面</a>
+    <a href="ch16.html">CH 16</a>
+    <a href="ch17.html" class="current">CH 17</a>
+    <a href="ch18.html">CH 18</a>
+    <a href="ch19.html">CH 19</a>
+    <a href="cheatsheet.html">速查</a>
+    <a href="glossary.html">術語</a>
+    <button id="themeToggle" class="theme-toggle">暗色</button>
+  </nav>
+</header>
+
+<main class="page">
+
+<div class="chapter-meta">
+  <span class="dot"></span> PART IV &nbsp;·&nbsp; 實作、安全與未來
+  <span class="dot"></span> CHAPTER 17 &nbsp;·&nbsp; <em>必讀章節</em>
+</div>
+
+<h1>
+  <span class="chapter-num">CHAPTER 17</span>
+  安全考量
+</h1>
+
+<div class="chapter-intro">
+  <h4>本章導讀</h4>
+  <p>
+    P2P 系統的安全模型與傳統 client-server 不同——<strong>沒有「<em>受信中心</em>」可以保護你</strong>。
+    每一個 peer 都可能是攻擊者、每一條連線都需要驗證、每一份資料都需要簽章。
+    本章把分散在前面各章的安全議題集中梳理：端對端加密、身份驗證、流量分析、
+    P2P 特有攻擊面（Sybil、Eclipse、放大攻擊、流量推斷），並討論<em>防禦端</em>如何識別
+    P2P 的合法與惡意使用。最後我們會直面一個關鍵問題：<strong>為什麼即使技術上完美，
+    P2P 系統的「<em>誰跟誰通訊</em>」仍可能洩漏</strong>。
+  </p>
+</div>
+
+<div class="objectives">
+  <h4>📚 學習目標</h4>
+  <ul>
+    <li>能描述 P2P 系統的威脅模型，與 client-server 的本質差異。</li>
+    <li>能比較 DTLS-SRTP、Noise、TLS 1.3 三種端對端加密方案。</li>
+    <li>能列舉 P2P 特有的至少五種攻擊面與其緩解。</li>
+    <li>能說明流量元資料（metadata）洩漏為何即使加密也是問題。</li>
+    <li>能從防禦端角度識別惡意 P2P 流量的特徵。</li>
+  </ul>
+</div>
+
+<h2>17.1 P2P 的威脅模型</h2>
+
+<p>
+  傳統 client-server 安全模型有「<em>信任的中央</em>」這個錨點——伺服器是受信的，
+  客戶端用 TLS 連到它即可。P2P 沒有這個錨點。
+</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>傳統 C/S 威脅模型</h4>
+    <ul>
+      <li>攻擊者：external（網路上的陌生人）</li>
+      <li>信任：CA-signed 憑證的伺服器</li>
+      <li>主要威脅：MITM、伺服器入侵</li>
+      <li>緩解：TLS、cert pinning、WAF</li>
+    </ul>
+  </div>
+  <div class="cheat-card">
+    <h4>P2P 威脅模型</h4>
+    <ul>
+      <li>攻擊者：<strong>網路中的任何 peer</strong></li>
+      <li>信任：<em>無</em>，每個 peer 都得自證</li>
+      <li>主要威脅：Sybil、Eclipse、流量分析、惡意 peer</li>
+      <li>緩解：密碼學身份 + 多路徑驗證 + 信任分散</li>
+    </ul>
+  </div>
+</div>
+
+<div class="callout callout-info">
+  <span class="callout-title">P2P 安全的核心原則</span>
+  <strong>「永不信任、總是驗證」（Never Trust, Always Verify）——但這次「<em>總是</em>」更徹底</strong>。
+  在 P2P 中，連你的<em>路由表內鄰居</em>都可能是攻擊者。設計時必須假設最壞情況。
+</div>
+
+<h2>17.2 端對端加密：三種主流方案</h2>
+
+<p>P2P 系統的加密層通常從這三個方案中選一個：</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>面向</th>
+      <th>DTLS-SRTP</th>
+      <th>Noise</th>
+      <th>TLS 1.3</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>典型用例</td><td>WebRTC</td><td>libp2p, WireGuard, Wire</td><td>HTTPS, libp2p (alt)</td></tr>
+    <tr><td>身份驗證</td><td>SDP fingerprint</td><td>原生 PSK / static key</td><td>X.509 憑證或 raw key</td></tr>
+    <tr><td>握手 RTT</td><td>2 (DTLS) + 0 (SRTP keying)</td><td>1-2 RTT，依 pattern</td><td>1 RTT (or 0-RTT resumption)</td></tr>
+    <tr><td>程式碼複雜度</td><td>中（基於 TLS 改）</td><td>低（&lt; 1000 行）</td><td>高（OpenSSL 等大型函式庫）</td></tr>
+    <tr><td>硬體加速</td><td>普通</td><td>限制（ChaCha20 vs AES-GCM）</td><td>佳</td></tr>
+    <tr><td>QUIC 整合</td><td>無關</td><td>QUIC-Noise 可</td><td>QUIC 內建</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>17.2.1 Noise Protocol Framework：簡潔的智慧</h3>
+
+<p>
+  <strong>Noise</strong>（noiseprotocol.org）由 Trevor Perrin 設計，
+  是 Signal Protocol 的密碼學基礎。它不是<em>單一</em>協議，而是一個「<strong>協議框架</strong>」——
+  你選 handshake pattern（XX、IK、NK 等）與 cipher（ChaCha20-Poly1305、AES-GCM 等），
+  組合出符合自己需求的協議。
+</p>
+
+<pre data-lang="example">XX pattern（最常見，雙方互相驗證）：
+  -> e
+  &lt;- e, ee, s, es
+  -> s, se
+
+每行代表一條訊息：
+  e = ephemeral key
+  s = static key (身份)
+  ee/es/se = key 之間做 DH
+  
+總共 1.5 RTT，雙方互傳長期身份且驗證對方。</pre>
+
+<p>
+  Noise 的優雅在於——簡單規範產生強密碼學保證。WireGuard 使用了 Noise IK pattern，
+  整個密碼學部分不到 200 行 C 程式碼。
+</p>
+
+<h3>17.2.2 為什麼 P2P 不適合 X.509？</h3>
+
+<div class="callout callout-warn">
+  <span class="callout-title">X.509 的 P2P 困境</span>
+  X.509 憑證的設計核心是 CA 信任鏈——你信 CA，CA 簽發你信的伺服器憑證。
+  在 P2P 中：
+  <ul style="margin:0.3em 0;">
+    <li>沒有自然的 CA——誰來簽發 peer 的憑證？</li>
+    <li>數百萬 peer 都申請憑證、定期續期，系統爆炸</li>
+    <li>peer 加入退出頻繁，CRL/OCSP 機制跟不上</li>
+  </ul>
+  因此 P2P 系統幾乎都用<strong>自簽憑證 + 帶外驗證</strong>（fingerprint 透過信令交換，或公鑰本身就是身份）。
+</div>
+
+<h2>17.3 P2P 特有的攻擊面</h2>
+
+<h3>17.3.1 Sybil 攻擊</h3>
+
+<p>第 10 章已介紹過 Sybil 攻擊。本節從整體 P2P 系統角度看其影響：</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart LR
+    A((Attacker))
+    A --> S1((Sybil 1))
+    A --> S2((Sybil 2))
+    A --> S3((Sybil 3))
+    A --> S4((Sybil 4))
+    A --> S5((Sybil 5))
+
+    S1 --- V((Victim))
+    S2 --- V
+    S3 --- V
+    S4 --- V
+    S5 --- V
+
+    Note["攻擊者用一台主機<br/>偽裝成 N 個獨立 peer<br/>佔據受害者 view"]:::note
+
+    classDef att fill:#7a1414,stroke:#7a1414,color:#fff
+    classDef v fill:#2d5a3d,stroke:#2d5a3d,color:#fff
+    classDef note fill:transparent,stroke:#8a7456
+    class A,S1,S2,S3,S4,S5 att
+    class V v
+</div>
+<div class="caption">圖 17-1 ｜ Sybil 攻擊：用大量假身份操縱 P2P 系統</div>
+</div>
+
+<p>緩解方案：</p>
+
+<ul>
+  <li><strong>身份成本</strong>：要求新身份做 PoW（S/Kademlia）、消耗代幣（Filecoin）或人工驗證（社群網路）</li>
+  <li><strong>IP 多樣性檢查</strong>：來自同一 /24 子網的多個 peer 算成一個</li>
+  <li><strong>長期觀察</strong>：偏好「<em>線上久</em>」的節點（Kademlia LRS）</li>
+  <li><strong>多路徑查詢</strong>（disjoint path lookup）：不依賴單一鄰居</li>
+</ul>
+
+<h3>17.3.2 Eclipse 攻擊</h3>
+
+<p>
+  比 Sybil 更精準——攻擊者目標<em>包圍</em>單一受害者：佔據它路由表所有位置、
+  控制它能看到的整個網路。在區塊鏈領域可能讓受害者被誤導到假鏈上、雙花得逞。
+</p>
+
+<p>緩解：</p>
+
+<ul>
+  <li>多 bootstrap 來源（不同地理、不同營運者）</li>
+  <li>定期重新探索網路、不黏在固定鄰居</li>
+  <li>連接到<em>已驗證</em>身份的種子節點</li>
+  <li>監測網路統計異常（如所有鄰居都從某 ASN 來）</li>
+</ul>
+
+<h3>17.3.3 放大攻擊（Amplification）</h3>
+
+<p>
+  攻擊者偽造 source IP 為受害者，向某個會「<em>大回應小請求</em>」的服務送包，
+  把回應的洪水導向受害者。STUN、DNS、NTP、memcached 都曾被利用：
+</p>
+
+<pre data-lang="example">STUN amplification:
+  攻擊者送 20 byte STUN Binding Request
+  伺服器回 ~80 byte XOR-MAPPED-ADDRESS response
+  → 4x 放大
+
+但實際攻擊倍率：
+  STUN: 4-5x（小，但仍可用）
+  DNS:  ~50x（中）
+  NTP:  ~500x（大）
+  memcached: 50,000x（已修復）</pre>
+
+<p>RFC 8489 加強了 STUN 防放大設計（強制 source 驗證）；TURN（RFC 8656）禁止對 private IP 中繼避免內網掃描。</p>
+
+<h3>17.3.4 流量分析（Traffic Analysis）</h3>
+
+<p>
+  即使內容加密了，<strong>「<em>誰跟誰通訊</em>」仍是元資料</strong>。攻擊者透過觀察 P2P 流量，可推得：
+</p>
+
+<ul>
+  <li>使用者身份：peer A 跟 peer B 經常通訊 → A 與 B 是朋友</li>
+  <li>應用類型：時序與大小模式 → 視訊？音訊？檔案？</li>
+  <li>內容大致：BitTorrent 種子大小是公開的 → 對應檔案能猜</li>
+  <li>地理位置：peer 主要 IP 來源 → 用戶國家</li>
+  <li>離線時間：peer 心跳消失 → 推得作息</li>
+</ul>
+
+<div class="callout callout-danger">
+  <span class="callout-title">給敏感場景使用者的提醒</span>
+  記者、社運人士、面臨家暴威脅者——若你需要保護<em>「誰跟誰在通訊」這個事實</em>本身，
+  純 P2P 系統是<strong>不夠的</strong>。你需要 onion routing（Tor）這類額外保護元資料的設計。
+  WebRTC、libp2p、Tailscale 都不能保護元資料。
+</div>
+
+<h3>17.3.5 中繼濫用</h3>
+
+<p>
+  TURN、Circuit Relay 等中繼可能被惡意使用：
+</p>
+
+<ul>
+  <li>當作 anonymous proxy 隱藏攻擊源</li>
+  <li>放大攻擊（前述）</li>
+  <li>從 relay 內部位址掃描網段（已被 RFC 8656 禁止）</li>
+  <li>消耗 relay 頻寬資源（DoS）</li>
+</ul>
+
+<p>緩解：強制認證、速率限制、禁止對 private IP 中繼、relay 行為審計。</p>
+
+<h2>17.4 加密通訊不等於安全通訊</h2>
+
+<h3>17.4.1 元資料的詛咒</h3>
+
+<p>下表展示「即使內容完美加密」攻擊者仍能得知什麼：</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>觀察點</th><th>能推得的資訊</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>5-tuple (src, dst, sport, dport, proto)</td><td>誰跟誰、什麼協議</td></tr>
+    <tr><td>封包大小直方圖</td><td>應用類型（視訊 vs 文字 vs 檔案）</td></tr>
+    <tr><td>封包時序間隔</td><td>互動式 vs 串流，使用者活躍時段</td></tr>
+    <tr><td>連線總時長</td><td>會議長度、檔案大小</td></tr>
+    <tr><td>TLS ClientHello fingerprint (JA3/JA4)</td><td>客戶端軟體（甚至版本）</td></tr>
+    <tr><td>SNI 欄位（除非 ECH）</td><td>目的網域</td></tr>
+    <tr><td>STUN/TURN 流量模式</td><td>P2P 應用類型</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>17.4.2 哪些設計能保護元資料？</h3>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>Onion Routing (Tor)</h4>
+    <p>多層加密、多跳轉送，每一跳只知道<em>前一跳與下一跳</em>，沒人知道 source-destination 全鏈。
+    代價：高延遲（300ms-2s）。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Mix Network</h4>
+    <p>節點蒐集多個訊息批次重排再轉送，破壞時序關聯。
+    代價：吞吐量極低，多用於 email-like 應用。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Padding + Cover Traffic</h4>
+    <p>所有封包補齊到固定大小、間隔固定時間發送（即使無真實資料也送 dummy）。
+    代價：頻寬浪費大。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>Decentralized Mixnets</h4>
+    <p>Nym、Loopix 等較新的去中心化 mix 網路。
+    嘗試在元資料保護與性能間取得平衡。</p>
+  </div>
+</div>
+
+<h2>17.5 P2P 系統的攻擊面 vs 防禦端</h2>
+
+<h3>17.5.1 從 P2P 開發者角度</h3>
+
+<p>給開發者的安全 checklist：</p>
+
+<div class="callout callout-info">
+  <span class="callout-title">P2P 開發者安全 checklist</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>✓ 所有 peer-to-peer 通訊強制端對端加密（無 plaintext fallback）</li>
+    <li>✓ 身份用密碼學金鑰，不是 IP/email/username</li>
+    <li>✓ 對來自未知 peer 的訊息嚴格速率限制</li>
+    <li>✓ 拒絕對 private IP（10.0.0.0/8、192.168.0.0/16）做 relay</li>
+    <li>✓ 拒絕對 link-local（169.254、fe80::）做任何處理</li>
+    <li>✓ 連線數上限（防 conntrack 表撐爆）</li>
+    <li>✓ Bootstrap node 多源驗證（防 Eclipse）</li>
+    <li>✓ DHT 查詢用 disjoint path（防中間人污染）</li>
+    <li>✓ 監控異常 peer 行為（過大流量、異常 RPC 模式）</li>
+    <li>✓ 公開揭露安全模型——告訴使用者「<em>本系統保護什麼、不保護什麼</em>」</li>
+  </ul>
+</div>
+
+<h3>17.5.2 從防禦者角度</h3>
+
+<p>網路管理者要識別「企業內未授權的 P2P 流量」可看以下訊號：</p>
+
+<ul>
+  <li><strong>大量 UDP/443 流量</strong>但無對應 HTTPS 瀏覽行為——可能是 QUIC/WebRTC P2P</li>
+  <li><strong>STUN/TURN public servers 連線</strong>（stun.l.google.com:19302 等）</li>
+  <li><strong>連到 Cloudflare/Twilio TURN</strong> 但非 WebRTC 視訊應用</li>
+  <li><strong>多對對外連線</strong>同時建立——hole punching 同步特徵</li>
+  <li><strong>對等流量</strong>（上下行幾乎對稱）——typical P2P</li>
+  <li><strong>連到多個地理分散 IP</strong>同時——DHT crawling 特徵</li>
+</ul>
+
+<p>
+  注意：上述「<em>特徵</em>」也適用於合法應用（Tailscale、視訊會議、雲端儲存同步）——
+  防禦端必須結合<em>政策</em>（什麼是允許的）才能下判斷，純技術 fingerprint 不足。
+</p>
+
+<h2>17.6 案例研究：BitTorrent 在企業環境的識別</h2>
+
+<p>
+  BitTorrent 是企業最頻繁阻擋的 P2P 應用之一。如何識別它？
+</p>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>L2 · Signature</h4>
+    <p>BT handshake 的 19-byte protocol identifier <code>"BitTorrent protocol"</code> 是 fingerprint。
+    但<em>加密的</em> BT (BEP 8 obfuscation) 看不到。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>L3 · Behavior</h4>
+    <p>同時連數十個 peer、上下行對等、長時間穩定流量——典型 BT 特徵。
+    機器學習分類器極準。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>L4 · DHT 特徵</h4>
+    <p>對 Mainline DHT bootstrap nodes（router.bittorrent.com 等）的 UDP 流量。
+    或對隨機高位 port 的 DHT 查詢。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>反偵測</h4>
+    <p>BT client 用 µTP（隨機 port、加密）規避偵測。
+    這是攻擊與防禦的長期軍備競賽。</p>
+  </div>
+</div>
+
+<h2>17.7 安全的 P2P 應用設計原則</h2>
+
+<div class="callout callout-note">
+  <span class="callout-title">本書建議的設計原則</span>
+  <ol style="margin:0.5em 0 0;">
+    <li><strong>密碼學身份優先</strong>：PeerID 必須是 hash(public key)，不能是任何外部識別碼</li>
+    <li><strong>加密非可選</strong>：所有 P2P 流量強制 E2E 加密，連除錯模式都不放行 plaintext</li>
+    <li><strong>最小知識</strong>：每個 peer 只應知道完成任務必要的元資料</li>
+    <li><strong>抗 Sybil 內建</strong>：身份成本（PoW、staking、social proof）必須在協議層</li>
+    <li><strong>多路徑驗證</strong>：關鍵決策（DHT 查詢、bootstrap）走多個獨立路徑</li>
+    <li><strong>速率限制無處不在</strong>：每個 peer-to-peer RPC 都應有 per-source 限制</li>
+    <li><strong>透明的安全模型</strong>：文件中明確說明「<em>本系統威脅模型 / 不保護的攻擊類型</em>」</li>
+    <li><strong>定期安全審計</strong>：第三方審計、bug bounty、開源透明</li>
+  </ol>
+</div>
+
+<h2>17.8 章末提要</h2>
+
+<div class="callout callout-note">
+  <span class="callout-title">本章核心觀念</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>P2P 沒有「<em>受信中心</em>」——每個 peer 都可能是攻擊者。</li>
+    <li>密碼學身份（PeerID）取代 IP/username 作為長期識別。</li>
+    <li>三種主流端對端加密：DTLS-SRTP（WebRTC）、Noise（libp2p/WireGuard）、TLS 1.3。</li>
+    <li>X.509 不適合 P2P，因為 CA 信任模型與 P2P 哲學衝突。</li>
+    <li>P2P 特有攻擊：Sybil、Eclipse、放大、流量分析、中繼濫用。</li>
+    <li>加密保護內容但不保護元資料；保護元資料需 onion routing / mix network。</li>
+    <li>即使技術完美，「誰跟誰通訊」這個事實仍可能洩漏——敏感場景需額外保護。</li>
+    <li>防禦端可從多個 layer（signature / behavior / fingerprint）識別 P2P 流量。</li>
+  </ul>
+</div>
+
+<h3>動腦時間</h3>
+<ol>
+  <li>WireGuard 用 Noise IK 簡化握手到 1 RTT。對比 TLS 1.3 的 1 RTT，兩者實質差異是什麼？</li>
+  <li>設計練習：你要做一個記者用的 P2P 即時通訊。畫出威脅模型，列出至少五個必須緩解的攻擊面。</li>
+  <li>研究 STUN amplification 的實際倍率與防禦。為什麼這個攻擊倍率比 NTP/DNS 低？</li>
+  <li>論述題：為什麼「<em>內容加密</em>」與「<em>元資料保護</em>」需要不同技術？舉一個只解決前者的真實系統。</li>
+  <li>從防禦端角度：列出五個「<em>看起來像 P2P 但實際是合法應用</em>」的場景，說明你會怎麼避免誤封。</li>
+</ol>
+
+<h3>延伸閱讀</h3>
+<ul>
+  <li>Perrin, "The Noise Protocol Framework" — noiseprotocol.org</li>
+  <li>RFC 9001 — Using TLS to Secure QUIC <span class="tag tag-rfc">RFC</span></li>
+  <li>Douceur, "The Sybil Attack" (IPTPS 2002) — 經典論文</li>
+  <li>Heilman et al., "Eclipse Attacks on Bitcoin's Peer-to-Peer Network" (USENIX 2015)</li>
+  <li>Tor Project, "Tor: The Second-Generation Onion Router"</li>
+  <li>Loopix Anonymity System paper（最新 mix network）</li>
+</ul>
+
+<nav class="chapter-nav">
+  <a class="prev" href="ch16.html">
+    <span class="label">← PREV</span>
+    <span class="title">第 16 章 · IPv6 是解藥嗎？</span>
+  </a>
+  <a class="next" href="ch18.html">
+    <span class="label">NEXT →</span>
+    <span class="title">第 18 章 · 部署、量測與除錯</span>
+  </a>
+</nav>
+
+<footer>
+  <div>CHAPTER 17 / 19 · 安全考量 · NAT TRAVERSAL × P2P TEXTBOOK</div>
+</footer>
+
+</main>
+
+<script src="../share/js/mermaid.min.js"></script>
+<script src="../share/js/textbook.js"></script>
+</body>
+</html>

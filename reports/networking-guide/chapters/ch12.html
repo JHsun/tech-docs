@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 12 章 · WebRTC：瀏覽器中的 P2P</title>
+<link rel="stylesheet" href="../share/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>NAT TRAVERSAL × P2P</span>
+  </div>
+  <nav>
+    <a href="../firewall-traversal-and-p2p-guide -index.html">封面</a>
+    <a href="ch11.html">CH 11</a>
+    <a href="ch12.html" class="current">CH 12</a>
+    <a href="ch13.html">CH 13</a>
+    <a href="ch14.html">CH 14</a>
+    <a href="cheatsheet.html">速查</a>
+    <a href="glossary.html">術語</a>
+    <button id="themeToggle" class="theme-toggle">暗色</button>
+  </nav>
+</header>
+
+<main class="page">
+
+<div class="chapter-meta">
+  <span class="dot"></span> PART III &nbsp;·&nbsp; P2P 網路架構
+  <span class="dot"></span> CHAPTER 12 &nbsp;·&nbsp; <em>核心章節</em>
+</div>
+
+<h1>
+  <span class="chapter-num">CHAPTER 12</span>
+  WebRTC：瀏覽器中的 P2P
+</h1>
+
+<div class="chapter-intro">
+  <h4>本章導讀</h4>
+  <p>
+    WebRTC 是把 P2P 帶進每個瀏覽器的歷史性協議——它讓「一支 JavaScript」就能跑視訊通話、檔案傳輸、
+    即時資料同步，而不需要中央伺服器中繼。本章把你前面九章學到的所有東西<strong>整合起來</strong>看：
+    STUN/TURN/ICE 在 RTCPeerConnection 中的角色、SDP offer/answer 模型、DataChannel 與媒體軌道的差異、
+    DTLS-SRTP 加密、以及生產環境的實務（健康的 TURN 使用率應在 20-30%）。
+    讀完本章，你能理解每一通 Google Meet、Discord 語音、線上教育課程背後的協議架構。
+  </p>
+</div>
+
+<div class="objectives">
+  <h4>📚 學習目標</h4>
+  <ul>
+    <li>能描述 WebRTC 的協議堆疊（API、ICE、DTLS、SRTP/SCTP、UDP/TCP）。</li>
+    <li>能解釋 SDP offer/answer 模型與信令通道（signaling）的角色分離。</li>
+    <li>能寫出最小的 RTCPeerConnection / RTCDataChannel JS 範例。</li>
+    <li>能說明 DTLS-SRTP 為什麼比單純 TLS 更適合即時媒體。</li>
+    <li>能解釋多方通話的三種架構（Mesh / SFU / MCU）與其取捨。</li>
+    <li>能評估生產環境的 TURN 使用率指標。</li>
+  </ul>
+</div>
+
+<h2>12.1 WebRTC 的歷史定位</h2>
+
+<p>
+  WebRTC 由 Google 在 2011 年發起，後由 W3C 與 IETF 共同標準化，
+  在 2021 年達到 W3C Recommendation 狀態，並持續演進中。
+  它的核心成就是把<strong>原本只有桌面應用能做的 P2P 即時通訊</strong>，
+  變成<strong>網頁開箱即用</strong>的能力。
+</p>
+
+<div class="callout callout-history">
+  <span class="callout-title">WebRTC 改變的世界</span>
+  WebRTC 出現之前，要在瀏覽器做視訊通話必須裝 Flash 或 Java applet。
+  WebRTC 出現之後：Google Meet、Jitsi、Discord、Zoom（部分功能）、Houseparty、Clubhouse、
+  甚至雲端遊戲串流（GeForce Now、Stadia 早期）都建立在它之上。它是 2010 年代<em>最被低估</em>的 web 技術變革。
+</div>
+
+<h2>12.2 協議堆疊全貌</h2>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TB
+    subgraph App["應用層"]
+        A1[JavaScript / 應用碼]
+    end
+
+    subgraph API["WebRTC API"]
+        B1[getUserMedia]
+        B2[RTCPeerConnection]
+        B3[RTCDataChannel]
+    end
+
+    subgraph Sec["協議層 · 安全與多工"]
+        C1[ICE]
+        C2[DTLS 1.2/1.3]
+        C3[SRTP<br/>媒體加密]
+        C4[SCTP<br/>可靠資料]
+    end
+
+    subgraph Trans["傳輸層"]
+        D1[UDP<br/>主路徑]
+        D2[TCP<br/>fallback for TURN]
+    end
+
+    A1 --> B1 & B2 & B3
+    B1 --> B2
+    B2 --> C1 & C2
+    B3 --> C2
+    C2 --> C3 & C4
+    C1 --> D1 & D2
+    C3 --> D1
+    C4 --> D1
+
+    classDef app fill:#1d4e7c,stroke:#1d4e7c,color:#fff
+    classDef api fill:#b8761d,stroke:#b8761d,color:#fff
+    classDef sec fill:#2d5a3d,stroke:#2d5a3d,color:#fff
+    classDef tr fill:#8b1a1a,stroke:#8b1a1a,color:#fff
+    class A1 app
+    class B1,B2,B3 api
+    class C1,C2,C3,C4 sec
+    class D1,D2 tr
+</div>
+<div class="caption">圖 12-1 ｜ WebRTC 協議堆疊全貌</div>
+</div>
+
+<p>
+  幾個關鍵觀察：
+</p>
+
+<ul>
+  <li><strong>所有應用都走加密</strong>：WebRTC 不允許明文，DTLS 是必要層</li>
+  <li><strong>媒體與資料分流</strong>：媒體用 SRTP（為即時優化）、可靠資料用 SCTP（提供 stream 抽象）</li>
+  <li><strong>一條 5-tuple 多工</strong>：同一條 UDP 連線上跑 ICE、DTLS、SRTP、SCTP——靠首 byte 區分（demux）</li>
+</ul>
+
+<h2>12.3 三大 API：getUserMedia、RTCPeerConnection、RTCDataChannel</h2>
+
+<h3>12.3.1 getUserMedia：取得本機媒體</h3>
+
+<pre data-lang="javascript">// 取得本機麥克風與相機
+const stream = await navigator.mediaDevices.getUserMedia({
+  video: { width: 1280, height: 720 },
+  audio: true
+});
+
+// 顯示自己的影像
+document.getElementById('localVideo').srcObject = stream;</pre>
+
+<p>
+  這個 API 觸發瀏覽器權限對話框。瀏覽器負責所有底層硬體存取與編碼器選擇，應用拿到的是抽象的 <code>MediaStream</code>。
+</p>
+
+<h3>12.3.2 RTCPeerConnection：核心物件</h3>
+
+<p>
+  這是 WebRTC 的中樞——前面學的 ICE、TURN、SDP 都是它的內部運作。
+  最小可用例子：
+</p>
+
+<pre data-lang="javascript">const pc = new RTCPeerConnection({
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    {
+      urls: 'turn:turn.example.com:3478',
+      username: 'user',
+      credential: 'pass'
+    }
+  ]
+});
+
+// 加入本地媒體
+stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+// 收到對方媒體時
+pc.ontrack = event => {
+  document.getElementById('remoteVideo').srcObject = event.streams[0];
+};
+
+// ICE 候選產生時通知對方（透過自訂 signaling）
+pc.onicecandidate = event => {
+  if (event.candidate) {
+    signaling.send({ type: 'ice', candidate: event.candidate });
+  }
+};
+
+// 連線狀態變化
+pc.oniceconnectionstatechange = () => {
+  console.log('ICE state:', pc.iceConnectionState);
+};</pre>
+
+<h3>12.3.3 RTCDataChannel：純資料的 P2P</h3>
+
+<p>
+  WebRTC 不只能傳媒體——RTCDataChannel 提供雙向、可靠（或不可靠）的資料通道，
+  用法類似 WebSocket 但是 P2P：
+</p>
+
+<pre data-lang="javascript">// 建立資料通道（必須在 setLocalDescription 之前，否則需 renegotiation）
+const channel = pc.createDataChannel('chat', {
+  ordered: true,        // 是否保證順序
+  maxRetransmits: 0     // 最多重傳次數（0 = 不重傳，類似 UDP）
+});
+
+channel.onopen = () => console.log('Channel open');
+channel.onmessage = e => console.log('Got:', e.data);
+
+// 對方端
+pc.ondatachannel = event => {
+  const ch = event.channel;
+  ch.onmessage = e => console.log('Peer says:', e.data);
+};
+
+// 送訊息
+channel.send('Hello P2P');
+channel.send(arrayBuffer);  // 也可送 binary</pre>
+
+<p>
+  DataChannel 可以設定為「<em>可靠+有序</em>」（同 TCP）、「<em>可靠但不保證順序</em>」、
+  或「<em>不可靠</em>」（同 UDP）。WebTorrent 用 DataChannel 傳檔案分塊；
+  許多多人遊戲用不可靠模式傳遊戲狀態。
+</p>
+
+<h2>12.4 SDP Offer/Answer 模型</h2>
+
+<p>
+  WebRTC 的<strong>協商過程</strong>遵循 SDP 的 offer/answer 模型（RFC 3264）。
+  發起方產生 offer（描述自己的媒體能力與 ICE 候選），接收方回應 answer（描述自己的對應選擇）。
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+sequenceDiagram
+    participant A as Alice
+    participant S as Signaling Server
+    participant B as Bob
+
+    Note over A,B: WebRTC <em>不規定</em> signaling 協議<br/>可以是 WebSocket / Socket.IO / HTTP / 短訊 / QR code...
+
+    A->>A: pc.createOffer()
+    A->>A: pc.setLocalDescription(offer)
+    Note over A: ICE 候選開始 trickle
+
+    A->>S: signaling: offer SDP
+    S->>B: forward
+
+    B->>B: pc.setRemoteDescription(offer)
+    B->>B: pc.createAnswer()
+    B->>B: pc.setLocalDescription(answer)
+
+    B->>S: signaling: answer SDP
+    S->>A: forward
+
+    A->>A: pc.setRemoteDescription(answer)
+
+    par ICE candidates trickle (雙向)
+        A->>S: candidate
+        S->>B: forward
+        B->>B: pc.addIceCandidate
+    and
+        B->>S: candidate
+        S->>A: forward
+        A->>A: pc.addIceCandidate
+    end
+
+    Note over A,B: ICE 連通性檢查並行進行
+    Note over A,B: 連線建立！直接 P2P 通訊
+</div>
+<div class="caption">圖 12-2 ｜ WebRTC offer/answer + signaling + ICE trickle 完整流程</div>
+</div>
+
+<h3>12.4.1 一個 SDP offer 的真實長相</h3>
+
+<pre data-lang="sdp">v=0
+o=- 4611732855696449382 2 IN IP4 127.0.0.1
+s=-
+t=0 0
+a=group:BUNDLE 0 1
+a=extmap-allow-mixed
+a=msid-semantic: WMS stream-id
+
+m=audio 9 UDP/TLS/RTP/SAVPF 111 103 9 0 8
+c=IN IP4 0.0.0.0
+a=rtcp:9 IN IP4 0.0.0.0
+a=ice-ufrag:F7gI
+a=ice-pwd:x9cml/YzichV2+XlhiMu8g
+a=fingerprint:sha-256 5C:5C:8E:4A:...
+a=setup:actpass
+a=mid:0
+a=sendrecv
+a=rtcp-mux
+a=rtpmap:111 opus/48000/2
+a=fmtp:111 minptime=10;useinbandfec=1
+a=rtpmap:103 ISAC/16000
+
+m=video 9 UDP/TLS/RTP/SAVPF 96 97 98
+c=IN IP4 0.0.0.0
+a=ice-ufrag:F7gI
+a=ice-pwd:x9cml/YzichV2+XlhiMu8g
+a=fingerprint:sha-256 5C:5C:8E:4A:...
+a=mid:1
+a=sendrecv
+a=rtcp-mux
+a=rtpmap:96 VP8/90000
+a=rtpmap:97 H264/90000
+a=fmtp:97 profile-level-id=42e01f</pre>
+
+<p>關鍵元素：</p>
+
+<ul>
+  <li><code>m=audio</code> / <code>m=video</code>：媒體軌道描述</li>
+  <li><code>a=ice-ufrag</code> / <code>a=ice-pwd</code>：ICE 認證</li>
+  <li><code>a=fingerprint</code>：DTLS 憑證指紋（對應第 12.6 節）</li>
+  <li><code>a=rtpmap</code>：可用的編碼器（codec）</li>
+  <li><code>a=rtcp-mux</code>：RTP 與 RTCP 共用同一條 UDP 連線（節省 NAT 表項）</li>
+  <li><code>a=group:BUNDLE 0 1</code>：所有 m= 區段共用同一條 ICE/DTLS 連線（節省穿越成本）</li>
+</ul>
+
+<h3>12.4.2 Signaling 的角色</h3>
+
+<div class="callout callout-info">
+  <span class="callout-title">WebRTC 不規定 signaling 協議</span>
+  WebRTC 規範刻意不指定如何傳遞 SDP——這是設計上的智慧。<strong>signaling 跟 P2P 連線本身是兩件事</strong>：
+  <ul style="margin:0.3em 0;">
+    <li>WebSocket（最常見）</li>
+    <li>HTTP polling / Server-Sent Events</li>
+    <li>Socket.IO / 框架自有</li>
+    <li>甚至：QR code、email、IM、紙條（理論上都可以）</li>
+  </ul>
+  你可以把 signaling 想成「<em>怎麼把名片交給對方</em>」——名片內容（SDP）是 WebRTC 規定的，怎麼遞並不限制。
+</div>
+
+<h2>12.5 Trickle ICE 在 WebRTC 中的實作</h2>
+
+<p>
+  第 8 章介紹的 Trickle ICE 在 WebRTC 中是預設行為。<code>pc.onicecandidate</code> 事件在每個候選產生時觸發，
+  應用立即透過 signaling 送給對方：
+</p>
+
+<pre data-lang="javascript">pc.onicecandidate = event => {
+  if (event.candidate) {
+    // 持續送：host → srflx → relay
+    signaling.send({
+      type: 'candidate',
+      data: event.candidate.toJSON()
+    });
+  } else {
+    // candidate === null 表示 ICE gathering 完成
+    console.log('ICE gathering complete');
+  }
+};
+
+// 收到對方候選
+signaling.onmessage = msg => {
+  if (msg.type === 'candidate') {
+    pc.addIceCandidate(new RTCIceCandidate(msg.data));
+  }
+};</pre>
+
+<h2>12.6 DTLS-SRTP：為什麼不直接用 TLS？</h2>
+
+<p>
+  WebRTC 的安全層使用 <strong>DTLS</strong>（Datagram TLS）配合 <strong>SRTP</strong>（Secure RTP），
+  而不是直接 TLS。為什麼？
+</p>
+
+<h3>12.6.1 即時媒體的特殊需求</h3>
+
+<div class="cheat-grid">
+  <div class="cheat-card">
+    <h4>不要 head-of-line blocking</h4>
+    <p>TLS 跑在 TCP 上，一個封包丟了後面全卡住。即時音視訊寧願丟幾個 frame，也不能等——
+    DTLS 跑在 UDP 上，無此問題。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>不要 stream cipher 的 overhead</h4>
+    <p>TLS 設計成連續 stream，每個訊息都帶 sequence number 與重傳邏輯。
+    SRTP 用 RTP 的 sequence number 直接做加密 nonce，省下很多 byte。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>分離握手與資料</h4>
+    <p>DTLS 只用在「<em>初始握手</em>」階段交換 master key；
+    後續的媒體封包用 SRTP 加密（更輕量）、純資料用 SCTP-over-DTLS。</p>
+  </div>
+  <div class="cheat-card">
+    <h4>身份驗證走 fingerprint</h4>
+    <p>DTLS 用 self-signed 憑證——身份是透過 SDP 中的 <code>a=fingerprint</code> 預先約定的。
+    沒有 CA 機制，因為 P2P 無 CA 概念。</p>
+  </div>
+</div>
+
+<h3>12.6.2 從信令到加密的完整鏈</h3>
+
+<pre data-lang="conceptual">1. Alice 與 Bob 透過 signaling 交換 SDP
+   SDP 中含對方 DTLS 憑證的 SHA-256 fingerprint
+   信令本身應該也走 TLS（防 MITM）
+
+2. ICE 找到可用的 5-tuple
+3. DTLS handshake 在該 5-tuple 上進行
+4. Alice 看到 Bob 的憑證，計算其 SHA-256 比對 SDP 中的 fingerprint
+   比對成功 → 確認對方真的是 Bob 不是 MITM
+5. DTLS 產生 master key，從中匯出 SRTP keys
+6. 媒體流以 SRTP 加密、資料以 SCTP-over-DTLS 加密
+7. 雙向 E2E 加密通訊</pre>
+
+<div class="callout callout-info">
+  <span class="callout-title">這是真正的 E2E 加密嗎？</span>
+  在<strong>純兩方</strong>WebRTC 連線中，是的——只有 Alice 跟 Bob 知道 master key，
+  signaling server 只看到 fingerprint 不能解密。但若有 SFU/MCU（下節）介入，
+  E2E 就被打破——SFU 必須能解密才能轉發。WebRTC 的 Insertable Streams API 讓應用層
+  能在 SFU 之上再加一層 E2E 加密（例如 Google Meet 的端對端加密選項就用這個）。
+</div>
+
+<h2>12.7 多方通話：Mesh / SFU / MCU</h2>
+
+<p>
+  WebRTC 規範本身只處理<strong>兩方</strong>連線。要做 5 人視訊會議怎麼辦？
+  有三種架構：
+</p>
+
+<div class="mermaid-wrap">
+<div class="mermaid">
+flowchart TB
+    subgraph M["Mesh：每對都直連"]
+        M1((A)) --- M2((B))
+        M1 --- M3((C))
+        M1 --- M4((D))
+        M2 --- M3
+        M2 --- M4
+        M3 --- M4
+    end
+
+    subgraph S["SFU：選擇性轉發"]
+        S1((A)) --> SFU[SFU]
+        S2((B)) --> SFU
+        S3((C)) --> SFU
+        S4((D)) --> SFU
+        SFU -.-> S1
+        SFU -.-> S2
+        SFU -.-> S3
+        SFU -.-> S4
+    end
+
+    subgraph U["MCU：解碼+混合+重編"]
+        U1((A)) --> MCU[MCU]
+        U2((B)) --> MCU
+        U3((C)) --> MCU
+        U4((D)) --> MCU
+        MCU --> U1
+        MCU --> U2
+        MCU --> U3
+        MCU --> U4
+    end
+
+    classDef m fill:#2d5a3d,stroke:#2d5a3d,color:#fff
+    classDef s fill:#b8761d,stroke:#b8761d,color:#fff
+    classDef u fill:#8b1a1a,stroke:#8b1a1a,color:#fff
+    class M1,M2,M3,M4 m
+    class S1,S2,S3,S4 s
+    class U1,U2,U3,U4 u
+    class SFU s
+    class MCU u
+</div>
+<div class="caption">圖 12-3 ｜ 多方通話的三種架構：Mesh、SFU、MCU</div>
+</div>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>架構</th>
+      <th>原理</th>
+      <th>每端上傳</th>
+      <th>伺服器成本</th>
+      <th>E2E 加密</th>
+      <th>適用人數</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Mesh</strong></td>
+      <td>每對 peer 直接 WebRTC</td>
+      <td>N-1 份</td>
+      <td>無（除 STUN/TURN）</td>
+      <td>✓ 純 E2E</td>
+      <td>2-4 人</td>
+    </tr>
+    <tr>
+      <td><strong>SFU</strong></td>
+      <td>每人上傳 1 份給 SFU，<br>SFU 轉發給其他人</td>
+      <td>1 份</td>
+      <td>頻寬 = N×1 份</td>
+      <td>需 Insertable Streams</td>
+      <td>5-50 人</td>
+    </tr>
+    <tr>
+      <td><strong>MCU</strong></td>
+      <td>SFU + 解碼 + 混合 + 重編</td>
+      <td>1 份</td>
+      <td>頻寬 + CPU 重</td>
+      <td>✗ 不可能</td>
+      <td>50+ 人或低頻寬端</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h3>12.7.1 SFU 主導現代會議</h3>
+
+<p>
+  Google Meet、Zoom、Jitsi、Discord 都採用 SFU 架構（有些會在低端裝置 fallback 到 MCU）。
+  著名開源 SFU 包括 Jitsi Videobridge、mediasoup、Janus、LiveKit。
+  Selective Forwarding 的精明之處：SFU 可以根據接收方頻寬，<em>選擇性轉發</em>不同畫質的同一視訊
+  （配合 Simulcast 或 SVC 編碼），而不需要重新編碼——大幅節省 CPU。
+</p>
+
+<h2>12.8 生產環境指標</h2>
+
+<h3>12.8.1 健康的 TURN 使用率</h3>
+
+<div class="callout callout-info">
+  <span class="callout-title">業界經驗值</span>
+  健康的 P2P 應用 <strong>TURN 使用率應在 20-30%</strong>。如果超過 40%，需檢查：
+  <ul style="margin:0.3em 0;">
+    <li>STUN 伺服器配置是否錯誤</li>
+    <li>ICE 候選優先序是否被異常排序（如 host 候選被擋）</li>
+    <li>客戶端網路環境是否異常嚴格</li>
+    <li>WebRTC 函式庫版本是否過舊</li>
+  </ul>
+  生產環境必須監控這個指標，當作網路健康度的核心 KPI。
+</div>
+
+<h3>12.8.2 連線建立時間</h3>
+
+<p>使用 Trickle ICE 的健康基準：</p>
+
+<ul>
+  <li><strong>同 LAN</strong>：&lt; 100ms（host candidate 立即連通）</li>
+  <li><strong>跨 NAT 直連</strong>：100~300ms（srflx hole punching）</li>
+  <li><strong>TURN 中繼</strong>：200~500ms（多一跳 + Allocate 開銷）</li>
+  <li><strong>整體 P95</strong>：&lt; 1s 是合格目標</li>
+</ul>
+
+<h3>12.8.3 除錯工具：webrtc-internals</h3>
+
+<p>
+  Chrome 內建的 <code>chrome://webrtc-internals</code> 是 WebRTC 工程師的必備工具。
+  能看到：
+</p>
+
+<ul>
+  <li>所有 RTCPeerConnection 的即時狀態</li>
+  <li>ICE candidates 的收集與配對結果</li>
+  <li>每對 candidate pair 的 STUN check 統計</li>
+  <li>SRTP 加解密狀態、bitrate、丟包率</li>
+  <li>下載 dump，可以離線重建問題現場</li>
+</ul>
+
+<h2>12.9 完整的最小 P2P 範例</h2>
+
+<p>把所有東西串起來——一個 100 行內的 P2P 視訊通話骨架（省略 signaling 細節）：</p>
+
+<pre data-lang="javascript">// ====== HTML ======
+// &lt;video id="local" autoplay muted&gt;&lt;/video&gt;
+// &lt;video id="remote" autoplay&gt;&lt;/video&gt;
+// &lt;button id="call"&gt;Call&lt;/button&gt;
+
+// ====== JS ======
+const config = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    {
+      urls: 'turn:turn.example.com:3478',
+      username: 'demo',
+      credential: 'demo'
+    }
+  ]
+};
+
+const pc = new RTCPeerConnection(config);
+const ws = new WebSocket('wss://signal.example.com');
+
+// 取得本機媒體
+const localStream = await navigator.mediaDevices.getUserMedia({
+  video: true, audio: true
+});
+document.getElementById('local').srcObject = localStream;
+localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+// 收到對方媒體
+pc.ontrack = e => {
+  document.getElementById('remote').srcObject = e.streams[0];
+};
+
+// ICE candidate 即時 trickle
+pc.onicecandidate = e => {
+  if (e.candidate) {
+    ws.send(JSON.stringify({ type: 'ice', data: e.candidate }));
+  }
+};
+
+// 監控連線狀態
+pc.oniceconnectionstatechange = () => {
+  console.log('iceState:', pc.iceConnectionState);
+  if (pc.iceConnectionState === 'failed') {
+    pc.restartIce();  // 第 8 章的 ICE restart
+  }
+};
+
+// 收到 signaling 訊息
+ws.onmessage = async ev => {
+  const msg = JSON.parse(ev.data);
+  if (msg.type === 'offer') {
+    await pc.setRemoteDescription(msg.data);
+    const ans = await pc.createAnswer();
+    await pc.setLocalDescription(ans);
+    ws.send(JSON.stringify({ type: 'answer', data: ans }));
+  } else if (msg.type === 'answer') {
+    await pc.setRemoteDescription(msg.data);
+  } else if (msg.type === 'ice') {
+    await pc.addIceCandidate(msg.data);
+  }
+};
+
+// 點按鈕發起通話
+document.getElementById('call').onclick = async () => {
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  ws.send(JSON.stringify({ type: 'offer', data: offer }));
+};</pre>
+
+<p>
+  這 60 多行 JavaScript 做到的事，在 WebRTC 之前需要桌面應用 + Flash plugin + 上千行 C++ 才能達成。
+  這就是<strong>標準化的力量</strong>。
+</p>
+
+<h2>12.10 章末提要</h2>
+
+<div class="callout callout-note">
+  <span class="callout-title">本章核心觀念</span>
+  <ul style="margin:0.5em 0 0;">
+    <li>WebRTC 把 P2P 即時通訊變成瀏覽器原生能力。</li>
+    <li>三大 API：getUserMedia（取得媒體）、RTCPeerConnection（核心）、RTCDataChannel（純資料）。</li>
+    <li>協議堆疊：應用 → API → ICE/DTLS → SRTP/SCTP → UDP（TCP fallback）。</li>
+    <li>SDP offer/answer 模型 + signaling（協議不規定，自己選）。</li>
+    <li>Trickle ICE 預設啟用，連線建立可在 200ms 內完成。</li>
+    <li>DTLS-SRTP 取代 TLS，符合即時媒體對丟包友善與 nonce 高效的需求。</li>
+    <li>多方通話三種架構：Mesh（小規模）、SFU（主流）、MCU（高混合）。</li>
+    <li>生產指標：TURN 使用率 20-30% 為健康；P95 連線建立 &lt; 1s。</li>
+    <li><code>chrome://webrtc-internals</code> 是除錯利器。</li>
+  </ul>
+</div>
+
+<h3>動腦時間</h3>
+<ol>
+  <li>為什麼 WebRTC 規範刻意不規定 signaling 協議？這個設計決定有什麼好壞？</li>
+  <li>RTCDataChannel 同時提供「<em>可靠+有序</em>」與「<em>不可靠</em>」模式。為什麼遊戲開發者偏好後者？</li>
+  <li>SFU 架構下，「真正的 E2E 加密」需要 Insertable Streams API。請設計一個簡化版加密方案，
+    讓 SFU 即使能看到 SRTP 也無法解碼真正內容。</li>
+  <li>計算：4 人 mesh 視訊（720p 1.5 Mbps），每人總上下行頻寬？同樣場景用 SFU 呢？</li>
+  <li>用 <code>chrome://webrtc-internals</code> 觀察一次 Google Meet 通話的 ICE 過程，記錄它最終選了哪對 candidate、
+    TURN 是否被啟用。</li>
+</ol>
+
+<h3>延伸閱讀</h3>
+<ul>
+  <li>W3C WebRTC 1.0 Recommendation — w3.org/TR/webrtc/</li>
+  <li>RFC 8825 — Overview: Real-Time Protocols for Browser-Based Applications <span class="tag tag-rfc">RFC</span></li>
+  <li>RFC 5763 — DTLS for SRTP key transport</li>
+  <li>RFC 3711 — Secure Real-time Transport Protocol (SRTP)</li>
+  <li>"WebRTC for the Curious" — webrtcforthecurious.com（極優秀的免費書籍）</li>
+  <li>mediasoup, Jitsi Videobridge, LiveKit — 開源 SFU 學習材料</li>
+</ul>
+
+<nav class="chapter-nav">
+  <a class="prev" href="ch11.html">
+    <span class="label">← PREV</span>
+    <span class="title">第 11 章 · BitTorrent</span>
+  </a>
+  <a class="next" href="ch13.html">
+    <span class="label">NEXT →</span>
+    <span class="title">第 13 章 · libp2p 與 DCUtR</span>
+  </a>
+</nav>
+
+<footer>
+  <div>CHAPTER 12 / 19 · WebRTC · NAT TRAVERSAL × P2P TEXTBOOK</div>
+</footer>
+
+</main>
+
+<script src="../share/js/mermaid.min.js"></script>
+<script src="../share/js/textbook.js"></script>
+</body>
+</html>
