@@ -212,48 +212,51 @@ def generate_index(groups):
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>JHsun × Claude TechDocs</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
   <style>
     :root {
-      --bg: #f5f5f7;
-      --bg-secondary: #eeeef0;
-      --card-bg: #ffffff;
-      --card-hover: #ffffff;
-      --text: #1d1d1f;
-      --text-secondary: #6e6e73;
-      --text-muted: #86868b;
-      --accent: #6c5ce7;
-      --accent-hover: #5a4bd1;
-      --accent-glow: rgba(108, 92, 231, 0.12);
-      --accent-subtle: rgba(108, 92, 231, 0.08);
-      --border: rgba(0, 0, 0, 0.06);
-      --border-hover: rgba(108, 92, 231, 0.3);
-      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
-      --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04);
-""" + light_vars + """      --header-bg: rgba(245, 245, 247, 0.8);
+      --bg:           oklch(0.985 0.004 60);
+      --bg-secondary: oklch(0.96 0.005 60);
+      --card-bg:      oklch(0.995 0.003 60);
+      --card-hover:   oklch(0.995 0.003 60);
+      --text:         oklch(0.22 0.008 60);
+      --text-secondary: oklch(0.42 0.008 60);
+      --text-muted:   oklch(0.58 0.008 60);
+      --accent:       oklch(0.55 0.11 200);
+      --accent-hover: oklch(0.48 0.11 200);
+      --accent-glow:  oklch(0.55 0.11 200 / 0.12);
+      --accent-subtle:oklch(0.55 0.11 200 / 0.08);
+      --border:       oklch(0.92 0.006 60);
+      --border-hover: oklch(0.55 0.11 200 / 0.3);
+      --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+      --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+""" + light_vars + """      --header-bg: oklch(0.985 0.004 60 / 0.85);
       --radius-sm: 10px;
       --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     }
     [data-theme="dark"] {
-      --bg: #0d0d0f;
-      --bg-secondary: #161618;
-      --card-bg: #1c1c1e;
-      --card-hover: #222224;
-      --text: #f5f5f7;
-      --text-secondary: #a1a1a6;
-      --text-muted: #6e6e73;
-      --accent: #a78bfa;
-      --accent-hover: #b9a0fc;
-      --accent-glow: rgba(167, 139, 250, 0.15);
-      --accent-subtle: rgba(167, 139, 250, 0.08);
-      --border: rgba(255, 255, 255, 0.06);
-      --border-hover: rgba(167, 139, 250, 0.35);
-      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
-      --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3);
-""" + dark_vars + """      --header-bg: rgba(13, 13, 15, 0.85);
+      --bg:           oklch(0.16 0.008 50);
+      --bg-secondary: oklch(0.20 0.009 50);
+      --card-bg:      oklch(0.20 0.009 50);
+      --card-hover:   oklch(0.23 0.010 50);
+      --text:         oklch(0.93 0.005 60);
+      --text-secondary: oklch(0.74 0.006 60);
+      --text-muted:   oklch(0.58 0.007 60);
+      --accent:       oklch(0.72 0.105 200);
+      --accent-hover: oklch(0.80 0.105 200);
+      --accent-glow:  oklch(0.72 0.105 200 / 0.15);
+      --accent-subtle:oklch(0.72 0.105 200 / 0.08);
+      --border:       oklch(0.28 0.010 50);
+      --border-hover: oklch(0.72 0.105 200 / 0.35);
+      --shadow-sm: 0 1px 3px oklch(0.05 0 0 / 0.4);
+      --shadow-md: 0 4px 16px oklch(0.05 0 0 / 0.5);
+""" + dark_vars + """      --header-bg: oklch(0.16 0.008 50 / 0.85);
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+      font-family: "DM Sans", "Noto Sans TC", system-ui, sans-serif;
       background: var(--bg); color: var(--text); line-height: 1.6;
       -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
       transition: background var(--transition), color var(--transition);
@@ -275,9 +278,9 @@ def generate_index(groups):
     .logo { display: flex; align-items: center; gap: 0.6rem; }
     .logo-icon {
       width: 36px; height: 36px; position: relative;
-      background: linear-gradient(135deg, #6c5ce7 0%, #a78bfa 50%, #c4b5fd 100%);
+      background: linear-gradient(135deg, oklch(0.48 0.11 200) 0%, oklch(0.62 0.11 195) 50%, oklch(0.76 0.08 190) 100%);
       border-radius: 10px; display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 2px 10px rgba(108, 92, 231, 0.35), inset 0 1px 0 rgba(255,255,255,0.15);
+      box-shadow: 0 2px 10px oklch(0.55 0.11 200 / 0.35), inset 0 1px 0 rgba(255,255,255,0.15);
       overflow: hidden;
     }
     .logo-icon::before {

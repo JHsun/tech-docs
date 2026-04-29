@@ -42,7 +42,79 @@ index.html                            → 自動生成，勿手動編輯
 - 所有設計變更（CSS、佈局、功能）必須修改 `update_index.py` 中的模板
 - 功能：light/dark 模式切換、即時搜尋、分類篩選、分組/列表視圖
 
+### 共用設計系統（2026/04 起）
+
+新報告一律引用 `reports/shared/` 下的共用檔案，不再自行定義色彩 token：
+
+```html
+<head>
+  <!-- 1. Google Fonts（統一載入） -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+  <!-- 2. 統一 token 層（Calm Teal 主色，OKLCH 色彩系統） -->
+  <link rel="stylesheet" href="https://jhsun.github.io/tech-docs/reports/shared/tokens.css">
+
+  <!-- 3. 主題切換（選用，有 light/dark 切換需求才加） -->
+  <script src="https://jhsun.github.io/tech-docs/reports/shared/theme-toggle.js" defer></script>
+</head>
+```
+
+#### 可用的 CSS 變數
+
+```css
+/* 色彩 */
+var(--color-primary)      /* Calm Teal 主色 */
+var(--color-success)      /* #16a34a / dark: #4ade80 */
+var(--color-warning)      /* #d97706 / dark: #fbbf24 */
+var(--color-danger)       /* #dc2626 / dark: #f87171 */
+var(--color-info)         /* #0891b2 / dark: #22d3ee */
+
+/* 背景 */
+var(--bg-canvas)          /* 頁面背景 */
+var(--bg-surface)         /* 卡片背景 */
+var(--bg-muted)           /* 次層背景 */
+var(--bg-code)            /* 程式碼區塊背景 */
+
+/* 文字 */
+var(--text-primary)       /* 主文字 */
+var(--text-secondary)     /* 次要文字 */
+var(--text-muted)         /* 輔助說明 */
+
+/* 邊框與陰影 */
+var(--border-soft)        /* 淡邊框 */
+var(--border-mid)         /* 中等邊框 */
+var(--shadow-sm)  var(--shadow-md)
+
+/* 字型 */
+var(--font-sans)          /* DM Sans + Noto Sans TC */
+var(--font-mono)          /* JetBrains Mono */
+var(--font-serif)         /* Playfair Display（長篇標題用） */
+
+/* 間距（4px 基準） */
+var(--space-1) ~ var(--space-9)   /* 4px ~ 96px */
+
+/* 圓角 */
+var(--radius-sm/md/lg/xl)         /* 4/8/12/16px */
+```
+
+#### light/dark 主題切換
+
+使用 `data-theme-toggle` 屬性即可，JS 自動接管：
+
+```html
+<button data-theme-toggle></button>
+<script src="../../shared/theme-toggle.js" defer></script>
+```
+
+HTML 根元素預設 light，`theme-toggle.js` 載入後自動讀取 `localStorage` 和 `prefers-color-scheme`。
+
 ### 報告 HTML 風格
+
+**新報告（2026/04 起）**：使用共用設計系統（見上節），色彩全用 token 變數，不寫死 hex 值。
+
+**舊報告（歷史存檔）**：維持原有 inline CSS 不動。
 
 - 暗色主題（`#0f1117` 背景）
 - 字型：JetBrains Mono（程式碼）+ DM Sans（UI）+ Noto Sans TC（中文）
@@ -52,11 +124,18 @@ index.html                            → 自動生成，勿手動編輯
 
 ### Mermaid 圖表
 
-- 共用本地 mermaid.min.js：`reports/[category]/shared/mermaid.min.js`，符合離線閱讀需求（不依賴 CDN）
-- **HTML labels 必須用 entities 寫**：`&lt;br/&gt;`、`&lt;b&gt;`、`&lt;i&gt;`，否則 textContent 剝離後重渲染（例如切主題）會炸成單行
-- 用 `dataset.source = textContent`（不是 `innerHTML`）儲存原始 source — 避開 XSS 安全 hook，且確保重渲染拿得到原始 mermaid source
-- 雙主題重渲染：`toggleTheme()` 內呼叫 `renderMermaid()`；`getMermaidConfig(theme)` 提供 light/dark themeVariables
-- 參考實作：`reports/proxy-guide/06-proxy-guide-part-5-ai-era.html`（CSS、script、figure 包裝範例齊全）
+**新報告**（2026/04 起）使用全域共用 init：
+```html
+<script src="shared/mermaid.min.js"></script>
+<script src="../../shared/mermaid-init.js" defer></script>
+```
+
+**舊報告**仍用 `reports/[category]/shared/mermaid.min.js`（不動）。
+
+共用規範（新舊皆適用）：
+- **HTML labels 必須用 entities**：`&lt;br/&gt;`、`&lt;b&gt;`、`&lt;i&gt;`
+- 用 `dataset.mermaidSrc = textContent` 儲存原始 source（不用 innerHTML）
+- 切換主題後自動重渲染（`mermaid-init.js` 已內建，監聽 `jhsun:theme-changed` 事件）
 
 ### Git
 
@@ -69,6 +148,9 @@ index.html                            → 自動生成，勿手動編輯
 - `update_index.py` — 索引生成器，包含 HTML 模板、CSS、JS、分類色標邏輯
 - `index.html` — 自動生成的首頁（勿直接編輯）
 - `.github/workflows/update-index.yml` — CI 配置
+- `reports/shared/tokens.css` — **統一設計 token 層**（Calm Teal，OKLCH）；新報告必須引用
+- `reports/shared/theme-toggle.js` — light/dark/system 切換模組
+- `reports/shared/mermaid-init.js` — Mermaid 主題整合（訂閱 `jhsun:theme-changed`）
 
 ## Common Tasks
 
