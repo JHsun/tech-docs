@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.4 掛載與基礎操作 — cgroup v2 完整教學</title>
+<meta name="description" content="cgroup v2 mount options 完整解析、interface files 命名規範、程序遷移方法、cgroup.kill 新機制。">
+
+<style>
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px; --text-4xl: 64px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+</style>
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  background: color-mix(in oklch, var(--bg-canvas) 88%, transparent);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.topbar-inner {
+  max-width: var(--container-narrow);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
+}
+.brand {
+  display: flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-secondary);
+}
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: background .2s, border-color .2s, color .2s;
+}
+[data-theme-toggle]:hover { background: var(--bg-muted); border-color: var(--border-mid); color: var(--text-primary); }
+[data-theme-toggle] .theme-icon { font-size: 14px; line-height: 1; }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: 0 var(--space-5); }
+
+.chapter-head { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); }
+.chapter-tag {
+  display: inline-block;
+  font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--color-primary-text); background: var(--color-primary-soft);
+  padding: 4px 12px; border-radius: 999px; margin-bottom: var(--space-4);
+}
+.chapter-title { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; margin-bottom: var(--space-3); }
+.chapter-subtitle { font-family: var(--font-serif-body); font-size: var(--text-md); color: var(--text-secondary); line-height: 1.65; font-style: italic; }
+.chapter-meta { margin-top: var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.chapter-meta-item:first-child::before { display: none; }
+
+.section { padding: var(--space-7) 0; border-bottom: 1px solid var(--border-soft); }
+.section:last-of-type { border-bottom: none; }
+.section-label { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2); }
+.section-label::before { content: ""; width: 24px; height: 1px; background: var(--color-primary); }
+.section-title { font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600; margin-bottom: var(--space-5); letter-spacing: -0.01em; line-height: 1.2; }
+
+.prose p { font-family: var(--font-serif-body); font-size: var(--text-base); color: var(--text-primary); line-height: 1.85; margin-bottom: var(--space-4); }
+.prose h3 { font-family: var(--font-sans); font-size: var(--text-lg); font-weight: 600; color: var(--text-primary); margin: var(--space-6) 0 var(--space-3); letter-spacing: -0.01em; }
+.prose h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 500; color: var(--text-primary); margin: var(--space-5) 0 var(--space-2); }
+.prose ul, .prose ol { font-family: var(--font-serif-body); margin-bottom: var(--space-4); padding-left: var(--space-5); line-height: 1.8; }
+.prose ul li, .prose ol li { margin-bottom: var(--space-2); color: var(--text-primary); }
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong { font-weight: 600; color: var(--text-primary); }
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 1px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+.prose a { color: var(--color-primary); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.prose a:hover { color: var(--color-primary-hover); }
+
+.highlights { background: var(--color-primary-soft); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.highlights ol { font-family: var(--font-sans); padding-left: var(--space-5); margin: 0; }
+.highlights li { font-size: var(--text-sm); color: var(--color-primary-text); margin-bottom: var(--space-2); line-height: 1.65; }
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+
+.news-box { background: var(--color-info-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.news-item { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); line-height: 1.7; padding: var(--space-2) 0; border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent); }
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-info); margin-right: var(--space-2); }
+
+pre { font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.7; background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; margin-bottom: var(--space-4); color: var(--text-primary); }
+pre code { background: transparent; border: none; padding: 0; font-size: inherit; color: inherit; }
+
+.cmp-table { width: 100%; border-collapse: collapse; margin-bottom: var(--space-4); font-size: var(--text-sm); font-family: var(--font-sans); }
+.cmp-table th, .cmp-table td { padding: var(--space-3); text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.cmp-table th { font-weight: 600; color: var(--text-primary); background: var(--bg-muted); font-size: var(--text-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 1px 5px; border-radius: var(--radius-sm); color: var(--color-primary-text); }
+
+.lab { background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.lab-title { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--color-primary); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px dashed var(--border-soft); }
+.lab-title::before { content: "▶ "; color: var(--color-primary); }
+.lab p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-3); color: var(--text-secondary); line-height: 1.7; }
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+.lab ol, .lab ul { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); color: var(--text-secondary); line-height: 1.7; }
+
+.pitfall { background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.pitfall-title { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 600; color: var(--color-warning); margin-bottom: var(--space-2); }
+.pitfall p { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); margin-bottom: var(--space-2); line-height: 1.7; }
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code { background: color-mix(in oklch, var(--color-warning) 15%, transparent); border-color: color-mix(in oklch, var(--color-warning) 30%, transparent); color: var(--text-primary); }
+
+.quiz-item { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-3); }
+.quiz-q { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; color: var(--text-primary); margin-bottom: var(--space-2); display: flex; gap: var(--space-2); }
+.quiz-q-num { font-family: var(--font-mono); color: var(--color-primary); flex-shrink: 0; }
+.quiz-toggle { background: transparent; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 4px 10px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; margin-top: var(--space-2); transition: background .2s, color .2s; }
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a { display: none; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px dashed var(--border-soft); font-family: var(--font-serif-body); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.75; }
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+
+.refs ol { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); line-height: 1.8; }
+.refs li { margin-bottom: var(--space-2); color: var(--text-secondary); }
+.refs li::marker { color: var(--color-primary); }
+.refs a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dashed var(--color-primary); }
+.refs a:hover { color: var(--color-primary-hover); }
+.refs .ref-source { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); display: block; margin-top: 2px; }
+
+.chapter-nav { margin-top: var(--space-6); padding: var(--space-5) 0; display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.nav-btn { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; padding: var(--space-3) var(--space-4); background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); text-decoration: none; color: var(--text-primary); transition: border-color .2s, transform .15s; }
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.04em; }
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.04</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part II · 操作篇 · Chapter 04</span>
+    <h1 class="chapter-title">掛載與基礎操作</h1>
+    <p class="chapter-subtitle">
+      把前三章的觀念落到 shell 操作上。
+      本章涵蓋 cgroup2 filesystem 的掛載、所有 mount options 的詳細語意、interface files 的命名規範、
+      程序遷移的多種方法（PID 寫入、CLONE_INTO_CGROUP、systemd-run）、以及 v2 才有的 cgroup.kill 殺進程機制。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~6,000 字</span>
+      <span class="chapter-meta-item">閱讀時間 22 分鐘</span>
+      <span class="chapter-meta-item">難度：實作</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ====================== Section 1: 本章重點 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+
+    <div class="highlights">
+      <ol>
+        <li><strong>掛載指令</strong>：<code>mount -t cgroup2 none /sys/fs/cgroup</code>。但實務上 systemd 會自動處理，使用者很少需要手動掛載。</li>
+        <li><strong>五個 mount options</strong>：<code>nsdelegate</code>（namespace 委派邊界）、<code>favordynmods</code>（優化動態修改）、<code>memory_recursiveprot</code>（保護遞迴傳播）、<code>memory_localevents</code>（事件只算自己）、<code>memory_hugetlb_accounting</code>（HugeTLB 計入記憶體）。</li>
+        <li><strong>Interface files 命名鐵則</strong>：<code>cgroup.</code> 開頭是 core；<code>{controller}.</code> 開頭是 controller；<code>weight</code> 範圍 1–10000、<code>min/max/low/high</code> 是固定四種命名、特殊值統一用 <code>max</code>。</li>
+        <li><strong>程序遷移三種方法</strong>：傳統 <code>echo PID > cgroup.procs</code>、現代 <code>CLONE_INTO_CGROUP</code>（fork 直接生在目標 cgroup）、systemd <code>systemd-run</code>。</li>
+        <li><strong>v2 獨有功能</strong>：<code>cgroup.kill</code>（一次殺光整個子樹）、<code>cgroup.freeze</code>（凍結整個子樹）、<code>cgroup.events</code>（poll/inotify 事件通知）。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 2: 最新動態 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+
+    <div class="news-box">
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>Oracle Linux 在 UEK8 預設啟用 favordynmods</strong>，container 啟動時間延遲降低 30%。<code>CONFIG_CGROUP_FAVOR_DYNMODS=y</code> 成為某些 distro 的預設 build option。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>memory_recursiveprot 在多數新 distro 預設開啟</strong>。Ubuntu 22.04+、RHEL 9+、Debian 11+、Fedora 31+ 都已預設啟用，不再需要手動 remount。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2024–2025</span>
+        <strong>kernel 5.20+ 移除 cgroup v2 mount options 的 <code>no</code> 前綴形式</strong>（如 <code>nofavordynmods</code>、<code>nonsdelegate</code>）。新版只保留正向開關，更乾淨的 API。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2024-09</span>
+        <strong>cgroup.kill 進入主流穩定使用</strong>，systemd-oomd 與 Kubernetes evict 機制都改用此介面，比逐 PID kill 更可靠（避免 fork bomb 倖存）。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>CLONE_INTO_CGROUP（kernel 5.7+）已成主流容器 runtime 預設方式</strong>。runc 1.1+、crun、podman 4.x+ 都用此 syscall 取代「先 fork 再 echo PID」的傳統做法。
+      </div>
+    </div>
+
+    <div class="prose">
+      <p>
+        2025 年起，<strong>cgroup v2 操作有了新的「現代化」標準姿勢</strong>：
+        mount options 用 favordynmods + memory_recursiveprot 是預設，程序遷移走 CLONE_INTO_CGROUP，殺光子樹用 cgroup.kill。
+        本章除了教傳統 API（仍要懂，看舊系統會用到），也帶讀者熟悉這些新介面。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 3: 核心內容 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+
+    <div class="prose">
+      <h3>3.1 cgroup2 filesystem 掛載</h3>
+      <p>
+        cgroup v2 透過<strong>偽檔案系統（pseudo-filesystem）</strong>暴露介面。掛載指令很短：
+      </p>
+<pre><code># 最簡形式
+mount -t cgroup2 none /sys/fs/cgroup
+
+# 帶 mount options
+mount -t cgroup2 -o nsdelegate,memory_recursiveprot none /sys/fs/cgroup
+</code></pre>
+      <p>
+        這個 filesystem 的 magic number 是 <code>0x63677270</code>（ASCII <em>"cgrp"</em>）。
+        實務上你<strong>不會手動掛載</strong>——systemd 在開機時自動處理，並依照 distro policy 帶上適當的 mount options。
+        Ch.1 學的 <code>stat -fc %T /sys/fs/cgroup</code> 是檢查掛載結果的標準方式。
+      </p>
+      <p>
+        v1 v2 的相容性：v2 系統上仍可用 v1 介面，但這需要把對應的 controller 從 v2 「<em>退掛</em>」才能在 v1 重新使用——實務上強烈不建議混用。
+      </p>
+
+      <h3>3.2 Mount options 完整解析</h3>
+      <p>
+        v2 的 mount options 是<strong>系統全域</strong>設定，影響整個 cgroup tree 的行為。每個都有自己的應用場景與取捨：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr>
+          <th>Mount option</th>
+          <th>Kernel</th>
+          <th>作用</th>
+          <th>建議</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>nsdelegate</code></td>
+          <td>4.15+</td>
+          <td>把 cgroup namespace 視為委派邊界。namespace 內的 process 不能寫 namespace root 的 controller files、不能跨越 namespace 移動 process。</td>
+          <td>幾乎所有現代系統<strong>應啟用</strong>，是 rootless container 必要前提</td>
+        </tr>
+        <tr>
+          <td><code>favordynmods</code></td>
+          <td>6.0+</td>
+          <td>優化動態修改（task migration、controller on/off）的延遲，代價是 fork/exit 變慢。</td>
+          <td>容器密集啟動的 host 建議啟用；長執行 process 為主的 host 不需要</td>
+        </tr>
+        <tr>
+          <td><code>memory_recursiveprot</code></td>
+          <td>5.7+</td>
+          <td>讓 <code>memory.min</code> / <code>memory.low</code> 自動沿子樹遞迴生效，不需手動向下傳遞。</td>
+          <td><strong>強烈建議啟用</strong>，多數新 distro 預設已開</td>
+        </tr>
+        <tr>
+          <td><code>memory_localevents</code></td>
+          <td>5.2+</td>
+          <td>讓 <code>memory.events</code> 只算自己這個 cgroup，不含子樹。<em>v1 行為</em>。</td>
+          <td>只在<strong>遷移 v1 應用</strong>時才用；新系統別碰</td>
+        </tr>
+        <tr>
+          <td><code>memory_hugetlb_accounting</code></td>
+          <td>6.4+</td>
+          <td>讓 HugeTLB 記憶體使用計入 memory cgroup 的總量。</td>
+          <td>跑 DB 或大頁面 workload 時需要，但要小心 SIGBUS 風險</td>
+        </tr>
+        <tr>
+          <td><code>pids_localevents</code></td>
+          <td>6.6+</td>
+          <td>讓 <code>pids.events.max</code> 只算自己這個 cgroup（v1 行為）。</td>
+          <td>只在遷移時用</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h4>各 distro 的 mount options 預設</h4>
+      <p>
+        在現代 distro 上，跑 <code>mount | grep cgroup2</code> 通常會看到：
+      </p>
+<pre><code># Ubuntu 22.04+ / RHEL 9+ / Fedora 31+
+cgroup2 on /sys/fs/cgroup type cgroup2 (rw,nosuid,nodev,noexec,relatime,
+    seclabel,nsdelegate,memory_recursiveprot)
+
+# Oracle Linux UEK8 (2025+) 還會加上：
+cgroup2 on /sys/fs/cgroup type cgroup2 (rw,nosuid,nodev,noexec,relatime,
+    seclabel,nsdelegate,favordynmods,memory_recursiveprot)
+</code></pre>
+      <p>
+        要修改 mount options 不需要重啟，<code>remount</code> 即可：
+      </p>
+<pre><code># 加入 favordynmods
+sudo mount -o remount,favordynmods /sys/fs/cgroup
+
+# 注意：mount options 是 host-wide 影響，不能對子目錄單獨設定
+</code></pre>
+      <p>
+        但要持久化，需要修改 <code>/etc/fstab</code> 或 systemd 的 <code>cgroup_v2_mount_options</code> 配置。
+      </p>
+
+      <h3>3.3 Interface files 命名規範</h3>
+      <p>
+        v2 的一大進步是<strong>規範化 interface 命名</strong>。kernel 文件 §4 "Interface Files" 明確規定：
+      </p>
+      <ul>
+        <li><strong>core 檔案</strong>：以 <code>cgroup.</code> 開頭，例如 <code>cgroup.procs</code>、<code>cgroup.subtree_control</code>。</li>
+        <li><strong>controller 檔案</strong>：以 controller 名字開頭，後接點與屬性名，例如 <code>cpu.weight</code>、<code>memory.max</code>。</li>
+        <li><strong>weight 介面</strong>：必為 <code>{controller}.weight</code>，範圍固定 1–10000，預設 100。</li>
+        <li><strong>limit 介面</strong>：絕對上限用 <code>max</code>，best-effort 用 <code>high</code>。</li>
+        <li><strong>protection 介面</strong>：絕對保證用 <code>min</code>，best-effort 用 <code>low</code>。</li>
+        <li><strong>特殊值</strong>：「無限大」一律寫 <code>max</code>，不是 <code>-1</code>、不是大數字。</li>
+        <li><strong>單位</strong>：時間預設微秒（<code>μs</code>）；其他單位需要明確 suffix。</li>
+        <li><strong>百分比</strong>：使用十進位小數（如 <code>13.40</code>），至少兩位小數。</li>
+      </ul>
+      <p>
+        這套規範讓 systemd、Kubernetes、Docker 這些 cgroup 使用者只要學一次規則就能套用所有 controllers。
+        相比 v1 的 <code>memory.limit_in_bytes</code>（需要寫巨大數字）、<code>cpu.shares</code>（無上下界）、<code>blkio.throttle.read_bps_device</code>（多級命名混亂），v2 友善太多。
+      </p>
+
+      <h3>3.4 Core Interface Files 詳解</h3>
+      <p>
+        Ch.2 速覽過五個關鍵檔案，這裡完整列出 v2 提供的 core interface files：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr>
+          <th>檔案</th>
+          <th>類型</th>
+          <th>作用</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>cgroup.controllers</code></td>
+          <td>R</td>
+          <td>列出可用 controllers（受 parent 限制）</td>
+        </tr>
+        <tr>
+          <td><code>cgroup.subtree_control</code></td>
+          <td>RW</td>
+          <td>啟用 / 停用對 child 生效的 controllers（<code>+name</code> 啟用，<code>-name</code> 停用）</td>
+        </tr>
+        <tr>
+          <td><code>cgroup.procs</code></td>
+          <td>RW</td>
+          <td>讀：列出 PID；寫：遷入 process（一次一個 PID）</td>
+        </tr>
+        <tr>
+          <td><code>cgroup.threads</code></td>
+          <td>RW</td>
+          <td>類似 procs，但操作 TID（thread ID）。只在 threaded subtree 內可寫</td>
+        </tr>
+        <tr>
+          <td><code>cgroup.type</code></td>
+          <td>RW</td>
+          <td>顯示型態：<code>domain</code>/<code>domain threaded</code>/<code>threaded</code>/<code>domain invalid</code></td>
+        </tr>
+        <tr>
+          <td><code>cgroup.events</code></td>
+          <td>R + poll</td>
+          <td>事件：<code>populated</code>（子樹是否有 process）、<code>frozen</code>（是否凍結）</td>
+        </tr>
+        <tr>
+          <td><code>cgroup.stat</code></td>
+          <td>R</td>
+          <td>統計：<code>nr_descendants</code>、<code>nr_dying_descendants</code> 等</td>
+        </tr>
+        <tr>
+          <td><code>cgroup.freeze</code></td>
+          <td>RW</td>
+          <td>寫 1 凍結整個子樹的 process（SIGSTOP-like），寫 0 解凍</td>
+        </tr>
+        <tr>
+          <td><code>cgroup.kill</code></td>
+          <td>W</td>
+          <td>寫 1 一次殺光整個子樹的所有 process（v2 獨有的強大 API）</td>
+        </tr>
+        <tr>
+          <td><code>cgroup.max.depth</code></td>
+          <td>RW</td>
+          <td>限制子樹深度（防止 fork bomb 用無限深度）</td>
+        </tr>
+        <tr>
+          <td><code>cgroup.max.descendants</code></td>
+          <td>RW</td>
+          <td>限制子樹中 cgroup 數量上限</td>
+        </tr>
+        <tr>
+          <td><code>cgroup.pressure</code></td>
+          <td>RW</td>
+          <td>啟用 / 停用 PSI 監控（在這個 cgroup 是否計算 pressure metrics）</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h3>3.5 程序遷移的三種方法</h3>
+      <p>
+        把 process 放進 cgroup 是最基本的操作。v2 提供三種方式，各有適用場景：
+      </p>
+
+      <h4>方法 1：寫入 cgroup.procs（傳統）</h4>
+<pre><code># 把 PID 1234 移到 /sys/fs/cgroup/myapp
+echo 1234 | sudo tee /sys/fs/cgroup/myapp/cgroup.procs
+
+# 等同於寫 /proc/$PID/cgroup
+echo "0::/myapp" | sudo tee /proc/1234/cgroup
+</code></pre>
+      <p>
+        重要規則：<strong>單次 write(2) 只能寫一個 PID</strong>。要遷移多個必須一個個寫。
+        kernel 文件原話：「<em>Only one process can be migrated on a single write(2) call.</em>」
+      </p>
+      <p>
+        遷移單一 thread 時，<em>整個 process 的所有 thread 一起被移走</em>，除非在 threaded subtree 內。
+      </p>
+
+      <h4>方法 2：CLONE_INTO_CGROUP（現代）</h4>
+      <p>
+        kernel 5.7+（2020 年）加入 <code>CLONE_INTO_CGROUP</code> flag，讓新 process 在 fork 時直接「<em>生在</em>」目標 cgroup，省去「<em>fork → 寫 PID → 變遷</em>」的競態。
+      </p>
+<pre><code>// 程式碼示例（C）
+struct clone_args args = {
+    .flags = CLONE_INTO_CGROUP,
+    .cgroup = target_cgroup_fd,  // 目標 cgroup 的 fd
+};
+pid_t pid = clone3(&args, sizeof(args));
+</code></pre>
+      <p>
+        這是 runc 1.1+、crun、systemd v245+ 採用的方式。對使用者透明，但對 container 啟動性能有顯著提升（避免 race）。
+        kernel 文件提到：「<em>The static usage pattern of creating a cgroup, enabling controllers, and then seeding it with CLONE_INTO_CGROUP is not affected by [favordynmods] option.</em>」
+        意即用 CLONE_INTO_CGROUP 的場景不需要 favordynmods 也很快。
+      </p>
+
+      <h4>方法 3：systemd-run（高階）</h4>
+<pre><code># 用 systemd-run 啟動一個 transient unit，自動處理 cgroup
+sudo systemd-run --slice=user.slice --unit=myapp \
+    -p MemoryMax=1G \
+    -p CPUWeight=200 \
+    /usr/bin/myapp
+
+# 看實際用了哪個 cgroup
+systemctl show -p ControlGroup myapp.service
+</code></pre>
+      <p>
+        這是最推薦的「<em>應用層</em>」做法——你不需要自己管 cgroup tree，systemd 會處理路徑、權限、清理。
+        production 上幾乎都這樣做，下章 Delegation 與 Ch.15 systemd 整合會深入。
+      </p>
+
+      <h3>3.6 v2 獨有：cgroup.kill 與 cgroup.freeze</h3>
+      <p>
+        這兩個是 v2 引入的<strong>無 v1 等價物</strong>的強大 API，值得單獨講。
+      </p>
+
+      <h4>cgroup.kill：原子化殺光整個子樹</h4>
+      <p>
+        v1 殺一個 cgroup 內所有 process 的傳統做法是讀 <code>cgroup.procs</code> 然後 <code>kill -9</code> 每個 PID。
+        但這有 race condition：<em>讀完 procs 之後，被殺的 process 可能 fork 出新的 child，新的 child 繼承 cgroup 但沒被殺到</em>——典型 fork bomb 的倖存模式。
+      </p>
+      <p>
+        v2 的 <code>cgroup.kill</code> 解決這問題：寫 1 進去，kernel <em>原子化地</em>對整個子樹送 SIGKILL，包含當下這刻 fork 出的新 child。
+      </p>
+<pre><code># 殺光 myapp 子樹中所有 process
+echo 1 | sudo tee /sys/fs/cgroup/myapp/cgroup.kill
+
+# 之後 cgroup 應該變空
+cat /sys/fs/cgroup/myapp/cgroup.events
+# populated 0
+</code></pre>
+      <p>
+        systemd-oomd、Kubernetes Pod eviction、container runtime 的 stop 流程都已經改用這個介面。
+      </p>
+
+      <h4>cgroup.freeze：暫停整個子樹</h4>
+      <p>
+        類似 SIGSTOP，但作用於整個子樹的所有 process，且 kernel 內部用更高效的機制（不會被 SIGCONT 解凍）。
+      </p>
+<pre><code># 凍結 myapp 子樹
+echo 1 | sudo tee /sys/fs/cgroup/myapp/cgroup.freeze
+
+# 看 events 確認
+cat /sys/fs/cgroup/myapp/cgroup.events
+# frozen 1
+
+# 解凍
+echo 0 | sudo tee /sys/fs/cgroup/myapp/cgroup.freeze
+</code></pre>
+      <p>
+        典型用途：debug（凍結後 attach gdb）、CRIU process checkpoint/restore、安全暫停可疑 workload。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 4: 實戰範例 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例：完整工作流程</h2>
+
+    <div class="prose">
+      <p>下面四個 lab 是一個完整的 cgroup 操作流程：建立、配置、放 process、觀察、殺光、清理。所有指令在 systemd-managed Linux 上可直接執行（需要 root）。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · 確認目前 mount options</div>
+<pre><code># 1. 看 cgroup2 是怎麼掛的
+mount | grep cgroup2
+
+# 範例輸出：
+# cgroup2 on /sys/fs/cgroup type cgroup2 (rw,nosuid,nodev,noexec,relatime,
+#   seclabel,nsdelegate,memory_recursiveprot)
+
+# 2. 確認各個 option 是否啟用
+for opt in nsdelegate favordynmods memory_recursiveprot memory_localevents; do
+    if mount | grep -q "cgroup2.*$opt"; then
+        echo "  $opt: ENABLED"
+    else
+        echo "  $opt: disabled"
+    fi
+done
+
+# 3. 如果要試 favordynmods（runtime 加，重啟會失效）
+sudo mount -o remount,favordynmods /sys/fs/cgroup
+mount | grep cgroup2  # 確認加上去了
+</code></pre>
+      <p>觀察點：你的 distro 預設了哪些？對應到本章 §3.2 表格，看看 distro 維護者選擇符合預期嗎？</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · 完整建立、配置、用一個 cgroup</div>
+<pre><code># 1. 建立 cgroup
+sudo mkdir /sys/fs/cgroup/lab2
+
+# 2. 看 root 已對 child 啟用了哪些 controllers
+cat /sys/fs/cgroup/cgroup.subtree_control
+
+# 3. 在 lab2 啟用 +cpu +memory 對 lab2 的 child（注意：這是給 future child 用的）
+echo "+cpu +memory" | sudo tee /sys/fs/cgroup/lab2/cgroup.subtree_control
+
+# 4. 在 lab2 下建一個 leaf
+sudo mkdir /sys/fs/cgroup/lab2/leaf
+
+# 5. 對 leaf 設限：CPU max 50% 一核、memory max 100M
+echo "50000 100000" | sudo tee /sys/fs/cgroup/lab2/leaf/cpu.max
+echo "100M" | sudo tee /sys/fs/cgroup/lab2/leaf/memory.max
+
+# 6. 在 leaf 啟動一個 yes process（吃 CPU）
+sudo bash -c '(echo $$ > /sys/fs/cgroup/lab2/leaf/cgroup.procs; exec yes >/dev/null)' &
+TEST_PID=$!
+
+# 7. 觀察：這個 process 應該被限制在 50% 一核
+top -p $TEST_PID
+# 預期 CPU 使用率約 50%
+
+# 8. 看 cpu.stat 統計（包含 throttle 次數）
+cat /sys/fs/cgroup/lab2/leaf/cpu.stat
+# 重點看 nr_throttled 與 throttled_usec
+
+# 9. 清理
+sudo kill $TEST_PID
+sudo rmdir /sys/fs/cgroup/lab2/leaf
+sudo rmdir /sys/fs/cgroup/lab2
+</code></pre>
+      <p>觀察點：第 7 步的 50% CPU 是怎麼來的？提示：<code>cpu.max</code> 格式 <code>$MAX $PERIOD</code>，50000μs / 100000μs = 0.5 一核。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · 用 cgroup.kill 處理失控 process</div>
+<pre><code># 1. 建立一個 cgroup
+sudo mkdir /sys/fs/cgroup/lab3
+
+# 2. 啟動一個會 fork 子 process 的 shell
+sudo bash -c '
+    echo $$ > /sys/fs/cgroup/lab3/cgroup.procs
+    # 模擬 fork bomb 的友善版本
+    for i in 1 2 3 4 5; do
+        sleep 999 &
+    done
+    wait
+' &
+SHELL_PID=$!
+
+sleep 1
+
+# 3. 看 lab3 內有幾個 process
+echo "Process 數量："
+wc -l < /sys/fs/cgroup/lab3/cgroup.procs
+
+# 4. 用 cgroup.kill 一次殺光（傳統方式要 loop kill 每個 PID）
+echo 1 | sudo tee /sys/fs/cgroup/lab3/cgroup.kill
+
+# 5. 確認都死光
+sleep 0.5
+cat /sys/fs/cgroup/lab3/cgroup.events
+# 預期看到：
+#   populated 0
+
+# 6. 清理
+sudo rmdir /sys/fs/cgroup/lab3
+</code></pre>
+      <p>觀察點：第 4 步只有一行指令就把整棵樹清乾淨。這比 v1 時代的「<em>讀 procs → 逐個 kill → 再讀 procs → 確認</em>」可靠太多。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 4 · 體驗 cgroup.events 的 inotify 通知</div>
+<pre><code># Terminal 1：監聽 events
+sudo mkdir /sys/fs/cgroup/lab4
+
+# 用 inotifywait 監聽 modify 事件
+inotifywait -m /sys/fs/cgroup/lab4/cgroup.events &
+WATCH_PID=$!
+
+# Terminal 2 / 同 terminal 等 5 秒：放一個 process 進去
+sleep 5
+sudo bash -c '(echo $$ > /sys/fs/cgroup/lab4/cgroup.procs; sleep 3) &'
+
+# 預期觀察到：
+#   /sys/fs/cgroup/lab4/cgroup.events MODIFY
+# 因為 populated 從 0 變 1
+
+# 等 sleep 結束（process 退出）
+sleep 5
+# 應該再次觀察到 MODIFY 事件，populated 從 1 變 0
+
+# 清理
+kill $WATCH_PID
+sudo rmdir /sys/fs/cgroup/lab4
+</code></pre>
+      <p>這個機制是 systemd-oomd、cAdvisor 等服務的基礎——它們不 polling，而是 subscribe events，省 CPU 又即時。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 5: 常見陷阱 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · 寫 cgroup.procs 一次只能一個 PID</div>
+      <p>
+        最常見的錯誤：<code>echo "1234 5678 9012" > cgroup.procs</code>。kernel 只會把第一個 PID（1234）移進去，後面的<em>會被忽略</em>，且沒有錯誤訊息。
+        要遷移多個必須一個一個 echo：
+      </p>
+<pre><code># 對的做法
+for pid in 1234 5678 9012; do
+    echo $pid | sudo tee /sys/fs/cgroup/myapp/cgroup.procs
+done</code></pre>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · favordynmods 不是萬靈丹</div>
+      <p>
+        <code>favordynmods</code> 對「<em>頻繁建立短命 cgroup</em>」場景（如 Kubernetes 大量 Pod 啟停）有顯著效益，但它讓 fork/exit 變慢。
+        如果你的 host 是「<em>少量長執行 process</em>」（如資料庫主機），啟用 favordynmods 反而會讓主要 workload 變慢。
+        <strong>不要無腦啟用，先看 workload pattern</strong>。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · memory_localevents 是「v1 行為相容」</div>
+      <p>
+        如果你看到舊文件建議「<em>啟用 memory_localevents 才能正確監控</em>」，那是錯的——這個 option 是<strong>讓行為退回 v1 的相容開關</strong>，新系統不該啟用。
+        v2 的預設行為（含子樹的事件）才是設計意圖。只有在遷移 v1 時為了相容才考慮開啟。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · cgroup.subtree_control 啟用條件錯誤</div>
+      <p>
+        想啟用 controller 寫 <code>+cpu</code> 進 <code>cgroup.subtree_control</code>，但拿到錯誤 <code>Invalid argument</code> 或 <code>Device or resource busy</code>。常見三種原因：
+      </p>
+      <ol style="font-family:var(--font-sans);font-size:var(--text-sm);padding-left:20px;">
+        <li><strong>parent 沒給</strong>：<code>cpu</code> 不在 <code>cgroup.controllers</code>（parent 沒啟用 cpu）</li>
+        <li><strong>有 process 在 cgroup 裡</strong>：違反 no internal process constraint</li>
+        <li><strong>language ambiguity</strong>：你想啟用 <em>this cgroup 自己受控</em>，但 subtree_control 是「<em>對 child 啟用</em>」，要在 parent 操作</li>
+      </ol>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 5 · cgroup.kill 殺不掉 zombie</div>
+      <p>
+        <code>cgroup.kill</code> 對 zombie process 沒用——zombie 已經沒在執行，等 parent reap。
+        如果 cgroup 裡只剩 zombie，<code>cgroup.events</code> 的 <code>populated</code> 已經是 0，<code>rmdir</code> 也能成功（v2 規定 zombie-only 算空）。
+        但 <code>/proc/$ZOMBIE_PID/cgroup</code> 還是會顯示原 cgroup path，有 <code>(deleted)</code> 標記。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 6 · CLONE_INTO_CGROUP 需要對應 fd 而非路徑</div>
+      <p>
+        新 syscall 介面要求傳 <code>cgroup_fd</code>（透過 <code>open()</code> 開啟的 fd），不能傳路徑字串。
+        要 <code>open("/sys/fs/cgroup/myapp", O_PATH)</code> 取得 fd 再傳。這個介面對 process 在 cgroup namespace 內也有效——它能跨越普通檔案系統權限。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 6: 動手練習 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · 寫一個檢查 mount options 的腳本（10 分鐘）</div>
+      <p>寫 bash script 檢查當前 mount options 並給建議：</p>
+<pre><code>#!/bin/bash
+# mount-check.sh
+# 列出當前 cgroup2 mount options，並依本章建議給評分
+
+OPTS=$(mount | grep -oP 'cgroup2.*\((\K[^)]+')
+echo "當前 mount options: $OPTS"
+
+# TODO: 實作以下檢查並輸出建議
+# - nsdelegate: 應該啟用 (▲ 加分)
+# - memory_recursiveprot: 應該啟用 (▲ 加分)
+# - favordynmods: 看 workload，給出建議而非死板規則
+# - memory_localevents: 不應該啟用 (▼ 扣分)
+</code></pre>
+      <p>練習目的：把本章 §3.2 表格內化成可執行的 audit script。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · 比較三種程序遷移方式的延遲（15 分鐘）</div>
+      <p>用 <code>perf</code> 或 <code>time</code> 量測三種方式遷移 1000 次 process 的總時間：</p>
+<pre><code># 方法 A：寫 cgroup.procs（傳統）
+time for i in $(seq 1 1000); do
+    sleep 100 &
+    PID=$!
+    echo $PID | sudo tee /sys/fs/cgroup/test/cgroup.procs > /dev/null
+    sudo kill $PID
+done
+
+# 方法 B：systemd-run（高階）
+time for i in $(seq 1 1000); do
+    sudo systemd-run --slice=test.slice --unit=t-$i \
+        --quiet sleep 100 > /dev/null 2>&1
+    sudo systemctl stop t-$i 2>/dev/null
+done
+
+# 方法 C：CLONE_INTO_CGROUP 需要 C 程式或新版 systemd 才能直接體驗
+</code></pre>
+      <p>回答：哪個快？為什麼？對 100 萬個 Pod 的 cluster 影響有多大？</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 用 cgroup.freeze 凍結並 attach gdb（10 分鐘）</div>
+<pre><code># 1. 啟動一個示範 process
+sudo systemd-run --slice=user.slice --unit=frozen-test \
+    sleep 999
+
+# 2. 取得它的 cgroup 路徑
+CG=$(systemctl show -p ControlGroup --value frozen-test.service)
+
+# 3. 取得 PID
+PID=$(systemctl show -p MainPID --value frozen-test.service)
+
+# 4. 凍結整個 cgroup
+echo 1 | sudo tee /sys/fs/cgroup$CG/cgroup.freeze
+
+# 5. 確認凍結
+cat /sys/fs/cgroup$CG/cgroup.events
+# 應看到 frozen 1
+
+# 6. 嘗試 strace（會看到 process 卡住）
+sudo strace -p $PID  # Ctrl+C 退出
+
+# 7. 解凍
+echo 0 | sudo tee /sys/fs/cgroup$CG/cgroup.freeze
+
+# 清理
+sudo systemctl stop frozen-test
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 設計一個 cleanup automation（15 分鐘）</div>
+      <p>很多時候我們想對 idle 的 cgroup 自動清理。寫一個監聽 <code>cgroup.events</code> 的 daemon：</p>
+<pre><code>#!/bin/bash
+# cleanup-empty-cgroups.sh
+# 監聽某個 slice 下的所有 cgroup，當任何 cgroup populated 變 0 就 rmdir
+
+WATCH_PATH="/sys/fs/cgroup/user.slice"
+
+inotifywait -m -r --format '%w%f %e' \
+    --include '.*cgroup\.events$' "$WATCH_PATH" |
+while read FILE EVENT; do
+    DIR=$(dirname "$FILE")
+    POPULATED=$(grep -oP 'populated \K\d' "$FILE" 2>/dev/null)
+    
+    if [ "$POPULATED" = "0" ]; then
+        # cgroup 空了，等 1 秒後嘗試 rmdir（避免 race）
+        sleep 1
+        rmdir "$DIR" 2>/dev/null && echo "Cleaned: $DIR"
+    fi
+done
+</code></pre>
+      <p>回答：這個 script 有什麼潛在問題？提示：systemd 也在管理同一塊 cgroup，會不會搶？怎麼避免？（提示：只清理 <code>--user.slice/transient/*</code> 類型的）</p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 7: 自我檢查題 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>cgroup2 filesystem 的標準掛載指令是什麼？magic number 是多少？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>掛載指令</strong>：<code>mount -t cgroup2 none /sys/fs/cgroup</code>。<code>none</code> 是 device 名稱（cgroup2 是 pseudo-fs，沒有真實 device）。
+        <strong>Magic number</strong>：<code>0x63677270</code>，ASCII 是「<em>cgrp</em>」。可以用 <code>stat -fc %T /sys/fs/cgroup</code> 確認，輸出 <code>cgroup2fs</code> 代表掛對。
+        實務上不會手動掛——systemd 開機時自動處理，且不能輕易 unmount（會卡所有 cgroup-aware 服務）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>把以下五個 mount options 對應到正確的功能：<code>nsdelegate</code>、<code>favordynmods</code>、<code>memory_recursiveprot</code>、<code>memory_localevents</code>、<code>memory_hugetlb_accounting</code>。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>nsdelegate</strong>：把 cgroup namespace 視為委派邊界，提供 namespace 內的安全保護。所有現代系統應啟用。</li>
+          <li><strong>favordynmods</strong>：優化動態修改延遲（task migration、controller on/off），代價是 fork/exit 變慢。容器密集啟動的 host 適用。</li>
+          <li><strong>memory_recursiveprot</strong>：讓 <code>memory.min</code>/<code>memory.low</code> 自動沿子樹遞迴生效。強烈建議啟用，多數新 distro 預設已開。</li>
+          <li><strong>memory_localevents</strong>：讓 <code>memory.events</code> 只算自己這個 cgroup 不含子樹（v1 行為），新系統不該開。</li>
+          <li><strong>memory_hugetlb_accounting</strong>：把 HugeTLB 計入 memory 總量。有大頁面 workload 才需要，要小心 SIGBUS 風險。</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span>v2 的 interface files 命名規範規定特殊值「無限大」要寫什麼？這跟 v1 有什麼不同？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>v2</strong>：一律寫字串 <code>max</code>，例如 <code>echo max > memory.max</code> 表示無記憶體限制。
+        <strong>v1</strong>：每個 controller 自己定義特殊值——memory 用 <code>-1</code>、CPU shares 沒有上限只能改大、blkio 用 <code>0</code> 代表 no-limit……完全不一致。
+        <strong>v2 規範化的好處</strong>：systemd、Kubernetes 等 cgroup 使用者只要學一次「<em>max 是無限大</em>」就能套用所有 controllers。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span>v2 的 weight 介面範圍是 1–10000、預設 100。如果某個 controller 想用 0–100 範圍當 weight 可以嗎？為什麼？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>不行</strong>。kernel 文件 §4 "Conventions" 明確規定：「<em>If a controller implements weight based resource distribution, its interface file should be named "weight" and have the range [1, 10000] with 100 as the default.</em>」
+        範圍是<strong>規範要求</strong>，不是建議。新加入的 controller 要走 weight 模型必須遵守。這個範圍也是經過設計的——以 100 為中心、向上向下都有 100 倍的對稱調整空間。
+        例外：<code>cpu.weight.nice</code> 是 nice 值（-20 到 +19）的形式，內部仍會轉成 1–10000 的 weight 值。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span>解釋 <code>cgroup.kill</code> 與「<em>讀 cgroup.procs 然後 kill -9 每個 PID</em>」的差別。為什麼前者更可靠？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>原子性差異</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>傳統 loop kill：讀 <code>cgroup.procs</code>（拿到當下的 PID 清單）→ 對每個 PID 送 SIGKILL → 重讀 procs 確認 → 如果還有就重來。<strong>race 點</strong>：被殺的 process 在被殺前可能 fork 出新 child，新 child 繼承 cgroup 但不在你拿到的清單上。</li>
+          <li><code>cgroup.kill</code>：寫 1 進去，kernel 內部用一個 lock 把整個子樹的 process 都標記為 PF_EXITING 並送 SIGKILL，<em>包含當下這刻 fork 出的新 child</em>。</li>
+        </ul>
+        <strong>實務影響</strong>：fork bomb 在 v1 時代很難完整殺乾淨；v2 一行指令解決。systemd-oomd、Kubernetes Pod evict、container runtime stop 都已改用 <code>cgroup.kill</code>。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>程序遷移的三種方法（cgroup.procs、CLONE_INTO_CGROUP、systemd-run）各自的適用場景是什麼？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>cgroup.procs（傳統）</strong>：手動 debug、寫測試 script、簡單的一次性操作。問題：每次 write(2) 只能一個 PID；race condition（讀 PID → 寫 → 但 process 可能已 exit）。
+        <strong>CLONE_INTO_CGROUP（現代）</strong>：container runtime 內部使用——runc、crun、podman。優勢：fork 與 cgroup 設置原子化，無 race；對性能敏感的場景（K8s 大量 Pod 啟動）顯著加速。需要 C 程式或新版 systemd 才能直接呼叫。
+        <strong>systemd-run（高階）</strong>：應用層的標準姿勢——啟動 service、作業、ad-hoc 工作。優勢：自動處理 cgroup 路徑、權限、清理；可同時設資源限制；遵守 single-writer rule。
+        <strong>建議</strong>：production 用 systemd-run（透過 unit file 或 transient unit），自寫工具用 CLONE_INTO_CGROUP，debug 才用 cgroup.procs。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span><code>cgroup.events</code> 包含哪些欄位？怎麼用 inotify 監聽變化？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>包含欄位</strong>（在 v2-only 的 cgroup 上）：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><code>populated</code>：0 = 子樹無 live process；1 = 有 live process</li>
+          <li><code>frozen</code>：0 = 未凍結；1 = 已凍結（透過 <code>cgroup.freeze</code>）</li>
+        </ul>
+        <strong>監聽方式</strong>：對檔案做 <code>inotifywait</code> 監聽 <code>MODIFY</code> 事件，每次值變化都會觸發；也可以用 <code>poll(2)</code>/<code>epoll(2)</code> 等 fd 讀就緒。
+        <strong>實際應用</strong>：systemd-oomd 監聽 events 來判斷 cgroup 何時可以回收；container runtime 用來偵測容器何時完全退出（無殘留 process）；cAdvisor 用來節省 polling 成本。
+        範例：<code>inotifywait -m /sys/fs/cgroup/myapp/cgroup.events</code>，每次變化就印一行。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>為什麼 kernel 要區分 <code>cgroup.procs</code> 與 <code>cgroup.threads</code> 兩個檔案？兩者的關係是什麼？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>兩者操作粒度不同</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><code>cgroup.procs</code>：操作 process 粒度。寫入 PID（任一 thread 的 TID 都行）會把整個 process 的<em>所有 thread</em> 一起遷移。讀取顯示 process 的 PID 列表。</li>
+          <li><code>cgroup.threads</code>：操作 thread 粒度。寫入 TID 只遷移該 thread。讀取顯示 thread 的 TID 列表。</li>
+        </ul>
+        <strong>使用限制</strong>：<code>cgroup.threads</code> <em>只在 threaded subtree 內可寫</em>——在 domain cgroup 寫入會被拒絕。這對應 Ch.2 的 thread mode 概念。
+        <strong>關係</strong>：<code>cgroup.procs</code> 列出的 PID 集合，是 <code>cgroup.threads</code> 列出的 TID 集合中「<em>每個 process 取一個代表 TID</em>」的子集（或說 main thread）。
+        <strong>典型用途</strong>：domain cgroup 用 procs，threaded cgroup 用 threads。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 8: 延伸閱讀 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+
+    <div class="refs">
+      <ol>
+        <li>
+          <a href="https://docs.kernel.org/admin-guide/cgroup-v2.html#mounting" target="_blank" rel="noopener">Linux Kernel 官方文件 · §2.1 Mounting</a>
+          <span class="ref-source">docs.kernel.org · 所有 mount options 的權威定義</span>
+        </li>
+        <li>
+          <a href="https://docs.kernel.org/admin-guide/cgroup-v2.html#interface-files" target="_blank" rel="noopener">Linux Kernel 官方文件 · §4 Interface Files</a>
+          <span class="ref-source">docs.kernel.org · 命名規範、core interface files 列表</span>
+        </li>
+        <li>
+          <a href="https://blogs.oracle.com/linux/mount-it-right-with-favordynmods" target="_blank" rel="noopener">Mount It Right: Rescuing Container Startup Times with favordynmods · Oracle</a>
+          <span class="ref-source">blogs.oracle.com · favordynmods 在 UEK8 的實測效益（2025）</span>
+        </li>
+        <li>
+          <a href="https://man7.org/linux/man-pages/man2/clone3.2.html" target="_blank" rel="noopener">clone3(2) · Linux man-pages</a>
+          <span class="ref-source">man7.org · CLONE_INTO_CGROUP 的 syscall 定義</span>
+        </li>
+        <li>
+          <a href="https://lwn.net/Articles/810074/" target="_blank" rel="noopener">cgroup.kill: A new way to kill cgroup processes · LWN.net</a>
+          <span class="ref-source">LWN.net · cgroup.kill 的設計動機與 fork bomb 處理</span>
+        </li>
+        <li>
+          <a href="https://facebookmicrosites.github.io/cgroup2/docs/create-cgroups.html" target="_blank" rel="noopener">Creating and organizing cgroups · Meta cgroup2 guide</a>
+          <span class="ref-source">facebookmicrosites.github.io · Meta 大規模生產經驗的 cgroup 操作實務</span>
+        </li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Chapter nav ====================== -->
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn" href="ch03-distribution-models.html">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">Ch.3 資源分配三模型</span>
+    </a>
+    <a class="nav-btn next disabled">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">Ch.5 Delegation 與權限模型</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+
+</body>
+</html>

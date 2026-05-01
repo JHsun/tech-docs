@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.18 地端與特殊場景 — cgroup v2 完整教學</title>
+<meta name="description" content="cgroup v2 在地端與特殊場景：Slurm HPC scheduler、systemd-managed 多租戶機器、HPC vs Kubernetes 對比、shared workstation 隔離。">
+
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626; --color-danger-soft: #fee2e2;
+  --color-info: #0891b2; --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px;
+  --container-narrow: 720px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px;
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.topbar { position: sticky; top: 0; z-index: 50; background: color-mix(in oklch, var(--bg-canvas) 88%, transparent); backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--border-soft); }
+.topbar-inner { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.brand { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-secondary); }
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 999px; padding: 6px 14px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all .2s; }
+[data-theme-toggle]:hover { background: var(--bg-muted); border-color: var(--border-mid); color: var(--text-primary); }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: 0 var(--space-5); }
+.chapter-head { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); }
+.chapter-tag { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary-text); background: var(--color-primary-soft); padding: 4px 12px; border-radius: 999px; margin-bottom: var(--space-4); }
+.chapter-title { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; margin-bottom: var(--space-3); }
+.chapter-subtitle { font-family: var(--font-serif-body); font-size: var(--text-md); color: var(--text-secondary); line-height: 1.65; font-style: italic; }
+.chapter-meta { margin-top: var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.chapter-meta-item:first-child::before { display: none; }
+.section { padding: var(--space-7) 0; border-bottom: 1px solid var(--border-soft); }
+.section:last-of-type { border-bottom: none; }
+.section-label { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2); }
+.section-label::before { content: ""; width: 24px; height: 1px; background: var(--color-primary); }
+.section-title { font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600; margin-bottom: var(--space-5); letter-spacing: -0.01em; line-height: 1.2; }
+.prose p { font-family: var(--font-serif-body); font-size: var(--text-base); line-height: 1.85; margin-bottom: var(--space-4); }
+.prose h3 { font-family: var(--font-sans); font-size: var(--text-lg); font-weight: 600; margin: var(--space-6) 0 var(--space-3); letter-spacing: -0.01em; }
+.prose h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 500; margin: var(--space-5) 0 var(--space-2); }
+.prose ul, .prose ol { font-family: var(--font-serif-body); margin-bottom: var(--space-4); padding-left: var(--space-5); line-height: 1.8; }
+.prose ul li, .prose ol li { margin-bottom: var(--space-2); }
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong { font-weight: 600; }
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 1px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+.prose a { color: var(--color-primary); text-decoration: underline; text-underline-offset: 3px; }
+.highlights { background: var(--color-primary-soft); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.highlights ol { font-family: var(--font-sans); padding-left: var(--space-5); margin: 0; }
+.highlights li { font-size: var(--text-sm); color: var(--color-primary-text); margin-bottom: var(--space-2); line-height: 1.65; }
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+.news-box { background: var(--color-info-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.news-item { font-family: var(--font-sans); font-size: var(--text-sm); line-height: 1.7; padding: var(--space-2) 0; border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent); }
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-info); margin-right: var(--space-2); }
+pre { font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.7; background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; margin-bottom: var(--space-4); }
+pre code { background: transparent; border: none; padding: 0; font-size: inherit; color: inherit; }
+.cmp-table { width: 100%; border-collapse: collapse; margin-bottom: var(--space-4); font-size: var(--text-sm); font-family: var(--font-sans); }
+.cmp-table th, .cmp-table td { padding: var(--space-3); text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.cmp-table th { font-weight: 600; background: var(--bg-muted); font-size: var(--text-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 1px 5px; border-radius: var(--radius-sm); color: var(--color-primary-text); }
+.lab { background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.lab-title { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--color-primary); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px dashed var(--border-soft); }
+.lab-title::before { content: "▶ "; }
+.lab p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-3); color: var(--text-secondary); line-height: 1.7; }
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+.lab ol, .lab ul { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); color: var(--text-secondary); line-height: 1.7; }
+.pitfall { background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.pitfall-title { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 600; color: var(--color-warning); margin-bottom: var(--space-2); }
+.pitfall p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-2); line-height: 1.7; }
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code { background: color-mix(in oklch, var(--color-warning) 15%, transparent); border-color: color-mix(in oklch, var(--color-warning) 30%, transparent); }
+.quiz-item { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-3); }
+.quiz-q { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; margin-bottom: var(--space-2); display: flex; gap: var(--space-2); }
+.quiz-q-num { font-family: var(--font-mono); color: var(--color-primary); flex-shrink: 0; }
+.quiz-toggle { background: transparent; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 4px 10px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; margin-top: var(--space-2); transition: all .2s; }
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a { display: none; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px dashed var(--border-soft); font-family: var(--font-serif-body); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.75; }
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+.refs ol { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); line-height: 1.8; }
+.refs li { margin-bottom: var(--space-2); color: var(--text-secondary); }
+.refs li::marker { color: var(--color-primary); }
+.refs a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dashed var(--color-primary); }
+.refs .ref-source { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); display: block; margin-top: 2px; }
+.chapter-nav { margin-top: var(--space-6); padding: var(--space-5) 0; display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.nav-btn { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; padding: var(--space-3) var(--space-4); background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); text-decoration: none; color: var(--text-primary); transition: all .2s; }
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.04em; }
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.18</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part VI · 生態系 · Chapter 18</span>
+    <h1 class="chapter-title">地端與特殊場景</h1>
+    <p class="chapter-subtitle">
+      雖然 Kubernetes 主導雲端世界，但 cgroup v2 在<em>非雲端場景</em> 同樣重要。
+      HPC（high-performance computing）有 Slurm 這個 30 年歷史的 scheduler，整套基礎設施與 K8s 截然不同；
+      多人共享的開發機 / 跳板機 / 教學機需要 systemd-managed 多租戶隔離；嵌入式 / IoT 系統有資源極限的特殊需求。
+      本章把這些 Kubernetes 之外的世界一次講完——讓你在<em>任何</em> Linux 場景都能掌握 cgroup v2 整合。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~5,800 字</span>
+      <span class="chapter-meta-item">閱讀時間 22 分鐘</span>
+      <span class="chapter-meta-item">難度：選讀</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+    <div class="highlights">
+      <ol>
+        <li><strong>HPC 用 Slurm 不用 K8s</strong>：Slurm scheduler 在超算、研究機構、ML 訓練 cluster 廣泛使用。設計目標與 K8s 不同——批次作業（jobs）為主、不追求高密度多租戶、追求 MPI / GPU / RDMA 整合。但底層仍用 cgroup v2 做資源限制。</li>
+        <li><strong>Slurm cgroup/v2 plugin 設計巧妙</strong>：透過 systemd D-Bus 建 scope 給 slurmstepd，與 systemd 共存。每個 job / step / task 對應一層 cgroup，slurmd 在 delegated subtree 自由管理。</li>
+        <li><strong>共享 workstation 的 systemd 多租戶</strong>：開發機、跳板機、研究室共用機。systemd-managed 模式下，每個 user@UID.service 自動取得 delegated cgroup，可設 user-level limit 防止單一 user 拖垮系統。</li>
+        <li><strong>HPC vs K8s 設計哲學差很大</strong>：K8s 服務式、長期跑、scaling；HPC 批次式、有限時間、節點獨佔。理解差異才能選對工具——AI 訓練混合 workload 開始模糊邊界。</li>
+        <li><strong>嵌入式 / IoT 用 cgroup v2 的不同方式</strong>：openrc、busybox-init 等替代 init 系統不支援 systemd 的 cgroup 整合。需要直接 cgroupfs driver、手動管理 cgroup tree。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+    <div class="news-box">
+      <div class="news-item"><span class="news-date">2025</span><strong>Slurm cgroup/v1 plugin 進入 deprecated</strong>。SchedMD 官方建議「<em>at your earliest convenience</em>」切換到 v2，新 feature 不再加進 v1 plugin。</div>
+      <div class="news-item"><span class="news-date">2025-08</span><strong>HPC + K8s 融合研究在 IEEE Cluster 2025 發表</strong>。HPE Slingshot RDMA + K8s container 整合解決 HPC-Cloud convergence 問題。生產環境 AI 訓練常見「<em>Slurm + K8s 混合</em>」架構。</div>
+      <div class="news-item"><span class="news-date">2025</span><strong>Slurm 24.x 對 cgroup v2 支援更完善</strong>。EnableExtraControllers 可啟用 io / pids / rdma / hugetlb / misc，給 GPU / RDMA workload 更精細控制。</div>
+      <div class="news-item"><span class="news-date">2025</span><strong>共享 workstation 的「<em>systemd-oomd 預設啟用</em>」普及</strong>。Fedora、Ubuntu 對 user.slice 預設啟用 oomd，避免單一使用者把 lab 機器整死。</div>
+      <div class="news-item"><span class="news-date">2025</span><strong>嵌入式 Yocto 與 Buildroot 開始支援 cgroup v2</strong>。但 init system（openrc / busybox-init）仍要手動處理 cgroup hierarchy。</div>
+    </div>
+    <div class="prose">
+      <p>
+        2026 年的時點，<strong>cgroup v2 已是<em>所有</em> Linux 場景的事實標準</strong>——不只 K8s。
+        Slurm 完成 v2 migration、共享機器的 multi-tenant 隔離成熟、嵌入式系統也跟進。
+        本章是 Part VI 生態系的第三類整合——對「<em>非雲端</em>」場景的完整補充。
+      </p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+
+    <div class="prose">
+      <h3>3.1 HPC 與 K8s 的設計差異</h3>
+      <p>
+        為什麼 HPC 不用 K8s？因為兩者解決的是<em>不同問題</em>：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>面向</th><th>Kubernetes（雲）</th><th>Slurm（HPC）</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>主要 workload</td><td>長期服務（24/7）</td><td>批次作業（job 跑完就走）</td></tr>
+        <tr><td>節點 utilization</td><td>追求高密度（多 Pod 共享）</td><td>job 通常獨佔節點</td></tr>
+        <tr><td>scheduling 維度</td><td>resource request + label</td><td>節點數、wall-time、partition、QoS</td></tr>
+        <tr><td>跨節點通訊</td><td>K8s service / DNS</td><td>MPI（PMI / OpenMPI / Intel MPI）</td></tr>
+        <tr><td>資源類型</td><td>CPU / memory / extended（GPU）</td><td>CPU / memory / GPU / RDMA / 特殊網路</td></tr>
+        <tr><td>檔案系統</td><td>PV / PVC / CSI</td><td>共享 NFS / Lustre / GPFS / BeeGFS</td></tr>
+        <tr><td>使用者模式</td><td>kubectl / API</td><td>sbatch / srun / SSH 登入</td></tr>
+        <tr><td>容器化</td><td>必須（Pod = 容器）</td><td>選用（Singularity / Apptainer）</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        <strong>核心差異</strong>：K8s 預設「<em>多租戶共享、彈性 scaling</em>」，Slurm 預設「<em>單一 job 獨佔資源、跑完釋放</em>」。
+        HPC workload（CFD、量子化學、天氣模擬）通常一個 job 跑數小時到數天、用幾百到幾千個節點——K8s 的高密度 pack 不適合。
+      </p>
+      <p>
+        但<strong>AI / ML 訓練模糊了這條界線</strong>——大型訓練任務既需要 HPC 的 RDMA / GPU 整合，又需要 K8s 的彈性管理。2025 年起越來越多研究機構部署「<em>Slurm + K8s 混合</em>」架構。
+      </p>
+
+      <h3>3.2 Slurm cgroup/v2 plugin 設計</h3>
+      <p>
+        Slurm 從 v22.x 開始支援 cgroup v2，到 v24.x 已成熟穩定。設計上有<em>巨大挑戰</em>——必須與 systemd 的 single-writer rule 共存：
+      </p>
+      <ul>
+        <li><strong>傳統做法（v1 時代）</strong>：slurmd 直接 mkdir <code>/sys/fs/cgroup/.../slurm/</code>。</li>
+        <li><strong>v2 不能這樣</strong>：systemd 看到陌生目錄可能清掉。違反 single-writer。</li>
+      </ul>
+      <p>
+        <strong>Slurm v2 解法：透過 systemd D-Bus 申請 scope</strong>——
+      </p>
+      <ol>
+        <li>slurmd 啟動時，systemd 把它放進 <code>slurmd.service</code> 的 cgroup（system.slice 之下）。</li>
+        <li>job 啟動時，slurmstepd 透過 D-Bus 向 systemd 請求建立新 scope <code>slurmstepd-{job_id}.scope</code>。</li>
+        <li>systemd 給這個 scope 設定 <code>Delegate=yes</code>——slurmstepd 在 scope 之下自由管理 cgroup。</li>
+        <li>slurmstepd 在 delegated subtree 建 job/step/task 三層 cgroup。</li>
+      </ol>
+
+      <h4>典型 Slurm cgroup hierarchy</h4>
+<pre><code>/sys/fs/cgroup/system.slice/slurmstepd.scope/      ← systemd-delegated
+└── job_42/                                         ← slurmstepd 建
+    ├── step_0/                                     ← slurmstepd 建
+    │   ├── task_0/                                 ← per-task
+    │   ├── task_1/
+    │   └── ...
+    └── step_extern/                                ← extern step（IO 等）
+</code></pre>
+      <p>
+        <strong>為什麼 slurmstepd 在獨立 scope 而非 slurmd 自己的 cgroup</strong>：因為 slurmd 自己會被 systemd 重啟（patch、reconfig）。如果 slurmd cgroup 之下有子目錄（job_42 等），slurmd 變 inner node，systemd restart 會失敗（無法把新 slurmd PID 放進 non-leaf）。所以 slurmstepd 用獨立 scope 隔離。
+      </p>
+
+      <h3>3.3 Slurm cgroup.conf 完整設定</h3>
+<pre><code># /etc/slurm/cgroup.conf
+CgroupPlugin=cgroup/v2     # 強制 v2，autodetect 也可
+CgroupMountpoint=/sys/fs/cgroup
+SystemdTimeout=1000        # systemd 啟動 scope 等待時間（毫秒）
+SlurmgroupSlice=system.slice  # slurmd 所在 slice
+
+# task/cgroup plugin 限制
+ConstrainCores=yes         # 用 cpuset 限定 CPU
+ConstrainRAMSpace=yes      # 用 memory.max 限制記憶體
+ConstrainSwapSpace=yes
+ConstrainDevices=yes       # 用 BPF device controller 限制設備（GPU）
+AllowedRAMSpace=100        # 100% 配額
+AllowedSwapSpace=0         # 不允許 swap
+
+# v2 額外控制器（給 GPU / RDMA workload）
+EnableControllers=io,pids,rdma,hugetlb,misc
+</code></pre>
+      <p>
+        <strong>關鍵 directive</strong>：
+      </p>
+      <ul>
+        <li><strong>ConstrainCores=yes</strong>：每個 task 透過 cpuset 綁到分配的 CPU。MPI 應用必備。</li>
+        <li><strong>ConstrainRAMSpace=yes</strong>：每個 step 設 memory.max。</li>
+        <li><strong>ConstrainDevices=yes</strong>：用 BPF device cgroup 限制可見 GPU。配合 <code>--gres=gpu:N</code> 使用。</li>
+        <li><strong>EnableControllers=</strong>：v2 額外啟用的 controllers，讓 job 能設 io / rdma / hugetlb 限制。</li>
+      </ul>
+
+      <h3>3.4 Slurm job 啟動的 cgroup 流程</h3>
+<pre><code># 用戶提交 job
+$ sbatch --nodes=2 --cpus-per-task=4 --mem=8G --gres=gpu:1 my_job.sh
+
+# Slurm 內部流程：
+# 1. slurmd 收到 job request
+# 2. slurmd 透過 D-Bus 請 systemd 建 slurmstepd-{job_id}.scope
+# 3. systemd 建 scope，設 Delegate=yes
+# 4. slurmstepd 在 scope 之下建 job_{ID}/ cgroup
+# 5. 設 cpuset.cpus（指定 4 個 CPU）
+# 6. 設 memory.max=8G
+# 7. attach BPF device program 限制 GPU
+# 8. 在 job/{ID}/ 之下建 step_0/、task_0/ 等
+# 9. fork+exec user 的 my_job.sh，process 進入 task_0/
+# 10. job 結束時清理整個 scope 樹
+
+# 看 cgroup 結構
+ssh node-001 systemd-cgls /system.slice/slurmstepd.scope
+# slurmstepd-42.scope
+#   └── job_42/
+#       └── step_0/
+#           └── task_0/
+#               └── 12345 my_job.sh
+
+# 看資源限制
+JOB_CG=/sys/fs/cgroup/system.slice/slurmstepd-42.scope/job_42
+cat $JOB_CG/memory.max     # 8589934592（8G）
+cat $JOB_CG/cpuset.cpus    # 4-7
+</code></pre>
+
+      <h3>3.5 共享 workstation 的多租戶隔離</h3>
+      <p>
+        場景：研究室、教室、共用開發機。多個 user SSH 進來工作。痛點：
+      </p>
+      <ul>
+        <li>有人跑 stress test 把整機卡住</li>
+        <li>有人 fork bomb 把 PID 用光</li>
+        <li>有人記憶體洩漏觸發 OOM 殺到無辜進程</li>
+      </ul>
+      <p>
+        <strong>解法：systemd 的 user.slice 多租戶隔離</strong>。
+        每個 user 登入時，systemd 自動建 <code>user-UID.slice</code> 與 <code>user@UID.service</code>。
+        對 user.slice 設總體 limit，每個 user 在 slice 下分配。
+      </p>
+
+      <h4>實戰：限制 user.slice 並啟用 systemd-oomd</h4>
+<pre><code># /etc/systemd/system/user-.slice.d/00-resource.conf
+# （注意：user-.slice 是 template，匹配所有 user-UID.slice）
+[Slice]
+# 每個 user 最多 16GB 記憶體
+MemoryMax=16G
+# 預留 2GB 保證
+MemoryMin=2G
+# CPU 軟限制（公平分配）
+CPUWeight=100
+# task 上限
+TasksMax=10000
+# 啟用 systemd-oomd 監控
+ManagedOOMMemoryPressure=kill
+ManagedOOMMemoryPressureLimit=50%
+
+# 對整個 user.slice 設總限
+sudo systemctl set-property user.slice MemoryMax=128G CPUWeight=500
+
+# 看效果
+systemd-cgls /user.slice
+# user-1001.slice (alice)
+# user-1002.slice (bob)
+# user-1003.slice (charlie)
+# 每人最多 16G、總共不超過 128G
+</code></pre>
+      <p>
+        <strong>系統 daemon 的保護</strong>：對 system.slice 設 MemoryMin 保證，避免 user 拖垮系統 daemon：
+      </p>
+<pre><code>sudo systemctl set-property system.slice \
+    MemoryMin=4G \
+    CPUWeight=200
+
+# 即使 user.slice 把記憶體吃光，sshd / dbus 等系統 daemon 仍有 4GB 保證
+</code></pre>
+
+      <h3>3.6 跳板機 / bastion host 的特殊考量</h3>
+      <p>
+        跳板機特殊在「<em>許多人短暫 ssh 進來執行少量命令</em>」。設計重點：
+      </p>
+      <ul>
+        <li><strong>每 session 限制嚴格</strong>：避免單個 session 影響後續 ssh 登入。</li>
+        <li><strong>強制 task / fork 限制</strong>：防 fork bomb。</li>
+        <li><strong>I/O 限制</strong>：防有人 dd 卡住 disk。</li>
+        <li><strong>session timeout</strong>：自動清理 idle session。</li>
+      </ul>
+<pre><code># /etc/systemd/system/user-.slice.d/00-bastion.conf
+[Slice]
+# 比一般共享機器更嚴格
+MemoryMax=2G
+TasksMax=500
+CPUQuota=200%       # 最多 2 cores
+IOWeight=50         # 較低 I/O 優先級（避免影響其他 session）
+ManagedOOMMemoryPressure=kill
+ManagedOOMMemoryPressureLimit=70%
+
+# 配合 sshd_config 設 ClientAliveInterval / MaxSessions
+</code></pre>
+
+      <h3>3.7 嵌入式 / IoT：non-systemd 環境</h3>
+      <p>
+        嵌入式 Linux（IoT、embedded device）常用替代 init：openrc（Alpine）、busybox init（buildroot）、s6 / runit。
+        這些 init <em>不</em>提供 systemd 的 cgroup 整合——必須<strong>手動</strong>管理 cgroup。
+      </p>
+<pre><code># busybox init 範例：手動建立 cgroup
+# /etc/local.d/cgroup-setup.start
+#!/bin/sh
+mkdir -p /sys/fs/cgroup/services
+mkdir -p /sys/fs/cgroup/services/critical
+mkdir -p /sys/fs/cgroup/services/non-critical
+
+# 啟用 controllers
+echo "+memory +cpu +pids" > /sys/fs/cgroup/cgroup.subtree_control
+echo "+memory +cpu +pids" > /sys/fs/cgroup/services/cgroup.subtree_control
+
+# 設 limits
+echo "256M" > /sys/fs/cgroup/services/critical/memory.max
+echo "100M" > /sys/fs/cgroup/services/non-critical/memory.max
+
+# 把 process 放進去
+echo "$pid_of_critical_app" > /sys/fs/cgroup/services/critical/cgroup.procs
+echo "$pid_of_logger" > /sys/fs/cgroup/services/non-critical/cgroup.procs
+</code></pre>
+      <p>
+        <strong>常見場景</strong>：路由器 / NAS / 工業 controller / smart device。資源緊（256MB - 2GB RAM）、process 少（10-30 個）、要求穩定（不能因小應用 leak 拖死整機）。
+      </p>
+
+      <h3>3.8 HPC + K8s 混合架構（AI / ML 場景）</h3>
+      <p>
+        現代 AI 訓練既要 HPC 的<em>底層性能</em>（RDMA、NVLink、MPI），又要 K8s 的<em>彈性管理</em>（image 部署、自動 scaling）。三種混合模式：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>模式</th><th>架構</th><th>典型使用場景</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>K8s + RDMA</strong></td>
+          <td>K8s 跑訓練 Pod，CNI 整合 RDMA</td>
+          <td>單機多 GPU、中等規模分散式訓練</td>
+        </tr>
+        <tr>
+          <td><strong>Slurm + Singularity</strong></td>
+          <td>Slurm 排程，job 跑容器（Singularity / Apptainer）</td>
+          <td>傳統 HPC 中心轉型用容器</td>
+        </tr>
+        <tr>
+          <td><strong>Slurm-on-K8s（新）</strong></td>
+          <td>K8s 提供基礎設施，Slurm 在 Pod 中跑做 batch scheduling</td>
+          <td>研究機構同時要 web service 與 HPC job</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        <strong>NVIDIA 的 Slurm Nemesis、CSCS 的 Pyxis、HPE 的 Slingshot 整合</strong> 等都在嘗試讓 HPC 工作流跑在容器化的雲環境，cgroup v2 是底層共同基礎。
+      </p>
+
+      <h3>3.9 Best practices</h3>
+      <ul>
+        <li><strong>HPC node 用 cgroup/v2 plugin</strong>：v1 已 deprecated，新 feature 不再加</li>
+        <li><strong>Slurm 啟用 EnableControllers</strong>：給 job 完整資源控制（io、rdma、hugetlb）</li>
+        <li><strong>共享 workstation 設 user.slice limit</strong>：每個 user 公平配額 + systemd-oomd 監控</li>
+        <li><strong>對 system.slice 設 MemoryMin</strong>：保護系統 daemon 不被 user 拖垮</li>
+        <li><strong>跳板機嚴格限制 per-session</strong>：MemoryMax、TasksMax、CPUQuota 都要設緊</li>
+        <li><strong>嵌入式手動管 cgroup</strong>：非 systemd 環境就接受手動，但要寫 init script 啟動時建好結構</li>
+        <li><strong>HPC + K8s 混合場景考慮 Slurm-on-K8s</strong>：兩者並存而非取代</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例</h2>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · 在 Slurm node 觀察 cgroup 結構</div>
+<pre><code># 提交 test job
+cat <<EOF > test_cgroup.sh
+#!/bin/bash
+#SBATCH --job-name=cg-test
+#SBATCH --nodes=1
+#SBATCH --ntasks=2
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=2G
+#SBATCH --time=00:05:00
+
+# 在 job 內看 cgroup
+echo "=== cgroup path ==="
+cat /proc/self/cgroup
+
+echo "=== cgroup limits ==="
+CG=/sys/fs/cgroup/$(cat /proc/self/cgroup | cut -d: -f3)
+cat $CG/memory.max
+cat $CG/cpuset.cpus
+cat $CG/cpu.max
+
+sleep 30
+EOF
+
+sbatch test_cgroup.sh
+JOBID=$(squeue -u $USER -o '%i' --noheader | head -1)
+
+# 在 node 上觀察結構
+ssh \$(squeue -j $JOBID -o '%N' --noheader) \
+    "systemd-cgls /system.slice/slurmstepd-${JOBID}.scope"
+
+# 看 job 輸出
+cat slurm-${JOBID}.out
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · 設定 user.slice 多租戶限制</div>
+<pre><code># 1. 寫 user.slice 模板 drop-in
+sudo mkdir -p /etc/systemd/system/user-.slice.d/
+cat <<EOF | sudo tee /etc/systemd/system/user-.slice.d/00-multi-tenant.conf
+[Slice]
+MemoryMax=4G
+MemoryMin=512M
+CPUWeight=100
+TasksMax=5000
+ManagedOOMMemoryPressure=kill
+ManagedOOMMemoryPressureLimit=50%
+EOF
+
+# 2. 系統 daemon 保護
+sudo systemctl set-property system.slice \
+    MemoryMin=2G CPUWeight=200
+
+# 3. reload + 觀察
+sudo systemctl daemon-reload
+
+# 4. 用測試 user 登入觀察
+sudo useradd -m testuser
+sudo machinectl shell testuser@
+# 在 testuser session 內：
+$ cat /sys/fs/cgroup/user.slice/user-$UID.slice/memory.max
+# 應該 = 4G
+
+# 5. 試圖超用記憶體
+$ stress-ng --vm 1 --vm-bytes 5G --timeout 30s
+# 應該被 systemd-oomd 殺掉
+
+# 觀察 oomd log
+sudo journalctl -u systemd-oomd -n 20
+
+# 清理
+sudo userdel -r testuser
+sudo rm /etc/systemd/system/user-.slice.d/00-multi-tenant.conf
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · 模擬跳板機 per-session 限制</div>
+<pre><code># 用 systemd-run 模擬一個受限 session
+sudo systemd-run --scope --slice=user.slice \
+    -p MemoryMax=512M \
+    -p TasksMax=200 \
+    -p CPUQuota=100% \
+    --pty bash
+
+# 在 session 內：
+# 試 fork bomb（被擋）
+:(){ :|:& };:    # 應該很快被 TasksMax 擋住
+
+# 試吃記憶體
+stress-ng --vm 1 --vm-bytes 600M --timeout 30s
+# 被 OOM kill（MemoryMax=512M）
+
+exit
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 4 · 嵌入式手動 cgroup 設定</div>
+<pre><code># 模擬無 systemd 的嵌入式環境
+# 在 docker 容器內測試（避免影響 host）
+
+docker run -it --rm --privileged alpine sh
+
+# 容器內：
+mount | grep cgroup2
+# cgroup2 on /sys/fs/cgroup type cgroup2 ...
+
+# 啟用 controllers
+echo "+memory +cpu +pids" > /sys/fs/cgroup/cgroup.subtree_control
+
+# 建兩個 service cgroup
+mkdir /sys/fs/cgroup/critical
+mkdir /sys/fs/cgroup/best-effort
+
+# 設 limits
+echo "100M" > /sys/fs/cgroup/critical/memory.max
+echo "200" > /sys/fs/cgroup/critical/pids.max
+
+echo "50M" > /sys/fs/cgroup/best-effort/memory.max
+echo "100" > /sys/fs/cgroup/best-effort/pids.max
+echo "10" > /sys/fs/cgroup/best-effort/cpu.weight  # 低優先級
+
+# 啟動測試 process 並放進去
+sleep 100 &
+echo $! > /sys/fs/cgroup/best-effort/cgroup.procs
+
+cat /sys/fs/cgroup/best-effort/cgroup.procs
+# 應該看到 process PID
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 5 · 比較 K8s 與 Slurm cgroup 結構</div>
+<pre><code># 在 K8s 節點看
+ssh k8s-node systemd-cgls /kubepods.slice | head -20
+
+# 在 HPC 節點看
+ssh hpc-node systemd-cgls /system.slice/slurmstepd*.scope
+
+# 比較表：
+# K8s: kubepods.slice/kubepods-pod{UID}.slice/cri-containerd-{ID}.scope
+#      固定 3 層，QoS 分組，long-running
+#
+# Slurm: system.slice/slurmstepd-{job_id}.scope/job_{ID}/step_{N}/task_{M}
+#        固定 4 層，job/step/task 結構，batch
+</code></pre>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · Slurm 仍用 cgroup/v1 plugin 在新 distro</div>
+      <p>升級到 RHEL 9 / Ubuntu 22.04+ 後 Slurm 仍跑 cgroup/v1——但這些 distro 預設 unified v2，混用導致 plugin 找不到 controller。修法：cgroup.conf 改 <code>CgroupPlugin=cgroup/v2</code>，重啟 slurmd。或用 <code>CgroupPlugin=autodetect</code>（v22+ 預設）。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · 忘了 EnableControllers 啟用 io / rdma</div>
+      <p>job 想 sbatch <code>--gres=gpu:1</code> 加上 IO 限制——但 ConstrainDevices 有效、IO 限制無效。原因：Slurm v2 預設只啟 cpu / memory / cpuset / pids；io / rdma / hugetlb 要在 cgroup.conf 加 <code>EnableControllers=io,rdma,hugetlb</code> 才會啟用。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · slurmd 重啟後 job 都消失</div>
+      <p>修改 cgroup.conf 後 <code>systemctl restart slurmd</code>——所有跑中 job 全消失。原因：slurmd 重啟時 systemd 把它放回 root cgroup，但已經有 slurmstepd 子目錄，違反 leaf rule，slurmd 啟動失敗。修法：升級到新版 Slurm（已修復——slurmstepd 用獨立 scope）。或先 drain node、scancel 所有 job、再重啟 slurmd。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · user.slice template drop-in 沒生效</div>
+      <p>建 <code>/etc/systemd/system/user-1001.slice.d/override.conf</code>——但 user 1001 登入後設定沒生效。原因：systemd 對 user.slice 用<em>template instance</em>，drop-in 應放在 <code>/etc/systemd/system/user-.slice.d/</code>（注意 dash 後沒 UID）才會 apply 到所有 user-XXX.slice。修法：用 template 路徑，不寫死 UID。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 5 · systemd-oomd 在沒 swap 系統行為奇怪</div>
+      <p>共享機器設了 ManagedOOMSwap=kill 但系統沒 swap——oomd 預期 swap 用量資訊計算 pressure，沒 swap 時可能誤判。修法：沒 swap 系統用 ManagedOOMMemoryPressure 而非 ManagedOOMSwap。或加 small swap 給 oomd 訊號計算。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 6 · 嵌入式手動 cgroup 沒處理 OOM</div>
+      <p>嵌入式系統手動建 cgroup 設 memory.max——OOM 時 kernel 殺 process 但<em>整個 service 沒重啟</em>。原因：沒有 systemd 的 OOMPolicy=kill 行為，process 死了 service 就掛了。修法：寫 init script 監控 OOM 事件（inotify <code>memory.events</code>），偵測到 oom_kill 後重啟 service。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 7 · HPC 容器 mount 共享 filesystem 沒 cgroup namespace</div>
+      <p>Slurm 配 Singularity 跑容器，容器內 <code>cat /sys/fs/cgroup/...</code> 看到的是 host 路徑而非容器自己的。原因：Singularity 預設不啟用 cgroup namespace（追求性能）。修法：明確 <code>--cgroup-mode</code> 設定，或接受這個 trade-off（HPC 通常是 single-user 場景，namespace 隔離不關鍵）。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 8 · 教室 / lab 共享機器沒設 PID limit</div>
+      <p>學生 fork bomb 把整機 PID 用光（kernel 預設 32K）——所有人無法登入。原因：user.slice 沒設 TasksMax。修法：對 user-.slice template 設 TasksMax=5000（或更嚴）。defense in depth 同時設 sysctl <code>kernel.pid_max</code> 與 systemd 限制。</p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · 設計研究室共享 GPU 機器（思考題，15 分鐘）</div>
+      <p>場景：實驗室共用 8 GPU 機器（256GB RAM，64 CPU），10 個學生同時登入做訓練。回答：</p>
+      <ol>
+        <li>用 Slurm 還是 systemd user.slice 管理？兩者各自場景？</li>
+        <li>怎麼確保 GPU 公平分配（不能讓一人獨佔 8 張）？</li>
+        <li>記憶體與 CPU 限制怎麼設？保護 system daemon？</li>
+        <li>有人 fork bomb / OOM 風險時怎麼處理？</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · 寫 Slurm cgroup audit 腳本（10 分鐘）</div>
+<pre><code>#!/bin/bash
+# slurm-cgroup-audit.sh
+# 在 HPC node 上跑，看 Slurm cgroup 設定健康度
+
+echo "=== Slurm cgroup plugin ==="
+grep -E '^(CgroupPlugin|EnableControllers|Constrain)' /etc/slurm/cgroup.conf
+
+echo "=== current job cgroups ==="
+systemd-cgls /system.slice/slurmstepd*.scope 2>/dev/null
+
+echo "=== resource usage per job ==="
+for scope in /sys/fs/cgroup/system.slice/slurmstepd-*.scope/; do
+    JOB=$(basename "$scope" | sed 's/slurmstepd-//;s/.scope//')
+    [ -d "$scope/job_$JOB" ] || continue
+    
+    MEM=$(cat "$scope/job_$JOB/memory.current" 2>/dev/null)
+    MAX=$(cat "$scope/job_$JOB/memory.max" 2>/dev/null)
+    CPU=$(cat "$scope/job_$JOB/cpuset.cpus" 2>/dev/null)
+    
+    echo "Job $JOB: memory=$MEM/$MAX cpuset=$CPU"
+done</code></pre>
+      <p>跑在你的 HPC node，看 Slurm 是否正確設限。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 配置跳板機 hardening（思考題，15 分鐘）</div>
+      <p>你管理公司跳板機，每天 50+ ssh session 進來。回答：</p>
+      <ol>
+        <li>per-user limit 設多嚴？（MemoryMax、TasksMax、CPUQuota）</li>
+        <li>session timeout 怎麼配（sshd 與 systemd 一致）？</li>
+        <li>怎麼避免 single user 影響其他 user？</li>
+        <li>長期跑的 tmux / screen session 怎麼處理（不該被 limit 殺）？</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 比較 Slurm + Singularity vs K8s（思考題，10 分鐘）</div>
+      <p>你要部署 100 GPU AI 訓練 cluster，可選：</p>
+      <ol>
+        <li>Slurm + Singularity（傳統 HPC）</li>
+        <li>K8s + Kubeflow / Volcano scheduler（雲原生）</li>
+        <li>混合（Slurm-on-K8s）</li>
+      </ol>
+      <p>從 cgroup v2 整合、operator 體驗、生態系工具、長期維護幾個維度比較，哪個適合？</p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>HPC 為什麼不用 K8s？Slurm 與 K8s 設計差異核心是什麼？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>核心差異：解決不同問題</strong>。
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>K8s</strong>：服務式、長期運行、多租戶高密度共享、彈性 scaling、有狀態 service。</li>
+          <li><strong>Slurm</strong>：批次作業、有限時間、節點獨佔、MPI 跨節點通訊、研究運算。</li>
+        </ul>
+        <strong>具體差異</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>workload 模式</strong>：K8s 跑 24/7 service；Slurm 跑「<em>幾小時跑完就走</em>」的 job。</li>
+          <li><strong>scheduling</strong>：K8s 看 resource request / labels；Slurm 看節點數、wall-time、partition、QoS。</li>
+          <li><strong>跨節點通訊</strong>：K8s 用 service mesh；Slurm 用 MPI（PMI / OpenMPI）。</li>
+          <li><strong>檔案系統</strong>：K8s 用 PV / PVC；Slurm 用 NFS / Lustre / GPFS。</li>
+          <li><strong>使用者 UX</strong>：K8s 用 kubectl；Slurm 用 sbatch / srun + SSH。</li>
+        </ol>
+        <strong>cgroup v2 整合差異</strong>：兩者都用 cgroup v2，但 hierarchy 結構不同：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>K8s：<code>kubepods.slice/kubepods-pod{UID}.slice/container-{ID}.scope</code></li>
+          <li>Slurm：<code>system.slice/slurmstepd-{job}.scope/job_{ID}/step_{N}/task_{M}</code></li>
+        </ul>
+        <strong>AI / ML 模糊邊界</strong>：大型訓練既要 HPC 的 RDMA / GPU，又要 K8s 的彈性管理。研究機構開始用混合架構。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>Slurm cgroup/v2 plugin 為什麼透過 D-Bus 建獨立 scope 給 slurmstepd？不直接 mkdir 不行嗎？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>不能直接 mkdir 的原因</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>違反 single-writer rule</strong>：systemd 是 PID 1，擁有 root cgroup 管理權。slurmd 直接 mkdir 變成第二個 writer，systemd 可能清掉或衝突。</li>
+          <li><strong>slurmd restart 問題</strong>：若 slurmd 在自己 cgroup 之下建 job 子目錄，它的 cgroup 變成 inner node。systemd restart slurmd 時無法把新 PID 放進 non-leaf（違反 leaf rule），啟動失敗。</li>
+        </ol>
+        <strong>D-Bus 解法</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>每個 job 啟動時，slurmstepd 透過 D-Bus 向 systemd 請建立新 scope（<code>slurmstepd-{job_id}.scope</code>）。</li>
+          <li>systemd 建 scope，設 <code>Delegate=yes</code>——slurmstepd 在 scope 之下自由管理 cgroup。</li>
+          <li>slurmstepd 在 delegated subtree 建 job/step/task 三層 cgroup。</li>
+          <li>slurmd 自己仍在 system.slice/slurmd.service，不會變 inner node——可以正常 restart。</li>
+        </ol>
+        <strong>關鍵設計</strong>：<em>分離 slurmd 與 slurmstepd 的 cgroup</em>。slurmd 是 daemon（systemd 完全管），slurmstepd 是 job-specific（自己管 delegated subtree）。
+        <strong>結果</strong>：systemd 看不到 slurmstepd 之下的細節（被 delegate 了），但可以隨時 restart slurmd 不影響跑中的 job。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span>共享 workstation 的 user.slice template drop-in 怎麼寫？為什麼不能寫 user-1001.slice.d？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>正確路徑</strong>：<code>/etc/systemd/system/user-.slice.d/override.conf</code>（注意 dash 後<em>沒有</em> UID）。
+        <strong>為什麼這樣</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>systemd 對 user-XXX.slice 是 <em>template instance</em>——XXX 是動態的 UID。</li>
+          <li>template drop-in 路徑用 <code>user-.slice.d</code>（dash 後無內容）匹配所有 instance。</li>
+          <li>寫死 <code>user-1001.slice.d</code> 只對 user 1001 生效，其他 user 不受影響。</li>
+        </ul>
+        <strong>範例</strong>：
+        <pre style="margin-top:8px;font-size:11px;"># /etc/systemd/system/user-.slice.d/00-multi-tenant.conf
+[Slice]
+MemoryMax=4G
+TasksMax=5000
+CPUWeight=100
+ManagedOOMMemoryPressure=kill
+ManagedOOMMemoryPressureLimit=50%</pre>
+        <strong>對 user.slice 整體（所有 user 加起來）</strong>：用 <code>user.slice</code>（沒 dash）：
+        <pre style="margin-top:8px;font-size:11px;">sudo systemctl set-property user.slice MemoryMax=128G CPUWeight=500</pre>
+        <strong>per-user 不同設定</strong>：對特定 UID 寫死路徑：<code>/etc/systemd/system/user-1001.slice.d/special.conf</code>——優先級高過 template，只對 user 1001 生效。
+        <strong>實務做法</strong>：先寫 template 設預設限制，特殊 user 用寫死的 override 加更嚴 / 寬鬆設定。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span>跳板機 (bastion) 與一般共享機器在 cgroup 設定上有何不同？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>使用模式差異</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>跳板機</strong>：許多 user 短暫 ssh 登入執行少量命令（看 log、查 ip、跳到內網）。session 短、量大。</li>
+          <li><strong>共享開發機</strong>：少數 user 長期使用、跑訓練 / build / test。session 長、resource 用量大。</li>
+        </ul>
+        <strong>cgroup 設定差異</strong>：
+        <table style="font-size:11px;margin-top:8px;width:100%;border-collapse:collapse;">
+          <tr style="background:var(--bg-muted);"><th style="padding:4px;">設定</th><th>跳板機</th><th>共享開發機</th></tr>
+          <tr><td>MemoryMax</td><td>512M-2G（嚴）</td><td>16-64G（寬）</td></tr>
+          <tr><td>TasksMax</td><td>200-500（嚴）</td><td>5000-10000（寬）</td></tr>
+          <tr><td>CPUQuota</td><td>100-200%（嚴）</td><td>800%+ 或不設</td></tr>
+          <tr><td>IOWeight</td><td>50（低）</td><td>100（中）</td></tr>
+          <tr><td>session timeout</td><td>10-30 分鐘</td><td>無或數小時</td></tr>
+        </table>
+        <strong>跳板機特殊考量</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>強制 timeout</strong>：sshd ClientAliveInterval + IdleAction=kill 雙重保險。</li>
+          <li><strong>嚴格 IOWeight</strong>：避免有人 dd / rsync 影響其他 session 登入。</li>
+          <li><strong>per-session 而非 per-user</strong>：每個 ssh session 獨立 limit（透過 PAM session）。</li>
+          <li><strong>tmux / screen 的處理</strong>：用 systemd-run --scope 把長期 session 放進獨立 scope 不被 timeout 殺。</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span>嵌入式 / IoT 系統（無 systemd）怎麼用 cgroup v2？跟 systemd 系統最大差別？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>主要做法：手動管理</strong>。沒 systemd，必須在 init script 中手動：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>確認 cgroup2 mounted（<code>mount | grep cgroup2</code>）</li>
+          <li>啟用 controllers：<code>echo "+memory +cpu +pids" &gt; cgroup.subtree_control</code></li>
+          <li>建子 cgroup：<code>mkdir /sys/fs/cgroup/services/critical</code></li>
+          <li>設 limits：<code>echo "256M" &gt; .../memory.max</code></li>
+          <li>啟動 process 後寫 PID：<code>echo $PID &gt; .../cgroup.procs</code></li>
+        </ol>
+        <strong>跟 systemd 系統最大差別</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>無 single-writer 強制</strong>：嵌入式 init 簡單，不會像 systemd 那樣積極管 cgroup。</li>
+          <li><strong>無 OOMPolicy 自動處理</strong>：OOM 後 process 死，<em>service 不會自動重啟</em>。需要 init script 自己監控（用 inotify 監 memory.events）。</li>
+          <li><strong>無 user session 自動隔離</strong>：embedded 通常 single-user 或 root，不需要 user.slice。</li>
+          <li><strong>啟動順序自管</strong>：systemd 的 After= / Requires= dependency 變成 init script 順序問題。</li>
+          <li><strong>cgroup driver 強制 cgroupfs</strong>：沒 systemd 就沒 systemd driver。</li>
+        </ul>
+        <strong>典型場景</strong>：路由器、NAS、工業 controller、smart device。資源緊（256MB-2GB RAM）、process 少（10-30）、求穩定（不能因小應用 leak 拖死）。
+        <strong>實作建議</strong>：寫 init script 用 inotify 監 memory.events，偵測到 oom_kill 自動重啟對應 service。defense in depth：sysctl pid_max + systemd-style cgroup 限制。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>HPC + K8s 混合架構有哪幾種模式？AI / ML 訓練該選哪個？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>三種混合模式</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>K8s + RDMA</strong>：K8s 跑訓練 Pod，CNI 整合 RDMA（Cilium、Multus + RoCE）。<em>場景</em>：單機多 GPU、中等規模分散式。<em>優點</em>：k8s 生態完整。<em>缺點</em>：MPI 整合不如 Slurm 直接。</li>
+          <li><strong>Slurm + Singularity / Apptainer</strong>：Slurm 排程，job 跑容器。<em>場景</em>：傳統 HPC 中心轉型用容器。<em>優點</em>：保留 HPC 工作流，user 不用學 K8s。<em>缺點</em>：與 K8s 生態（image registry、CI/CD）整合難。</li>
+          <li><strong>Slurm-on-K8s</strong>：K8s 提供基礎設施（運維、監控、GPU operator），Slurm 在 Pod 中跑做 batch scheduling。<em>場景</em>：研究機構同時要 web service 與 HPC job。<em>優點</em>：兼顧兩世界。<em>缺點</em>：複雜度高。</li>
+        </ol>
+        <strong>AI / ML 訓練選擇</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>大規模分散式（&gt; 100 GPU）</strong>：仍以 Slurm 為主——MPI 與 NCCL 整合最直接。Slurm + Pyxis（NVIDIA enroot 整合）是 NVIDIA 推薦。</li>
+          <li><strong>中規模（&lt; 32 GPU）</strong>：K8s + Kubeflow / Volcano 已成熟。MLOps 工具鏈完整（MLflow、Argo Workflows）。</li>
+          <li><strong>實驗室 / 研究</strong>：Slurm + Singularity 適合 user 自由提交 job，K8s 適合需要 web UI / dashboard。</li>
+        </ul>
+        <strong>趨勢</strong>：2024-2025 大型 AI 公司（OpenAI、Anthropic、Meta）多用 <em>Slurm + 自家 orchestration</em>；雲廠商（AWS、GCP、Azure）推 K8s + GPU operator。融合架構研究持續。
+        <strong>cgroup v2 角度</strong>：兩者都用 cgroup v2 做底層資源限制，差別在 scheduler 與工作流——cgroup 整合大致相同。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span>實作思考題：你管理一個 50 節點 GPU cluster 給 30 位研究員用，需求是「<em>容易使用、公平分配、防止濫用</em>」。請設計完整方案。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>完整方案設計</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[Phase 1: 選平台]
+方案 A: Slurm（傳統 HPC 風）
+- 學習曲線低，sbatch / srun 簡單
+- MPI / RDMA 整合好
+- GPU sharing 用 --gres=gpu:N
+- 公平：fair-share + QoS partition
+
+方案 B: K8s + Volcano scheduler
+- 學習曲線中，需懂 yaml
+- MLOps 工具完整（Kubeflow）
+- GPU sharing 用 NVIDIA device plugin
+- 公平：ResourceQuota + LimitRange
+
+選擇：Slurm。research user 比較熟、MPI 場景多。
+
+[Phase 2: cgroup v2 設定]
+1. 所有節點 cgroup v2（kernel 5.9+）
+2. cgroup.conf:
+   CgroupPlugin=cgroup/v2
+   ConstrainCores=yes
+   ConstrainRAMSpace=yes
+   ConstrainSwapSpace=yes
+   ConstrainDevices=yes
+   EnableControllers=io,pids,rdma,hugetlb,misc
+
+3. slurm.conf 設 partition 與 QoS:
+   PartitionName=normal Default=YES MaxTime=24:00:00
+   PartitionName=long MaxTime=72:00:00 Priority=50
+   PartitionName=interactive MaxTime=01:00:00 Priority=200
+
+[Phase 3: 公平分配]
+4. 啟用 fair-share scheduling
+5. 對每個 user 設 default account 與 GrpTRES limit:
+   sacctmgr add user alice DefaultAccount=research_team
+   sacctmgr modify user alice set GrpTRESMins=cpu=10000,gres/gpu=2000
+
+6. 對 partition 設 MaxTRESPerUser:
+   PartitionName=normal MaxTRESPerUser=gpu=2
+
+[Phase 4: 防濫用]
+7. 限制 login node:
+   /etc/systemd/system/user-.slice.d/00-login.conf
+   [Slice]
+   MemoryMax=8G
+   TasksMax=2000
+   CPUQuota=400%
+
+8. systemd-oomd 對 user.slice 啟用
+9. 對 user job 設 wall-time hard limit (--time)
+
+[Phase 5: 監控與審計]
+10. Prometheus + slurm-exporter 採集 job metrics
+11. Grafana dashboard:
+    - per-user GPU hour usage
+    - PSI metrics on compute nodes
+    - OOM events
+12. 月報：哪些 user 用了多少 GPU hour
+
+[Phase 6: 文件與培訓]
+13. Wiki 教 sbatch 範例
+14. Office hours 解答 user 問題
+15. 「<em>fair-share 怎麼運作</em>」說明
+16. 寫 troubleshooting playbook（OOM、quota 滿了等）</pre>
+        <strong>關鍵設計決策</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>選 Slurm 不選 K8s</strong>：30 位 research user 對 yaml 不友善，sbatch 學習成本低。</li>
+          <li><strong>fair-share 自動公平</strong>：不需要 admin 手動分配，根據歷史使用自動 priority。</li>
+          <li><strong>分 partition 給不同需求</strong>：interactive 短 job 與 long 長 job 不互卡。</li>
+          <li><strong>login node 嚴格限制</strong>：避免有人在 login node 跑 stress / 訓練。</li>
+          <li><strong>cgroup v2 + EnableControllers</strong>：完整資源控制（含 GPU、RDMA）。</li>
+        </ol>
+        <strong>常見坑</strong>：fair-share 配置複雜（需要 accounting db）；GPU MIG 需要額外設定；user 不熟 sbatch 需要教學。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>實作思考題：你接手一個傳統 HPC cluster（仍用 cgroup v1 plugin），要遷移到 cgroup v2。請設計完整 migration 計劃。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>完整 migration 計劃（5 階段）</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[Phase 1: 前置評估]
+1. 盤點現況：
+   - kernel 版本（cgroup v2 推薦 5.9+，最低 4.15）
+   - distro 版本（RHEL 9+ / Ubuntu 22.04+ 預設 v2）
+   - Slurm 版本（v22+ 才有完整 v2 plugin）
+   - systemd 版本（246+ 對 user delegation 完整）
+
+2. 識別風險：
+   - 跑中的 long job（不能中斷）
+   - 自訂 prolog / epilog scripts 是否寫 cgroup 路徑
+   - GPU driver / RDMA 整合是否影響
+
+[Phase 2: 升級基礎設施]
+3. 升級 distro 到 v2-default（RHEL 9 / Ubuntu 22.04+）
+   - 一次升一個節點，drain 後升級
+4. 升級 Slurm 到 v22+ 或 v23+
+5. 升級 systemd 到 246+
+6. 在新節點驗證 cgroup v2 正常 mount:
+   mount | grep cgroup2fs
+
+[Phase 3: 試點測試]
+7. 選 1-2 個非生產節點當試點
+8. 修改 cgroup.conf:
+   CgroupPlugin=cgroup/v2  # 或 autodetect
+   EnableControllers=io,pids,rdma,hugetlb,misc
+   ConstrainCores=yes
+   ConstrainRAMSpace=yes
+   ConstrainDevices=yes
+
+9. 重啟 slurmd
+10. 跑測試 job 驗證:
+    - 簡單 sleep job
+    - MPI job（多節點）
+    - GPU job
+    - 大記憶體 job
+
+11. 觀察 cgroup tree:
+    systemd-cgls /system.slice/slurmstepd*.scope
+
+[Phase 4: 漸進 rollout]
+12. 一次升級一個 partition 的節點
+13. 公告 maintenance window
+14. drain 節點 → 升級 → 測試 → return to service
+15. 重點觀察：
+    - PSI metrics 是否正常
+    - OOM event 是否上升
+    - GPU / RDMA job 性能對比
+16. 持續監控 1 週
+
+[Phase 5: 完成與最佳化]
+17. 全 cluster 完成 v2 遷移
+18. 啟用 v2 新功能：
+    - PSI alert 在 controller node
+    - cgroup.kill atomic kill
+    - memory_recursiveprot mount option
+19. 更新文件：
+    - user 看到 cgroup 路徑變了（過去寫 v1 path 的腳本要改）
+    - admin runbook
+20. 訓練 admin team
+
+[防護措施]
+- 每階段都有 rollback plan（可改 CgroupPlugin=cgroup/v1）
+- 保留 1-2 個 v1 節點當 fallback（直到完全穩定）
+- 跑 60 天 burn-in，確認無 regression</pre>
+        <strong>關鍵風險點</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>Slurm 版本太舊</strong>：v21 之前 v2 plugin 不穩，必須升級。</li>
+          <li><strong>自訂 prolog / epilog</strong>：寫死 v1 cgroup 路徑（如 /sys/fs/cgroup/memory/...）會壞。</li>
+          <li><strong>GPU driver</strong>：NVIDIA driver 對 cgroup v2 device controller（BPF）要求新版本。</li>
+          <li><strong>跑中的 long job</strong>：可能要 drain 等到 job 結束，long-running 工作流可能超過 maintenance window。</li>
+        </ol>
+        <strong>成功指標</strong>：所有節點 cgroup v2、Slurm 跑得順、PSI metrics 可採、OOM rate 下降、user 滿意度不變或上升。
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+    <div class="refs">
+      <ol>
+        <li><a href="https://slurm.schedmd.com/cgroup_v2.html" target="_blank" rel="noopener">Control Group v2 plugin · Slurm</a><span class="ref-source">slurm.schedmd.com · Slurm cgroup/v2 設計與實作完整文件</span></li>
+        <li><a href="https://slurm.schedmd.com/cgroups.html" target="_blank" rel="noopener">Control Group in Slurm · Slurm</a><span class="ref-source">slurm.schedmd.com · cgroup 整合概覽</span></li>
+        <li><a href="https://slurm.schedmd.com/cgroup.conf.html" target="_blank" rel="noopener">cgroup.conf · Slurm</a><span class="ref-source">slurm.schedmd.com · cgroup.conf 參數完整參考</span></li>
+        <li><a href="https://systemd.io/CGROUP_DELEGATION/" target="_blank" rel="noopener">Control Group APIs and Delegation · systemd</a><span class="ref-source">systemd.io · D-Bus API 與 delegation 機制</span></li>
+        <li><a href="https://www.freedesktop.org/software/systemd/man/systemd.slice.html" target="_blank" rel="noopener">systemd.slice · systemd manual</a><span class="ref-source">freedesktop.org · user.slice 與 template 完整定義</span></li>
+        <li><a href="https://apptainer.org/docs/admin/main/cgroups.html" target="_blank" rel="noopener">Apptainer cgroups</a><span class="ref-source">apptainer.org · HPC 容器與 cgroup 整合</span></li>
+        <li><a href="https://arxiv.org/html/2508.09663v1" target="_blank" rel="noopener">Closing the HPC-Cloud Convergence Gap · IEEE Cluster 2025</a><span class="ref-source">arxiv.org · HPC + K8s 融合最新研究</span></li>
+        <li><a href="https://docs.nvidia.com/datacenter/cloud-native/edge/latest/index.html" target="_blank" rel="noopener">NVIDIA Cloud Native Stack</a><span class="ref-source">docs.nvidia.com · GPU + cgroup v2 + K8s 整合</span></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn" href="ch17-kubernetes.html">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">Ch.17 Kubernetes 雲原生</span>
+    </a>
+    <a class="nav-btn next disabled">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">Ch.19 Go 整合</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.title = `Theme: ${LABELS[mode]}`;
+      btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+</body>
+</html>

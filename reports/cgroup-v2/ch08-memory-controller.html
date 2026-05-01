@@ -1,0 +1,1279 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.8 Memory controller 深度解析 — cgroup v2 完整教學</title>
+<meta name="description" content="cgroup v2 Memory controller 完整介面解析：memory.{min,low,high,max}、memory.events、memory.swap、memory.zswap、memory.oom.group、Memory Ownership。">
+
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626; --color-danger-soft: #fee2e2;
+  --color-info: #0891b2; --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px; --text-4xl: 64px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+</style>
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.topbar { position: sticky; top: 0; z-index: 50; background: color-mix(in oklch, var(--bg-canvas) 88%, transparent); backdrop-filter: saturate(180%) blur(12px); -webkit-backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--border-soft); }
+.topbar-inner { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.brand { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-secondary); }
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 999px; padding: 6px 14px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background .2s, border-color .2s, color .2s; }
+[data-theme-toggle]:hover { background: var(--bg-muted); border-color: var(--border-mid); color: var(--text-primary); }
+[data-theme-toggle] .theme-icon { font-size: 14px; line-height: 1; }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: 0 var(--space-5); }
+
+.chapter-head { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); }
+.chapter-tag { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary-text); background: var(--color-primary-soft); padding: 4px 12px; border-radius: 999px; margin-bottom: var(--space-4); }
+.chapter-title { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; margin-bottom: var(--space-3); }
+.chapter-subtitle { font-family: var(--font-serif-body); font-size: var(--text-md); color: var(--text-secondary); line-height: 1.65; font-style: italic; }
+.chapter-meta { margin-top: var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.chapter-meta-item:first-child::before { display: none; }
+
+.section { padding: var(--space-7) 0; border-bottom: 1px solid var(--border-soft); }
+.section:last-of-type { border-bottom: none; }
+.section-label { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2); }
+.section-label::before { content: ""; width: 24px; height: 1px; background: var(--color-primary); }
+.section-title { font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600; margin-bottom: var(--space-5); letter-spacing: -0.01em; line-height: 1.2; }
+
+.prose p { font-family: var(--font-serif-body); font-size: var(--text-base); color: var(--text-primary); line-height: 1.85; margin-bottom: var(--space-4); }
+.prose h3 { font-family: var(--font-sans); font-size: var(--text-lg); font-weight: 600; color: var(--text-primary); margin: var(--space-6) 0 var(--space-3); letter-spacing: -0.01em; }
+.prose h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 500; color: var(--text-primary); margin: var(--space-5) 0 var(--space-2); }
+.prose ul, .prose ol { font-family: var(--font-serif-body); margin-bottom: var(--space-4); padding-left: var(--space-5); line-height: 1.8; }
+.prose ul li, .prose ol li { margin-bottom: var(--space-2); color: var(--text-primary); }
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong { font-weight: 600; color: var(--text-primary); }
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 1px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+.prose a { color: var(--color-primary); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.prose a:hover { color: var(--color-primary-hover); }
+
+.highlights { background: var(--color-primary-soft); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.highlights ol { font-family: var(--font-sans); padding-left: var(--space-5); margin: 0; }
+.highlights li { font-size: var(--text-sm); color: var(--color-primary-text); margin-bottom: var(--space-2); line-height: 1.65; }
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+
+.news-box { background: var(--color-info-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.news-item { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); line-height: 1.7; padding: var(--space-2) 0; border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent); }
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-info); margin-right: var(--space-2); }
+
+pre { font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.7; background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; margin-bottom: var(--space-4); color: var(--text-primary); }
+pre code { background: transparent; border: none; padding: 0; font-size: inherit; color: inherit; }
+
+.cmp-table { width: 100%; border-collapse: collapse; margin-bottom: var(--space-4); font-size: var(--text-sm); font-family: var(--font-sans); }
+.cmp-table th, .cmp-table td { padding: var(--space-3); text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.cmp-table th { font-weight: 600; color: var(--text-primary); background: var(--bg-muted); font-size: var(--text-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 1px 5px; border-radius: var(--radius-sm); color: var(--color-primary-text); }
+
+.lab { background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.lab-title { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--color-primary); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px dashed var(--border-soft); }
+.lab-title::before { content: "▶ "; color: var(--color-primary); }
+.lab p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-3); color: var(--text-secondary); line-height: 1.7; }
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+.lab ol, .lab ul { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); color: var(--text-secondary); line-height: 1.7; }
+
+.pitfall { background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.pitfall-title { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 600; color: var(--color-warning); margin-bottom: var(--space-2); }
+.pitfall p { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); margin-bottom: var(--space-2); line-height: 1.7; }
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code { background: color-mix(in oklch, var(--color-warning) 15%, transparent); border-color: color-mix(in oklch, var(--color-warning) 30%, transparent); color: var(--text-primary); }
+
+.quiz-item { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-3); }
+.quiz-q { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; color: var(--text-primary); margin-bottom: var(--space-2); display: flex; gap: var(--space-2); }
+.quiz-q-num { font-family: var(--font-mono); color: var(--color-primary); flex-shrink: 0; }
+.quiz-toggle { background: transparent; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 4px 10px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; margin-top: var(--space-2); transition: background .2s, color .2s; }
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a { display: none; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px dashed var(--border-soft); font-family: var(--font-serif-body); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.75; }
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+
+.diagram { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); margin-bottom: var(--space-4); text-align: center; }
+.diagram svg { max-width: 100%; height: auto; }
+.diagram-caption { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-3); text-align: center; }
+
+.refs ol { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); line-height: 1.8; }
+.refs li { margin-bottom: var(--space-2); color: var(--text-secondary); }
+.refs li::marker { color: var(--color-primary); }
+.refs a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dashed var(--color-primary); }
+.refs a:hover { color: var(--color-primary-hover); }
+.refs .ref-source { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); display: block; margin-top: 2px; }
+
+.chapter-nav { margin-top: var(--space-6); padding: var(--space-5) 0; display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.nav-btn { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; padding: var(--space-3) var(--space-4); background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); text-decoration: none; color: var(--text-primary); transition: border-color .2s, transform .15s; }
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.04em; }
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.08</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part III · Controllers 上 · Chapter 08</span>
+    <h1 class="chapter-title">Memory controller 深度解析</h1>
+    <p class="chapter-subtitle">
+      Memory controller 是 cgroup v2 介面最豐富、設計最精細、實戰最重要的 controller。
+      本章拆解四階保護限制（min/low/high/max）、events 機制、swap 與 zswap 整合、
+      OOM group 行為、Memory Ownership 規則、stat 與 numa_stat 監控介面，
+      並用三模型互補與 Kubernetes Memory QoS 把所有觀念串起來。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~8,500 字</span>
+      <span class="chapter-meta-item">閱讀時間 32 分鐘</span>
+      <span class="chapter-meta-item">難度：核心</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ====================== Section 1: 本章重點 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+
+    <div class="highlights">
+      <ol>
+        <li><strong>四階保護限制</strong>：<code>memory.min</code>（硬保護）→ <code>memory.low</code>（軟保護）→ <code>memory.high</code>（軟限制 + throttle）→ <code>memory.max</code>（硬限制 + OOM）。每階對應不同的 reclaim / OOM 行為。</li>
+        <li><strong>memory.high 是 v2 的殺手鐧</strong>：v1 沒有對應介面。它讓你在<em>到達 OOM 前</em>就 throttle，給 monitor 機會介入——是 Kubernetes Memory QoS 的核心。</li>
+        <li><strong>Swap 三層介面</strong>：<code>memory.swap.max</code>（硬限）、<code>memory.swap.high</code>（軟限）、<code>memory.swap.peak</code>（峰值）。設 0 等於關 swap。</li>
+        <li><strong>memory.oom.group</strong>：寫 1 把整個 cgroup 視為「<em>不可分割的 workload</em>」，OOM 時要嘛全活、要嘛全死。對 Pod / Container 是黃金設定。</li>
+        <li><strong>memory.events 是監控 backbone</strong>：累計 throttle、OOM、max 事件的觸發次數，可以 inotify 監聽——systemd-oomd、Kubernetes evict 都靠這個。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 2: 最新動態 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+
+    <div class="news-box">
+      <div class="news-item">
+        <span class="news-date">2025-09</span>
+        <strong>Netdata 發布診斷指南</strong>：詳細說明 cgroup v2 的 tiered memory 系統，並指出 throttling 經常在 OOM 之前發生，需要監控 memory.high 與 PSI。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>memory.zswap 介面成熟並普及</strong>：<code>memory.zswap.current</code>、<code>memory.zswap.max</code>、<code>memory.zswap.writeback</code>。zswap 比 disk-backed swap 快 100 倍，配合 cgroup-level 限制成為新趨勢。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025-09</span>
+        <strong>Kubernetes Memory QoS 在 v1.34 進 Beta</strong>，預設啟用對 Burstable Pod 自動設 memory.high，搭配 memory.min 給 request 保護。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2024–2025</span>
+        <strong>memory.peak 與 memory.swap.peak</strong>（kernel 5.19+）已普及。記錄 cgroup 啟動以來的最高記憶體使用，對容量規劃比 memory.current 即時值更有用。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>memory.reclaim 介面（kernel 5.19+）</strong>主動觸發 cgroup 內部 reclaim，用於 Pod evict、container shutdown 前的記憶體回收。systemd-oomd 內部使用。
+      </div>
+    </div>
+
+    <div class="prose">
+      <p>
+        2026 年的時點，<strong>Memory controller 已經是 cgroup v2 介面最豐富、最完整的 controller</strong>，介面數量遠超 cpu。
+        對 Kubernetes / 容器 / multi-tenant 機器來說，把 memory 介面用對是性能與穩定的關鍵。
+        本章篇幅是全書最長之一，但讀完你會掌握生產環境記憶體管理的<em>所有</em>必要知識。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 3: 核心內容 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+
+    <div class="prose">
+      <h3>3.1 Memory controller 介面總覽</h3>
+      <p>
+        現代 kernel（6.6+）的 Memory controller 提供大量介面。先看完整清單，後面逐個展開：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>類別</th><th>介面</th><th>作用</th></tr>
+      </thead>
+      <tbody>
+        <tr><td rowspan="4"><strong>限制與保護</strong></td><td><code>memory.min</code></td><td>硬保護下限（reclaim 不會碰）</td></tr>
+        <tr><td><code>memory.low</code></td><td>軟保護下限（best-effort）</td></tr>
+        <tr><td><code>memory.high</code></td><td>軟上限（throttle + reclaim，不 OOM）</td></tr>
+        <tr><td><code>memory.max</code></td><td>硬上限（reclaim 失敗則 OOM）</td></tr>
+        <tr><td rowspan="3"><strong>當前用量</strong></td><td><code>memory.current</code></td><td>當前已用 bytes</td></tr>
+        <tr><td><code>memory.peak</code></td><td>歷史峰值（kernel 5.19+）</td></tr>
+        <tr><td><code>memory.stat</code></td><td>詳細統計（anon、file、kernel_stack、pgfault…）</td></tr>
+        <tr><td rowspan="4"><strong>Swap</strong></td><td><code>memory.swap.current</code></td><td>當前 swap 用量</td></tr>
+        <tr><td><code>memory.swap.high</code></td><td>swap 軟限</td></tr>
+        <tr><td><code>memory.swap.max</code></td><td>swap 硬限（0 = 禁 swap）</td></tr>
+        <tr><td><code>memory.swap.peak</code></td><td>swap 歷史峰值</td></tr>
+        <tr><td rowspan="3"><strong>zswap</strong></td><td><code>memory.zswap.current</code></td><td>當前 zswap 壓縮後的記憶體用量</td></tr>
+        <tr><td><code>memory.zswap.max</code></td><td>zswap 硬限</td></tr>
+        <tr><td><code>memory.zswap.writeback</code></td><td>0 = 禁止 zswap 寫回 disk</td></tr>
+        <tr><td rowspan="3"><strong>事件與行為</strong></td><td><code>memory.events</code></td><td>累計事件計數（low/high/max/oom/oom_kill…）</td></tr>
+        <tr><td><code>memory.events.local</code></td><td>同上但<em>不含</em>子樹</td></tr>
+        <tr><td><code>memory.oom.group</code></td><td>1 = OOM 時殺整個 cgroup</td></tr>
+        <tr><td rowspan="3"><strong>監控與調節</strong></td><td><code>memory.pressure</code></td><td>PSI memory（some/full）</td></tr>
+        <tr><td><code>memory.numa_stat</code></td><td>per-NUMA-node 用量</td></tr>
+        <tr><td><code>memory.reclaim</code></td><td>主動觸發 reclaim（write only）</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h3>3.2 四階保護限制：memory.{min, low, high, max}</h3>
+      <p>
+        v2 把記憶體分配的所有需求歸納為<strong>四個層級</strong>，從最寬鬆到最嚴格：
+      </p>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 680 320" role="img" aria-label="memory 四階保護限制示意">
+        <text x="340" y="22" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="600" fill="var(--text-primary)">memory 四階保護限制（從低到高）</text>
+
+        <!-- Y 軸 -->
+        <line x1="80" y1="60" x2="80" y2="280" stroke="var(--text-muted)" stroke-width="1"/>
+        <text x="60" y="65" font-family="var(--font-mono)" font-size="9" fill="var(--text-muted)">高</text>
+        <text x="60" y="285" font-family="var(--font-mono)" font-size="9" fill="var(--text-muted)">低</text>
+
+        <!-- max -->
+        <rect x="100" y="80" width="500" height="40" fill="var(--color-danger-soft)" stroke="var(--color-danger)" stroke-width="1"/>
+        <text x="120" y="105" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-danger)">memory.max</text>
+        <text x="350" y="105" font-family="var(--font-sans)" font-size="11" fill="var(--text-secondary)">超過 → reclaim 失敗就 OOM kill</text>
+
+        <!-- high -->
+        <rect x="100" y="130" width="500" height="40" fill="var(--color-warning-soft)" stroke="var(--color-warning)" stroke-width="1"/>
+        <text x="120" y="155" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-warning)">memory.high</text>
+        <text x="350" y="155" font-family="var(--font-sans)" font-size="11" fill="var(--text-secondary)">超過 → throttle + 強力 reclaim（不 OOM）</text>
+
+        <!-- low -->
+        <rect x="100" y="180" width="500" height="40" fill="var(--color-info-soft)" stroke="var(--color-info)" stroke-width="1"/>
+        <text x="120" y="205" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-info)">memory.low</text>
+        <text x="350" y="205" font-family="var(--font-sans)" font-size="11" fill="var(--text-secondary)">受保護額度（best-effort，極端壓力下會被 reclaim）</text>
+
+        <!-- min -->
+        <rect x="100" y="230" width="500" height="40" fill="var(--color-success-soft)" stroke="var(--color-success)" stroke-width="1"/>
+        <text x="120" y="255" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-success)">memory.min</text>
+        <text x="350" y="255" font-family="var(--font-sans)" font-size="11" fill="var(--text-secondary)">硬保護額度（reclaim 絕對不碰，違反會犧牲全系統）</text>
+
+        <!-- 箭頭與說明 -->
+        <path d="M 620 90 L 620 110" stroke="var(--color-danger)" stroke-width="2"/>
+        <text x="630" y="100" font-family="var(--font-sans)" font-size="9" fill="var(--color-danger)">死</text>
+        <path d="M 620 140 L 620 160" stroke="var(--color-warning)" stroke-width="2"/>
+        <text x="630" y="150" font-family="var(--font-sans)" font-size="9" fill="var(--color-warning)">慢</text>
+        <path d="M 620 240 L 620 220" stroke="var(--color-success)" stroke-width="2"/>
+        <text x="630" y="232" font-family="var(--font-sans)" font-size="9" fill="var(--color-success)">護</text>
+      </svg>
+      <div class="diagram-caption">圖 8.1 · memory 四階保護限制與對應行為</div>
+    </div>
+
+    <div class="prose">
+      <h4>memory.max（硬上限）</h4>
+      <p>
+        cgroup 最多能用的記憶體 bytes。<strong>超過 → kernel 嘗試 reclaim → reclaim 不夠就觸發 OOM killer</strong> 在 cgroup 內挑 process 殺掉。
+        類似 v1 的 <code>memory.limit_in_bytes</code>，但語意更乾淨。
+      </p>
+<pre><code># 設 1GB 硬上限
+echo "1G" > memory.max
+
+# 解除限制
+echo "max" > memory.max
+</code></pre>
+
+      <h4>memory.high（軟上限 + throttle）</h4>
+      <p>
+        v2 的<strong>殺手鐧</strong>，v1 沒有對應介面。<em>超過 high → kernel 進入「<em>強力 reclaim 模式</em>」並 throttle 該 cgroup 的 process</em>，但<strong>絕不觸發 OOM killer</strong>。
+        kernel 文件原話：「<em>memory.high is the main mechanism to control memory usage. Over-committing on high limit (sum of high limits &gt; available memory) and letting global memory pressure to distribute memory according to usage is a viable strategy. Because breach of the high limit doesn't trigger the OOM killer but throttles the offending cgroup, a management agent has ample opportunities to monitor and take appropriate actions such as granting more memory or terminating the workload.</em>」
+      </p>
+      <p>
+        實務意義：<strong>memory.high 給你一個「<em>緩衝區</em>」，讓監控系統有機會介入</strong>，不會像 max 一樣直接 OOM。
+      </p>
+
+      <h4>memory.low（軟保護）</h4>
+      <p>
+        cgroup 用量低於 low 時，受到 reclaim 保護——除非<em>整個系統</em>都受到嚴重壓力，否則 kernel 不會從這個 cgroup 回收記憶體。
+        是 best-effort 保護，不像 min 是絕對。
+      </p>
+
+      <h4>memory.min（硬保護）</h4>
+      <p>
+        最強保護。cgroup 用量低於 min 時，<strong>reclaim 絕對不會碰</strong>。即使全系統都缺記憶體，kernel 寧可 OOM 其他 cgroup 也不會碰受保護額度。
+        kernel 文件警告：「<em>If a memcg's memory.min setting causes the parent to be unable to satisfy its own memory.min, the parent's memory.min becomes effective only up to what's available.</em>」——min 加總不能超過 parent 能給的，否則部分保護會失效。
+      </p>
+
+      <h4>四階介面互動範例</h4>
+<pre><code># 典型的 Burstable Pod（K8s 實際做法）
+# Pod request=512Mi, limit=2Gi
+echo "512M" > memory.min     # request 量受硬保護
+echo "1843M" > memory.high   # request + 0.9*(limit-request) ≈ 90% 軟煞車
+echo "2G" > memory.max       # limit 是最後防線
+
+# 行為：
+# 用量 < 512M     → 完全不被 reclaim
+# 512M-1843M      → 一般情況不被 reclaim
+# 1843M-2G        → throttle + 強力 reclaim
+# > 2G            → reclaim 失敗就 OOM
+</code></pre>
+
+      <h3>3.3 memory.events：事件監控</h3>
+      <p>
+        <code>memory.events</code> 是 v2 的<strong>監控核心</strong>。每次觸發某個閾值就增加對應計數，可以用 inotify 監聽變化：
+      </p>
+<pre><code>$ cat /sys/fs/cgroup/myapp/memory.events
+low 0
+high 234
+max 12
+oom 1
+oom_kill 3
+oom_group_kill 0
+</code></pre>
+      <p>
+        欄位解讀：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>欄位</th><th>觸發時機</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>low</code></td><td>cgroup 因系統壓力被迫從受保護的 memory.low 額度中 reclaim 的次數</td></tr>
+        <tr><td><code>high</code></td><td>cgroup 用量超過 memory.high 後 throttle 的次數</td></tr>
+        <tr><td><code>max</code></td><td>cgroup 用量超過 memory.max 的次數（緊接著會 reclaim 或 OOM）</td></tr>
+        <tr><td><code>oom</code></td><td>cgroup 觸發 OOM 的次數（即將殺 process）</td></tr>
+        <tr><td><code>oom_kill</code></td><td>實際被 OOM killer 殺掉的 process 總數</td></tr>
+        <tr><td><code>oom_group_kill</code></td><td>因 oom.group=1 而<em>整個</em> cgroup 被殺的次數（kernel 5.10+）</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h4>events 與 events.local 的差別</h4>
+      <p>
+        <code>memory.events</code> 是<strong>遞迴累計</strong>——包含所有子樹中發生的事件。
+        <code>memory.events.local</code> 是<strong>只算自己</strong>這個 cgroup 的事件。
+        實務上：監控 Pod 用 events（含 container 內所有事件）；監控具體 container 用 events.local。
+      </p>
+
+      <h4>用 inotify 監聽事件</h4>
+<pre><code># 寫一個 daemon 監聽 OOM 事件，發現就 alert
+inotifywait -m /sys/fs/cgroup/myapp/memory.events |
+while read path event filename; do
+    OOM_KILL=$(grep oom_kill /sys/fs/cgroup/myapp/memory.events | awk '{print $2}')
+    if [ "$OOM_KILL" -gt "$LAST_OOM_KILL" ]; then
+        # 觸發 alert
+        send_alert "OOM detected in /sys/fs/cgroup/myapp"
+    fi
+    LAST_OOM_KILL=$OOM_KILL
+done
+</code></pre>
+      <p>
+        systemd-oomd、Kubernetes <code>kubelet</code>、cAdvisor 都用類似機制——inotify + read events 比 polling 高效得多。
+      </p>
+
+      <h3>3.4 Swap 與 zswap：分層 swap 控制</h3>
+      <p>
+        v2 把 swap 從 v1 的 <code>memory.memsw.*</code> 模型徹底重做。<strong>v2 中 memory 與 swap 是<em>分開計量</em>的</strong>——這是巨大改進。
+      </p>
+
+      <h4>memory.swap.{current, high, max, peak}</h4>
+<pre><code># 限制這個 cgroup 最多使用 1GB swap
+echo "1G" > memory.swap.max
+
+# 完全禁用 swap（latency-sensitive 服務常用）
+echo "0" > memory.swap.max
+
+# 軟限：超過後 throttle 但繼續 swap
+echo "512M" > memory.swap.high
+
+# 看歷史峰值
+cat memory.swap.peak
+</code></pre>
+      <p>
+        Meta 的生產經驗（fbtax2 案例）：把<strong>主 workload 的 swap 設 0</strong>，避免 latency 受 disk swap 影響；但其他系統 binary 開放 swap，最大化記憶體利用率。這個策略只在 v2 才能實現——v1 的 memory+swap 合併計量無法分開設定。
+      </p>
+
+      <h4>zswap：壓縮 swap</h4>
+      <p>
+        zswap 是<strong>記憶體中壓縮的 swap pool</strong>——把要 swap 的 page 壓縮後放在記憶體裡，比真的寫到 disk 快 100 倍。
+        kernel 5.19+ 提供 cgroup-level zswap 介面：
+      </p>
+<pre><code># 限制這個 cgroup 最多用 256M 記憶體做 zswap
+echo "256M" > memory.zswap.max
+
+# 看當前 zswap 用量（已壓縮後的大小）
+cat memory.zswap.current
+
+# 禁用 zswap 寫回 disk（讓它變成「記憶體 only swap」）
+echo "0" > memory.zswap.writeback
+</code></pre>
+      <p>
+        實務應用：在 RAM 充足但偶爾尖峰的機器上，啟用 zswap 給 burst 用，比 disk swap 友好得多。
+      </p>
+
+      <h3>3.5 memory.oom.group：群體 OOM</h3>
+      <p>
+        v2 引入的另一個<strong>關鍵創新</strong>。寫 1 進去，告訴 kernel：「<em>這個 cgroup 是不可分割的 workload，OOM 時要嘛全活、要嘛全死</em>」。
+      </p>
+<pre><code># 把整個 cgroup 標記為 atomic
+echo 1 > memory.oom.group
+</code></pre>
+      <p>
+        為什麼要這樣？典型場景：一個 Pod 有 N 個 container 互相依賴，其中一個被 OOM 殺了，剩下的會半死不活、無法完成工作。
+        設 oom.group=1 後，kernel 會<strong>整個 cgroup 一起殺</strong>——觸發 oom_group_kill 事件——讓 orchestrator（K8s）能乾淨地重啟整個 Pod。
+      </p>
+      <p>
+        Kubernetes 對 Pod cgroup 預設啟用 oom.group=1，這是為什麼 OOMKilled 事件是「<em>整個 Pod 重啟</em>」而非「<em>某個 container 倖存</em>」。
+      </p>
+
+      <h3>3.6 memory.stat：完整內部統計</h3>
+      <p>
+        <code>memory.stat</code> 是<strong>記憶體 debug 的最強工具</strong>。輸出範例（截錄）：
+      </p>
+<pre><code>$ cat /sys/fs/cgroup/myapp/memory.stat
+anon 524288000
+file 268435456
+kernel_stack 8388608
+pagetables 4194304
+percpu 1048576
+sock 524288
+shmem 0
+file_mapped 67108864
+file_dirty 0
+file_writeback 0
+swapcached 0
+anon_thp 0
+file_thp 0
+shmem_thp 0
+inactive_anon 314572800
+active_anon 209715200
+inactive_file 134217728
+active_file 134217728
+unevictable 0
+slab_reclaimable 12345678
+slab_unreclaimable 6789012
+pgfault 12345
+pgmajfault 67
+pgrefill 1234
+pgscan 5678
+pgsteal 901
+pgactivate 234
+pgdeactivate 123
+pglazyfree 0
+pglazyfreed 0
+zswpin 0
+zswpout 0
+zswpwb 0
+thp_fault_alloc 0
+thp_collapse_alloc 0
+</code></pre>
+      <p>
+        <strong>關鍵欄位</strong>（不需要全記，重要的有十來個）：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>欄位</th><th>意義</th><th>實務價值</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>anon</code></td><td>匿名頁（heap、stack、mmap MAP_ANON）</td><td>「真實使用」的記憶體，最該關注</td></tr>
+        <tr><td><code>file</code></td><td>file-backed 頁（page cache、mmap file）</td><td>可被 reclaim，不算嚴格使用</td></tr>
+        <tr><td><code>kernel_stack</code></td><td>kernel stack（每 thread 8K~16K）</td><td>大量 thread 時不可忽略</td></tr>
+        <tr><td><code>shmem</code></td><td>shared memory / tmpfs</td><td>常被忽略卻可能很大</td></tr>
+        <tr><td><code>slab_reclaimable</code></td><td>可回收 slab（dentry、inode cache）</td><td>系統管理 overhead</td></tr>
+        <tr><td><code>pgfault</code></td><td>累計 minor fault 次數</td><td>每秒 fault 率反映 working set 變化</td></tr>
+        <tr><td><code>pgmajfault</code></td><td>累計 major fault 次數（從 disk 讀）</td><td>非零表示有 swap 或 page cache thrashing</td></tr>
+        <tr><td><code>pgsteal</code></td><td>kernel 從這個 cgroup 回收的頁數</td><td>反映 reclaim 壓力</td></tr>
+        <tr><td><code>workingset_refault_anon</code></td><td>被 reclaim 又被讀回的 anon 頁</td><td>memory pressure 的重要訊號</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h4>判讀 memory.stat 的小撇步</h4>
+      <ul>
+        <li><strong>anon &gt; 80% 總用量</strong>：應用本身吃記憶體，要看是不是 leak</li>
+        <li><strong>file &gt; 50% 總用量</strong>：page cache 大，可能是 IO-heavy workload</li>
+        <li><strong>pgmajfault 非零且增長快</strong>：在 swap 或 page cache thrashing，性能會很差</li>
+        <li><strong>pgsteal &gt; 0</strong>：cgroup 在被 reclaim，可能 memory.high 設太低</li>
+      </ul>
+
+      <h3>3.7 memory.numa_stat：NUMA 感知</h3>
+      <p>
+        在多 socket / NUMA 機器上，記憶體 locality 對性能影響巨大。<code>memory.numa_stat</code> 顯示 per-NUMA-node 的細分用量：
+      </p>
+<pre><code>$ cat /sys/fs/cgroup/myapp/memory.numa_stat
+anon N0=268435456 N1=256000000
+file N0=134217728 N1=134217728
+unevictable N0=0 N1=0
+...
+</code></pre>
+      <p>
+        如果某個 cgroup 只在 NUMA 0 跑，但記憶體分散在 N0、N1，每次跨 socket access 都有延遲（remote NUMA）。
+        搭配 cpuset.mems（Ch.9）綁特定 NUMA node 是常見優化。
+      </p>
+
+      <h3>3.8 memory.reclaim：主動回收</h3>
+      <p>
+        kernel 5.19+ 加入的<strong>主動 reclaim</strong> 介面（write-only）：
+      </p>
+<pre><code># 主動回收 100MB（盡力而為）
+echo "100M" > memory.reclaim
+
+# 嘗試成功則寫入 syscall 立即返回；失敗則回傳錯誤
+</code></pre>
+      <p>
+        典型用途：
+      </p>
+      <ul>
+        <li><strong>容器 shutdown 前清理</strong>：減少 graceful kill 後 kernel reclaim 的開銷</li>
+        <li><strong>準備 over-commit</strong>：在新 workload 進來前主動釋放記憶體</li>
+        <li><strong>systemd-oomd 內部</strong>：嘗試 reclaim 在轉成 kill 之前</li>
+      </ul>
+
+      <h3>3.9 Memory Ownership 規則</h3>
+      <p>
+        kernel 文件 §5.2.3 "Memory Ownership" 規定一個重要原則：
+      </p>
+      <p style="font-style: italic; color: var(--text-secondary); padding-left: var(--space-4); border-left: 2px solid var(--color-primary);">
+        A memory area is charged to the cgroup which instantiated it and stays charged to the cgroup until the area is released. Migrating a process to a different cgroup doesn't move the memory usages that it instantiated while in the previous cgroup to the new cgroup.
+      </p>
+      <p>
+        翻譯成白話：<strong>記憶體跟著「<em>創建它的 cgroup</em>」走，process 搬家時記憶體不跟著搬</strong>。
+        這對 Ch.2 「organize once and control」原則是直接呼應——頻繁搬 process 會讓記憶體統計失真。
+      </p>
+      <p>
+        實務影響：
+      </p>
+      <ul>
+        <li>把 process 從 A 搬到 B，A 的 memory.current 不會降，B 的不會增（除非 process 又分配新記憶體）。</li>
+        <li>shared memory（tmpfs）按「<em>第一個 touch 該頁的 cgroup</em>」計量。</li>
+        <li>process 結束後，<em>它創建的 page</em> 仍計在原 cgroup（直到實際被釋放或 reclaim）。</li>
+      </ul>
+
+      <h3>3.10 systemd 介面對應</h3>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>systemd directive</th><th>cgroup 介面</th><th>備註</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>MemoryMin=</code></td><td><code>memory.min</code></td><td>硬保護下限</td></tr>
+        <tr><td><code>MemoryLow=</code></td><td><code>memory.low</code></td><td>軟保護下限</td></tr>
+        <tr><td><code>MemoryHigh=</code></td><td><code>memory.high</code></td><td>軟限 + throttle</td></tr>
+        <tr><td><code>MemoryMax=</code></td><td><code>memory.max</code></td><td>硬限 + OOM</td></tr>
+        <tr><td><code>MemorySwapMax=</code></td><td><code>memory.swap.max</code></td><td>swap 硬限</td></tr>
+        <tr><td><code>MemoryZSwapMax=</code></td><td><code>memory.zswap.max</code></td><td>zswap 硬限（systemd 254+）</td></tr>
+        <tr><td><code>OOMPolicy=kill</code></td><td><code>memory.oom.group=1</code></td><td>群體 OOM</td></tr>
+        <tr><td><code>StartupMemoryMax=</code></td><td><code>memory.max</code></td><td>啟動階段的限制（高），啟動後切回 MemoryMax</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        systemd 接受多種單位寫法：<code>1G</code>、<code>1.5G</code>、<code>500M</code>、<code>20%</code>（佔總實體記憶體百分比）。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 4: 實戰範例 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例</h2>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · 觀察 memory.high throttle 行為</div>
+<pre><code># 用 systemd-run 限制 memory.high=100M，觀察緩慢分配 200MB 的反應
+sudo systemd-run --slice=user.slice --unit=mem-throttle \
+    -p MemoryHigh=100M \
+    -p MemoryMax=300M \
+    --pty \
+    python3 -c '
+import time
+data = bytearray(0)
+for i in range(20):
+    data.extend(bytearray(10 * 1024 * 1024))  # 每次 +10MB
+    print(f"allocated {(i+1)*10}MB")
+    time.sleep(0.5)
+print("done")
+'
+# 預期觀察：超過 100MB 後變得明顯緩慢（throttle）
+# 但<em>不會被殺</em>，最終跑完 200MB
+
+# 在另一 terminal 看 events
+CG=$(systemctl show -p ControlGroup --value mem-throttle.service)
+watch -n 0.5 "cat /sys/fs/cgroup$CG/memory.events"
+# 預期看到 high 計數持續增長，oom_kill 保持 0
+
+# 清理
+sudo systemctl stop mem-throttle 2>/dev/null
+</code></pre>
+      <p>觀察點：memory.high 是「<em>緩衝</em>」機制——讓 process 變慢但活著，給 monitor 介入的時間。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · 體驗 memory.oom.group 群體殺</div>
+<pre><code># 建立一個 cgroup 啟用 oom.group
+sudo mkdir /sys/fs/cgroup/lab8
+echo 1 | sudo tee /sys/fs/cgroup/lab8/memory.oom.group
+echo "100M" | sudo tee /sys/fs/cgroup/lab8/memory.max
+
+# 啟動三個 process（一個吃記憶體，兩個睡覺）
+sudo bash -c '
+echo $$ > /sys/fs/cgroup/lab8/cgroup.procs
+sleep 999 &
+sleep 999 &
+PIDS=$!
+wait
+' &
+
+# 啟動吃記憶體的 process（會觸發 OOM）
+sudo bash -c '
+echo $$ > /sys/fs/cgroup/lab8/cgroup.procs
+python3 -c "data = bytearray(200 * 1024 * 1024)"
+'
+
+# 立刻看 memory.events
+cat /sys/fs/cgroup/lab8/memory.events
+
+# 預期：oom_group_kill > 0
+# 同時所有 sleep process 也都被殺（不只吃記憶體那個）
+# 對比：如果 oom.group=0，只有吃記憶體那個會被殺，sleep 還活著
+
+# 清理
+sudo rmdir /sys/fs/cgroup/lab8
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · 完整 Burstable Pod 配置（K8s Memory QoS 模擬）</div>
+<pre><code># 模擬 Pod: request=256Mi, limit=1Gi
+# K8s Memory QoS 公式：
+#   memory.min  = request = 256M
+#   memory.high = request + 0.9 * (limit - request) = 256 + 691 = 947M
+#   memory.max  = limit = 1G
+
+sudo systemd-run --slice=user.slice --unit=burstable \
+    -p MemoryMin=256M \
+    -p MemoryHigh=947M \
+    -p MemoryMax=1G \
+    --pty \
+    bash
+
+# 進入 shell 後：
+CG=$(systemctl show -p ControlGroup --value burstable.service)
+echo "Pod cgroup: $CG"
+
+# 看設定值
+cat /sys/fs/cgroup$CG/memory.min
+cat /sys/fs/cgroup$CG/memory.high
+cat /sys/fs/cgroup$CG/memory.max
+
+# 跑分配測試
+python3 -c '
+import time
+data = bytearray(0)
+for i in range(120):
+    data.extend(bytearray(10 * 1024 * 1024))
+    time.sleep(0.2)
+'
+
+# 觀察 events 怎麼變
+cat /sys/fs/cgroup$CG/memory.events
+# 預期：
+#   high 多次（用量超過 947M 時觸發）
+#   max 偶爾（接近 1G 時）
+#   oom 0（只要 reclaim 來得及，就不 OOM）
+
+# 清理
+exit
+sudo systemctl stop burstable 2>/dev/null
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 4 · 用 memory.reclaim 主動回收</div>
+<pre><code># 跑一個吃 page cache 的程式
+sudo systemd-run --slice=user.slice --unit=cache-eater \
+    --pty \
+    bash -c '
+        # 讀大檔案讓 page cache 充滿
+        dd if=/dev/zero of=/tmp/big.bin bs=1M count=500
+        cat /tmp/big.bin > /dev/null
+        sleep 60
+    '
+
+# 看當前用量（應該 page cache 較高）
+CG=$(systemctl show -p ControlGroup --value cache-eater.service)
+cat /sys/fs/cgroup$CG/memory.current
+grep -E '^(file|anon)' /sys/fs/cgroup$CG/memory.stat
+
+# 主動 reclaim 200MB
+echo "200M" | sudo tee /sys/fs/cgroup$CG/memory.reclaim
+
+# 再看用量（應該下降）
+cat /sys/fs/cgroup$CG/memory.current
+
+# 清理
+sudo systemctl stop cache-eater
+rm /tmp/big.bin
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 5 · 用 memory.peak 做容量規劃</div>
+<pre><code># 跑一個有尖峰的 service
+sudo systemd-run --slice=user.slice --unit=peaky \
+    -p MemoryMax=2G \
+    --pty \
+    python3 -c '
+import time
+# 階段 1：低用量
+data = bytearray(50 * 1024 * 1024)
+time.sleep(2)
+# 階段 2：尖峰
+spike = bytearray(800 * 1024 * 1024)
+time.sleep(1)
+del spike
+# 階段 3：恢復低用量
+time.sleep(5)
+'
+
+# 跑完後看
+CG=$(systemctl show -p ControlGroup --value peaky.service)
+cat /sys/fs/cgroup$CG/memory.current  # 當前低（50M+）
+cat /sys/fs/cgroup$CG/memory.peak     # 歷史最高（850M+）
+
+# 啟示：memory.peak 比 memory.current 對容量規劃更有用
+# 容器 limit 應該設 peak 的 1.5 倍以保留 burst headroom
+
+# 清理
+sudo systemctl stop peaky 2>/dev/null
+</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 5: 常見陷阱 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · memory.high 設太低，service 慢死</div>
+      <p>
+        最常見錯誤：<em>「我設 memory.high=100M 防止超用」</em>，但 workload 正常需要 200M。
+        結果 process 永遠在 throttle，CPU 使用率 100% 但 throughput 極低——<strong>看似活著但完全不工作</strong>。
+        判斷方法：<code>memory.events</code> 的 high 計數每秒增長 100+ 是嚴重訊號。
+        修法：把 memory.high 設成「<em>正常 working set</em> 的 1.2–1.5 倍」，太緊比太鬆糟糕。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · 忘記 memory.min 不能加總超過 parent</div>
+      <p>
+        「<em>我給 5 個 child 各設 min=2G，總和 10G，但 parent 只有 8G</em>」。kernel 會「<em>按比例縮放</em>」每個 child 的 effective min——你以為的 2G 其實只有 1.6G 受保護。
+        檢查方式：看 <code>memory.events</code> 的 low 計數，非零表示某個 cgroup 被迫從受保護額度回收。
+        修法：min 加總要 ≤ parent 容量，預留 headroom 給 file cache 與 kernel 開銷。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · 沒設 memory.swap.max=0 但又不希望被 swap</div>
+      <p>
+        Latency-sensitive 服務（DB、Redis）跑在開了 swap 的系統上，遇到 memory pressure 時 kernel 把<em>熱資料</em> swap 出去，第一次 access 變得超慢（major page fault）。
+        修法：對這類 service 設 <code>MemorySwapMax=0</code> 完全禁用 swap（這個 cgroup）。
+        注意：還要監控 <code>pgmajfault</code>（memory.stat），非零表示已經被 swap 了。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · OOM kill 後沒看 memory.events</div>
+      <p>
+        「<em>service 重啟很多次</em>」但不知道為什麼？看 <code>memory.events</code>：
+        <ul style="margin-top:8px;padding-left:20px;font-family:var(--font-sans);font-size:13px;">
+          <li><code>oom &gt; 0</code>：cgroup 觸發 OOM</li>
+          <li><code>oom_kill &gt; 0</code>：實際殺了 process</li>
+          <li><code>oom_group_kill &gt; 0</code>：整個 cgroup 一起被殺（K8s Pod 預設行為）</li>
+        </ul>
+        加上 dmesg 看 OOM 細節：<code>dmesg | grep -i "killed process"</code>。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 5 · memory.stat 的 file 算進「已用記憶體」造成誤判</div>
+      <p>
+        看到 <code>memory.current=900M</code>（接近 limit 1G）就以為快 OOM？不對。看 <code>memory.stat</code>：如果 <code>file</code> 占 600M，這部分是 page cache，<em>kernel 隨時可以 reclaim</em>，不是真正壓力。
+        真正壓力來自 <code>anon</code>。判斷方式：<strong>anon + kernel_stack &gt; 80% memory.max</strong> 才是危險。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 6 · zswap 不知不覺把記憶體吃光</div>
+      <p>
+        zswap 預設沒有 cgroup 限制，所有 cgroup 共享系統 zswap pool。如果某個 cgroup 大量產生 swap pages，整個 zswap 占用上升，<strong>影響其他 cgroup 的可用記憶體</strong>。
+        修法：對重要 cgroup 設 <code>memory.zswap.max</code>，避免它成為 zswap 大戶。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 7 · 把 process 搬 cgroup 期待記憶體跟著搬</div>
+      <p>
+        前面講過 Memory Ownership——記憶體跟<em>創建它的</em> cgroup 走，搬 process 不會搬記憶體。
+        典型踩雷：「<em>把 process 從 high-memory cgroup 搬到 low-memory cgroup，期望降低用量</em>」。實際上原 cgroup 的 memory.current 不會降，新 cgroup 也不會增，process 在新 cgroup 中分配新記憶體才開始計入新 cgroup。
+        對策：要正確限制記憶體，<em>啟動時就放對 cgroup</em>。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 8 · Java/JVM 在 v2 取 memory limit 的方式不一致</div>
+      <p>
+        OpenJDK 8u372+、11.0.16+、17+ 才支援 v2 識別。舊版 JVM 在 v2 host 上看到的是 host 的記憶體，不是 cgroup 的——導致 heap 設太大、容器 OOM 反覆發生。
+        進一步：JDK-8253727 bug——v2 中 <code>memory.swap.max</code> 只是 swap，不含 memory；JVM 早期版本沒分清楚。<strong>升 JDK 到至少 17.0.6+ / 21+ 是安全選項</strong>。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 6: 動手練習 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · 為 Redis service 設計完整記憶體配置（15 分鐘）</div>
+      <p>假設一個 4GB 機器跑 Redis，working set 約 1.5GB，希望：</p>
+      <ol>
+        <li>Redis 不會被其他 service 搶記憶體</li>
+        <li>Redis 不會 swap（latency 敏感）</li>
+        <li>Redis 不會吃光全機（給 OS 留 1GB）</li>
+        <li>Redis OOM 時整個重啟（不要部分死）</li>
+      </ol>
+      <p>請寫出 systemd unit 的 Memory* 設定。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · 寫一個 OOM 監聽 daemon（15 分鐘）</div>
+<pre><code>#!/bin/bash
+# oom-watcher.sh
+# 監聽 systemd services 的 memory.events，每次 oom_kill 增加就 alert
+
+WATCH_BASE="/sys/fs/cgroup/system.slice"
+
+declare -A LAST_OOM
+
+while true; do
+    for cg in "$WATCH_BASE"/*.service; do
+        [ -f "$cg/memory.events" ] || continue
+        oom_kill=$(grep oom_kill "$cg/memory.events" | awk '{print $2}')
+        last="${LAST_OOM[$cg]:-0}"
+        if [ "$oom_kill" -gt "$last" ]; then
+            echo "$(date) OOM in $(basename $cg): $((oom_kill - last)) processes killed"
+        fi
+        LAST_OOM[$cg]=$oom_kill
+    done
+    sleep 5
+done
+</code></pre>
+      <p>改造這個腳本：</p>
+      <ol>
+        <li>用 inotifywait 取代 polling，更省 CPU</li>
+        <li>加上 oom_group_kill 監聽，區分 group kill 與單 process kill</li>
+        <li>整合 memory.peak，每次 OOM 時記下當時 peak 用量做 post-mortem</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 比較有/無 memory.high 的反應（10 分鐘）</div>
+      <p>跑同一個逐步分配 800MB 的程式，對比兩種設定：</p>
+      <ol>
+        <li>方案 A：只設 <code>memory.max=500M</code></li>
+        <li>方案 B：<code>memory.high=400M</code> + <code>memory.max=500M</code></li>
+      </ol>
+      <p>記錄各自的：執行時間、是否 OOM、events 計數變化。回答：哪個更適合 latency-sensitive workload？</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 容量規劃：用 memory.peak 訂 limit（15 分鐘）</div>
+      <p>跑你的真實 workload 一段時間（建議 24 小時，至少跑滿一個 traffic cycle），定期記錄 <code>memory.peak</code>：</p>
+<pre><code># 每 5 分鐘記錄一次 peak
+while true; do
+    PEAK=$(cat /sys/fs/cgroup/myapp.service/memory.peak)
+    echo "$(date +%s),$PEAK" >> /tmp/mem-peaks.csv
+    sleep 300
+done
+</code></pre>
+      <p>分析資料：</p>
+      <ol>
+        <li>歷史 peak 是多少？</li>
+        <li>建議 limit 設成多少？（提示：peak × 1.5 是常見公式）</li>
+        <li>memory.high 設多少合理？（提示：working set 的 1.2 倍）</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 7: 自我檢查題 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>memory.{min, low, high, max} 各自的行為是什麼？四階限制觸發後 kernel 各自做什麼？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>memory.min</strong>：硬保護下限。用量低於 min 時 kernel<em>絕對不</em> reclaim。即使全系統缺記憶體寧可 OOM 其他 cgroup 也不碰。</li>
+          <li><strong>memory.low</strong>：軟保護下限。用量低於 low 時 best-effort 保護，只在系統極端壓力時被 reclaim。</li>
+          <li><strong>memory.high</strong>：軟上限。用量超過 high 時 kernel 進入「<em>強力 reclaim 模式</em>」並 throttle process，<strong>絕不觸發 OOM</strong>。</li>
+          <li><strong>memory.max</strong>：硬上限。用量超過 max 時 kernel 嘗試 reclaim，失敗就觸發 OOM killer。</li>
+        </ul>
+        <strong>記憶口訣</strong>：min 護、low 軟護、high 慢、max 死。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>memory.high 解決什麼問題？v1 為什麼沒這個介面？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>解決問題</strong>：v1 只有硬上限（memory.limit_in_bytes），超過就 OOM——沒有「<em>緩衝</em>」機會。
+        如果你的 workload 偶爾尖峰超過 limit，v1 直接 kill process；管理員無法在 OOM 之前介入。
+        <strong>v2 memory.high</strong>：超過 high 後 throttle + 強力 reclaim，<strong>絕不觸發 OOM</strong>。給管理員介入時間（granting more memory or terminating gracefully）。
+        <strong>v1 為何沒有</strong>：v1 設計時主要考慮「<em>絕對限制</em>」場景，沒設想到「<em>動態管理</em>」需求。v2 從 Meta、Google 等大型 production 經驗學到「<em>tiered memory management</em>」更實用。
+        <strong>實務</strong>：Kubernetes Memory QoS 把 high 設在 <code>request + 0.9 × (limit − request)</code>，讓 Burstable Pod 在到 limit 之前先 throttle，避免直接 OOM。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span>memory.events 的 oom 與 oom_kill 有什麼差別？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>oom</strong>：cgroup 觸發 OOM 條件（即將 reclaim 失敗）的次數。<em>不一定</em>真的殺了 process——可能 kernel 在最後一刻 reclaim 成功了。
+        <strong>oom_kill</strong>：實際被 OOM killer 殺掉的 process<em>總數</em>（注意是 process 數量，不是事件次數）。一次 OOM 事件可能殺多個 process。
+        <strong>oom_group_kill</strong>（kernel 5.10+）：<em>整個</em> cgroup 因 oom.group=1 而被殺的次數。一次 group_kill 殺掉的 process 數會反映在 oom_kill。
+        <strong>實務監控建議</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>oom &gt; 0 但 oom_kill = 0：cgroup 在邊緣，但 reclaim 救回來了</li>
+          <li>oom_kill 持續增長：service 反覆 OOM，要調 limit 或修 leak</li>
+          <li>oom_group_kill：對 K8s Pod 通常是預期行為（整個 Pod 重啟）</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span>memory.events 與 memory.events.local 的差別？分別什麼場景用哪個？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>memory.events</strong>：<em>遞迴累計</em>。包含這個 cgroup 自己以及所有<em>子樹</em>的事件。
+        <strong>memory.events.local</strong>：<em>只算自己</em>這個 cgroup 的事件，不含子樹。
+        <strong>場景對比</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>監控整個 Pod / Slice</strong>：用 events。Pod 內 container 的事件都算進來。</li>
+          <li><strong>監控具體 container</strong>：用 events.local。只看這個 container 自己。</li>
+          <li><strong>系統管理員看 system.slice 整體狀況</strong>：用 events，包含所有子 service 的累計。</li>
+          <li><strong>Application 自己監控</strong>：用 events.local，只關心自己直接產生的事件。</li>
+        </ul>
+        <strong>注意</strong>：events 與 events.local 是<em>累計值</em>，要算 rate 必須讀兩次相減。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span>什麼時候應該設 memory.swap.max=0？什麼時候應該開放 swap？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>應設 swap.max=0（禁 swap）的場景</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>Latency-sensitive 服務（Redis、ElasticSearch、PostgreSQL 等 DB）：disk swap 的 latency（10ms+）對使用者體驗破壞性大</li>
+          <li>實時系統 / 遊戲伺服器：絕不能容忍突然的 100x latency spike</li>
+          <li>跑在 SSD、NVMe 但仍認為 swap 的 latency 不可接受</li>
+        </ul>
+        <strong>應開放 swap 的場景</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>非關鍵服務（log processing、batch job）：swap 比 OOM 好</li>
+          <li>Page cache 大但少觸碰的 workload：unused page 可以安全 swap 出</li>
+          <li>跑 zswap：壓縮後在 RAM 內，速度比 disk swap 快 100 倍</li>
+        </ul>
+        <strong>Meta 經驗（fbtax2）</strong>：把<em>主 workload</em> swap 設 0，但<em>系統 binary</em> 開放 swap，最大化整體記憶體利用率，主 workload 不受 latency 影響。這個策略只在 v2 才能實現（v1 的 memsw 模型無法分開設定）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>memory.oom.group=1 的行為與目的是什麼？K8s Pod 為什麼預設啟用？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>行為</strong>：寫 1 進去，告訴 kernel 把整個 cgroup 視為「<em>不可分割的 atomic workload</em>」。OOM 觸發時，kernel<em>整個 cgroup 一起殺</em>，不會只殺其中一個 process。事件記在 oom_group_kill。
+        <strong>目的</strong>：避免 partial kill 造成的「<em>半死不活</em>」狀態。例如一個 Pod 有 web server + sidecar + cache 三個 container 互相依賴，如果只殺了 web server 留下另兩個，這個 Pod 就壞掉但又不會自動重啟，會卡很久。
+        <strong>K8s 預設啟用的原因</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>Pod 是 K8s 最小調度單位，<em>整體</em>是 workload。</li>
+          <li>Container 互相依賴常見（init container、sidecar、shared volume）。</li>
+          <li>OOMKilled 觸發 K8s controller 自動重啟整個 Pod，比 partial 死了更可恢復。</li>
+        </ol>
+        <strong>反例</strong>：systemd-managed 系統的 user.slice <em>不</em>建議啟用 oom.group——使用者 session 不是 atomic workload，殺光所有 user process 太激進。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span>memory.stat 中 anon vs file 為什麼意義不同？memory.current 接近 limit 該看哪個欄位判斷風險？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>anon</strong>：匿名頁——heap、stack、mmap MAP_ANON。<em>應用真實使用的記憶體</em>，無法被 kernel 隨意 reclaim（除非 swap）。reclaim anon 需要寫到 swap，要不然就是殺 process。
+        <strong>file</strong>：file-backed 頁——page cache、mmap file。<em>kernel 隨時可以 reclaim</em>（dirty file 寫回後就能釋放），不算嚴格使用。
+        <strong>判斷風險</strong>：memory.current 接近 limit 時：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>anon &lt; 50% limit</strong>：file/cache 占大宗，沒問題——kernel 可以 reclaim file，不會 OOM。</li>
+          <li><strong>anon &gt; 80% limit</strong>：危險。anon 很難 reclaim（要 swap 或 OOM），接近 limit 隨時可能爆。</li>
+          <li><strong>anon + kernel_stack + slab_unreclaimable &gt; 80% limit</strong>：嚴重危險。這些都是不可回收記憶體。</li>
+        </ul>
+        <strong>正確判斷壓力的指標</strong>：搭配 <code>memory.pressure</code> 看 some avg10 是否大幅上升、<code>pgmajfault</code> 是否在增加。<em>memory.current 數字本身不能判斷</em>。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>實作思考題：你管理一個有 32GB RAM 的機器，跑：（A）關鍵 PostgreSQL（working set 12GB）、（B）Redis cache（working set 4GB）、（C）非關鍵 batch jobs。設計完整的 memory 配置。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>方案</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[postgresql.service] - 關鍵 DB
+MemoryMin=12G       # 硬保護 working set
+MemoryHigh=16G      # 提早 throttle 警告
+MemoryMax=20G       # 絕對天花板
+MemorySwapMax=0     # 禁 swap，DB 對 latency 敏感
+OOMPolicy=stop      # OOM 時整個 service 停（不要 partial）
+
+[redis.service] - cache
+MemoryMin=4G        # 保護 working set
+MemoryHigh=5G       # 提早警告
+MemoryMax=6G        # 防爆
+MemorySwapMax=0     # 禁 swap
+
+[batch.slice] - 非關鍵
+MemoryMax=8G        # 留給 batch
+MemorySwapMax=4G    # 允許 swap，可以接受變慢
+# 不設 MemoryMin（它優先級低）
+
+# 預留：32G - 12G - 4G - 8G - 4G(OS+page cache) = 4G 緩衝</pre>
+        <strong>設計理由</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>關鍵 service 設 MemoryMin</strong>：保證 working set 不被 reclaim，性能可預測。</li>
+          <li><strong>禁 swap 給 latency-critical</strong>：DB、cache 都關 swap。</li>
+          <li><strong>batch 允許 swap</strong>：可以接受變慢，最大化整體 utilization。</li>
+          <li><strong>留 4GB OS buffer</strong>：給 page cache、kernel 結構、突發負載。</li>
+        </ol>
+        <strong>監控配套</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>對 A、B 監控 <code>memory.pressure some avg10 &lt; 5%</code> 與 <code>memory.events oom = 0</code></li>
+          <li>對 batch 容忍 OOM（自動重試），但監控 oom_kill rate</li>
+          <li>整體機器監控 <code>/proc/pressure/memory</code>，full avg10 &gt; 1% 是嚴重訊號</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 8: 延伸閱讀 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+
+    <div class="refs">
+      <ol>
+        <li>
+          <a href="https://docs.kernel.org/admin-guide/cgroup-v2.html#memory" target="_blank" rel="noopener">Linux Kernel 官方文件 · §5.2 Memory</a>
+          <span class="ref-source">docs.kernel.org · Memory controller 介面權威定義（含全部欄位說明）</span>
+        </li>
+        <li>
+          <a href="https://facebookmicrosites.github.io/cgroup2/docs/memory-controller.html" target="_blank" rel="noopener">Memory Controller · Meta cgroup2 guide</a>
+          <span class="ref-source">facebookmicrosites.github.io · Meta fbtax2 案例：min/low/high/max 在大規模生產的實戰</span>
+        </li>
+        <li>
+          <a href="https://www.netdata.cloud/academy/diagnosing-linux-cgroups/" target="_blank" rel="noopener">Diagnosing cgroups v2 Memory Throttling & OOM · Netdata 2025-09</a>
+          <span class="ref-source">netdata.cloud · 完整的 v2 memory diagnostic 流程</span>
+        </li>
+        <li>
+          <a href="https://kubernetes.io/blog/2023/05/05/qos-memory-resources/" target="_blank" rel="noopener">Memory QoS with cgroups v2 · Kubernetes Blog</a>
+          <span class="ref-source">kubernetes.io · Memory QoS 對應 K8s QoS Class 的設計與公式</span>
+        </li>
+        <li>
+          <a href="https://lwn.net/Articles/761118/" target="_blank" rel="noopener">Memory protection for cgroup v2 · LWN.net</a>
+          <span class="ref-source">lwn.net · memory.min / memory.low 的設計討論</span>
+        </li>
+        <li>
+          <a href="https://lwn.net/Articles/810074/" target="_blank" rel="noopener">memcg's "high" limit · LWN.net</a>
+          <span class="ref-source">lwn.net · memory.high throttle 機制設計細節</span>
+        </li>
+        <li>
+          <a href="https://github.com/opencontainers/runtime-spec/issues/1005" target="_blank" rel="noopener">OCI runtime spec · Memory controller cgroupv2 case study</a>
+          <span class="ref-source">github.com · OCI 視角看 v2 memory 介面變化</span>
+        </li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Chapter nav ====================== -->
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn" href="ch07-cpu-controller.html">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">Ch.7 CPU controller</span>
+    </a>
+    <a class="nav-btn next disabled">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">Ch.9 cpuset 與 PID controllers</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window.JHsunTheme = { get: getCurrentMode, set: (m) => { setStored(m); applyTheme(m); }, toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); }, };
+})();
+</script>
+
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+
+</body>
+</html>

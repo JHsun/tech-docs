@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.16 容器引擎整合 — cgroup v2 完整教學</title>
+<meta name="description" content="cgroup v2 與容器引擎整合：runc / crun / podman / containerd、cgroup driver 選擇、OCI spec 對應、rootless container、CLONE_INTO_CGROUP。">
+
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626; --color-danger-soft: #fee2e2;
+  --color-info: #0891b2; --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px;
+  --container-narrow: 720px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px;
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.topbar { position: sticky; top: 0; z-index: 50; background: color-mix(in oklch, var(--bg-canvas) 88%, transparent); backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--border-soft); }
+.topbar-inner { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.brand { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-secondary); }
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 999px; padding: 6px 14px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all .2s; }
+[data-theme-toggle]:hover { background: var(--bg-muted); border-color: var(--border-mid); color: var(--text-primary); }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: 0 var(--space-5); }
+.chapter-head { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); }
+.chapter-tag { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary-text); background: var(--color-primary-soft); padding: 4px 12px; border-radius: 999px; margin-bottom: var(--space-4); }
+.chapter-title { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; margin-bottom: var(--space-3); }
+.chapter-subtitle { font-family: var(--font-serif-body); font-size: var(--text-md); color: var(--text-secondary); line-height: 1.65; font-style: italic; }
+.chapter-meta { margin-top: var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.chapter-meta-item:first-child::before { display: none; }
+.section { padding: var(--space-7) 0; border-bottom: 1px solid var(--border-soft); }
+.section:last-of-type { border-bottom: none; }
+.section-label { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2); }
+.section-label::before { content: ""; width: 24px; height: 1px; background: var(--color-primary); }
+.section-title { font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600; margin-bottom: var(--space-5); letter-spacing: -0.01em; line-height: 1.2; }
+.prose p { font-family: var(--font-serif-body); font-size: var(--text-base); line-height: 1.85; margin-bottom: var(--space-4); }
+.prose h3 { font-family: var(--font-sans); font-size: var(--text-lg); font-weight: 600; margin: var(--space-6) 0 var(--space-3); letter-spacing: -0.01em; }
+.prose h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 500; margin: var(--space-5) 0 var(--space-2); }
+.prose ul, .prose ol { font-family: var(--font-serif-body); margin-bottom: var(--space-4); padding-left: var(--space-5); line-height: 1.8; }
+.prose ul li, .prose ol li { margin-bottom: var(--space-2); }
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong { font-weight: 600; }
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 1px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+.prose a { color: var(--color-primary); text-decoration: underline; text-underline-offset: 3px; }
+.highlights { background: var(--color-primary-soft); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.highlights ol { font-family: var(--font-sans); padding-left: var(--space-5); margin: 0; }
+.highlights li { font-size: var(--text-sm); color: var(--color-primary-text); margin-bottom: var(--space-2); line-height: 1.65; }
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+.news-box { background: var(--color-info-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.news-item { font-family: var(--font-sans); font-size: var(--text-sm); line-height: 1.7; padding: var(--space-2) 0; border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent); }
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-info); margin-right: var(--space-2); }
+pre { font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.7; background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; margin-bottom: var(--space-4); }
+pre code { background: transparent; border: none; padding: 0; font-size: inherit; color: inherit; }
+.cmp-table { width: 100%; border-collapse: collapse; margin-bottom: var(--space-4); font-size: var(--text-sm); font-family: var(--font-sans); }
+.cmp-table th, .cmp-table td { padding: var(--space-3); text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.cmp-table th { font-weight: 600; background: var(--bg-muted); font-size: var(--text-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 1px 5px; border-radius: var(--radius-sm); color: var(--color-primary-text); }
+.lab { background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.lab-title { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--color-primary); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px dashed var(--border-soft); }
+.lab-title::before { content: "▶ "; }
+.lab p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-3); color: var(--text-secondary); line-height: 1.7; }
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+.lab ol, .lab ul { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); color: var(--text-secondary); line-height: 1.7; }
+.pitfall { background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.pitfall-title { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 600; color: var(--color-warning); margin-bottom: var(--space-2); }
+.pitfall p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-2); line-height: 1.7; }
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code { background: color-mix(in oklch, var(--color-warning) 15%, transparent); border-color: color-mix(in oklch, var(--color-warning) 30%, transparent); }
+.quiz-item { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-3); }
+.quiz-q { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; margin-bottom: var(--space-2); display: flex; gap: var(--space-2); }
+.quiz-q-num { font-family: var(--font-mono); color: var(--color-primary); flex-shrink: 0; }
+.quiz-toggle { background: transparent; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 4px 10px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; margin-top: var(--space-2); transition: all .2s; }
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a { display: none; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px dashed var(--border-soft); font-family: var(--font-serif-body); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.75; }
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+.diagram { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); margin-bottom: var(--space-4); text-align: center; }
+.diagram svg { max-width: 100%; height: auto; }
+.diagram-caption { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-3); }
+.refs ol { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); line-height: 1.8; }
+.refs li { margin-bottom: var(--space-2); color: var(--text-secondary); }
+.refs li::marker { color: var(--color-primary); }
+.refs a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dashed var(--color-primary); }
+.refs .ref-source { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); display: block; margin-top: 2px; }
+.chapter-nav { margin-top: var(--space-6); padding: var(--space-5) 0; display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.nav-btn { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; padding: var(--space-3) var(--space-4); background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); text-decoration: none; color: var(--text-primary); transition: all .2s; }
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.04em; }
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.16</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part VI · 生態系 · Chapter 16</span>
+    <h1 class="chapter-title">容器引擎整合</h1>
+    <p class="chapter-subtitle">
+      容器是 cgroup v2 的<em>頭號使用者</em>——但很少人知道一個 docker run 背後有三層工具鏈：
+      OCI runtime（runc / crun）執行容器、container engine（podman / docker）管理生命週期、
+      CRI runtime（containerd / CRI-O）連結 Kubernetes。每一層都要正確操作 cgroup，
+      single-writer rule 要求它們選一致的 <em>cgroup driver</em>——選錯整個 stack 會出事。
+      本章拆解三層架構，比較 runc vs crun（C vs Go 的性能差），講解 systemd vs cgroupfs driver、
+      OCI spec 怎麼對應 cgroup 介面，最後講 rootless container 的特殊挑戰與 CLONE_INTO_CGROUP 機制。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~7,000 字</span>
+      <span class="chapter-meta-item">閱讀時間 26 分鐘</span>
+      <span class="chapter-meta-item">難度：核心</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+    <div class="highlights">
+      <ol>
+        <li><strong>三層工具鏈</strong>：OCI runtime（執行）→ container engine（管理）→ CRI runtime（K8s 介面）。每層都要操作 cgroup，必須選同一個 cgroup driver 否則 single-writer rule 衝突。</li>
+        <li><strong>systemd vs cgroupfs driver 是關鍵選擇</strong>：systemd-managed 系統<em>必須</em>用 systemd driver。cgroupfs driver 在系統有 systemd 時會造成 two managers 衝突——「<em>resource pressure 下節點不穩定</em>」是經典症狀。</li>
+        <li><strong>runc vs crun</strong>：兩者都是 OCI 標準實作。runc 是 Go 寫的、crun 是 C 寫的（podman 預設）。crun 啟動延遲低 37%、記憶體少、原生 sd-notify 支援，但功能等價。</li>
+        <li><strong>CLONE_INTO_CGROUP 是現代 runtime 的核心</strong>（kernel 5.7+）：fork 時直接指定 cgroup，<em>原子操作</em>——傳統「先 fork 再 echo PID」會有短暫 race window。</li>
+        <li><strong>OCI spec 的 linux.resources 精確對應 cgroup v2 介面</strong>：cpu.shares → cpu.weight、memory.limit → memory.max、pids.limit → pids.max。理解對應關係讓你能 debug 任何 OCI runtime。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+    <div class="news-box">
+      <div class="news-item"><span class="news-date">2025</span><strong>Podman 5.0 + crun 1.14 + systemd 255 stack 普及</strong>。crun 1.14 原生支援 sd-notify v3，啟動延遲較 runc 降低 37%（10000 容器 benchmark）。Q3 2025 70% 企業 podman 部署用此 stack。</div>
+      <div class="news-item"><span class="news-date">2025</span><strong>containerd 2.0 與 K8s 1.36 整合 KubeletCgroupDriverFromCRI</strong>。kubelet 自動從 container runtime 偵測 cgroup driver。1.37 將移除 fallback，舊 containerd 將失效。</div>
+      <div class="news-item"><span class="news-date">2025</span><strong>Docker 完全切換到 cgroup v2-only</strong>。Docker Engine 27.x 在 cgroup v1-only host 上會 warn；28.x 已不再支援 v1。</div>
+      <div class="news-item"><span class="news-date">2024–2025</span><strong>Rootless container 在 v2 大幅改善</strong>。systemd 246+ 對 user@UID.service 預設 Delegate=memory pids cpu，rootless podman / runc 可正常設 limit。</div>
+      <div class="news-item"><span class="news-date">2025</span><strong>CRI-O 與 containerd 都預設 systemd driver</strong>。生態系收斂到 systemd driver，cgroupfs 只在無 systemd 環境使用。</div>
+    </div>
+    <div class="prose">
+      <p>
+        2026 年的時點，<strong>容器 runtime 與 cgroup v2 的整合已大致收斂到「<em>systemd driver + crun + cgroup v2</em>」黃金組合</strong>。
+        v1 完全淘汰、cgroupfs driver 只在特殊場景使用。本章重點不只是介紹工具，更包含「<em>為什麼這個組合會勝出</em>」、「<em>遇到 driver 不一致怎麼診斷</em>」這類實戰知識。
+      </p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+    <div class="prose">
+      <h3>3.1 容器三層工具鏈</h3>
+      <p>一個 <code>docker run</code> 或 <code>podman run</code> 背後實際發生了什麼？看似簡單，其實穿過<strong>三層工具</strong>：</p>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 680 360" role="img" aria-label="容器三層工具鏈">
+        <text x="340" y="22" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="600" fill="var(--text-primary)">容器三層工具鏈與 cgroup 互動</text>
+        <rect x="240" y="50" width="200" height="40" rx="6" fill="var(--bg-muted)" stroke="var(--border-mid)" stroke-width="1"/>
+        <text x="340" y="75" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--text-primary)">$ podman run / docker run / kubectl run</text>
+        <path d="M 340 90 L 340 110" stroke="var(--text-muted)" stroke-width="1.5" marker-end="url(#arrow16)"/>
+        <rect x="60" y="115" width="560" height="55" rx="6" fill="var(--color-primary-soft)" stroke="var(--color-primary)" stroke-width="0.5"/>
+        <text x="80" y="138" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-primary-text)">Layer 3 · container engine</text>
+        <text x="80" y="155" font-family="var(--font-sans)" font-size="11" fill="var(--text-secondary)">podman / docker / containerd（含 CRI-O for K8s）</text>
+        <text x="80" y="167" font-family="var(--font-sans)" font-size="9" fill="var(--text-muted)">職責：image 管理、生命週期、network、storage、CLI/API</text>
+        <path d="M 340 170 L 340 190" stroke="var(--text-muted)" stroke-width="1.5" marker-end="url(#arrow16)"/>
+        <rect x="60" y="195" width="560" height="55" rx="6" fill="var(--color-info-soft)" stroke="var(--color-info)" stroke-width="0.5"/>
+        <text x="80" y="218" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-info)">Layer 2 · OCI runtime</text>
+        <text x="80" y="235" font-family="var(--font-sans)" font-size="11" fill="var(--text-secondary)">runc / crun / kata-runtime / runsc（gVisor）</text>
+        <text x="80" y="247" font-family="var(--font-sans)" font-size="9" fill="var(--text-muted)">職責：執行 OCI spec、建 namespace、設 cgroup、exec process</text>
+        <path d="M 340 250 L 340 270" stroke="var(--text-muted)" stroke-width="1.5" marker-end="url(#arrow16)"/>
+        <rect x="60" y="275" width="560" height="55" rx="6" fill="var(--color-success-soft)" stroke="var(--color-success)" stroke-width="0.5"/>
+        <text x="80" y="298" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-success)">Layer 1 · kernel</text>
+        <text x="80" y="315" font-family="var(--font-sans)" font-size="11" fill="var(--text-secondary)">cgroup v2 + namespaces + capabilities + seccomp</text>
+        <text x="80" y="327" font-family="var(--font-sans)" font-size="9" fill="var(--text-muted)">職責：實際 enforce 限制、隔離、安全</text>
+        <defs>
+          <marker id="arrow16" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--text-muted)"/>
+          </marker>
+        </defs>
+      </svg>
+      <div class="diagram-caption">圖 16.1 · 容器三層工具鏈架構</div>
+    </div>
+
+    <div class="prose">
+      <p><strong>每層的具體職責</strong>：</p>
+      <ul>
+        <li><strong>Layer 3 - container engine</strong>：podman、docker、containerd 處理使用者指令、image pull、storage driver、network plugin。<em>不</em>直接 fork process。</li>
+        <li><strong>Layer 2 - OCI runtime</strong>：runc、crun。讀 <code>config.json</code>（OCI spec）、fork+exec 容器 process、建立 namespaces、套用 cgroup limit。<em>直接操作 cgroup 介面</em>。</li>
+        <li><strong>Layer 1 - kernel</strong>：cgroup controllers 限制 CPU / memory / IO；namespaces 提供隔離；seccomp 限制 syscall。</li>
+      </ul>
+
+      <h3>3.2 OCI runtime：runc vs crun</h3>
+      <p>runc 與 crun 都實作 <strong>OCI Runtime Specification</strong>，可互換。但實作語言與架構不同：</p>
+    </div>
+
+    <table class="cmp-table">
+      <thead><tr><th>面向</th><th>runc</th><th>crun</th></tr></thead>
+      <tbody>
+        <tr><td>實作語言</td><td>Go</td><td>C</td></tr>
+        <tr><td>主要維護者</td><td>Docker / OCI</td><td>Red Hat / containers</td></tr>
+        <tr><td>啟動延遲（10K 容器）</td><td>baseline</td><td>低 37%</td></tr>
+        <tr><td>記憶體 footprint</td><td>~30 MB（Go runtime）</td><td>~3 MB</td></tr>
+        <tr><td>sd-notify v3 原生支援</td><td>透過 proxy</td><td>原生（crun 1.14+）</td></tr>
+        <tr><td>cgroup v2 支援</td><td>1.0+ 完整</td><td>從 1.0 即支援</td></tr>
+        <tr><td>CLONE_INTO_CGROUP</td><td>1.1+</td><td>0.18+</td></tr>
+        <tr><td>預設於</td><td>docker / containerd 2.x</td><td>podman / OpenShift</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p><strong>選擇建議</strong>：</p>
+      <ul>
+        <li><strong>新部署</strong>：用 crun。低延遲、低記憶體、原生 sd-notify。</li>
+        <li><strong>已用 docker / containerd</strong>：用 runc（已預設）。</li>
+        <li><strong>大規模 K8s</strong>：crun 在啟動延遲與記憶體上的優勢顯著（每節點數百容器時記憶體節省 GB 級）。</li>
+        <li><strong>等價性</strong>：<em>功能完全互換</em>。OCI spec 嚴格定義行為。</li>
+      </ul>
+
+      <h3>3.3 OCI spec 與 cgroup v2 對應</h3>
+      <p>OCI 容器資源設定都在 <code>config.json</code> 的 <code>linux.resources</code>。runc / crun 翻譯成 cgroup v2 介面值：</p>
+    </div>
+
+    <table class="cmp-table">
+      <thead><tr><th>OCI spec 欄位</th><th>cgroup v2 介面</th><th>備註</th></tr></thead>
+      <tbody>
+        <tr><td colspan="3" style="background: var(--color-primary-soft); font-weight: 600; color: var(--color-primary-text);">CPU</td></tr>
+        <tr><td><code>cpu.shares</code></td><td><code>cpu.weight</code></td><td>需要轉換公式（非 1:1）</td></tr>
+        <tr><td><code>cpu.quota</code> + <code>cpu.period</code></td><td><code>cpu.max</code></td><td>quota period 直接組合</td></tr>
+        <tr><td><code>cpu.cpus</code></td><td><code>cpuset.cpus</code></td><td>"0-3" 直接對應</td></tr>
+        <tr><td><code>cpu.mems</code></td><td><code>cpuset.mems</code></td><td>NUMA node list</td></tr>
+        <tr><td colspan="3" style="background: var(--color-primary-soft); font-weight: 600; color: var(--color-primary-text);">Memory</td></tr>
+        <tr><td><code>memory.limit</code></td><td><code>memory.max</code></td><td>硬限</td></tr>
+        <tr><td><code>memory.reservation</code></td><td><code>memory.low</code></td><td>軟保護</td></tr>
+        <tr><td><code>memory.swap</code></td><td><code>memory.swap.max</code></td><td>v2 swap 與 memory 分開計</td></tr>
+        <tr><td><code>memory.disableOOMKiller</code></td><td>無對應</td><td>v2 不支援 disable OOM</td></tr>
+        <tr><td colspan="3" style="background: var(--color-primary-soft); font-weight: 600; color: var(--color-primary-text);">IO</td></tr>
+        <tr><td><code>blockIO.weight</code></td><td><code>io.weight</code></td><td>需 enable blk-iocost</td></tr>
+        <tr><td><code>blockIO.throttleReadBps</code></td><td><code>io.max rbps</code></td><td>per-device</td></tr>
+        <tr><td><code>blockIO.throttleWriteBps</code></td><td><code>io.max wbps</code></td><td>per-device</td></tr>
+        <tr><td colspan="3" style="background: var(--color-primary-soft); font-weight: 600; color: var(--color-primary-text);">PID & device</td></tr>
+        <tr><td><code>pids.limit</code></td><td><code>pids.max</code></td><td>含 thread</td></tr>
+        <tr><td><code>devices.allow / deny</code></td><td>BPF program</td><td>v2 編譯成 BPF_CGROUP_DEVICE</td></tr>
+        <tr><td colspan="3" style="background: var(--color-primary-soft); font-weight: 600; color: var(--color-primary-text);">Hugetlb</td></tr>
+        <tr><td><code>hugepageLimits</code></td><td><code>hugetlb.NM.max</code></td><td>per-page-size 設限</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h4>實際範例</h4>
+<pre><code>// docker run -m 1G --cpus=2 --pids-limit=100 ubuntu
+// 對應的 OCI config.json:
+{
+  "linux": {
+    "resources": {
+      "memory": { "limit": 1073741824 },
+      "cpu":    { "quota": 200000, "period": 100000 },
+      "pids":   { "limit": 100 }
+    }
+  }
+}
+
+// runc 翻譯成 cgroup v2 介面寫入：
+echo "1073741824" > memory.max     // memory.limit → memory.max
+echo "200000 100000" > cpu.max      // cpu.quota period → cpu.max
+echo "100" > pids.max               // pids.limit → pids.max
+</code></pre>
+
+      <h3>3.4 cgroup driver：systemd vs cgroupfs</h3>
+      <p><strong>cgroup driver</strong> 決定 runtime 怎麼<em>創建與管理</em> cgroup：</p>
+      <ul>
+        <li><strong>cgroupfs driver</strong>：直接 <code>mkdir /sys/fs/cgroup/...</code>、寫介面檔案。最直接但繞過 systemd。</li>
+        <li><strong>systemd driver</strong>：透過 D-Bus 呼叫 systemd API，請 systemd 建 transient unit（scope）。</li>
+      </ul>
+      <p>
+        <strong>systemd 系統<em>必須</em>用 systemd driver</strong>。Kubernetes 官方原話：「<em>nodes that are configured to use cgroupfs for the kubelet and container runtime, but use systemd for the rest of the processes become unstable under resource pressure.</em>」
+      </p>
+      <p>為什麼會不穩定？回到 single-writer rule：</p>
+      <ol>
+        <li>systemd 是 PID 1，擁有 root cgroup 管理權。</li>
+        <li>cgroupfs driver 跳過 systemd 直接 mkdir——成了第二個 writer。</li>
+        <li>systemd 看到陌生 cgroup 在它的領域，可能清掉、改設定、跟它衝突。</li>
+        <li>resource pressure 下兩個 manager 對「<em>誰負責 reclaim</em>」沒共識——unpredictable behavior。</li>
+      </ol>
+
+      <h3>3.5 各 runtime 的 cgroup driver 設定</h3>
+<pre><code># Docker：/etc/docker/daemon.json
+{
+  "exec-opts": ["native.cgroupdriver=systemd"]
+}
+
+# containerd 2.x：/etc/containerd/config.toml
+[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]
+  SystemdCgroup = true
+
+# Podman：/etc/containers/containers.conf
+[engine]
+cgroup_manager = "systemd"
+
+# CRI-O：/etc/crio/crio.conf
+[crio.runtime]
+cgroup_manager = "systemd"
+conmon_cgroup = "system.slice"
+
+# kubelet：/var/lib/kubelet/config.yaml
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: systemd
+</code></pre>
+      <p><strong>K8s 1.36+ 自動偵測</strong>：kubelet 透過 RuntimeConfig CRI RPC 從 container runtime 取 cgroup driver——不需手動設。但 containerd 必須 ≥ 2.0。1.37 將移除 fallback，舊 containerd 會 break。</p>
+
+      <h3>3.6 CLONE_INTO_CGROUP：原子 cgroup 加入</h3>
+      <p>kernel 5.7+ 引入的<strong>關鍵 syscall flag</strong>。容器啟動時的 cgroup 操作從「<em>兩步</em>」變成「<em>一步原子</em>」。</p>
+      <p><strong>傳統做法（race-prone）</strong>：</p>
+<pre><code>// Step 1: fork
+pid_t pid = fork();
+if (pid == 0) {
+    // child 在 parent cgroup 跑（暫時！）
+    sleep(1);  // 假設 parent 還沒寫 cgroup.procs
+    exec(...);
+}
+// Step 2: parent 把 child 寫進 target cgroup
+write_file("/sys/fs/cgroup/myapp/cgroup.procs", pid);
+</code></pre>
+      <p><strong>問題</strong>：步驟 1 與步驟 2 之間有 window，child 在<strong>parent 的 cgroup 跑</strong>——可能短暫違反限制、計量錯亂、被錯誤的 cgroup 監控。</p>
+      <p><strong>CLONE_INTO_CGROUP 解法</strong>：fork 時直接指定 cgroup，<em>原子</em>進入。</p>
+<pre><code>struct clone_args args = {
+    .flags = CLONE_INTO_CGROUP | CLONE_NEWUSER | ...,
+    .cgroup = cgroup_fd,  // 已經 open 好的 cgroup fd
+};
+pid_t pid = clone3(&args, sizeof(args));
+// child 從第一個 instruction 就在 target cgroup
+</code></pre>
+      <p><strong>採用情況</strong>：runc 1.1+、crun 0.18+、podman 4.x+、systemd 245+。現代 container 啟動<em>應該</em>看到 CLONE_INTO_CGROUP 在用。</p>
+
+      <h3>3.7 Rootless container 的特殊挑戰</h3>
+      <p>Rootless container 讓非 root user 跑容器。在 cgroup v1 時代<strong>幾乎不可能</strong>——v1 controllers 需 root 權限。v2 透過 delegation 機制讓 rootless 可行。</p>
+      <p><strong>關鍵機制</strong>：systemd 對 user@UID.service 預設 <code>Delegate=memory pids</code>，每個 user session 取得一個 delegated 子樹。</p>
+<pre><code># 看 user systemd 是否被 delegated
+getfattr -n user.delegate /sys/fs/cgroup/user.slice/user-$UID.slice/user@$UID.service
+# user.delegate="1"  ← 是
+
+# 看可用 controllers
+cat /sys/fs/cgroup/user.slice/user-$UID.slice/user@$UID.service/cgroup.controllers
+# 可能是 "memory pids"  ← 預設不含 io、cpuset
+</code></pre>
+      <p><strong>常見限制</strong>：</p>
+      <ul>
+        <li>預設 delegated controllers <em>不含</em> io、cpuset。</li>
+        <li>結果：rootless podman <code>--cpus=1</code> 失敗，「<em>cpu.max not found</em>」。</li>
+        <li>修法：drop-in 加 <code>Delegate=memory pids cpu io cpuset</code>。</li>
+      </ul>
+
+      <h4>啟用完整 controller delegation</h4>
+<pre><code>sudo mkdir -p /etc/systemd/system/user@.service.d
+cat <<EOF | sudo tee /etc/systemd/system/user@.service.d/delegate.conf
+[Service]
+Delegate=memory pids cpu io cpuset
+EOF
+
+sudo systemctl daemon-reload
+# 需要使用者重新登入才生效
+</code></pre>
+
+      <h3>3.8 觀察 container 的 cgroup</h3>
+      <p><strong>怎麼從容器 ID 找 cgroup path</strong>：</p>
+<pre><code># Docker（systemd driver）
+CONTAINER_ID=$(docker inspect &lt;name&gt; --format '{{.Id}}')
+CG="/sys/fs/cgroup/system.slice/docker-${CONTAINER_ID}.scope"
+
+# Podman rootful
+CG="/sys/fs/cgroup/machine.slice/libpod-${CONTAINER_ID}.scope"
+
+# Podman rootless
+CG="/sys/fs/cgroup/user.slice/user-${UID}.slice/.../libpod-${CONTAINER_ID}.scope"
+
+# K8s（QoS 影響 path）
+POD_UID=$(kubectl get pod &lt;name&gt; -o jsonpath='{.metadata.uid}')
+# Guaranteed:
+CG="/sys/fs/cgroup/kubepods.slice/kubepods-pod${POD_UID//-/_}.slice/"
+# Burstable:
+CG="/sys/fs/cgroup/kubepods.slice/kubepods-burstable.slice/.../"
+
+# 通用方法（從容器內 process 反查）
+CONTAINER_PID=$(docker inspect &lt;name&gt; --format '{{.State.Pid}}')
+cat /proc/$CONTAINER_PID/cgroup
+# 0::/system.slice/docker-XXX.scope
+</code></pre>
+
+      <h3>3.9 Conmon 與容器監控</h3>
+      <p>Podman / CRI-O 有個元件叫 <strong>conmon</strong>——「<em>container monitor</em>」。每個容器一個 conmon process，負責：</p>
+      <ul>
+        <li>持有容器 stdout/stderr fd 寫到 log</li>
+        <li>PID 1 死掉時通知 engine</li>
+        <li>Detached 模式下做為容器的「<em>守護者</em>」</li>
+      </ul>
+      <p><strong>conmon 的 cgroup 位置很重要</strong>：</p>
+      <ul>
+        <li><code>conmon_cgroup = "pod"</code>：放在 pod cgroup 內，計入 pod 資源——透明但會吃容器配額。</li>
+        <li><code>conmon_cgroup = "system.slice"</code>（systemd 預設）：放系統 slice，不吃容器配額。</li>
+        <li>cgroupfs 模式下強制 "pod"，systemd 模式下兩個都行。</li>
+      </ul>
+
+      <h3>3.10 Best practices 總結</h3>
+      <ul>
+        <li><strong>新部署選 crun + systemd driver</strong>：性能最好、整合最緊。</li>
+        <li><strong>cgroup driver 全 stack 一致</strong>：kubelet、container runtime 必須相同。</li>
+        <li><strong>檢查 CLONE_INTO_CGROUP 在用</strong>：strace 看 clone3。沒在用表示 runtime 太舊。</li>
+        <li><strong>Rootless 加 Delegate</strong>：給 user@.service 加 cpu / io / cpuset delegation。</li>
+        <li><strong>conmon_cgroup 看你需求</strong>：嚴格 accounting 用 "pod"，避免 noise 用 "system.slice"。</li>
+        <li><strong>定期升級 runtime</strong>：cgroup v2 整合一直在進化（K8s 1.34/35/36）。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例</h2>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · 確認你的 stack</div>
+<pre><code># 1. cgroup version
+mount | grep cgroup | head -3
+stat -fc %T /sys/fs/cgroup/
+
+# 2. container engine
+podman --version 2>/dev/null
+docker --version 2>/dev/null
+
+# 3. OCI runtime
+podman info --format '{{.Host.OCIRuntime.Name}}'
+
+# 4. cgroup driver
+podman info --format '{{.Host.CgroupManager}}'
+docker info --format '{{.CgroupDriver}}'
+
+# 5. kubelet driver
+sudo grep cgroupDriver /var/lib/kubelet/config.yaml 2>/dev/null
+</code></pre>
+      <p>確認你的環境是不是 systemd driver + crun + v2 黃金組合。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · 觀察 docker run 的 cgroup 變化</div>
+<pre><code>docker run -d --name=test --memory=500M --cpus=1.5 --pids-limit=100 \
+    alpine sleep 300
+
+CONTAINER_ID=$(docker inspect test --format '{{.Id}}')
+CG="/sys/fs/cgroup/system.slice/docker-${CONTAINER_ID}.scope"
+
+cat $CG/memory.max     # 524288000  ← 500M
+cat $CG/cpu.max        # 150000 100000  ← 1.5 CPU
+cat $CG/pids.max       # 100
+
+docker rm -f test
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · 用 strace 確認 CLONE_INTO_CGROUP</div>
+<pre><code>sudo strace -f -e clone3 \
+    podman run --rm alpine echo hello 2>&1 | grep -E 'clone3|CLONE_INTO'
+
+# 預期看到：
+# clone3({flags=CLONE_PIDFD|CLONE_NEWUSER|CLONE_INTO_CGROUP, cgroup=4, ...}) = NNNN
+
+# 沒看到？升級 runtime（crun 0.18+ / runc 1.1+）
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 4 · Rootless container 與 delegation</div>
+<pre><code># 看當前 controllers
+podman run --rm alpine sh -c 'cat /sys/fs/cgroup/cgroup.controllers'
+# 預期：memory pids（沒有 io、cpuset）
+
+# 試 cpu limit
+podman run --rm --cpus=1.0 alpine echo "test"
+# 失敗：cpu.max: no such file or directory
+
+# 修：加 delegation
+sudo mkdir -p /etc/systemd/system/user@.service.d
+echo "[Service]
+Delegate=memory pids cpu io cpuset" | sudo tee /etc/systemd/system/user@.service.d/delegate.conf
+
+sudo systemctl daemon-reload
+loginctl terminate-user $USER
+# 重新登入後再試
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 5 · 比較 runc vs crun 啟動延遲</div>
+<pre><code>echo "=== runc ==="
+time for i in $(seq 1 10); do
+    podman run --runtime=runc --rm alpine true
+done
+
+echo "=== crun ==="
+time for i in $(seq 1 10); do
+    podman run --runtime=crun --rm alpine true
+done
+
+# 預期：crun 快 30-40%
+</code></pre>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · kubelet 與 container runtime 用不同 cgroup driver</div>
+      <p>kubelet 設 <code>cgroupDriver: systemd</code>、containerd 設 <code>SystemdCgroup = false</code>——兩個 manager 衝突。症狀：Pod 啟動偶發失敗、resource pressure 下節點不穩定、cAdvisor 取資源資料錯亂。修法：兩邊都設 systemd。K8s 1.36+ 用 KubeletCgroupDriverFromCRI 自動偵測。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · rootless podman 設 --cpus 失敗</div>
+      <p>錯誤：<code>cpu.max: no such file or directory</code>。原因：systemd 對 user@.service 預設不 delegate cpu。修法：drop-in <code>Delegate=memory pids cpu io cpuset</code> 並重新登入。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · --cgroup-parent 寫錯格式</div>
+      <p>cgroupfs driver 期待 raw path、systemd driver 期待 unit 名稱。systemd driver 下用 <code>--cgroup-parent=myapp.slice</code>（unit name with .slice）。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · 容器內看 host 的 cgroup 路徑</div>
+      <p>容器內 <code>cat /sys/fs/cgroup/...</code> 看到的<em>多半是容器自己的 cgroup</em>，因為現代 runtime 啟用 cgroup namespace。容器內看 <code>/proc/self/cgroup</code> 通常顯示 "0::/" 而非 host 路徑。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 5 · K8s container 設 limit 但實際沒生效</div>
+      <p>Pod yaml 寫 <code>resources.limits.memory: 1Gi</code> 但容器內看 memory.max 是 max？檢查 Pod yaml 的 resources，limits 與 requests 都要設。Memory QoS 看 K8s 版本（1.34+ Beta）。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 6 · CLONE_INTO_CGROUP 不可用</div>
+      <p>舊 runc（&lt; 1.1）跑在新 kernel 上——不會用 CLONE_INTO_CGROUP，啟動有 race window。大規模啟動場景（Job batch、autoscaling）累積延遲明顯。修法：升 runtime。strace 確認 clone3。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 7 · 切換 cgroup driver 不重啟舊 Pod</div>
+      <p>Node 切換 driver 後，舊 Pod 仍在舊 cgroup tree。症狀：cAdvisor 顯示一半 Pod、kubelet 操作失敗。修法：切換 driver 必須 drain node、重啟 kubelet/runtime、重新 schedule 所有 Pod。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 8 · conmon_cgroup="pod" 計量混淆</div>
+      <p>Pod memory.current 比 application 真實使用多 50MB？conmon 在 Pod cgroup 內吃配額。修法：<code>conmon_cgroup = "system.slice"</code>（systemd driver 才能）。或容量規劃 reserve 50MB。</p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · 從 docker run 推導 cgroup 介面值（10 分鐘）</div>
+      <p>給定以下命令，寫出對應的 cgroup v2 介面寫入內容：</p>
+<pre><code># 命令 1
+docker run -m 2G --memory-swap=4G --cpus=4 --pids-limit=200 alpine
+
+# 命令 2
+docker run --cpu-shares=512 --memory-reservation=500M alpine
+
+# 命令 3（OCI spec）
+"resources": {
+    "memory": { "limit": 1073741824, "reservation": 536870912, "swap": 1073741824 },
+    "cpu": { "shares": 1024, "quota": 100000, "period": 50000 }
+}</code></pre>
+      <p>對每個命令寫出 memory.max、cpu.max、cpu.weight、pids.max 實際介面值。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · 寫 audit 腳本檢查 cgroup driver 一致性（15 分鐘）</div>
+<pre><code>#!/bin/bash
+# audit-cgroup-driver.sh
+
+echo "=== kubelet ==="
+KUBELET_DRIVER=$(grep cgroupDriver /var/lib/kubelet/config.yaml 2>/dev/null | awk '{print $2}')
+echo "cgroupDriver: $KUBELET_DRIVER"
+
+echo "=== containerd ==="
+CONTAINERD_DRIVER=$(grep -i SystemdCgroup /etc/containerd/config.toml 2>/dev/null | awk '{print $3}')
+echo "SystemdCgroup: $CONTAINERD_DRIVER"
+
+echo "=== docker ==="
+docker info --format '{{.CgroupDriver}}' 2>/dev/null
+
+echo "=== podman ==="
+podman info --format '{{.Host.CgroupManager}}' 2>/dev/null
+
+if [ "$KUBELET_DRIVER" = "systemd" ] && [ "$CONTAINERD_DRIVER" = "true" ]; then
+    echo "✓ 一致使用 systemd driver"
+else
+    echo "✗ 不一致，需要修復"
+fi</code></pre>
+      <p>跑在你的環境，看 driver 設定是否一致。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 體驗 v2 跟 v1 容器的差別（思考題，10 分鐘）</div>
+      <p>不需執行，回答：</p>
+      <ol>
+        <li>v1 host 跑 docker run --memory=500M 與 v2 上行為差別？</li>
+        <li>buffered IO 在 v1 vs v2 容器內的限制行為差異？</li>
+        <li>OCI memory.disableOOMKiller 在 v2 為什麼沒對應介面？</li>
+        <li>怎麼快速判斷 docker host 是 v1 還是 v2？</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 設計多 runtime K8s node（思考題，15 分鐘）</div>
+      <p>K8s cluster 同時支援：標準容器（runc/crun）、強隔離（kata-runtime）、沙盒（runsc）。回答：</p>
+      <ol>
+        <li>containerd config.toml 怎麼註冊三個 runtime？</li>
+        <li>K8s 怎麼讓 Pod 選不同 runtime？（提示：RuntimeClass）</li>
+        <li>三種 runtime 對 cgroup v2 整合程度是否一致？</li>
+        <li>哪些 cgroup limit 在 kata-runtime 上行為會不同？</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>容器三層工具鏈各自職責？OCI runtime 在 cgroup 整合中扮演什麼角色？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>三層工具鏈職責</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>Layer 3 - container engine</strong>：使用者介面層，處理 image、生命週期、network、storage。</li>
+          <li><strong>Layer 2 - OCI runtime</strong>：執行層。讀 OCI spec、fork+exec、建 namespaces、設 cgroup。<em>直接操作 cgroup 介面</em>。</li>
+          <li><strong>Layer 1 - kernel</strong>：實際 enforce。</li>
+        </ul>
+        <strong>OCI runtime 的核心角色</strong>：是<em>唯一直接寫 cgroup 介面</em>的層。具體做：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>讀 config.json 的 linux.resources。</li>
+          <li>翻譯 OCI 抽象（cpu.shares、memory.limit）成 v2 介面值（cpu.weight、memory.max）。</li>
+          <li>用 systemd driver 或 cgroupfs driver 建立 cgroup。</li>
+          <li>用 CLONE_INTO_CGROUP 原子地把容器 process 放進 cgroup。</li>
+        </ol>
+        <strong>為什麼分層重要</strong>：debug 時要知道哪一層出問題。介面值不對是 OCI runtime（layer 2）；計量看不到多半是 driver 不一致。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>systemd vs cgroupfs cgroup driver 差別？為什麼 systemd 系統必須用 systemd driver？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>差別</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>cgroupfs driver</strong>：runtime 直接 mkdir + 寫介面檔案。繞過 systemd。</li>
+          <li><strong>systemd driver</strong>：透過 D-Bus 呼叫 systemd 建 transient unit。systemd 處理實際 cgroup 操作。</li>
+        </ul>
+        <strong>systemd 系統必須用 systemd driver 的原因</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>single-writer rule（v2 強制）</strong>：每個 cgroup 只能一個 manager。</li>
+          <li>systemd 是 PID 1，擁有 root cgroup 管理權。</li>
+          <li>cgroupfs driver 跳過 systemd 直接 mkdir → 變成第二個 writer。</li>
+          <li>systemd 看到陌生 cgroup 可能清掉、改設定、衝突。</li>
+          <li>resource pressure 下兩個 manager 對 reclaim 沒共識——不可預測行為。</li>
+        </ol>
+        <strong>K8s 官方原話</strong>：「<em>nodes that are configured to use cgroupfs ... become unstable under resource pressure.</em>」
+        <strong>例外</strong>：嵌入式系統、無 systemd host（Alpine 用 OpenRC）——這時 cgroupfs 是對的。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span>runc 與 crun 主要差別？什麼情況該選 crun？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>差別</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>實作語言：runc Go、crun C</li>
+          <li>啟動延遲：crun 比 runc 低約 37%</li>
+          <li>記憶體 footprint：runc ~30 MB、crun ~3 MB</li>
+          <li>sd-notify v3：crun 1.14+ 原生；runc 透過 proxy</li>
+          <li>預設於：runc 在 docker / containerd 2.x；crun 在 podman / OpenShift</li>
+        </ul>
+        <strong>選 crun 的場景</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>大規模 K8s 節點：每節點數百容器時記憶體節省 GB 級。</li>
+          <li>高頻啟動：CI/CD batch、auto-scaling。</li>
+          <li>低資源環境：edge node、IoT。</li>
+          <li>需要 sd-notify v3 原生支援。</li>
+        </ol>
+        <strong>關鍵</strong>：<em>功能等價</em>。OCI 標準嚴格定義行為，兩者表現一致。差別只在性能與啟動延遲。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span>OCI spec 的 cpu.shares 怎麼對應 cgroup v2 cpu.weight？是 1:1 嗎？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>不是 1:1</strong>。需要轉換：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>OCI cpu.shares：v1 風格，預設 1024，範圍 2–262144</li>
+          <li>cgroup v2 cpu.weight：預設 100，範圍 1–10000</li>
+        </ul>
+        <strong>轉換公式</strong>：<code>weight = (1 + ((shares - 2) * 9999) / 262142)</code>
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>shares=1024（OCI default）→ weight=39（比 v2 default 100 低）</li>
+          <li>shares=2048 → weight=78</li>
+          <li>shares=512 → weight=20</li>
+        </ul>
+        <strong>實務影響</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>寫 cpu.shares=1024 期望「<em>標準權重</em>」——v2 上其實 weight=39，比 default 低。</li>
+          <li>v1 → v2 遷移時 cpu.shares 行為會變。</li>
+          <li>新部署直接用 v2 native cpu.weight（systemd CPUWeight=）避免歧義。</li>
+        </ol>
+        <strong>類似不對等</strong>：cpu.quota+period → cpu.max（直接組合）；memory.disableOOMKiller → 無對應；blockIO.weight → io.weight（需 enable blk-iocost）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span>CLONE_INTO_CGROUP 解決什麼問題？沒這個 flag 會發生什麼？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>解決問題</strong>：原子地把新 fork process 放進指定 cgroup，避免「<em>fork 後在錯 cgroup 跑一段時間</em>」的 race。
+        <strong>傳統做法（race-prone）</strong>：fork → child 在 parent cgroup 跑 → parent 寫 cgroup.procs 把 child 搬家。step 1 與 step 2 之間 child 已執行任意 code。
+        <strong>問題</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>違反 limit</strong>：window 內 child 不被限制。</li>
+          <li><strong>計量錯亂</strong>：window 內資源算到 parent cgroup。</li>
+          <li><strong>觀測誤導</strong>：parent cgroup 出現奇怪的短時 spike。</li>
+          <li><strong>容器 escape 風險</strong>：理論上 attacker 可以在 window 內嘗試 escape。</li>
+        </ul>
+        <strong>CLONE_INTO_CGROUP 解法</strong>（kernel 5.7+）：fork 時透過 clone3 syscall flag 直接指定 cgroup fd。child 從第一個 instruction 就在 target cgroup。
+        <strong>採用</strong>：runc 1.1+、crun 0.18+、podman 4.x+、systemd 245+。
+        <strong>檢查</strong>：<code>strace -e clone3 podman run ...</code> 看到 CLONE_INTO_CGROUP flag 就是有用。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>Rootless container 在 v2 為什麼可行？v1 為什麼不行？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>v1 為什麼不行</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>v1 controllers 大多需 root 權限。</li>
+          <li>v1 沒完整 delegation 機制——non-root 無法擁有自己的 cgroup 子樹。</li>
+          <li>結果：rootless 在 v1 只能<em>沒有 resource limit</em>。</li>
+        </ol>
+        <strong>v2 為什麼可行</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>delegation 機制</strong>：v2 設計時就考慮 sub-tree 委派。</li>
+          <li><strong>systemd 整合</strong>：systemd 246+ 對 user@UID.service 預設 Delegate=memory pids。</li>
+          <li><strong>nsdelegate mount option</strong>：user namespace 內看不到祖先限制（host 仍 enforce）。</li>
+          <li><strong>權限模型</strong>：non-root 可在 delegated 子樹內自由 mkdir、寫部分介面。</li>
+        </ol>
+        <strong>當前限制</strong>：預設 delegated controllers 不含 io、cpuset。rootless podman --cpus=1 預設失敗。修法：對 user@.service 設 <code>Delegate=memory pids cpu io cpuset</code>。
+        <strong>建議</strong>：rootless 適合 dev / lab。production 大規模仍以 rootful（K8s）為主。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span>怎麼從容器 ID 找到對應的 cgroup path？docker / podman / kubernetes 各自格式？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>Docker（systemd driver）</strong>：
+        <pre style="margin-top:8px;font-size:11px;">CONTAINER_ID=$(docker inspect &lt;name&gt; --format '{{.Id}}')
+CG="/sys/fs/cgroup/system.slice/docker-${CONTAINER_ID}.scope"</pre>
+        <strong>Podman rootful</strong>：
+        <pre style="margin-top:8px;font-size:11px;">CG="/sys/fs/cgroup/machine.slice/libpod-${CONTAINER_ID}.scope"</pre>
+        <strong>Podman rootless</strong>：
+        <pre style="margin-top:8px;font-size:11px;">CG="/sys/fs/cgroup/user.slice/user-${UID}.slice/.../libpod-${CONTAINER_ID}.scope"</pre>
+        <strong>Kubernetes（QoS 影響 path）</strong>：
+        <pre style="margin-top:8px;font-size:11px;">POD_UID=$(kubectl get pod &lt;name&gt; -o jsonpath='{.metadata.uid}')
+# Guaranteed:
+CG="/sys/fs/cgroup/kubepods.slice/kubepods-pod${POD_UID//-/_}.slice/"
+# Burstable:
+CG="/sys/fs/cgroup/kubepods.slice/kubepods-burstable.slice/.../"
+# BestEffort:
+CG="/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/.../"</pre>
+        <strong>通用方法（從容器內 process）</strong>：
+        <pre style="margin-top:8px;font-size:11px;">CONTAINER_PID=$(docker inspect &lt;name&gt; --format '{{.State.Pid}}')
+cat /proc/$CONTAINER_PID/cgroup
+# 0::/system.slice/docker-XXX.scope</pre>
+        <strong>cgroupfs driver</strong>：path 像 <code>/sys/fs/cgroup/docker/&lt;ID&gt;/</code>（沒 .scope 後綴）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>實作思考題：K8s cluster Pod 啟動偶發失敗，懷疑 cgroup driver 問題。請設計完整診斷與修復流程。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>診斷流程</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[Phase 1: 確認 driver 一致性]
+1. kubelet driver: grep cgroupDriver /var/lib/kubelet/config.yaml
+2. containerd driver: grep SystemdCgroup /etc/containerd/config.toml
+3. init system: ps -p 1 -o comm=  # 應該是 systemd
+4. 一致性: kubelet=systemd + runtime=systemd + init=systemd → ✓
+
+[Phase 2: 確認 cgroup version]
+5. mount | grep cgroup
+   - cgroup2fs → v2 ✓
+6. 看 controllers: cat /sys/fs/cgroup/cgroup.controllers
+
+[Phase 3: 看 Pod 啟動失敗訊息]
+7. kubectl describe pod failing-pod | tail -50
+8. kubelet log: journalctl -u kubelet -n 100 | grep -i error
+9. runtime log: journalctl -u containerd -n 100
+
+[Phase 4: 確認 runtime 版本]
+10. runc/crun/containerd 版本
+11. K8s 1.36+ 需 containerd 2.0+ for KubeletCgroupDriverFromCRI
+
+[Phase 5: 修復]
+12. 不一致時改 containerd: SystemdCgroup = true
+13. drain node: kubectl drain &lt;node&gt; --ignore-daemonsets
+14. restart kubelet + containerd
+15. uncordon: kubectl uncordon &lt;node&gt;
+
+[Phase 6: 防護]
+16. 寫 monitoring：alert on driver mismatch / kubelet restart
+17. Runbook：把流程寫進 SRE 文件
+18. CI/CD：部署前 audit driver 一致性</pre>
+        <strong>常見根因排序</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>kubelet 與 runtime driver 不一致（最常見）</li>
+          <li>runtime 版本太舊，沒 CLONE_INTO_CGROUP</li>
+          <li>rootless 模式 controller 沒 delegate</li>
+          <li>cgroup v1/v2 混亂（hybrid mount）</li>
+          <li>K8s 與 runtime 版本不匹配</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+    <div class="refs">
+      <ol>
+        <li><a href="https://github.com/opencontainers/runtime-spec/blob/main/config-linux.md" target="_blank" rel="noopener">OCI Runtime Specification · Linux</a><span class="ref-source">github.com · linux.resources 完整定義</span></li>
+        <li><a href="https://github.com/opencontainers/runc" target="_blank" rel="noopener">runc · OCI runtime</a><span class="ref-source">github.com · Go 寫的標準 OCI runtime</span></li>
+        <li><a href="https://github.com/containers/crun" target="_blank" rel="noopener">crun · fast OCI runtime</a><span class="ref-source">github.com · C 寫的高性能 OCI runtime</span></li>
+        <li><a href="https://kubernetes.io/docs/setup/production-environment/container-runtimes/" target="_blank" rel="noopener">Container Runtimes · Kubernetes</a><span class="ref-source">kubernetes.io · cgroup driver 選擇指引</span></li>
+        <li><a href="https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/configure-cgroup-driver/" target="_blank" rel="noopener">Configuring a cgroup driver · Kubernetes</a><span class="ref-source">kubernetes.io · K8s 1.36+ 自動偵測機制</span></li>
+        <li><a href="https://github.com/containerd/containerd/blob/main/docs/cri/config.md" target="_blank" rel="noopener">containerd CRI config</a><span class="ref-source">github.com · SystemdCgroup 設定</span></li>
+        <li><a href="https://docs.podman.io/en/latest/markdown/podman.1.html" target="_blank" rel="noopener">Podman documentation</a><span class="ref-source">podman.io · cgroup_manager 與 rootless 設定</span></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn" href="ch15-systemd.html">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">Ch.15 systemd 整合</span>
+    </a>
+    <a class="nav-btn next disabled">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">Ch.17 Kubernetes 雲原生</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.title = `Theme: ${LABELS[mode]}`;
+      btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+</body>
+</html>

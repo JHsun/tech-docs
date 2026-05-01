@@ -1,0 +1,1400 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.15 systemd 整合 — cgroup v2 完整教學</title>
+<meta name="description" content="systemd 與 cgroup v2 完整整合：slice/scope/service 三角色、resource control directives、Delegate 機制、drop-in files、systemctl set-property。">
+
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626; --color-danger-soft: #fee2e2;
+  --color-info: #0891b2; --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px; --text-4xl: 64px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+</style>
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.topbar { position: sticky; top: 0; z-index: 50; background: color-mix(in oklch, var(--bg-canvas) 88%, transparent); backdrop-filter: saturate(180%) blur(12px); -webkit-backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--border-soft); }
+.topbar-inner { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.brand { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-secondary); }
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 999px; padding: 6px 14px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background .2s, border-color .2s, color .2s; }
+[data-theme-toggle]:hover { background: var(--bg-muted); border-color: var(--border-mid); color: var(--text-primary); }
+[data-theme-toggle] .theme-icon { font-size: 14px; line-height: 1; }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: 0 var(--space-5); }
+
+.chapter-head { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); }
+.chapter-tag { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary-text); background: var(--color-primary-soft); padding: 4px 12px; border-radius: 999px; margin-bottom: var(--space-4); }
+.chapter-title { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; margin-bottom: var(--space-3); }
+.chapter-subtitle { font-family: var(--font-serif-body); font-size: var(--text-md); color: var(--text-secondary); line-height: 1.65; font-style: italic; }
+.chapter-meta { margin-top: var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.chapter-meta-item:first-child::before { display: none; }
+
+.section { padding: var(--space-7) 0; border-bottom: 1px solid var(--border-soft); }
+.section:last-of-type { border-bottom: none; }
+.section-label { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2); }
+.section-label::before { content: ""; width: 24px; height: 1px; background: var(--color-primary); }
+.section-title { font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600; margin-bottom: var(--space-5); letter-spacing: -0.01em; line-height: 1.2; }
+
+.prose p { font-family: var(--font-serif-body); font-size: var(--text-base); color: var(--text-primary); line-height: 1.85; margin-bottom: var(--space-4); }
+.prose h3 { font-family: var(--font-sans); font-size: var(--text-lg); font-weight: 600; color: var(--text-primary); margin: var(--space-6) 0 var(--space-3); letter-spacing: -0.01em; }
+.prose h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 500; color: var(--text-primary); margin: var(--space-5) 0 var(--space-2); }
+.prose ul, .prose ol { font-family: var(--font-serif-body); margin-bottom: var(--space-4); padding-left: var(--space-5); line-height: 1.8; }
+.prose ul li, .prose ol li { margin-bottom: var(--space-2); color: var(--text-primary); }
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong { font-weight: 600; color: var(--text-primary); }
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 1px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+.prose a { color: var(--color-primary); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.prose a:hover { color: var(--color-primary-hover); }
+
+.highlights { background: var(--color-primary-soft); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.highlights ol { font-family: var(--font-sans); padding-left: var(--space-5); margin: 0; }
+.highlights li { font-size: var(--text-sm); color: var(--color-primary-text); margin-bottom: var(--space-2); line-height: 1.65; }
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+
+.news-box { background: var(--color-info-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.news-item { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); line-height: 1.7; padding: var(--space-2) 0; border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent); }
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-info); margin-right: var(--space-2); }
+
+pre { font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.7; background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; margin-bottom: var(--space-4); color: var(--text-primary); }
+pre code { background: transparent; border: none; padding: 0; font-size: inherit; color: inherit; }
+
+.cmp-table { width: 100%; border-collapse: collapse; margin-bottom: var(--space-4); font-size: var(--text-sm); font-family: var(--font-sans); }
+.cmp-table th, .cmp-table td { padding: var(--space-3); text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.cmp-table th { font-weight: 600; color: var(--text-primary); background: var(--bg-muted); font-size: var(--text-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 1px 5px; border-radius: var(--radius-sm); color: var(--color-primary-text); }
+
+.lab { background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.lab-title { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--color-primary); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px dashed var(--border-soft); }
+.lab-title::before { content: "▶ "; color: var(--color-primary); }
+.lab p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-3); color: var(--text-secondary); line-height: 1.7; }
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+.lab ol, .lab ul { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); color: var(--text-secondary); line-height: 1.7; }
+
+.pitfall { background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.pitfall-title { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 600; color: var(--color-warning); margin-bottom: var(--space-2); }
+.pitfall p { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); margin-bottom: var(--space-2); line-height: 1.7; }
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code { background: color-mix(in oklch, var(--color-warning) 15%, transparent); border-color: color-mix(in oklch, var(--color-warning) 30%, transparent); color: var(--text-primary); }
+
+.quiz-item { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-3); }
+.quiz-q { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; color: var(--text-primary); margin-bottom: var(--space-2); display: flex; gap: var(--space-2); }
+.quiz-q-num { font-family: var(--font-mono); color: var(--color-primary); flex-shrink: 0; }
+.quiz-toggle { background: transparent; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 4px 10px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; margin-top: var(--space-2); transition: background .2s, color .2s; }
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a { display: none; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px dashed var(--border-soft); font-family: var(--font-serif-body); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.75; }
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+
+.diagram { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); margin-bottom: var(--space-4); text-align: center; }
+.diagram svg { max-width: 100%; height: auto; }
+.diagram-caption { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-3); text-align: center; }
+
+.refs ol { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); line-height: 1.8; }
+.refs li { margin-bottom: var(--space-2); color: var(--text-secondary); }
+.refs li::marker { color: var(--color-primary); }
+.refs a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dashed var(--color-primary); }
+.refs a:hover { color: var(--color-primary-hover); }
+.refs .ref-source { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); display: block; margin-top: 2px; }
+
+.chapter-nav { margin-top: var(--space-6); padding: var(--space-5) 0; display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.nav-btn { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; padding: var(--space-3) var(--space-4); background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); text-decoration: none; color: var(--text-primary); transition: border-color .2s, transform .15s; }
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.04em; }
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.15</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part VI · 生態系 · Chapter 15</span>
+    <h1 class="chapter-title">systemd 整合</h1>
+    <p class="chapter-subtitle">
+      在現代 Linux 系統，systemd 是 cgroup v2 的<em>主要管理者</em>——PID 1 直接管 root cgroup，所有 service 都自動進 cgroup tree。
+      這不只是方便：v2 嚴格的 single-writer rule 讓「<em>誰管理 cgroup</em>」成為架構問題，systemd 提供了標準答案。
+      本章拆解 slice / scope / service 三角色的職責、resource control directives 的完整參考、
+      Delegate 機制（為什麼只能用在 service 與 scope，<em>不能</em>用在 slice）、drop-in files 的優雅修改方式，
+      以及生產環境每天會用到的 systemctl set-property、systemd-run、systemd-cgls 三大工具。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~7,200 字</span>
+      <span class="chapter-meta-item">閱讀時間 27 分鐘</span>
+      <span class="chapter-meta-item">難度：核心</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ====================== Section 1: 本章重點 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+
+    <div class="highlights">
+      <ol>
+        <li><strong>systemd 是 cgroup v2 的 single writer</strong>：PID 1 管 root cgroup，所有 service / scope 自動納入。<em>不要</em> 自己 mkdir 在 root——會違反 single-writer rule、被 systemd 對抗。</li>
+        <li><strong>三種 unit 類型 = 三種 cgroup 角色</strong>：<code>slice</code>（inner node，組織用）、<code>service</code>（leaf，systemd 啟動的 process）、<code>scope</code>（leaf，外部啟動但 systemd 接管的 process，如 user session、container）。</li>
+        <li><strong>Delegate= 只能用在 leaf（service / scope），不能用在 slice</strong>：因為 slice 是 inner node，systemd 與你會搶著管 child，違反 single-writer。</li>
+        <li><strong>Resource control directives 完整覆蓋所有 controller</strong>：<code>CPUWeight</code>、<code>CPUQuota</code>、<code>MemoryMin/Low/High/Max</code>、<code>IOWeight</code>、<code>IOMax</code>、<code>AllowedCPUs</code>、<code>TasksMax</code> 等。<em>不需</em> 直接寫 cgroup 介面檔案。</li>
+        <li><strong>三層修改方式優雅遞進</strong>：unit file（永久）→ drop-in file（永久但隔離）→ <code>systemctl set-property</code>（runtime + 持久化）。<code>systemd-run</code> 是 transient unit 的快速路徑，debug 必備。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 2: 最新動態 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+
+    <div class="news-box">
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>systemd v258 移除 force cgroup v1 boot parameter</strong>。<code>systemd.unified_cgroup_hierarchy=0</code> 與 <code>SYSTEMD_CGROUP_ENABLE_LEGACY_FORCE=1</code> 都被棄用，systemd 完全綁定 cgroup v2。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>systemd 256+ 完整支援 partition</strong>。<code>AllowedCPUs=</code> 配合新的 partition 控制 directive，systemd unit 可直接設定 partition 角色（root / isolated）。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>systemd-oomd 普及到所有主流 distro</strong>。Fedora、Ubuntu、openSUSE 都預設啟用，user.slice 預設 ManagedOOMMemoryPressure=kill。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2024–2025</span>
+        <strong>BPFProgram= directive 成熟</strong>（systemd 256+）。可以在 unit 直接 attach BPF program 到 cgroup，<code>BPFProgram=type:program-path</code> 格式。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>新 directive：DelegateSubgroup=</strong>（systemd 256+）。把 service 的主 process 放到 delegated subtree 內的特定 subcgroup，方便 sd_notify 等 IPC。
+      </div>
+    </div>
+
+    <div class="prose">
+      <p>
+        2026 年的時點，<strong>systemd 與 cgroup v2 的整合已是 Linux distribution 的<em>標配</em></strong>——RHEL 10、Fedora、Ubuntu、Arch、Debian 12+ 都默認 v2 + systemd 全管理。
+        本章重點不只是「<em>directive 怎麼寫</em>」，更包含「<em>為什麼這樣設計</em>」、「<em>什麼時候用 unit file vs drop-in vs set-property</em>」這類設計決策。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 3: 核心內容 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+
+    <div class="prose">
+      <h3>3.1 為什麼 systemd 要管 cgroup</h3>
+      <p>
+        前面 Ch.5 講過 v2 的 <strong>single-writer rule</strong>：每個 cgroup 只能有一個 manager。
+        在 systemd 系統，這個 manager 是 PID 1（systemd 本身）。
+      </p>
+      <p>
+        為什麼必須這樣？因為 cgroup 樹的結構與 service 生命週期、依賴關係緊密相關——service 啟動時要進對的 cgroup，停止時 cgroup 要清理，limit 變更要同步介面檔案。
+        <em>沒有</em> 統一管理者，會出現多個 process 同時 mkdir / rmdir、寫 controller 設定，造成 race condition、記憶體洩漏、limit 不同步等問題。
+      </p>
+      <p>
+        v1 容忍多 manager（multi-hierarchy）已經很亂；v2 直接<em>強制</em> single writer。在 systemd 系統，這個 writer <strong>就是 systemd</strong>。
+      </p>
+
+      <h3>3.2 預設的 systemd cgroup 樹</h3>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 680 360" role="img" aria-label="systemd 預設 cgroup tree 結構">
+        <text x="340" y="22" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="600" fill="var(--text-primary)">systemd 預設 cgroup tree</text>
+
+        <!-- root -.slice -->
+        <rect x="280" y="50" width="120" height="36" rx="6" fill="var(--bg-muted)" stroke="var(--border-mid)" stroke-width="1"/>
+        <text x="340" y="73" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--text-primary)">-.slice (root)</text>
+
+        <!-- 三個主分支 -->
+        <line x1="340" y1="86" x2="340" y2="100" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="120" y1="100" x2="560" y2="100" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="120" y1="100" x2="120" y2="115" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="340" y1="100" x2="340" y2="115" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="560" y1="100" x2="560" y2="115" stroke="var(--text-muted)" stroke-width="0.5"/>
+
+        <!-- system.slice -->
+        <rect x="60" y="115" width="120" height="36" rx="6" fill="var(--color-info-soft)" stroke="var(--color-info)" stroke-width="0.5"/>
+        <text x="120" y="138" text-anchor="middle" font-family="var(--font-mono)" font-size="11" fill="var(--color-info)">system.slice</text>
+        <text x="120" y="160" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-muted)">系統 daemon</text>
+
+        <!-- user.slice -->
+        <rect x="280" y="115" width="120" height="36" rx="6" fill="var(--color-primary-soft)" stroke="var(--color-primary)" stroke-width="0.5"/>
+        <text x="340" y="138" text-anchor="middle" font-family="var(--font-mono)" font-size="11" fill="var(--color-primary-text)">user.slice</text>
+        <text x="340" y="160" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-muted)">使用者 session</text>
+
+        <!-- machine.slice -->
+        <rect x="500" y="115" width="120" height="36" rx="6" fill="var(--color-success-soft)" stroke="var(--color-success)" stroke-width="0.5"/>
+        <text x="560" y="138" text-anchor="middle" font-family="var(--font-mono)" font-size="11" fill="var(--color-success)">machine.slice</text>
+        <text x="560" y="160" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-muted)">VM、container</text>
+
+        <!-- system.slice 子樹 -->
+        <line x1="120" y1="151" x2="120" y2="170" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <rect x="20" y="180" width="200" height="22" rx="4" fill="var(--bg-surface)" stroke="var(--border-soft)" stroke-width="0.5"/>
+        <text x="120" y="195" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--text-secondary)">sshd.service</text>
+
+        <rect x="20" y="208" width="200" height="22" rx="4" fill="var(--bg-surface)" stroke="var(--border-soft)" stroke-width="0.5"/>
+        <text x="120" y="223" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--text-secondary)">postgresql.service</text>
+
+        <rect x="20" y="236" width="200" height="22" rx="4" fill="var(--bg-surface)" stroke="var(--border-soft)" stroke-width="0.5"/>
+        <text x="120" y="251" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--text-secondary)">myapp.service</text>
+
+        <!-- user.slice 子樹 -->
+        <line x1="340" y1="151" x2="340" y2="170" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <rect x="240" y="180" width="200" height="22" rx="4" fill="var(--bg-surface)" stroke="var(--border-soft)" stroke-width="0.5"/>
+        <text x="340" y="195" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--text-secondary)">user-1000.slice</text>
+
+        <line x1="340" y1="202" x2="340" y2="215" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <rect x="240" y="220" width="200" height="22" rx="4" fill="var(--bg-canvas)" stroke="var(--border-soft)" stroke-width="0.5"/>
+        <text x="340" y="235" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--text-secondary)">session-2.scope</text>
+
+        <rect x="240" y="248" width="200" height="22" rx="4" fill="var(--bg-canvas)" stroke="var(--border-soft)" stroke-width="0.5"/>
+        <text x="340" y="263" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--text-secondary)">user@1000.service</text>
+
+        <!-- machine.slice 子樹 -->
+        <line x1="560" y1="151" x2="560" y2="170" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <rect x="460" y="180" width="200" height="22" rx="4" fill="var(--bg-surface)" stroke="var(--border-soft)" stroke-width="0.5"/>
+        <text x="560" y="195" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--text-secondary)">docker-XXX.scope</text>
+
+        <rect x="460" y="208" width="200" height="22" rx="4" fill="var(--bg-surface)" stroke="var(--border-soft)" stroke-width="0.5"/>
+        <text x="560" y="223" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--text-secondary)">qemu-vm1.scope</text>
+
+        <!-- 圖例 -->
+        <text x="60" y="305" font-family="var(--font-sans)" font-size="10" font-weight="600" fill="var(--text-primary)">圖例：</text>
+        <rect x="100" y="297" width="14" height="14" rx="2" fill="var(--bg-muted)" stroke="var(--border-mid)" stroke-width="0.5"/>
+        <text x="120" y="307" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">slice (inner)</text>
+        <rect x="200" y="297" width="14" height="14" rx="2" fill="var(--bg-surface)" stroke="var(--border-soft)" stroke-width="0.5"/>
+        <text x="220" y="307" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">service (leaf)</text>
+        <rect x="305" y="297" width="14" height="14" rx="2" fill="var(--bg-canvas)" stroke="var(--border-soft)" stroke-width="0.5"/>
+        <text x="325" y="307" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">scope (leaf)</text>
+
+        <text x="340" y="335" text-anchor="middle" font-family="var(--font-sans)" font-size="10" font-style="italic" fill="var(--text-muted)">slice 是 inner node 不放 process；service / scope 是 leaf 放 process</text>
+      </svg>
+      <div class="diagram-caption">圖 15.1 · systemd 預設 cgroup tree（簡化版）</div>
+    </div>
+
+    <div class="prose">
+      <p>
+        三個頂層 slice 對應 Linux 系統的三大 process 來源：
+      </p>
+      <ul>
+        <li><strong>system.slice</strong>：systemd 啟動的系統 daemon——nginx、postgres、ssh、cron 等。</li>
+        <li><strong>user.slice</strong>：使用者登入 session——透過 PAM 自動建立 <code>user-UID.slice</code>，內含 session-N.scope（terminal session）與 user@UID.service（user systemd instance）。</li>
+        <li><strong>machine.slice</strong>：VM 與 container——docker-XXX.scope、qemu-XXX.scope、systemd-nspawn 容器等。</li>
+      </ul>
+
+      <h3>3.3 三種 unit 類型的 cgroup 角色</h3>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>Unit 類型</th><th>cgroup 角色</th><th>定義</th><th>典型例子</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>.slice</code></td>
+          <td>inner node（無 process）</td>
+          <td>邏輯分組，不直接執行任何東西</td>
+          <td>system.slice、user-1000.slice、kubepods.slice</td>
+        </tr>
+        <tr>
+          <td><code>.service</code></td>
+          <td>leaf（有 process）</td>
+          <td><em>由 systemd 啟動</em>的 process（ExecStart=）</td>
+          <td>nginx.service、postgresql.service</td>
+        </tr>
+        <tr>
+          <td><code>.scope</code></td>
+          <td>leaf（有 process）</td>
+          <td><em>外部啟動</em>但 systemd 接管的 process</td>
+          <td>session-2.scope、docker-XXX.scope</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        <strong>service vs scope</strong> 差別在於「<em>誰啟動 process</em>」：
+      </p>
+      <ul>
+        <li><strong>service</strong>：systemd 自己 fork+exec（透過 <code>ExecStart=</code>）。生命週期由 systemd 完整掌控。</li>
+        <li><strong>scope</strong>：外部 process 已經跑起來，systemd 透過 D-Bus API 「<em>接管</em>」它——把 PID 放進新建的 cgroup、套用 resource control。</li>
+      </ul>
+      <p>
+        典型 scope 場景：
+      </p>
+      <ul>
+        <li>使用者 ssh 登入：sshd 建立 session，systemd 接管成 session-N.scope。</li>
+        <li>docker run：dockerd 啟動 container process，告訴 systemd 接管成 docker-XXX.scope。</li>
+        <li>qemu-system 啟動 VM：libvirtd 接管成 machine-vm.scope。</li>
+      </ul>
+
+      <h3>3.4 Resource control directives 完整參考</h3>
+      <p>
+        systemd 提供完整的 resource control directives 對應每個 cgroup controller。<em>不需</em> 直接寫 cgroup 介面檔案。
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>Directive</th><th>cgroup 介面</th><th>範例值</th></tr>
+      </thead>
+      <tbody>
+        <tr><td colspan="3" style="background: var(--color-primary-soft); font-weight: 600; color: var(--color-primary-text);">CPU controller</td></tr>
+        <tr><td><code>CPUWeight=</code></td><td><code>cpu.weight</code></td><td>1–10000，預設 100</td></tr>
+        <tr><td><code>CPUQuota=</code></td><td><code>cpu.max</code></td><td>50% / 200%（多核）</td></tr>
+        <tr><td><code>CPUQuotaPeriodSec=</code></td><td><code>cpu.max</code> period</td><td>100ms（預設）</td></tr>
+        <tr><td><code>CPUWeight=idle</code></td><td><code>cpu.idle</code></td><td>idle scheduling 模式</td></tr>
+        <tr><td><code>AllowedCPUs=</code></td><td><code>cpuset.cpus</code></td><td>0-3,8-11</td></tr>
+        <tr><td><code>AllowedMemoryNodes=</code></td><td><code>cpuset.mems</code></td><td>0</td></tr>
+
+        <tr><td colspan="3" style="background: var(--color-primary-soft); font-weight: 600; color: var(--color-primary-text);">Memory controller</td></tr>
+        <tr><td><code>MemoryMin=</code></td><td><code>memory.min</code></td><td>512M（硬保護）</td></tr>
+        <tr><td><code>MemoryLow=</code></td><td><code>memory.low</code></td><td>1G（軟保護）</td></tr>
+        <tr><td><code>MemoryHigh=</code></td><td><code>memory.high</code></td><td>2G（軟限制 + throttle）</td></tr>
+        <tr><td><code>MemoryMax=</code></td><td><code>memory.max</code></td><td>3G（硬限制 + OOM）</td></tr>
+        <tr><td><code>MemorySwapMax=</code></td><td><code>memory.swap.max</code></td><td>0（禁 swap）/ 1G</td></tr>
+        <tr><td><code>MemoryZSwapMax=</code></td><td><code>memory.zswap.max</code></td><td>256M（systemd 254+）</td></tr>
+
+        <tr><td colspan="3" style="background: var(--color-primary-soft); font-weight: 600; color: var(--color-primary-text);">IO controller</td></tr>
+        <tr><td><code>IOWeight=</code></td><td><code>io.weight</code> 全域</td><td>1–10000，預設 100</td></tr>
+        <tr><td><code>IODeviceWeight=</code></td><td><code>io.weight</code> per-device</td><td>/dev/sda 200</td></tr>
+        <tr><td><code>IOReadBandwidthMax=</code></td><td><code>io.max rbps</code></td><td>/dev/sda 100M</td></tr>
+        <tr><td><code>IOWriteBandwidthMax=</code></td><td><code>io.max wbps</code></td><td>/dev/sda 50M</td></tr>
+        <tr><td><code>IOReadIOPSMax=</code></td><td><code>io.max riops</code></td><td>/dev/sda 1000</td></tr>
+        <tr><td><code>IODeviceLatencyTargetSec=</code></td><td><code>io.latency target</code></td><td>/dev/sda 50ms</td></tr>
+
+        <tr><td colspan="3" style="background: var(--color-primary-soft); font-weight: 600; color: var(--color-primary-text);">PID controller</td></tr>
+        <tr><td><code>TasksMax=</code></td><td><code>pids.max</code></td><td>100、infinity</td></tr>
+
+        <tr><td colspan="3" style="background: var(--color-primary-soft); font-weight: 600; color: var(--color-primary-text);">OOM 與 systemd-oomd</td></tr>
+        <tr><td><code>OOMPolicy=</code></td><td><code>memory.oom.group</code></td><td>kill / continue / stop</td></tr>
+        <tr><td><code>OOMScoreAdjust=</code></td><td>process oom_score_adj</td><td>-1000 to 1000</td></tr>
+        <tr><td><code>ManagedOOMMemoryPressure=</code></td><td>systemd-oomd 監控</td><td>kill / auto</td></tr>
+        <tr><td><code>ManagedOOMMemoryPressureLimit=</code></td><td>觸發閾值</td><td>50%</td></tr>
+        <tr><td><code>ManagedOOMSwap=</code></td><td>swap 壓力監控</td><td>kill / auto</td></tr>
+
+        <tr><td colspan="3" style="background: var(--color-primary-soft); font-weight: 600; color: var(--color-primary-text);">Device controller (BPF)</td></tr>
+        <tr><td><code>DeviceAllow=</code></td><td>BPF program</td><td>/dev/null rw</td></tr>
+        <tr><td><code>DevicePolicy=</code></td><td>BPF program</td><td>strict / closed / auto</td></tr>
+
+        <tr><td colspan="3" style="background: var(--color-primary-soft); font-weight: 600; color: var(--color-primary-text);">其他</td></tr>
+        <tr><td><code>Slice=</code></td><td>—</td><td>把 unit 放到指定 slice</td></tr>
+        <tr><td><code>Delegate=</code></td><td>delegation flag</td><td>yes / no / 控制器列表</td></tr>
+        <tr><td><code>BPFProgram=</code></td><td>BPF attach</td><td>egress:/path/prog</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h3>3.5 Delegate=：把 cgroup 子樹的管理權交出去</h3>
+      <p>
+        前面 Ch.5 詳細講過 delegation。<strong>systemd 的視角</strong>：
+      </p>
+      <ul>
+        <li>沒設 <code>Delegate=</code>：systemd 完全管理這個 unit 的 cgroup。process 在它指定的位置，不能自己 mkdir 子 cgroup。</li>
+        <li>設 <code>Delegate=yes</code>：systemd 在這個 unit 之下<em>不再插手</em>，service 自己可以 mkdir 子 cgroup、設介面、移 process。</li>
+        <li>設 <code>Delegate=memory pids</code>：只把指定 controllers 的管理權給 service，其他仍由 systemd 管。</li>
+      </ul>
+
+      <h4>關鍵限制：Delegate 只能用在 leaf（service / scope）</h4>
+      <p>
+        kernel 的 single-writer rule + cgroup v2 的 inner/leaf 規則導致一個重要結論：
+      </p>
+      <p style="font-style: italic; color: var(--text-secondary); padding-left: var(--space-4); border-left: 2px solid var(--color-warning);">
+        Don't attempt to set Delegate= in slice units, and in particular not in -.slice. It's not supported, and will generate an error.
+        — systemd 官方文件
+      </p>
+      <p>
+        為什麼？slice 是<em>inner node</em>，systemd 會在它之下放 service / scope。如果允許在 slice 上 Delegate，service 啟動時 systemd 要 mkdir 子 cgroup、Delegate 對象也要 mkdir——兩個 writer 衝突。
+      </p>
+      <p>
+        正確做法：
+      </p>
+<pre><code># ✗ 錯：在 slice 設 Delegate
+[Slice]
+Delegate=yes
+
+# ✓ 對：在 service / scope 設 Delegate
+[Service]
+Delegate=yes
+ExecStart=/usr/local/bin/my-container-runtime
+
+# 這個 service 跑起來後，可以在它的 cgroup 之下自由 mkdir 子 cgroup
+# /sys/fs/cgroup/system.slice/my-container-runtime.service/...
+</code></pre>
+
+      <h4>Delegate 的擴展屬性訊號</h4>
+      <p>
+        systemd 251+ 在被 delegated 的 cgroup 目錄上設定 xattr <code>user.delegate=1</code>，service 可以用 <code>getxattr()</code> 確認自己是否在 delegated subtree：
+      </p>
+<pre><code># 確認自己是否被 delegated
+getfattr -n user.delegate /sys/fs/cgroup/system.slice/my-container.service
+# user.delegate="1"  ← 是 delegated
+
+# 從程式內讀
+getxattr("/sys/fs/cgroup/system.slice/my-container.service",
+         "user.delegate", buf, sizeof(buf));
+</code></pre>
+
+      <h3>3.6 三層修改方式</h3>
+      <p>
+        要修改 unit 的 resource control，systemd 提供三種方式，<strong>各有優缺</strong>：
+      </p>
+
+      <h4>方式 1：直接編輯 unit file</h4>
+<pre><code># 直接編輯 /etc/systemd/system/myapp.service（或 /lib/systemd/system/）
+[Service]
+ExecStart=/usr/bin/myapp
+MemoryMax=2G
+CPUQuota=100%
+
+# 套用變更
+sudo systemctl daemon-reload
+sudo systemctl restart myapp
+</code></pre>
+      <p>
+        <strong>優</strong>：直觀，所有設定在一個檔案。
+        <strong>缺</strong>：直接改 distro 提供的 unit file 會被 package update 覆蓋；改 /lib/systemd/system/ 是<em>嚴重錯誤</em>。
+      </p>
+
+      <h4>方式 2：drop-in file（推薦）</h4>
+<pre><code># 建立 drop-in 目錄
+sudo mkdir -p /etc/systemd/system/myapp.service.d/
+
+# 加 override
+cat <<EOF | sudo tee /etc/systemd/system/myapp.service.d/10-resources.conf
+[Service]
+MemoryMax=2G
+MemoryHigh=1.5G
+CPUQuota=100%
+EOF
+
+# 套用
+sudo systemctl daemon-reload
+sudo systemctl restart myapp
+</code></pre>
+      <p>
+        <strong>優</strong>：原 unit file 不動，drop-in 之間獨立可分開維護（<code>10-resources.conf</code>、<code>20-network.conf</code>），lexicographic order 套用。distro update 不會碰你的 drop-in。
+        <strong>缺</strong>：需要 daemon-reload + restart。
+      </p>
+      <p>
+        <strong>更快的編輯方式</strong>：<code>systemctl edit myapp.service</code> 會自動建立 drop-in 目錄並打開編輯器。
+      </p>
+
+      <h4>方式 3：systemctl set-property（runtime + 永久）</h4>
+<pre><code># Runtime + 永久（寫入 /etc/systemd/system.control/）
+sudo systemctl set-property myapp.service MemoryMax=2G CPUQuota=100%
+
+# 只 runtime（reboot 後消失）
+sudo systemctl set-property --runtime myapp.service MemoryMax=2G
+
+# 看當前值
+systemctl show -p MemoryMax myapp.service
+</code></pre>
+      <p>
+        <strong>優</strong>：<em>不需 restart service</em>，runtime 即時生效。比起 drop-in 更快。
+        <strong>缺</strong>：寫進 <code>/etc/systemd/system.control/</code> 而非標準 drop-in 路徑，新 sysadmin 可能找不到——這是個常見「<em>為什麼設定改了但找不到</em>」的坑。
+      </p>
+
+      <h3>3.7 systemd-run：transient unit</h3>
+      <p>
+        <code>systemd-run</code> 建立 <strong>transient unit</strong>——臨時 unit，不寫到 disk，process 結束後自動消失。debug 與一次性測試的最快路徑：
+      </p>
+<pre><code># 跑一個有限制的命令
+sudo systemd-run --slice=user.slice --unit=test \
+    -p MemoryMax=500M \
+    -p CPUQuota=50% \
+    --pty \
+    bash
+
+# 跑完即清理（unit 自動刪除）
+exit
+
+# 啟動 service 風格的 transient unit（不阻塞 terminal）
+sudo systemd-run --unit=bg-task \
+    -p MemoryMax=1G \
+    /usr/local/bin/long-running-task
+
+# 之後可以 systemctl stop bg-task
+</code></pre>
+      <p>
+        <strong>常用 systemd-run 場景</strong>：
+      </p>
+      <ul>
+        <li><strong>測試新 limit 的影響</strong>：跑 transient 看 PSI、events，確認後再寫 drop-in。</li>
+        <li><strong>單次 batch job</strong>：一次性的資料處理、backup，不需要寫 unit file。</li>
+        <li><strong>cgroup 隔離臨時 process</strong>：對某個 ad-hoc command（如 cron 沒設限的腳本）臨時加 limit。</li>
+      </ul>
+
+      <h3>3.8 systemd-cgls 與 systemd-cgtop</h3>
+      <p>
+        看 cgroup tree 與用量的官方工具：
+      </p>
+<pre><code># 看 cgroup tree（整個系統）
+systemd-cgls
+
+# 看特定 slice
+systemd-cgls /system.slice
+
+# 即時資源監控（top-like）
+systemd-cgtop
+
+# 按 IO 排序
+systemd-cgtop --order=io
+
+# 看單一 service 完整資訊（包含 cgroup path、PID 樹）
+systemctl status myapp.service
+</code></pre>
+      <p>
+        <strong>systemctl show</strong>：看 unit 所有屬性的<em>關鍵</em> 工具：
+      </p>
+<pre><code># 看所有資源相關設定
+systemctl show -p MemoryMax,MemoryHigh,CPUQuota,CPUWeight myapp.service
+
+# 看 ControlGroup path
+systemctl show -p ControlGroup myapp.service
+
+# 看完整 unit 屬性
+systemctl show myapp.service
+</code></pre>
+
+      <h3>3.9 BPF 整合：BPFProgram=</h3>
+      <p>
+        systemd 256+ 的 <code>BPFProgram=</code> directive 直接在 unit attach BPF program 到 cgroup：
+      </p>
+<pre><code>[Service]
+ExecStart=/usr/local/bin/myapp
+
+# Attach BPF egress filter
+BPFProgram=egress:/usr/local/lib/bpf/my-egress.bpf.o
+
+# Attach BPF device filter
+BPFProgram=device:/usr/local/lib/bpf/my-device.bpf.o
+
+# 也可以用 IPEgressFilterPath= / IPIngressFilterPath= 等具體 directive
+IPEgressFilterPath=/usr/local/lib/bpf/firewall.bpf.o
+</code></pre>
+      <p>
+        systemd 自動處理 BPF program load + attach + 生命週期（service 停止時自動 detach）。
+      </p>
+
+      <h3>3.10 Best practices</h3>
+      <ul>
+        <li><strong>用 drop-in 不直接改 unit file</strong>：distro update-friendly、可拆解管理。</li>
+        <li><strong>set-property 寫了要記得</strong>：留 git log / 寫進 ansible playbook。runtime 改完忘了，下個 sysadmin 看不到。</li>
+        <li><strong>對 system.slice / user.slice 設保護下限</strong>：避免 user 的 batch job 把系統 daemon 餓死。</li>
+        <li><strong>用 ManagedOOMMemoryPressure 取代手寫 oomd policy</strong>：systemd-oomd 整合度好。</li>
+        <li><strong>Delegate 給 container runtime / nested systemd</strong>：自己起的 daemon 通常不需要 Delegate。</li>
+        <li><strong>Slice= 用來分組</strong>：把性質相近的 service 放同 slice（如 db.slice 集中所有 DB），方便整批設限。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 4: 實戰範例 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例</h2>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · 探索系統 cgroup tree</div>
+<pre><code># 1. 看完整樹結構
+systemd-cgls
+
+# 2. 看頂層 slice 各佔多少
+systemd-cgtop --iterations=2 --depth=2
+
+# 3. 看特定 service 的 cgroup path
+systemctl show -p ControlGroup sshd.service
+# 範例：ControlGroup=/system.slice/sshd.service
+
+# 4. 直接 cd 進去看
+ls /sys/fs/cgroup/system.slice/sshd.service/
+# cgroup.controllers  cpu.max  memory.current  memory.events  ...
+
+# 5. 看當前 user session
+systemctl show user-$UID.slice
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · 用 drop-in 限制 service 資源</div>
+<pre><code># 對 sshd 加上 drop-in（示範用，實際 production 看你需求）
+sudo systemctl edit sshd.service
+# 自動開啟編輯器，輸入：
+#
+# [Service]
+# CPUWeight=200
+# MemoryMax=200M
+# TasksMax=50
+
+# 套用
+sudo systemctl daemon-reload
+sudo systemctl restart sshd
+
+# 確認生效
+systemctl show -p CPUWeight,MemoryMax,TasksMax sshd.service
+cat /sys/fs/cgroup/system.slice/sshd.service/memory.max
+
+# 看 drop-in 在哪
+ls /etc/systemd/system/sshd.service.d/
+
+# 移除（避免留下測試設定）
+sudo rm /etc/systemd/system/sshd.service.d/override.conf
+sudo systemctl daemon-reload
+sudo systemctl restart sshd
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · 比較 set-property 與 drop-in 的差異</div>
+<pre><code># 啟動測試 service
+sudo systemd-run --unit=ratio-test --slice=user.slice \
+    --remain-after-exit \
+    bash -c 'sleep 60'
+
+# 用 set-property 改 limit
+sudo systemctl set-property ratio-test.service MemoryMax=300M
+
+# 看寫到哪裡
+ls /etc/systemd/system.control/ratio-test.service.d/
+cat /etc/systemd/system.control/ratio-test.service.d/50-MemoryMax.conf
+
+# 跟一般 drop-in 對比
+ls /etc/systemd/system/  # 沒有 ratio-test.service.d/
+ls /etc/systemd/system.control/  # 有 ratio-test.service.d/
+
+# 確認生效
+cat /sys/fs/cgroup$(systemctl show -p ControlGroup --value ratio-test.service)/memory.max
+
+# 清理
+sudo systemctl stop ratio-test
+# system.control/ 下的設定也會自動清掉
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 4 · 建立自訂 slice 組織 service</div>
+<pre><code># 建立自訂 slice 集中管理 DB
+cat <<EOF | sudo tee /etc/systemd/system/databases.slice
+[Unit]
+Description=Database Services Slice
+Before=slices.target
+
+[Slice]
+CPUWeight=300
+MemoryMin=2G
+MemoryMax=8G
+IOWeight=300
+EOF
+
+sudo systemctl daemon-reload
+
+# 把 service 放到這個 slice（drop-in）
+sudo mkdir -p /etc/systemd/system/postgresql.service.d/
+cat <<EOF | sudo tee /etc/systemd/system/postgresql.service.d/10-slice.conf
+[Service]
+Slice=databases.slice
+MemoryMin=2G    # 在 slice 之內再細分
+MemoryMax=4G
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl restart postgresql
+
+# 確認結構
+systemd-cgls /databases.slice
+# 應該看到 postgresql.service 在 databases.slice 之下
+
+# 清理
+sudo rm /etc/systemd/system/databases.slice
+sudo rm -r /etc/systemd/system/postgresql.service.d/
+sudo systemctl daemon-reload
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 5 · 啟用 Delegate 給 container 風格 service</div>
+<pre><code># 寫一個簡化的「<em>container manager</em>」service，要 Delegate
+cat <<'EOF' | sudo tee /etc/systemd/system/mini-runtime.service
+[Unit]
+Description=Mini Container Runtime
+
+[Service]
+Delegate=yes
+ExecStart=/bin/bash -c '
+    # 我們現在在 /system.slice/mini-runtime.service
+    # 因為 Delegate=yes，可以自己 mkdir 子 cgroup
+    
+    # 確認自己被 delegated
+    if [ "$(getfattr -n user.delegate --only-values $$ /sys/fs/cgroup/system.slice/mini-runtime.service 2>/dev/null)" = "1" ]; then
+        echo "delegated"
+    fi
+    
+    # 建立 worker subcgroup
+    mkdir -p /sys/fs/cgroup/system.slice/mini-runtime.service/workers
+    mkdir -p /sys/fs/cgroup/system.slice/mini-runtime.service/workers/w1
+    
+    # 啟動 worker 並放到 subcgroup
+    sleep 30 &
+    WORKER_PID=$!
+    echo $WORKER_PID > /sys/fs/cgroup/system.slice/mini-runtime.service/workers/w1/cgroup.procs
+    
+    wait
+'
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl start mini-runtime
+
+# 觀察 cgroup 結構
+sleep 3
+systemd-cgls /system.slice/mini-runtime.service
+
+# 確認 delegate xattr
+getfattr -n user.delegate /sys/fs/cgroup/system.slice/mini-runtime.service
+
+# 清理
+sudo systemctl stop mini-runtime
+sudo rm /etc/systemd/system/mini-runtime.service
+sudo systemctl daemon-reload
+</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 5: 常見陷阱 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · 直接編輯 /lib/systemd/system/ 的 unit file</div>
+      <p>
+        編輯 distro 提供的 unit file（在 /lib/systemd/system/ 或 /usr/lib/systemd/system/）——下次 package update 會被覆蓋，所有自訂消失。
+        修法：永遠用 <code>systemctl edit</code> 建 drop-in（在 /etc/systemd/system/）。/etc 路徑才是 user-controlled 區。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · 在 .slice 設 Delegate=yes</div>
+      <p>
+        想對整個 user.slice 啟用 delegation——systemd 會回 error。slice 是 inner node，delegation 違反 single-writer。
+        修法：對 service / scope 設 Delegate，不對 slice。如果需要對 slice 之下整批 delegated subtree，把它們各自設 Delegate。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · 自己 mkdir cgroup 在 root 之下</div>
+      <p>
+        想「<em>繞過 systemd 自己建 cgroup</em>」：<code>mkdir /sys/fs/cgroup/myapp</code>——這違反 single-writer rule。systemd 會在你不注意時清掉你的 cgroup，或是設定衝突。
+        修法：只在 Delegate=yes 的子樹之下建 cgroup。需要自由 cgroup 管理就用 systemd-run + Delegate=yes。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · daemon-reload 後忘了 restart service</div>
+      <p>
+        改了 unit file / drop-in，<code>daemon-reload</code> 後設定看似套用——但 service 還在用舊設定跑。
+        原因：daemon-reload 只是讓 systemd 重讀 unit 定義，<em>已啟動的 service 不會自動重啟</em>。
+        修法：設定改完要 <code>systemctl restart</code>。或用 <code>systemctl set-property</code>（runtime 套用不需 restart）。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 5 · set-property 設定後找不到</div>
+      <p>
+        新 sysadmin 接手系統，看 <code>/etc/systemd/system/myapp.service.d/</code> 是空的，但 <code>systemctl show</code> 顯示有 MemoryMax=2G 設定——「<em>從哪來的？</em>」
+        原因：上一個 admin 用 <code>systemctl set-property</code> 設的，存在 <code>/etc/systemd/system.control/</code>（不是標準 drop-in 路徑）。
+        修法：<code>find /etc/systemd -name "*.conf"</code> 兩個目錄都看。長期 production 設定建議用 drop-in（明顯位置）。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 6 · CPUQuota 寫成 cpu mask</div>
+      <p>
+        錯誤：<code>CPUQuota=200</code>（沒 % 號）——systemd parse 失敗或當 200% (2 cores)。
+        錯誤：<code>AllowedCPUs=0xff</code>（hex mask）——systemd 不接受 mask，只接受 CPU list。
+        修法：<code>CPUQuota=200%</code>、<code>AllowedCPUs=0-7</code>（用 dash）或 <code>AllowedCPUs=0,1,2</code>（用逗號）。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 7 · 期待 Slice= 變更立即生效</div>
+      <p>
+        對 running service 改 <code>Slice=newslice.slice</code>——daemon-reload 後設定<em>看似</em> 改了，但 process 還在舊 slice。
+        原因：systemd 不會把 running process 從一個 slice 搬到另一個（避免破壞 cgroup state）。
+        修法：改 Slice 後一定要 restart service 才能搬家。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 8 · transient unit ID 每次重啟都變</div>
+      <p>
+        用 <code>systemd-run</code> 啟動 service 時記住的 cgroup path，下次跑時 path 變了——transient unit 每次都是新的。
+        修法：debug 時即時取 path（不要寫死）。production 用 persistent unit（unit file），不用 transient。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 6: 動手練習 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · 寫完整的 production unit file（15 分鐘）</div>
+      <p>對假設的 web service 寫完整 unit file，包含：</p>
+      <ol>
+        <li>放在 <code>web.slice</code>（自訂 slice）</li>
+        <li>memory: min=512M、high=1.5G、max=2G、swap禁用</li>
+        <li>cpu: weight=200、quota=300%（3 核）</li>
+        <li>io: weight=200、寫 bandwidth 上限 100M</li>
+        <li>tasks max=500</li>
+        <li>OOM 時整個 unit 一起死（kill policy）</li>
+        <li>啟用 systemd-oomd 監控（pressure &gt; 50% 殺）</li>
+      </ol>
+      <p>用 unit file + drop-in 兩種寫法各寫一次。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · 探索 systemd-oomd 預設行為（10 分鐘）</div>
+<pre><code># 看你的系統有沒有啟 systemd-oomd
+systemctl status systemd-oomd
+
+# 看哪些 unit 啟用了 ManagedOOM
+systemctl show -p ManagedOOMMemoryPressure user.slice
+systemctl show -p ManagedOOMMemoryPressure system.slice
+systemctl show -p ManagedOOMMemoryPressureLimit user.slice
+
+# 看 oomd 配置
+cat /etc/systemd/oomd.conf 2>/dev/null
+cat /etc/systemd/oomd.conf.d/*.conf 2>/dev/null</code></pre>
+      <p>回答：你的 distro 預設對哪些 slice 啟用了 oomd？閾值是多少？</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 寫腳本檢查所有 service 的 limit 健康度（15 分鐘）</div>
+<pre><code>#!/bin/bash
+# limit-audit.sh
+# 檢查所有 active service 的 cgroup limit 設定
+
+for unit in $(systemctl list-units --type=service --state=active --no-legend --plain | awk '{print $1}'); do
+    # 取所有重要 limit
+    mem_max=$(systemctl show -p MemoryMax --value "$unit")
+    mem_high=$(systemctl show -p MemoryHigh --value "$unit")
+    cpu_quota=$(systemctl show -p CPUQuotaPerSecUSec --value "$unit")
+    tasks_max=$(systemctl show -p TasksMax --value "$unit")
+    
+    # 判斷是否 unbounded
+    issues=""
+    [ "$mem_max" = "infinity" ] && issues+=" mem_unbounded"
+    [ "$cpu_quota" = "infinity" ] && issues+=" cpu_unbounded"
+    [ "$tasks_max" = "infinity" ] && issues+=" tasks_unbounded"
+    
+    [ -n "$issues" ] && echo "$unit:$issues"
+done</code></pre>
+      <p>分析：你的系統有多少 service 是 unbounded？哪些應該設限？</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 設計 multi-tenant 機器的 systemd 架構（思考題，15 分鐘）</div>
+      <p>假設你管理 8 核 / 32GB 機器，要跑 3 個團隊的服務（A、B、C），分別是 50% / 30% / 20% 的資源配額。設計 slice 結構：</p>
+      <ol>
+        <li>頂層 slice 結構長什麼樣？</li>
+        <li>各 slice 的 CPUWeight、MemoryMin、MemoryMax 各設多少？</li>
+        <li>怎麼防止 A 團隊把 B、C 的資源吃掉？</li>
+        <li>怎麼讓 system.slice 仍有保證容量？</li>
+        <li>遇到資源緊張時 systemd-oomd 怎麼決策？</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 7: 自我檢查題 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>systemd 的三種 unit 類型（slice、service、scope）對應的 cgroup 角色是什麼？什麼時候用哪個？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>對應關係</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>.slice</strong>：cgroup inner node。沒有 process，只是邏輯分組——把 service / scope / 子 slice 組織起來。例：system.slice、user-1000.slice。</li>
+          <li><strong>.service</strong>：cgroup leaf。<em>由 systemd 啟動</em>的 process，透過 ExecStart=。例：nginx.service、postgresql.service。</li>
+          <li><strong>.scope</strong>：cgroup leaf。<em>外部啟動</em>但 systemd 接管的 process。例：session-2.scope（user 登入）、docker-XXX.scope（docker 啟動 container）。</li>
+        </ul>
+        <strong>選擇邏輯</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>「<em>我寫一個 daemon 要長期跑</em>」→ service（systemd 自己 fork+exec）</li>
+          <li>「<em>我有一個 process 想讓 systemd 接管</em>」→ scope（透過 D-Bus API）</li>
+          <li>「<em>我要組織一群相關的 service</em>」→ 自訂 slice</li>
+        </ul>
+        <strong>cgroup 規則對應</strong>：v2 的 inner/leaf 規則直接對應——slice 是 inner（不放 process），service / scope 是 leaf（放 process）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>為什麼 Delegate= 不能用在 slice？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>核心原因：違反 single-writer rule。</strong>
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>slice 是 inner node，systemd 會在它之下放 service / scope（systemd 是 writer）。</li>
+          <li>若 Delegate slice，外部 service 也想在它之下放 cgroup（service 是 writer）。</li>
+          <li>兩個 writer 同時 mkdir / rmdir / 寫設定 → race condition、衝突、不可預測行為。</li>
+        </ol>
+        <strong>正確做法</strong>：在 leaf（service / scope）設 Delegate=yes，把這個 leaf <em>連同其下整個子樹</em> 交給應用管。應用可以在 leaf 之下自由建 cgroup（包括子 slice / service 等概念，但是它自己管）。
+        <strong>實作層</strong>：systemd 245+ 在 Delegate=yes 的 cgroup 設 xattr <code>user.delegate=1</code>，service 可以用 getxattr() 確認自己是否被 delegated。
+        <strong>典型場景</strong>：container runtime（runc / crun）需要在它的 cgroup 之下管理多個 container 的 cgroup——所以 docker.service / podman.service 都會 Delegate=yes。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span>三種修改 unit resource 的方式（unit file 直接改、drop-in、set-property）各自優缺？什麼時候用哪個？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>直接改 unit file（/etc/systemd/system/myapp.service）</strong>：
+            <ul>
+              <li>優：簡單，所有設定一個檔案。</li>
+              <li>缺：原來在 /lib/ 的 distro 提供 unit 不能直接改（會被覆蓋）。在 /etc/ 的可以但結構亂。</li>
+              <li>場景：你自己寫的 service。</li>
+            </ul>
+          </li>
+          <li><strong>drop-in file（/etc/systemd/system/myapp.service.d/10-resources.conf）</strong>：
+            <ul>
+              <li>優：原 unit file 不動，distro update friendly。多個 drop-in 可拆解管理。</li>
+              <li>缺：需要 daemon-reload + restart 套用。</li>
+              <li>場景：<em>絕大多數情況</em>。永久性 resource control 最佳選擇。</li>
+            </ul>
+          </li>
+          <li><strong>systemctl set-property</strong>：
+            <ul>
+              <li>優：runtime 即時生效，不需 restart。寫入 system.control/ 持久化。</li>
+              <li>缺：寫到非標準路徑（system.control/），新 admin 找不到。</li>
+              <li>場景：緊急調整不能 restart 的 production service。記得寫進 runbook / ansible。</li>
+            </ul>
+          </li>
+        </ul>
+        <strong>建議</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>長期設定 → drop-in（systemctl edit）</li>
+          <li>緊急調整 → set-property（事後寫進 drop-in 持久化）</li>
+          <li>測試新限制 → systemd-run（transient unit）</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span>resource control directives 與 cgroup 介面檔案是 1:1 對應嗎？舉幾個 directive 與其對應的 cgroup file。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>大致 1:1 但有細節</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>直接對應</strong>：
+            <ul>
+              <li><code>CPUWeight=</code> ↔ <code>cpu.weight</code></li>
+              <li><code>MemoryMax=</code> ↔ <code>memory.max</code></li>
+              <li><code>IOWeight=</code> ↔ <code>io.weight</code></li>
+              <li><code>TasksMax=</code> ↔ <code>pids.max</code></li>
+              <li><code>AllowedCPUs=</code> ↔ <code>cpuset.cpus</code></li>
+            </ul>
+          </li>
+          <li><strong>單位轉換</strong>：
+            <ul>
+              <li><code>CPUQuota=50%</code> → cpu.max 寫成 <code>50000 100000</code>（quota period 表示）</li>
+              <li><code>CPUQuotaPeriodSec=</code> 配合 CPUQuota 算出實際 cpu.max 值</li>
+            </ul>
+          </li>
+          <li><strong>Composite directive</strong>：
+            <ul>
+              <li><code>IODeviceWeight=/dev/sda 200</code> 對應 <code>io.weight</code> 中 device-keyed 的部分（lookup major:minor 自動填）</li>
+              <li><code>OOMPolicy=kill</code> 對應 <code>memory.oom.group=1</code>（行為而非數值）</li>
+            </ul>
+          </li>
+          <li><strong>BPF compose</strong>：
+            <ul>
+              <li><code>DeviceAllow=/dev/null rw</code> 不對應 cgroup file，systemd 編譯成 BPF program attach 上去</li>
+              <li><code>BPFProgram=type:path</code> 直接 attach 既有 BPF object</li>
+            </ul>
+          </li>
+        </ul>
+        <strong>查對應關係</strong>：<code>man systemd.resource-control</code> 每個 directive 都標明對應的 cgroup attribute。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span>systemd-run 的核心用途？跟 unit file 比有何優勢與限制？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>systemd-run 核心用途</strong>：建立 <em>transient unit</em>——臨時 unit，不寫到 disk，process 結束後自動清理。
+        <strong>vs unit file 比較</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>優勢</strong>：
+            <ul>
+              <li>不需要寫 unit file、daemon-reload</li>
+              <li>命令列直接設 resource control（-p 開關）</li>
+              <li>process 結束自動清理，不留垃圾</li>
+              <li>debug / 一次性 batch / 測試的最快路徑</li>
+            </ul>
+          </li>
+          <li><strong>限制</strong>：
+            <ul>
+              <li>每次跑都是新 unit ID（不適合腳本記住 path）</li>
+              <li>系統 reboot 後消失（不能用於 boot 時自動啟動）</li>
+              <li>沒有完整 unit file 的依賴管理（After=、Requires= 等）</li>
+              <li>大量設定時命令列冗長（多個 -p 不易讀）</li>
+            </ul>
+          </li>
+        </ul>
+        <strong>典型用例</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>「<em>跑這個程式並限制只能用 500MB RAM</em>」</li>
+          <li>「<em>測試 CPUQuota=50% 對 workload 影響</em>」</li>
+          <li>「<em>cron 跑 backup，希望它不影響其他服務</em>」</li>
+          <li>「<em>debug 時開個 limit shell 測新設定</em>」</li>
+        </ol>
+        <strong>反例</strong>：production 跑 web server—應該用 unit file（持久化、自動 boot、依賴管理）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>systemd 怎麼自動啟用 cgroup controller？什麼時候會自動啟用？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>自動啟用機制</strong>：systemd 偵測 unit 設定，<em>需要哪個 controller 就自動啟用</em>。沒有 directive 就不啟用——避免 overhead。
+        <strong>觸發條件</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>設 <code>CPUWeight=</code> 或 <code>CPUQuota=</code> → 啟用 cpu controller</li>
+          <li>設 <code>MemoryMax=</code> 或 <code>MemoryHigh=</code> 等 → 啟用 memory controller</li>
+          <li>設 <code>IOWeight=</code> 等 → 啟用 io controller</li>
+          <li>設 <code>TasksMax=</code> → 啟用 pids controller</li>
+          <li>設 <code>AllowedCPUs=</code> → 啟用 cpuset controller</li>
+        </ul>
+        <strong>顯式啟用 accounting（不設 limit 但開計量）</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><code>MemoryAccounting=yes</code> → 啟用 memory（看用量但不限制）</li>
+          <li><code>CPUAccounting=yes</code> → 啟用 cpu</li>
+          <li><code>IOAccounting=yes</code> → 啟用 io</li>
+          <li><code>TasksAccounting=yes</code> → 啟用 pids（多數 distro 預設 yes）</li>
+        </ul>
+        <strong>階層傳播</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>因為 cgroup hierarchical，controller 在某個 unit 啟用，<em>所有 parent 與該 parent 之下所有 sibling</em> 都自動啟用該 controller。</li>
+          <li>例：對 myapp.service 設 MemoryMax → memory controller 在 -.slice、system.slice、myapp.service 全鏈啟用。</li>
+        </ul>
+        <strong>查當前狀態</strong>：<code>cat /sys/fs/cgroup/cgroup.subtree_control</code> 看 root 啟用了哪些。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span>OOMPolicy= 的三個值（kill、continue、stop）行為差別？跟 ManagedOOMMemoryPressure= 怎麼配合？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>OOMPolicy= 的三個值</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>continue</strong>：kernel OOM killer 殺 process 後 unit 繼續跑（其他 process 還活著）。<em>傳統 v1 行為</em>，不適合 atomic workload。</li>
+          <li><strong>kill</strong>：kernel OOM 觸發時殺整個 cgroup（<code>memory.oom.group=1</code>）。Pod-style atomic 行為。</li>
+          <li><strong>stop</strong>：kernel OOM 後 systemd 停止整個 unit（不嘗試重啟）。適合需要外部 orchestrator 介入的場景。</li>
+        </ul>
+        <strong>ManagedOOMMemoryPressure= 是不同層次</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>設定 <code>ManagedOOMMemoryPressure=kill</code> 啟用 systemd-oomd 監控這個 unit/slice 的 PSI。</li>
+          <li>當 memory.pressure full avg10 超過 <code>ManagedOOMMemoryPressureLimit</code>，<em>systemd-oomd 主動殺</em>（不等 kernel OOM）。</li>
+          <li>殺的對象通常是<em>子 cgroup 中最佔記憶體的</em>，使用 <code>cgroup.kill</code> atomic 介面。</li>
+        </ul>
+        <strong>兩者協作</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>systemd-oomd（user-space）在 PSI 高時提早介入——<em>更快、更聰明</em>。</li>
+          <li>kernel OOM killer 是最後防線——當 systemd-oomd 反應不夠快時兜底。</li>
+          <li>OOMPolicy 控制 kernel OOM 之後 unit 怎麼處理（是否整個殺、是否停 unit）。</li>
+        </ol>
+        <strong>建議組合</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[Service]
+OOMPolicy=kill                          # kernel OOM 時整個殺
+ManagedOOMMemoryPressure=kill           # systemd-oomd 提早介入
+ManagedOOMMemoryPressureLimit=50%       # 觸發閾值</pre>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>實作思考題：你接手一個 systemd-managed Linux 機器，要審計所有 service 的資源限制健康度。請設計完整審計流程。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>完整審計流程</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[Phase 1: 盤點現況]
+1. 列出所有 active service：
+   systemctl list-units --type=service --state=active
+
+2. 對每個 service 取資源設定：
+   systemctl show -p MemoryMax,MemoryHigh,CPUQuota,TasksMax,Slice $unit
+
+3. 找出 unbounded service（無限制）：
+   寫腳本（Lab 類似）找 limit=infinity 的 service
+
+[Phase 2: 看實際使用]
+4. 收集每個 service 的當前 + peak：
+   for cg in /sys/fs/cgroup/system.slice/*.service; do
+       echo "$(basename $cg) current=$(cat $cg/memory.current) peak=$(cat $cg/memory.peak)"
+   done
+
+5. 看 events（過去事件）：
+   cat $cg/memory.events  # OOM、throttle 計數
+   cat $cg/cpu.stat       # throttle 累計
+
+6. 看 PSI 歷史：
+   cat $cg/cpu.pressure  cat $cg/memory.pressure
+
+[Phase 3: 分類與優先級]
+7. 分類 service：
+   - critical（必須有保護）：DB、認證、網路 stack
+   - production（要設限）：應用 service
+   - non-critical（弱保護）：log shipper、metrics
+   - system（已由 systemd 管）：systemd-* 等
+
+8. 找 limit 設定問題：
+   - production unbounded → 高優先設限
+   - critical 沒 MemoryMin → 加保護
+   - 有過 OOM 的 → 容量規劃
+   - 有過 throttle 的 → cpu.max 設太緊
+
+[Phase 4: 設限與驗證]
+9. 對 critical 加 MemoryMin / CPUWeight 高
+10. 對 production 用 PSI-driven 設 MemoryMax / CPUQuota
+11. 對 non-critical 設較緊 limit + ManagedOOM
+12. 對 system.slice 整體保護（MemoryMin=2G）
+
+[Phase 5: 持續監控]
+13. 部署 PSI / events 採集到 Prometheus
+14. 設 alert：PSI 高、OOM、throttle 發生
+15. 月度 review：用過去 30 天資料重算 limit
+16. Runbook：每個 alert 對應 playbook</pre>
+        <strong>關鍵原則</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>先觀測再設限</strong>：沒 baseline 不要拍腦袋設數字。</li>
+          <li><strong>分類優先級</strong>：不是所有 service 都該設一樣嚴的限。</li>
+          <li><strong>系統 daemon 給 MemoryMin 保護</strong>：避免應用拖垮整機。</li>
+          <li><strong>用 drop-in 不直接改 unit</strong>：distro update friendly。</li>
+          <li><strong>記錄變更</strong>：所有 limit 設定進 git / ansible（不是 set-property 黑盒子）。</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 8: 延伸閱讀 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+
+    <div class="refs">
+      <ol>
+        <li>
+          <a href="https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html" target="_blank" rel="noopener">systemd.resource-control · systemd manual</a>
+          <span class="ref-source">freedesktop.org · 所有 resource control directive 權威定義</span>
+        </li>
+        <li>
+          <a href="https://systemd.io/CGROUP_DELEGATION/" target="_blank" rel="noopener">Control Group APIs and Delegation · systemd.io</a>
+          <span class="ref-source">systemd.io · Delegate 機制完整說明，container manager 必讀</span>
+        </li>
+        <li>
+          <a href="https://systemd.io/CONTROL_GROUP_INTERFACE/" target="_blank" rel="noopener">New Control Group Interfaces · systemd.io</a>
+          <span class="ref-source">systemd.io · systemd v205+ cgroup 整合架構</span>
+        </li>
+        <li>
+          <a href="https://www.freedesktop.org/software/systemd/man/latest/systemd-oomd.service.html" target="_blank" rel="noopener">systemd-oomd · systemd manual</a>
+          <span class="ref-source">freedesktop.org · ManagedOOM 完整介面</span>
+        </li>
+        <li>
+          <a href="https://www.freedesktop.org/software/systemd/man/latest/systemd.slice.html" target="_blank" rel="noopener">systemd.slice · systemd manual</a>
+          <span class="ref-source">freedesktop.org · slice unit 完整說明</span>
+        </li>
+        <li>
+          <a href="https://docs.oracle.com/en/operating-systems/oracle-linux/9/systemd/SystemdMngCgroupsV2.html" target="_blank" rel="noopener">Using systemd to Manage cgroups v2 · Oracle</a>
+          <span class="ref-source">docs.oracle.com · 完整實戰範例</span>
+        </li>
+        <li>
+          <a href="https://wiki.archlinux.org/title/Cgroups" target="_blank" rel="noopener">cgroups · ArchWiki</a>
+          <span class="ref-source">wiki.archlinux.org · 持續更新的實用指引（2026 版本）</span>
+        </li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Chapter nav ====================== -->
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn" href="ch14-tuning-troubleshoot.html">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">Ch.14 Tuning 與診斷</span>
+    </a>
+    <a class="nav-btn next disabled">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">Ch.16 Container runtime 整合</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window.JHsunTheme = { get: getCurrentMode, set: (m) => { setStored(m); applyTheme(m); }, toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); }, };
+})();
+</script>
+
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+
+</body>
+</html>

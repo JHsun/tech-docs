@@ -1,0 +1,1230 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.1 為什麼需要 cgroup v2 — cgroup v2 完整教學</title>
+<meta name="description" content="從 v1 多階層的歷史包袱，理解 cgroup v2 unified hierarchy 為什麼這樣設計。包含 Tejun Heo 設計理念、v1 五大痛點、Linux distro 現況。">
+
+<style>
+/* ============================================================
+   Inline tokens.css (v1.0 · Calm Teal)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px; --text-4xl: 64px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+</style>
+
+<style>
+/* ============================================================
+   Chapter-specific styles
+   ============================================================ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- Top bar ---- */
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  background: color-mix(in oklch, var(--bg-canvas) 88%, transparent);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.topbar-inner {
+  max-width: var(--container-narrow);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
+}
+.brand {
+  display: flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: background .2s, border-color .2s, color .2s;
+}
+[data-theme-toggle]:hover {
+  background: var(--bg-muted);
+  border-color: var(--border-mid);
+  color: var(--text-primary);
+}
+[data-theme-toggle] .theme-icon { font-size: 14px; line-height: 1; }
+
+/* ---- Container ---- */
+.container {
+  max-width: var(--container-narrow);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+
+/* ---- Chapter header ---- */
+.chapter-head {
+  padding: var(--space-7) 0 var(--space-6);
+  border-bottom: 1px solid var(--border-soft);
+}
+.chapter-tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-primary-text);
+  background: var(--color-primary-soft);
+  padding: 4px 12px;
+  border-radius: 999px;
+  margin-bottom: var(--space-4);
+}
+.chapter-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-3xl);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin-bottom: var(--space-3);
+}
+.chapter-subtitle {
+  font-family: var(--font-serif-body);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  line-height: 1.65;
+  font-style: italic;
+}
+.chapter-meta {
+  margin-top: var(--space-4);
+  display: flex; flex-wrap: wrap; gap: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before {
+  content: ""; width: 4px; height: 4px;
+  border-radius: 50%; background: var(--text-muted);
+}
+.chapter-meta-item:first-child::before { display: none; }
+
+/* ---- Section blocks ---- */
+.section {
+  padding: var(--space-7) 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.section:last-of-type { border-bottom: none; }
+.section-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+  margin-bottom: var(--space-3);
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.section-label::before {
+  content: ""; width: 24px; height: 1px; background: var(--color-primary);
+}
+.section-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  margin-bottom: var(--space-5);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+/* ---- Prose ---- */
+.prose p {
+  font-family: var(--font-serif-body);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  line-height: 1.85;
+  margin-bottom: var(--space-4);
+}
+.prose h3 {
+  font-family: var(--font-sans);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: var(--space-6) 0 var(--space-3);
+  letter-spacing: -0.01em;
+}
+.prose h4 {
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--text-primary);
+  margin: var(--space-5) 0 var(--space-2);
+}
+.prose ul, .prose ol {
+  font-family: var(--font-serif-body);
+  margin-bottom: var(--space-4);
+  padding-left: var(--space-5);
+  line-height: 1.8;
+}
+.prose ul li, .prose ol li {
+  margin-bottom: var(--space-2);
+  color: var(--text-primary);
+}
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--bg-code);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+  border: 1px solid var(--border-soft);
+}
+.prose a {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.prose a:hover { color: var(--color-primary-hover); }
+
+/* ---- Highlight box ---- */
+.highlights {
+  background: var(--color-primary-soft);
+  border-left: 3px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-4);
+}
+.highlights ol {
+  font-family: var(--font-sans);
+  padding-left: var(--space-5);
+  margin: 0;
+}
+.highlights li {
+  font-size: var(--text-sm);
+  color: var(--color-primary-text);
+  margin-bottom: var(--space-2);
+  line-height: 1.65;
+}
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+
+/* ---- News box ---- */
+.news-box {
+  background: var(--color-info-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-4);
+}
+.news-item {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  line-height: 1.7;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent);
+}
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-info);
+  margin-right: var(--space-2);
+}
+
+/* ---- Code blocks ---- */
+pre {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.7;
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  overflow-x: auto;
+  margin-bottom: var(--space-4);
+  color: var(--text-primary);
+}
+pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+.code-caption {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin: -8px 0 var(--space-4);
+  padding-left: var(--space-2);
+}
+
+/* ---- Comparison table ---- */
+.cmp-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: var(--space-4);
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+}
+.cmp-table th, .cmp-table td {
+  padding: var(--space-3) var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: top;
+}
+.cmp-table th {
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-muted);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table .col-issue { color: var(--color-danger); font-weight: 500; }
+.cmp-table .col-fix { color: var(--color-success); font-weight: 500; }
+
+/* ---- Lab box ---- */
+.lab {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-4);
+}
+.lab-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-primary);
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px dashed var(--border-soft);
+}
+.lab-title::before { content: "▶ "; color: var(--color-primary); }
+.lab p {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-3);
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+
+/* ---- Pitfall box ---- */
+.pitfall {
+  background: var(--color-warning-soft);
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-4);
+}
+.pitfall-title {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-warning);
+  margin-bottom: var(--space-2);
+}
+.pitfall p {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
+  line-height: 1.7;
+}
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code {
+  background: color-mix(in oklch, var(--color-warning) 15%, transparent);
+  border-color: color-mix(in oklch, var(--color-warning) 30%, transparent);
+  color: var(--text-primary);
+}
+
+/* ---- Quiz ---- */
+.quiz-item {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-3);
+}
+.quiz-q {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
+  display: flex; gap: var(--space-2);
+}
+.quiz-q-num {
+  font-family: var(--font-mono);
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+.quiz-toggle {
+  background: transparent;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+  margin-top: var(--space-2);
+  transition: background .2s, color .2s;
+}
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a {
+  display: none;
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px dashed var(--border-soft);
+  font-family: var(--font-serif-body);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.75;
+}
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+
+/* ---- Diagram ---- */
+.diagram {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+  margin-bottom: var(--space-4);
+  text-align: center;
+}
+.diagram svg { max-width: 100%; height: auto; }
+.diagram-caption {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: var(--space-3);
+  text-align: center;
+}
+
+/* ---- References ---- */
+.refs ol {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  padding-left: var(--space-5);
+  line-height: 1.8;
+}
+.refs li {
+  margin-bottom: var(--space-2);
+  color: var(--text-secondary);
+}
+.refs li::marker { color: var(--color-primary); }
+.refs a {
+  color: var(--color-primary);
+  text-decoration: none;
+  border-bottom: 1px dashed var(--color-primary);
+}
+.refs a:hover { color: var(--color-primary-hover); }
+.refs .ref-source {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  display: block;
+  margin-top: 2px;
+}
+
+/* ---- Chapter nav ---- */
+.chapter-nav {
+  margin-top: var(--space-6);
+  padding: var(--space-5) 0;
+  display: flex; justify-content: space-between; gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.nav-btn {
+  flex: 1; min-width: 200px;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: border-color .2s, transform .15s;
+}
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+
+/* ---- Responsive ---- */
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<!-- ====================== Top bar ====================== -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.01</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<!-- ====================== Chapter header ====================== -->
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part I · 基礎篇 · Chapter 01</span>
+    <h1 class="chapter-title">為什麼需要 cgroup v2</h1>
+    <p class="chapter-subtitle">
+      要理解 cgroup v2 的設計哲學，必須先理解 v1 為什麼需要被取代。
+      本章從 v1 的歷史包袱出發，回到 Tejun Heo 重新設計 cgroup 時所做的關鍵取捨。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~5,200 字</span>
+      <span class="chapter-meta-item">閱讀時間 18 分鐘</span>
+      <span class="chapter-meta-item">難度：入門</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ====================== Section 1: 本章重點 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+
+    <div class="highlights">
+      <ol>
+        <li><strong>cgroup 是什麼</strong>：Linux kernel 提供的資源管理機制，將 process 組織成樹狀階層，並在階層上施加 CPU、memory、I/O 等資源的限制、計量與隔離。</li>
+        <li><strong>v1 的核心問題</strong>：每個 controller 一棵獨立的 hierarchy tree，導致 controller 之間的協調困難、delegation 不安全、thread 與 process 混雜、interface 不一致。</li>
+        <li><strong>v2 的設計核心</strong>：unified hierarchy（單一階層）、controllers 跟著 cgroup 走（不是 cgroup 跟著 controllers 走）、no internal process constraint、明確的 delegation model。</li>
+        <li><strong>產業現況</strong>：RHEL 9 / Ubuntu 22.04 / Debian 11 起預設 v2；RHEL 10 已移除 v1；Kubernetes 1.31 起 v1 進入維護模式。</li>
+        <li><strong>本書脈絡</strong>：本章奠定「為什麼」，後續章節將回答「是什麼」與「怎麼用」。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 2: 最新動態 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+
+    <div class="news-box">
+      <div class="news-item">
+        <span class="news-date">2025-08</span>
+        <strong>Kubernetes 1.31</strong> 正式將 cgroup v1 支援移入維護模式（maintenance mode），未來版本將逐步停止在 cgroup v1 節點上啟動 kubelet。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025-10</span>
+        <strong>RHEL 10</strong> 正式發行並完全移除 cgroup v1，所有資源控制全面走 unified hierarchy。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025-09</span>
+        <strong>Kubernetes 1.34</strong> 將 PSI（Pressure Stall Information）metrics 升至 Beta，這是 v2 才提供的能力，標誌 v1 與 v2 觀測能力差距持續擴大。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025-08</span>
+        <strong>Go 1.25</strong> 在 runtime 內建 cgroup-aware GOMAXPROCS，自動讀取 <code>cpu.max</code>，讓 Go 服務在容器內可以開箱即用避免 CPU throttling。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2026-01</span>
+        <strong>systemd v258</strong> 移除 <code>SYSTEMD_CGROUP_ENABLE_LEGACY_FORCE=1</code> 開機參數，使新系統更難回退到 v1。
+      </div>
+    </div>
+
+    <div class="prose">
+      <p>
+        2026 年的時間點，<strong>cgroup v2 已是事實上的標準</strong>。所有主流 Linux distro 預設 v2，主流容器引擎（containerd、CRI-O、Docker、Podman）全面支援，Kubernetes 也宣告 v1 進入維護模式。
+        如果你在 2026 年才開始學 cgroup，<em>跳過 v1 是合理選擇</em>——除非你維運的是仍在 RHEL 7/8 或舊版 Kubernetes 的 legacy system。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 3: 核心內容 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+
+    <div class="prose">
+      <h3>3.1 cgroup 是什麼</h3>
+      <p>
+        cgroup（control group，恆小寫，<em>從不大寫</em>）是 Linux kernel 自 2.6.24（2008 年）就有的功能，由 Google 工程師 Paul Menage 與 Rohit Seth 主導開發，最早叫做 <code>process containers</code>。
+        它的本質很簡單：<strong>把 process 組成階層化的群組，然後在群組這個粒度上做資源管理</strong>。
+      </p>
+      <p>
+        管理什麼？三件事——<strong>限制（limit）、計量（accounting）、隔離（isolation）</strong>。
+        限制例如「這個群組最多用 4GB 記憶體」；計量例如「這個群組過去 1 小時消耗了多少 CPU」；隔離例如「這個群組看不到、影響不到其他群組」。
+        我們今天熟悉的所有容器（Docker、Kubernetes Pod、systemd service unit）骨子裡都是 cgroup 在做事。
+      </p>
+
+      <h3>3.2 為什麼會有 v2：v1 的歷史包袱</h3>
+      <p>
+        cgroup v1 從 2008 年合入 kernel 後一路演進，歷代加入了 cpu、memory、blkio、devices、freezer、cpuset、pids、rdma 等十多個 controllers。
+        但因為「<em>邊做邊設計</em>」（用 Tejun Heo 自己的話：<em>"design followed implementation"</em>），不同 controllers 由不同團隊在不同時期加入，行為不一致、彼此整合困難。
+        到了 2014 年，繼任維護者 Tejun Heo 評估後做了一個關鍵判斷：<strong>v1 的問題已經無法在不破壞 ABI 的前提下修好</strong>，必須開新版本。
+      </p>
+      <p>
+        v2 的開發從 2014 年開始，2016 年 3 月隨 Linux 4.5 正式釋出。
+        kernel 文件中的 <code>R. Issues with v1 and Rationales for v2</code> 章節就是 Tejun Heo 親筆寫下來的「為什麼要重做」說明書，可以說是理解 v2 設計動機最權威的文件。
+        以下是其中最重要的五大痛點：
+      </p>
+
+      <h4>痛點一：Multiple Hierarchies（多階層之亂）</h4>
+      <p>
+        v1 中，<em>每個 controller 都掛在自己獨立的階層樹</em>。也就是說系統上會有 <code>/sys/fs/cgroup/cpu/</code>、<code>/sys/fs/cgroup/memory/</code>、<code>/sys/fs/cgroup/blkio/</code> 等多個獨立的 hierarchy，
+        而同一個 process 可以同時被掛在多個 hierarchy 的不同位置。要對某個 service 同時施加 CPU 與 memory 限制，必須在兩棵樹的對應位置都建立目錄並把 process 寫進去。
+        這在小規模系統上勉強可以管理，但隨著容器與 systemd 的興起，<strong>跨 controllers 的協調成為惡夢</strong>——例如要讓 memory 配額參考 I/O 的 throttling 狀態，根本沒辦法做。
+      </p>
+
+      <h4>痛點二：Thread Granularity（執行緒粒度的濫用）</h4>
+      <p>
+        v1 允許把同一個 process 的不同 thread 放進不同 cgroup。這個設計初衷是給「<em>app 想自己做 thread-level 資源管理</em>」用的，但 Tejun 在文件中直白地說：
+        <em>"thread-granular management caused cgroup to be abused as a way for a process to manage itself"</em>——本來該用 syscall 處理的事，被人塞到 cgroup filesystem 來做，造成介面混亂。
+        更實際的問題是：<strong>同一個 process 的所有 thread 共享同一份地址空間</strong>，把它們放進不同 memory cgroup 在語意上根本講不通。
+      </p>
+
+      <h4>痛點三：Internal Process Competition（內部 process 與子 cgroup 競爭）</h4>
+      <p>
+        v1 允許一個 cgroup 同時擁有自己的 process 和子 cgroup。這聽起來很自由，但對 controller 實作極不友善：
+        當 parent cgroup 自己跑著 process A，又有子 cgroup 裡跑著 process B，<em>到底要怎麼算 parent 的資源使用量？</em>
+        是只算 A 還是包含 B 的子樹？不同 controllers 給出了不同答案，行為不一致。
+        v2 直接砍掉這個自由度——<strong>非 root cgroup 一旦啟用任何 domain controller，就不能直接持有 process</strong>，process 必須放在 leaf cgroup 上（這就是 no internal process constraint）。
+      </p>
+
+      <h4>痛點四：Delegation 不安全</h4>
+      <p>
+        v1 的 delegation model 沒有完整定義——把 cgroup 子樹委派給非 root 使用者後，使用者可能可以做出意料之外的事，例如把 process 從委派的子樹移出去、改動不該改的 controller 介面。
+        v2 為此重新設計了完整的 delegation 規則（這是後面 Ch.5 的主題），包含 <code>nsdelegate</code> mount option 與 <code>/sys/kernel/cgroup/delegate</code> 檔案清單，
+        確保<strong>委派出去的子樹是「真正封閉的沙箱」</strong>。
+      </p>
+
+      <h4>痛點五：Interface 不一致</h4>
+      <p>
+        memory.limit_in_bytes（v1）、cpu.shares（v1）、blkio.weight（v1）……每個 controller 用不同的命名習慣、不同的單位、不同的特殊值（有的用 -1 代表無限，有的用空字串）。
+        對 systemd、Kubernetes、Docker 這些「<em>cgroup 的使用者</em>」來說，每接一個新 controller 就要重學一次規則。
+        v2 統一規範介面命名（<code>{controller}.{property}</code>，例如 <code>memory.max</code>、<code>cpu.weight</code>）、特殊值（<code>max</code> 代表無限）、與三大資源分配模型（這是 Ch.3 的主題）。
+      </p>
+
+      <h3>3.3 v2 的設計核心：Unified Hierarchy</h3>
+      <p>
+        v2 最根本的改變是<strong>統一階層</strong>。整個系統只有一棵 cgroup tree，掛在 <code>/sys/fs/cgroup/</code>。
+        每個 cgroup（也就是樹上的每個目錄）可以選擇啟用哪些 controllers，不再有「memory cgroup」與「cpu cgroup」這種說法——cgroup 就是 cgroup，controllers 是它的<em>屬性</em>。
+      </p>
+
+      <p>用 Red Hat 部落格的精準說法：</p>
+
+      <div class="highlights">
+        <ol style="list-style: none; padding-left: 0;">
+          <li><strong>v1</strong>：cgroups associated with controllers（cgroup 從屬於 controllers）</li>
+          <li style="margin-top: var(--space-2);"><strong>v2</strong>：controllers associated with cgroups（controllers 從屬於 cgroup）</li>
+        </ol>
+      </div>
+
+      <p>這個翻轉看似只是文字遊戲，但帶來三個直接好處：</p>
+
+      <ul>
+        <li><strong>跨 controller 協調變可能</strong>：同一個 cgroup 同時持有 cpu、memory、io 三個 controllers 的設定，kernel 可以做出 controller 之間的整合決策（例如 memory writeback 走對應的 io.weight）。</li>
+        <li><strong>路徑唯一性</strong>：一個 process 的 cgroup membership 由 <code>/proc/$PID/cgroup</code> 一行 <code>0::/path</code> 完整描述，不再有多行對應多個 hierarchy 的混亂。</li>
+        <li><strong>delegation 邊界清楚</strong>：要把整個子樹委派出去，只需要一棵樹的權限管理，而不是同步多棵樹。</li>
+      </ul>
+
+      <h3>3.4 v1 vs v2 結構對比</h3>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 680 320" role="img" aria-label="cgroup v1 vs v2 結構對比圖">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M2 1L8 5L2 9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </marker>
+        </defs>
+        <!-- v1 side -->
+        <text x="170" y="30" text-anchor="middle" font-family="var(--font-sans)" font-size="14" font-weight="600" fill="var(--color-danger)">cgroup v1：每 controller 一棵樹</text>
+        <!-- 三棵獨立的 tree -->
+        <g font-family="var(--font-mono)" font-size="11" fill="var(--text-primary)">
+          <!-- cpu tree -->
+          <rect x="40" y="50" width="80" height="28" rx="4" fill="var(--color-danger-soft)" stroke="var(--color-danger)" stroke-width="0.5"/>
+          <text x="80" y="69" text-anchor="middle">cpu/</text>
+          <line x1="80" y1="78" x2="80" y2="100" stroke="var(--text-muted)" stroke-width="0.5"/>
+          <rect x="50" y="100" width="60" height="22" rx="3" fill="var(--bg-surface)" stroke="var(--border-mid)" stroke-width="0.5"/>
+          <text x="80" y="115" text-anchor="middle">webapp</text>
+          <line x1="80" y1="122" x2="80" y2="140" stroke="var(--text-muted)" stroke-width="0.5"/>
+          <rect x="50" y="140" width="60" height="22" rx="3" fill="var(--bg-surface)" stroke="var(--border-mid)" stroke-width="0.5"/>
+          <text x="80" y="155" text-anchor="middle">PID 1234</text>
+
+          <!-- memory tree -->
+          <rect x="140" y="50" width="80" height="28" rx="4" fill="var(--color-danger-soft)" stroke="var(--color-danger)" stroke-width="0.5"/>
+          <text x="180" y="69" text-anchor="middle">memory/</text>
+          <line x1="180" y1="78" x2="180" y2="100" stroke="var(--text-muted)" stroke-width="0.5"/>
+          <rect x="150" y="100" width="60" height="22" rx="3" fill="var(--bg-surface)" stroke="var(--border-mid)" stroke-width="0.5"/>
+          <text x="180" y="115" text-anchor="middle">webapp</text>
+          <line x1="180" y1="122" x2="180" y2="140" stroke="var(--text-muted)" stroke-width="0.5"/>
+          <rect x="150" y="140" width="60" height="22" rx="3" fill="var(--bg-surface)" stroke="var(--border-mid)" stroke-width="0.5"/>
+          <text x="180" y="155" text-anchor="middle">PID 1234</text>
+
+          <!-- blkio tree -->
+          <rect x="240" y="50" width="80" height="28" rx="4" fill="var(--color-danger-soft)" stroke="var(--color-danger)" stroke-width="0.5"/>
+          <text x="280" y="69" text-anchor="middle">blkio/</text>
+          <line x1="280" y1="78" x2="280" y2="100" stroke="var(--text-muted)" stroke-width="0.5"/>
+          <rect x="250" y="100" width="60" height="22" rx="3" fill="var(--bg-surface)" stroke="var(--border-mid)" stroke-width="0.5"/>
+          <text x="280" y="115" text-anchor="middle">webapp</text>
+          <line x1="280" y1="122" x2="280" y2="140" stroke="var(--text-muted)" stroke-width="0.5"/>
+          <rect x="250" y="140" width="60" height="22" rx="3" fill="var(--bg-surface)" stroke="var(--border-mid)" stroke-width="0.5"/>
+          <text x="280" y="155" text-anchor="middle">PID 1234</text>
+        </g>
+        <text x="170" y="195" text-anchor="middle" font-family="var(--font-sans)" font-size="12" fill="var(--color-danger)">同一個 PID 1234 同時被三棵樹追蹤</text>
+        <text x="170" y="212" text-anchor="middle" font-family="var(--font-sans)" font-size="12" fill="var(--text-muted)">controllers 各自為政，難以協調</text>
+
+        <!-- divider -->
+        <line x1="345" y1="30" x2="345" y2="280" stroke="var(--border-mid)" stroke-width="0.5" stroke-dasharray="4 4"/>
+
+        <!-- v2 side -->
+        <text x="510" y="30" text-anchor="middle" font-family="var(--font-sans)" font-size="14" font-weight="600" fill="var(--color-success)">cgroup v2：unified hierarchy</text>
+        <g font-family="var(--font-mono)" font-size="11" fill="var(--text-primary)">
+          <rect x="450" y="50" width="120" height="40" rx="4" fill="var(--color-success-soft)" stroke="var(--color-success)" stroke-width="0.5"/>
+          <text x="510" y="68" text-anchor="middle" font-weight="600">/sys/fs/cgroup/</text>
+          <text x="510" y="83" text-anchor="middle" font-size="9" fill="var(--text-muted)">cpu, memory, io enabled</text>
+
+          <line x1="510" y1="90" x2="510" y2="110" stroke="var(--text-muted)" stroke-width="0.5"/>
+
+          <rect x="430" y="110" width="160" height="40" rx="4" fill="var(--bg-surface)" stroke="var(--border-mid)" stroke-width="0.5"/>
+          <text x="510" y="128" text-anchor="middle" font-weight="600">webapp/</text>
+          <text x="510" y="143" text-anchor="middle" font-size="9" fill="var(--text-muted)">cpu.max + memory.max + io.weight</text>
+
+          <line x1="510" y1="150" x2="510" y2="170" stroke="var(--text-muted)" stroke-width="0.5"/>
+
+          <rect x="450" y="170" width="120" height="28" rx="4" fill="var(--bg-surface)" stroke="var(--border-mid)" stroke-width="0.5"/>
+          <text x="510" y="189" text-anchor="middle">PID 1234</text>
+        </g>
+        <text x="510" y="220" text-anchor="middle" font-family="var(--font-sans)" font-size="12" fill="var(--color-success)">一棵樹、一個 PID 路徑</text>
+        <text x="510" y="237" text-anchor="middle" font-family="var(--font-sans)" font-size="12" fill="var(--text-muted)">controllers 隨 cgroup 啟用</text>
+      </svg>
+      <div class="diagram-caption">圖 1.1 · v1 多階層 vs v2 unified hierarchy 結構對比</div>
+    </div>
+
+    <div class="prose">
+      <h3>3.5 cgroup 與 namespace 的關係</h3>
+      <p>
+        很多人把 cgroup 與 namespace 搞混，<em>它們是兩個正交的機制</em>：
+      </p>
+      <ul>
+        <li><strong>namespace</strong>：負責「<em>看得到什麼</em>」——程序看到的 PID、network interface、mount point、UID 是哪些。它做的是<strong>視野隔離</strong>（visibility isolation）。</li>
+        <li><strong>cgroup</strong>：負責「<em>能用多少</em>」——CPU、memory、I/O 的配額與計量。它做的是<strong>資源管理</strong>（resource control）。</li>
+      </ul>
+      <p>
+        一個 Linux container（不管是 Docker、Podman 還是 Kubernetes Pod）都是 namespace + cgroup 的組合：
+        namespace 把容器與 host 在視野上隔離開，cgroup 把容器在資源上限制住。
+        <strong>少了任何一個，都不算完整的容器</strong>。本書聚焦在 cgroup，namespace 部分讀者可參考 <code>man 7 namespaces</code>。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 4: 實戰範例 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例：檢查你的系統</h2>
+
+    <div class="prose">
+      <p>在開始學習 v2 之前，先確認你手上的系統用的是哪一版。下面三個指令一起跑，可以完整判斷現況。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · 確認 cgroup 版本</div>
+      <p>方法一：透過 <code>stat</code> 看 <code>/sys/fs/cgroup</code> 的檔案系統類型。這是<em>最快、最可靠</em>的判斷方式。</p>
+<pre><code>$ stat -fc %T /sys/fs/cgroup/
+
+# 如果輸出 cgroup2fs，你已經在 v2
+# 如果輸出 tmpfs，你還在 v1（v1 把 /sys/fs/cgroup 掛成 tmpfs，下面再掛各 controller 子目錄）
+</code></pre>
+      <p>方法二：看實際的 mount。可以同時看到 v1 與 v2 的掛載狀況。</p>
+<pre><code>$ mount | grep cgroup
+
+# v2-only 系統（典型 RHEL 9+ / Ubuntu 22.04+）只會看到一行：
+cgroup2 on /sys/fs/cgroup type cgroup2 (rw,nosuid,nodev,noexec,relatime,nsdelegate,memory_recursiveprot)
+
+# v1 系統會看到很多行（每個 controller 一行）
+</code></pre>
+      <p>方法三：看 process 的 cgroup membership。v2 的格式永遠是 <code>0::/path</code>，沒有冒號前的 controller 名稱。</p>
+<pre><code>$ cat /proc/self/cgroup
+
+# v2 格式（單行）：
+0::/user.slice/user-1000.slice/user@1000.service/app.slice/...
+
+# v1 格式（多行，每行對應一個 hierarchy）：
+12:cpu,cpuacct:/user.slice
+11:memory:/user.slice
+10:blkio:/user.slice
+...
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · 看一眼系統正在執行的 cgroup tree</div>
+      <p>使用 <code>systemd-cgls</code>（systemd 提供的工具）看 cgroup 階層全貌：</p>
+<pre><code>$ systemd-cgls --no-pager | head -30
+
+Control group /:
+-.slice
+├─user.slice
+│ └─user-1000.slice
+│   ├─user@1000.service …
+│   │ ├─app.slice
+│   │ │ └─dbus.service
+│   │ └─session.slice
+│   │   └─dbus-daemon
+│   └─session-2.scope
+└─system.slice
+  ├─sshd.service
+  ├─cron.service
+  └─NetworkManager.service
+</code></pre>
+      <p>這裡可以清楚看到 systemd 預設把 cgroup 切成 <code>system.slice</code>（系統服務）、<code>user.slice</code>（使用者 session）兩大區塊，
+      每個 service unit 對應到一個 cgroup directory。這就是後面 Ch.15 會詳細講的 systemd 整合。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · 看一個 cgroup 啟用了哪些 controllers</div>
+<pre><code>$ cat /sys/fs/cgroup/cgroup.controllers
+cpuset cpu io memory hugetlb pids rdma misc
+
+$ cat /sys/fs/cgroup/cgroup.subtree_control
+cpuset cpu io memory pids
+</code></pre>
+      <p>
+        <code>cgroup.controllers</code> 列出當前 cgroup 「<em>可以啟用</em>」的所有 controllers（由 kernel build 與 v1/v2 綁定狀況決定）。<br>
+        <code>cgroup.subtree_control</code> 列出當前 cgroup 「<em>實際對子 cgroup 啟用</em>」的 controllers。<br>
+        這兩個檔案是 v2 操作的核心，後續章節會大量出現。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 5: 常見陷阱 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · v1 與 v2 不能完全共存</div>
+      <p>
+        理論上 v1 與 v2 可以「<em>hybrid mode</em>」共存——一些 controllers 走 v1，另一些走 v2。但 Red Hat 文件明確說明：<strong>同時掛載 v1 與 v2 是不被支援（unsupported）的配置</strong>。
+        實務上你會遇到 controller 不知道該綁哪邊的混亂、systemd 行為不一致、容器 runtime 報錯。
+        <strong>如果系統還在 v1，要嘛維持 v1，要嘛完整切到 v2，不要嘗試混合。</strong>
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · 看到 /sys/fs/cgroup 有 cpu/、memory/ 子目錄不代表 v1</div>
+      <p>
+        這是初學者最常踩的雷。在 <em>v2-only 系統</em>上，<code>/sys/fs/cgroup/</code> 下也會有看起來像 controller 名字的子目錄——但那其實是 <strong>cgroup 名稱</strong>，不是 controller hierarchy。
+        要判斷版本永遠用 <code>stat -fc %T /sys/fs/cgroup/</code>，看 filesystem type，不要看目錄結構猜。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · /proc/$PID/cgroup 在 hybrid 系統會誤導</div>
+      <p>
+        在某些舊系統上 <code>/proc/$PID/cgroup</code> 會同時印出 v1 多行 + v2 一行（<code>0::/path</code>）。
+        看到多行<em>不代表你在 v1</em>，要看「真正控制這個 process 的是哪一行」。在 systemd 接管的系統上，<strong>v2 的那一行（<code>0::/...</code>）才是實際生效的</strong>。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · 直接讀 cgroup 檔案的應用要小心 v1/v2 路徑不同</div>
+      <p>
+        例如 v1 的 <code>memory.limit_in_bytes</code> 在 v2 是 <code>memory.max</code>；v1 的 <code>cpu.cfs_quota_us</code> + <code>cpu.cfs_period_us</code> 在 v2 合併為 <code>cpu.max</code>。
+        如果你的應用（特別是 Java、Python、Go 等需要讀 cgroup 設定來自我調整的 runtime）寫死了 v1 路徑，<strong>遷移到 v2 後會直接失效</strong>。
+        Ch.19、Ch.20 會專門處理 Go 與 Python 的這類問題。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 6: 動手練習 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="prose">
+      <p>下面四題練習由淺入深，建議全做一次。每題預期 5–15 分鐘。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · 判斷你的系統版本（5 分鐘）</div>
+      <p>用三種不同方式判斷你當前 Linux 系統使用的 cgroup 版本，並回答：</p>
+      <ol style="font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5);">
+        <li>你的系統是 v1、v2 還是 hybrid？</li>
+        <li>如果是 v2，<code>/sys/fs/cgroup/</code> 掛載時帶了哪些 mount options？</li>
+        <li>你的 systemd 版本是多少？（<code>systemctl --version</code>）</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · 找出當前 shell 所在的 cgroup（5 分鐘）</div>
+<pre><code># Step 1：取得當前 shell 的 PID
+echo $$
+
+# Step 2：查它在哪個 cgroup
+cat /proc/$$/cgroup
+
+# Step 3：到那個 cgroup directory 看裡面有什麼
+ls /sys/fs/cgroup/&lt;path-from-step-2&gt;/
+</code></pre>
+      <p>觀察並回答：你看到了哪些 <code>cgroup.*</code> 與 <code>{controller}.*</code> 開頭的檔案？哪些是 read-only、哪些是可寫入？</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 啟動一個 transient cgroup 並觀察（10 分鐘）</div>
+      <p>用 <code>systemd-run</code> 在隔離的 cgroup 中跑一個 sleep，然後找到它對應的 cgroup directory：</p>
+<pre><code># 啟動一個 transient unit，限制最多用 50% CPU
+sudo systemd-run --slice=user.slice --unit=test-sleep \
+    -p CPUQuota=50% sleep 300
+
+# 找到它的 cgroup
+systemctl status test-sleep | grep CGroup
+# 應該會看到類似：CGroup: /user.slice/test-sleep.service
+
+# 進去看看檔案
+sudo ls /sys/fs/cgroup/user.slice/test-sleep.service/
+sudo cat /sys/fs/cgroup/user.slice/test-sleep.service/cpu.max
+
+# 清理
+sudo systemctl stop test-sleep
+</code></pre>
+      <p>回答：<code>cpu.max</code> 的內容是什麼？它的格式是 <code>$MAX $PERIOD</code>，請計算 <code>50%</code> 是怎麼換算成那兩個數字的（提示：預設 period 是 100000μs）。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 列出系統中 cgroup 數量最多的 service（10 分鐘）</div>
+<pre><code># 找出 system.slice 下每個 service 各自有多少子 cgroup
+for d in /sys/fs/cgroup/system.slice/*/; do
+    count=$(find "$d" -mindepth 1 -type d 2>/dev/null | wc -l)
+    echo "$count $d"
+done | sort -rn | head -10
+</code></pre>
+      <p>回答：哪個 service 建立了最多 cgroup？想想為什麼（提示：跟 worker pool、container runtime 有關）。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 7: 自我檢查題 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>「cgroup」這個詞應該寫成 cgroup、Cgroup 還是 CGROUP？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>cgroup</strong>。kernel 文件第一段就明確規定：「<em>cgroup is never capitalized</em>」。複數時寫 <strong>cgroups</strong>，但要注意這是指「多個 control groups」，講整體機制時應使用單數 <strong>cgroup</strong>。本書全文遵守這個慣例。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>v1 與 v2 最根本的結構差異是什麼？用一句話描述。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>v1 是「每個 controller 一棵獨立階層樹」，v2 是「全系統共用單一階層樹（unified hierarchy），controllers 是 cgroup 的屬性」。</strong>
+        這個差異衍生出後面所有設計決策：跨 controller 協調、delegation、no internal process constraint 都是建立在 unified hierarchy 之上才得以實現。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span>為什麼 v2 不允許「同時把同一個 process 的不同 thread 放進不同 cgroup」？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        兩個原因：
+        （1）<strong>語意問題</strong>——同一個 process 的 thread 共享 address space，把它們放進不同 memory cgroup 在語意上講不通。
+        （2）<strong>濫用問題</strong>——這個機制原本給「app 自我管理」用，但 thread 自我管理本來該用 syscall 處理，cgroup filesystem 介面不適合。
+        v2 預設只支援 process-level cgroup，但 v2 後來補回了限制版的 thread mode（threaded controllers，這是 Ch.6 的主題）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span>cgroup 與 namespace 的職責分別是什麼？舉一個必須兩者都用的場景。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>namespace 管「看得到什麼」（visibility isolation）</strong>，包含 PID、network、mount、UID 等視野；<strong>cgroup 管「能用多少」（resource control）</strong>，包含 CPU、memory、I/O 等資源配額。
+        必須兩者都用的典型場景：<strong>容器</strong>（Docker、Kubernetes Pod）。沒有 namespace 容器看得到 host 的所有 process；沒有 cgroup 容器可以吃光 host 的記憶體。兩者缺一不可。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span>判斷 cgroup 版本最可靠的指令是什麼？為什麼不能用「看 <code>/sys/fs/cgroup/</code> 下有沒有 <code>cpu/</code> 子目錄」來判斷？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        最可靠的指令是 <strong><code>stat -fc %T /sys/fs/cgroup/</code></strong>。輸出 <code>cgroup2fs</code> 是 v2，輸出 <code>tmpfs</code> 是 v1。
+        不能看子目錄是因為 <strong>v2 系統下 <code>/sys/fs/cgroup/</code> 也會有看起來像 controller 名字的子目錄</strong>——但那是 cgroup 名稱（例如 systemd 建立的 slice），不是 controller hierarchy。判斷版本要看 filesystem type，不能看目錄結構猜。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>2026 年的時點，主流 Linux distro 中還有哪些版本仍預設使用 cgroup v1？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>絕大多數現代發行版都已經預設 v2</strong>：RHEL 9+ / Rocky Linux 9+ / AlmaLinux 9+、Ubuntu 22.04+、Debian 11+、Fedora 31+、CentOS Stream 9+、Bottlerocket 1.13+ 全都預設 v2。
+        仍預設 v1 的是已經 EOL 或進入維護的舊版：RHEL 7（已 EOL）、RHEL 8（仍維護中但可手動切 v2）、Rocky Linux 8（同 RHEL 8）、Ubuntu 20.04（EOL 2025-04）。
+        如果 2026 年新建系統，幾乎不會碰到 v1 預設環境。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span>Tejun Heo 為什麼選擇開新版而不是漸進式修改 v1？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        因為 v1 的核心問題（多階層、thread 粒度、internal process competition、interface 不一致）都涉及<strong>使用者可見的 ABI</strong>，
+        修這些問題會破壞既有應用的相容性。kernel 的 ABI 穩定性是不可妥協的紅線（Linus Torvalds 著名的 <em>"we don't break userspace"</em> 原則），
+        所以唯一辦法是<strong>開一個全新的、平行的子系統</strong>，讓使用者自願遷移。這就是 cgroup v2 的誕生。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>如果你的應用直接讀取 <code>/sys/fs/cgroup/memory/memory.limit_in_bytes</code> 來決定自己的記憶體上限，遷移到 v2 後會發生什麼？該怎麼修？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>會直接失效</strong>——這個檔案在 v2 不存在。v2 對應的檔案是 <code>/sys/fs/cgroup/memory.max</code>（注意路徑結構也變了，沒有 <code>memory/</code> 子目錄），且特殊值從 v1 的「<em>一個極大的數字</em>」改為字串 <code>max</code>。
+        修法是：先用 <code>stat -fc %T /sys/fs/cgroup/</code> 判斷版本，依版本走不同程式碼路徑；或讀 <code>/proc/self/cgroup</code> 找到自己的 cgroup path，再讀對應的 <code>memory.max</code>。
+        這也是 Java（JDK 11.0.16+）、Go（1.25+）、Uber automaxprocs 等做的事。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 8: 延伸閱讀 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+
+    <div class="refs">
+      <ol>
+        <li>
+          <a href="https://docs.kernel.org/admin-guide/cgroup-v2.html" target="_blank" rel="noopener">Linux Kernel 官方文件 · Control Group v2</a>
+          <span class="ref-source">docs.kernel.org · 由 Tejun Heo 撰寫，特別建議讀 §R "Issues with v1 and Rationales for v2"</span>
+        </li>
+        <li>
+          <a href="https://lwn.net/Articles/679786/" target="_blank" rel="noopener">Understanding the new control groups API</a>
+          <span class="ref-source">LWN.net · 2016 年 v2 剛發布時的詳細介紹，至今仍是最好的入門文章</span>
+        </li>
+        <li>
+          <a href="https://www.redhat.com/en/blog/world-domination-cgroups-rhel-8-welcome-cgroups-v2" target="_blank" rel="noopener">World domination with cgroups in RHEL 8: welcome cgroups v2!</a>
+          <span class="ref-source">Red Hat Blog · 從 distro 角度說明 v1/v2 差異與遷移考量</span>
+        </li>
+        <li>
+          <a href="https://man7.org/linux/man-pages/man7/cgroups.7.html" target="_blank" rel="noopener">cgroups(7) · Linux man-pages</a>
+          <span class="ref-source">man7.org · 完整的 cgroup 概念與 v1/v2 對照，適合當參考手冊</span>
+        </li>
+        <li>
+          <a href="https://en.wikipedia.org/wiki/Cgroups" target="_blank" rel="noopener">Cgroups · Wikipedia</a>
+          <span class="ref-source">Wikipedia · 從 2007 年「process containers」到 v2 的完整歷史，含時間軸</span>
+        </li>
+        <li>
+          <a href="https://kubernetes.io/docs/concepts/architecture/cgroups/" target="_blank" rel="noopener">About cgroup v2 · Kubernetes Documentation</a>
+          <span class="ref-source">kubernetes.io · 從 K8s 視角介紹為什麼採用 v2 與遷移指引（含 K8s 1.31+ v1 deprecation 公告）</span>
+        </li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Chapter nav ====================== -->
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn disabled">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">無</span>
+    </a>
+    <a class="nav-btn next" href="ch02-architecture.html">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">Ch.2 架構與核心概念</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<!-- ====================== Inline theme-toggle.js ====================== -->
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+
+<!-- ====================== Quiz toggle ====================== -->
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+
+</body>
+</html>

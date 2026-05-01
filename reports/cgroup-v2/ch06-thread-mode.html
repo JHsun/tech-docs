@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.6 Thread-level 控制 — cgroup v2 完整教學</title>
+<meta name="description" content="深入理解 cgroup v2 的 threaded mode：啟用條件、狀態機、4 個 supported controllers、JVM thread pool 隔離實戰。">
+
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626; --color-danger-soft: #fee2e2;
+  --color-info: #0891b2; --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px; --text-4xl: 64px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+</style>
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.topbar { position: sticky; top: 0; z-index: 50; background: color-mix(in oklch, var(--bg-canvas) 88%, transparent); backdrop-filter: saturate(180%) blur(12px); -webkit-backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--border-soft); }
+.topbar-inner { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.brand { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-secondary); }
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 999px; padding: 6px 14px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background .2s, border-color .2s, color .2s; }
+[data-theme-toggle]:hover { background: var(--bg-muted); border-color: var(--border-mid); color: var(--text-primary); }
+[data-theme-toggle] .theme-icon { font-size: 14px; line-height: 1; }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: 0 var(--space-5); }
+
+.chapter-head { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); }
+.chapter-tag { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary-text); background: var(--color-primary-soft); padding: 4px 12px; border-radius: 999px; margin-bottom: var(--space-4); }
+.chapter-title { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; margin-bottom: var(--space-3); }
+.chapter-subtitle { font-family: var(--font-serif-body); font-size: var(--text-md); color: var(--text-secondary); line-height: 1.65; font-style: italic; }
+.chapter-meta { margin-top: var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.chapter-meta-item:first-child::before { display: none; }
+
+.section { padding: var(--space-7) 0; border-bottom: 1px solid var(--border-soft); }
+.section:last-of-type { border-bottom: none; }
+.section-label { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2); }
+.section-label::before { content: ""; width: 24px; height: 1px; background: var(--color-primary); }
+.section-title { font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600; margin-bottom: var(--space-5); letter-spacing: -0.01em; line-height: 1.2; }
+
+.prose p { font-family: var(--font-serif-body); font-size: var(--text-base); color: var(--text-primary); line-height: 1.85; margin-bottom: var(--space-4); }
+.prose h3 { font-family: var(--font-sans); font-size: var(--text-lg); font-weight: 600; color: var(--text-primary); margin: var(--space-6) 0 var(--space-3); letter-spacing: -0.01em; }
+.prose h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 500; color: var(--text-primary); margin: var(--space-5) 0 var(--space-2); }
+.prose ul, .prose ol { font-family: var(--font-serif-body); margin-bottom: var(--space-4); padding-left: var(--space-5); line-height: 1.8; }
+.prose ul li, .prose ol li { margin-bottom: var(--space-2); color: var(--text-primary); }
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong { font-weight: 600; color: var(--text-primary); }
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 1px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+.prose a { color: var(--color-primary); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.prose a:hover { color: var(--color-primary-hover); }
+
+.highlights { background: var(--color-primary-soft); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.highlights ol { font-family: var(--font-sans); padding-left: var(--space-5); margin: 0; }
+.highlights li { font-size: var(--text-sm); color: var(--color-primary-text); margin-bottom: var(--space-2); line-height: 1.65; }
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+
+.news-box { background: var(--color-info-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.news-item { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); line-height: 1.7; padding: var(--space-2) 0; border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent); }
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-info); margin-right: var(--space-2); }
+
+pre { font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.7; background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; margin-bottom: var(--space-4); color: var(--text-primary); }
+pre code { background: transparent; border: none; padding: 0; font-size: inherit; color: inherit; }
+
+.cmp-table { width: 100%; border-collapse: collapse; margin-bottom: var(--space-4); font-size: var(--text-sm); font-family: var(--font-sans); }
+.cmp-table th, .cmp-table td { padding: var(--space-3); text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.cmp-table th { font-weight: 600; color: var(--text-primary); background: var(--bg-muted); font-size: var(--text-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 1px 5px; border-radius: var(--radius-sm); color: var(--color-primary-text); }
+
+.lab { background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.lab-title { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--color-primary); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px dashed var(--border-soft); }
+.lab-title::before { content: "▶ "; color: var(--color-primary); }
+.lab p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-3); color: var(--text-secondary); line-height: 1.7; }
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+.lab ol, .lab ul { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); color: var(--text-secondary); line-height: 1.7; }
+
+.pitfall { background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.pitfall-title { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 600; color: var(--color-warning); margin-bottom: var(--space-2); }
+.pitfall p { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); margin-bottom: var(--space-2); line-height: 1.7; }
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code { background: color-mix(in oklch, var(--color-warning) 15%, transparent); border-color: color-mix(in oklch, var(--color-warning) 30%, transparent); color: var(--text-primary); }
+
+.quiz-item { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-3); }
+.quiz-q { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; color: var(--text-primary); margin-bottom: var(--space-2); display: flex; gap: var(--space-2); }
+.quiz-q-num { font-family: var(--font-mono); color: var(--color-primary); flex-shrink: 0; }
+.quiz-toggle { background: transparent; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 4px 10px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; margin-top: var(--space-2); transition: background .2s, color .2s; }
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a { display: none; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px dashed var(--border-soft); font-family: var(--font-serif-body); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.75; }
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+
+.diagram { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); margin-bottom: var(--space-4); text-align: center; }
+.diagram svg { max-width: 100%; height: auto; }
+.diagram-caption { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-3); text-align: center; }
+
+.refs ol { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); line-height: 1.8; }
+.refs li { margin-bottom: var(--space-2); color: var(--text-secondary); }
+.refs li::marker { color: var(--color-primary); }
+.refs a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dashed var(--color-primary); }
+.refs a:hover { color: var(--color-primary-hover); }
+.refs .ref-source { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); display: block; margin-top: 2px; }
+
+.chapter-nav { margin-top: var(--space-6); padding: var(--space-5) 0; display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.nav-btn { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; padding: var(--space-3) var(--space-4); background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); text-decoration: none; color: var(--text-primary); transition: border-color .2s, transform .15s; }
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.04em; }
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.06</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part II · 操作篇 · Chapter 06</span>
+    <h1 class="chapter-title">Thread-level 控制</h1>
+    <p class="chapter-subtitle">
+      v2 預設以 process 為粒度，但對於需要把<em>同一個 process 的不同 thread 分開治理</em>的場景，
+      v2 補回了限制版的 thread mode。本章拆解 threaded subtree 的拓撲規則、四個 supported controllers，
+      並用 JVM thread pool 隔離當主案例展示真實使用場景。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~5,200 字</span>
+      <span class="chapter-meta-item">閱讀時間 18 分鐘</span>
+      <span class="chapter-meta-item">難度：進階</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ====================== Section 1: 本章重點 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+
+    <div class="highlights">
+      <ol>
+        <li><strong>大多數人不需要</strong>：threaded mode 是 niche feature，9 成以上的 workload 用 domain 就足夠。學它主要是為了 debug、JVM 調優、即時系統設計。</li>
+        <li><strong>啟用條件嚴格</strong>：cgroup 沒有 child、沒啟用任何 domain controller、parent 必須是 valid threaded domain 或 threaded cgroup——不滿足就會進 <code>domain invalid</code> 狀態。</li>
+        <li><strong>狀態機四態</strong>：<code>domain</code>（預設）→ 寫入 <code>threaded</code> → 變 <code>threaded</code>，同時 parent 自動變 <code>domain threaded</code>。整個轉換<em>單向不可逆</em>。</li>
+        <li><strong>四個 supported controllers</strong>：<code>cpu</code>、<code>cpuset</code>、<code>perf_event</code>、<code>pids</code>。memory、io 等 domain controllers <em>不支援</em>——它們的計量都歸到 threaded subtree 的 root（thread root）。</li>
+        <li><strong>實戰主案例</strong>：JVM 把 GC threads 與 worker threads 分到不同 cgroup，給 worker 更高 cpu.weight，讓即時請求不被 GC 拖慢。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 2: 最新動態 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+
+    <div class="news-box">
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>JVM cgroup v2 awareness 已在 JDK 8u372、11.0.16、17 主流版本支援</strong>。OpenJDK 直接讀 cgroup limits 來計算 heap size 與 thread pool 大小。但 thread mode 進階用法仍需手動配置。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025-11</span>
+        <strong>Red Hat 發布 OpenShift 4 上 Java/.NET/Node.js 的 cgroups v2 影響分析</strong>，明確指出 CPU 設定錯誤會導致 thread pool 過大、probe 失敗等問題。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2024–2025</span>
+        <strong>realtime workload 仍是 thread mode 的主要使用者</strong>。電信、金融、遊戲伺服器把 RT threads 與 best-effort threads 分到不同 cgroup，用 cpuset 綁特定 isolcpus 核。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>thread mode 仍未廣泛使用於 Kubernetes</strong>。Pod 級別的隔離已足夠 90% 場景，container 內進一步分 thread cgroup 通常需要應用主動配合，自動化工具尚未成熟。
+      </div>
+    </div>
+
+    <div class="prose">
+      <p>
+        2026 年的時點，<strong>thread mode 仍然是「<em>需要時才用</em>」的進階工具</strong>。
+        本章不會誘導讀者去用它，而是讓你<em>看得懂</em>它在哪些場景出現、<em>會用</em>它解決特定問題、<em>會避開</em>常見陷阱。
+        實作上，我建議先看完本章的觀念部分，動手 lab 可以略讀——多數人實務上很少需要動到 thread mode。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 3: 核心內容 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+
+    <div class="prose">
+      <h3>3.1 為什麼需要 thread mode</h3>
+      <p>
+        Ch.1 講過：<strong>v1 允許 thread 散佈到不同 cgroup</strong>，這個特性被嚴重濫用，後來被當成主要遺憾之一寫進 v2 設計動機。
+        但「<em>thread 級別控制</em>」本身在某些場景<em>確實有用</em>——v2 完全砍掉它太絕對了，於是 kernel 4.14（2017）以「限制版」形式補回。
+      </p>
+      <p>
+        kernel 文件 §2.2.2 "Threads" 說明 thread mode 的設計目標：
+      </p>
+      <p style="font-style: italic; color: var(--text-secondary); padding-left: var(--space-4); border-left: 2px solid var(--color-primary);">
+        cgroup v2 supports thread granularity for a subset of controllers to support use cases requiring hierarchical resource distribution across the threads of a group of processes.
+      </p>
+      <p>
+        典型場景是<strong>單一 process 內有不同類型的 thread，需要差別對待</strong>：
+      </p>
+      <ul>
+        <li><strong>JVM</strong>：GC threads、worker threads、JIT compiler threads 屬於同一個 process，但對 latency 敏感度截然不同</li>
+        <li><strong>遊戲伺服器</strong>：tick worker、network IO、physics 計算 thread，希望 tick worker 永遠優先</li>
+        <li><strong>即時系統</strong>：RT threads 跑 SCHED_FIFO，其他 admin / logging threads 跑 best-effort</li>
+        <li><strong>資料庫</strong>：query worker、checkpoint、WAL writer，有時希望 checkpoint 不要影響 query</li>
+      </ul>
+      <p>
+        v1 的解法是無腦把 thread 寫進不同 cgroup（造成各種衝突）；v2 用「<em>限制版 thread mode</em>」精準解決：<strong>thread 可以散佈，但只有部分 controllers 支援，且整個 process 的 domain 資源（如 memory）仍然統一計算</strong>。
+      </p>
+
+      <h3>3.2 狀態機與啟用條件</h3>
+      <p>
+        Ch.2 已經介紹過 cgroup.type 的四個狀態。本章把它們的<strong>轉換規則</strong>講透：
+      </p>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 680 380" role="img" aria-label="cgroup.type 狀態機">
+        <text x="340" y="22" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="600" fill="var(--text-primary)">cgroup.type 狀態機</text>
+
+        <!-- domain (initial) -->
+        <rect x="60" y="60" width="180" height="60" rx="8" fill="var(--color-primary-soft)" stroke="var(--color-primary)" stroke-width="2"/>
+        <text x="150" y="82" text-anchor="middle" font-family="var(--font-mono)" font-size="13" font-weight="600" fill="var(--color-primary-text)">domain</text>
+        <text x="150" y="100" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">預設 / 創建時的初始態</text>
+        <text x="150" y="115" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">可放 process</text>
+
+        <!-- threaded -->
+        <rect x="440" y="60" width="180" height="60" rx="8" fill="var(--color-warning-soft)" stroke="var(--color-warning)" stroke-width="2"/>
+        <text x="530" y="82" text-anchor="middle" font-family="var(--font-mono)" font-size="13" font-weight="600" fill="var(--color-warning)">threaded</text>
+        <text x="530" y="100" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">thread 粒度</text>
+        <text x="530" y="115" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">可放 thread (TID)</text>
+
+        <!-- domain threaded -->
+        <rect x="250" y="180" width="180" height="60" rx="8" fill="var(--color-success-soft)" stroke="var(--color-success)" stroke-width="2"/>
+        <text x="340" y="202" text-anchor="middle" font-family="var(--font-mono)" font-size="13" font-weight="600" fill="var(--color-success)">domain threaded</text>
+        <text x="340" y="220" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">承載 threaded subtree</text>
+        <text x="340" y="235" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">domain controllers 計量到此</text>
+
+        <!-- domain invalid -->
+        <rect x="60" y="290" width="180" height="60" rx="8" fill="var(--color-danger-soft)" stroke="var(--color-danger)" stroke-width="2"/>
+        <text x="150" y="312" text-anchor="middle" font-family="var(--font-mono)" font-size="13" font-weight="600" fill="var(--color-danger)">domain invalid</text>
+        <text x="150" y="330" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">無效狀態 (cul-de-sac)</text>
+        <text x="150" y="345" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">只能轉 threaded 或刪除</text>
+
+        <!-- 轉換箭頭 -->
+        <!-- domain → threaded -->
+        <path d="M 240 90 L 440 90" stroke="var(--color-primary)" stroke-width="1.5" fill="none" marker-end="url(#arrow1)"/>
+        <text x="340" y="80" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--color-primary)">echo threaded &gt; cgroup.type</text>
+
+        <!-- domain → domain threaded (auto) -->
+        <path d="M 150 120 Q 230 150 280 180" stroke="var(--color-success)" stroke-width="1.5" fill="none" stroke-dasharray="4 3" marker-end="url(#arrow2)"/>
+        <text x="200" y="160" font-family="var(--font-sans)" font-size="9" font-style="italic" fill="var(--color-success)">自動：當 child 變 threaded</text>
+
+        <!-- threaded ← child 's parent 自動成為 domain threaded -->
+        <path d="M 530 120 Q 470 150 410 180" stroke="var(--color-success)" stroke-width="1.5" fill="none" stroke-dasharray="4 3" marker-end="url(#arrow2b)"/>
+        <text x="500" y="160" font-family="var(--font-sans)" font-size="9" font-style="italic" fill="var(--color-success)">parent 自動轉</text>
+
+        <!-- domain → domain invalid (auto) -->
+        <path d="M 100 120 Q 50 200 80 290" stroke="var(--color-danger)" stroke-width="1.5" fill="none" stroke-dasharray="4 3" marker-end="url(#arrow3)"/>
+        <text x="0" y="200" font-family="var(--font-sans)" font-size="9" font-style="italic" fill="var(--color-danger)">parent 是 threaded</text>
+        <text x="0" y="212" font-family="var(--font-sans)" font-size="9" font-style="italic" fill="var(--color-danger)">時自動進入</text>
+
+        <!-- domain invalid → threaded -->
+        <path d="M 240 320 Q 380 360 530 120" stroke="var(--color-warning)" stroke-width="1.5" fill="none" stroke-dasharray="2 2" marker-end="url(#arrow4)"/>
+        <text x="380" y="375" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--color-warning)">echo threaded &gt; cgroup.type</text>
+
+        <!-- 提示：threaded 不能變回 domain -->
+        <text x="340" y="265" text-anchor="middle" font-family="var(--font-sans)" font-size="11" font-style="italic" fill="var(--color-danger)">⚠ threaded → domain 不存在這條邊（單向不可逆）</text>
+
+        <!-- arrow markers -->
+        <defs>
+          <marker id="arrow1" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="var(--color-primary)"/>
+          </marker>
+          <marker id="arrow2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="var(--color-success)"/>
+          </marker>
+          <marker id="arrow2b" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="var(--color-success)"/>
+          </marker>
+          <marker id="arrow3" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="var(--color-danger)"/>
+          </marker>
+          <marker id="arrow4" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="var(--color-warning)"/>
+          </marker>
+        </defs>
+      </svg>
+      <div class="diagram-caption">圖 6.1 · cgroup.type 狀態機與轉換規則</div>
+    </div>
+
+    <div class="prose">
+      <h4>啟用 threaded 的三個必要條件</h4>
+      <p>
+        kernel 文件 §2.2.2 列出啟用 thread mode 的條件，<em>三條全部滿足才會成功</em>：
+      </p>
+      <ol>
+        <li><strong>cgroup 沒有 child</strong>：要轉的 cgroup 必須是 leaf。有任何 child 都會失敗。</li>
+        <li><strong>cgroup 沒啟用任何 domain controller</strong>：<code>cgroup.subtree_control</code> 不能含 memory、io 等 domain controllers。可以含 cpu、cpuset、pids、perf_event。</li>
+        <li><strong>parent 必須適配</strong>：parent 是 valid threaded domain（root 或自身已 threaded）<em>或</em> parent 是 threaded cgroup。對 unthreaded domain 來說，parent 也不能有 domain controllers 啟用或 populated 的 child。</li>
+      </ol>
+      <p>
+        條件 3 最容易踩雷——很多 case 都是「<em>parent 已經有別的 child 在跑 process</em>」或「<em>parent 已經啟用了 memory</em>」就不能轉了。
+      </p>
+
+      <h3>3.3 threaded subtree 的結構</h3>
+      <p>
+        一旦 cgroup 被轉成 threaded，<strong>它的 parent 自動變成 <code>domain threaded</code></strong>，從這個 parent 開始往下的整個子樹形成 <strong>threaded subtree</strong>。
+        threaded subtree 內：
+      </p>
+      <ul>
+        <li>thread 可以散佈在不同 cgroup（透過 <code>cgroup.threads</code>）</li>
+        <li>不受 no-internal-process constraint 約束（threaded controllers 可以在非 leaf 啟用）</li>
+        <li>所有 domain controllers 的計量都歸到 thread root（<code>domain threaded</code> 那個 cgroup）</li>
+      </ul>
+      <p>
+        從外面看，整個 threaded subtree <em>對 domain controllers 而言就是一個 cgroup</em>——這就是「<em>resource domain</em>」這個名字的由來。
+      </p>
+
+      <h3>3.4 四個 supported controllers</h3>
+      <p>
+        kernel 規定 controller 必須<em>明確宣告自己支援 thread mode</em> 才能用在 threaded subtree。截至 2026 年，只有四個：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr>
+          <th>Controller</th>
+          <th>thread 粒度語意</th>
+          <th>典型用法</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>cpu</code></td>
+          <td>每個 thread 獨立 schedule，<code>cpu.weight</code> 影響各 thread 的 CPU 時間比例。</td>
+          <td>JVM GC 與 worker 分開、即時系統 RT vs best-effort</td>
+        </tr>
+        <tr>
+          <td><code>cpuset</code></td>
+          <td>每個 thread 可以綁不同 CPU 核或 NUMA node。</td>
+          <td>把 RT thread 綁到 isolcpus 核、worker thread 限制在某個 NUMA</td>
+        </tr>
+        <tr>
+          <td><code>perf_event</code></td>
+          <td>每個 thread 獨立 perf 計數收集。</td>
+          <td>專門 profiling 某些 worker thread 而不影響其他</td>
+        </tr>
+        <tr>
+          <td><code>pids</code></td>
+          <td>限制這個 cgroup 能持有的 thread 數量。</td>
+          <td>防 thread leak、限 thread pool 上限</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h4>不支援 thread mode 的 controllers</h4>
+      <p>
+        其他 controllers 全部是 <strong>domain controllers</strong>：
+      </p>
+      <ul>
+        <li><code>memory</code>：同一 process 的 thread 共享 address space，「<em>這塊 page 屬於哪個 thread</em>」沒有意義</li>
+        <li><code>io</code>：file descriptor 與 page cache 在 process 層級共享，writeback 是非同步的（kworker 觸發），實作上無法分 thread</li>
+        <li><code>hugetlb</code>、<code>rdma</code>、<code>misc</code>：類似的 process 共享資源</li>
+      </ul>
+      <p>
+        這就是為什麼 thread mode 要求「<em>parent 不能有 domain controllers 啟用</em>」——一旦把 cgroup 變 threaded，這些資源計量「<em>自動往上滾</em>」到 thread root，threaded cgroup 自己看不到、改不了這些介面檔案。
+      </p>
+
+      <h3>3.5 cgroup.threads 介面</h3>
+      <p>
+        Ch.4 介紹過 <code>cgroup.threads</code>，這裡進一步說明它的使用條件：
+      </p>
+      <ul>
+        <li><strong>讀</strong>：在任何 cgroup 都可讀，列出 thread (TID) 列表。對 domain cgroup 而言，等同列出所有 process 的所有 thread。</li>
+        <li><strong>寫</strong>：<em>只在 threaded subtree 內可寫</em>。對 domain cgroup 寫入會被拒絕（EOPNOTSUPP）。</li>
+        <li><strong>遷移粒度</strong>：寫一個 TID 只遷移該 thread，<em>不影響同 process 的其他 thread</em>——這是 cgroup.procs 與 cgroup.threads 的關鍵差異。</li>
+      </ul>
+
+      <h3>3.6 實戰主案例：JVM thread pool 隔離</h3>
+      <p>
+        假設你跑一個 latency-sensitive 的 Java service，遇到「<em>GC pause 偶爾尖峰，把 worker 拖慢</em>」的問題。
+        想法：把 GC threads 與 worker threads 放到不同 cgroup，給 worker 高 cpu.weight，GC 低 cpu.weight。
+      </p>
+      <p>
+        步驟概要（完整指令在 Lab 4）：
+      </p>
+      <ol>
+        <li>建立 thread root：<code>/sys/fs/cgroup/myapp</code>（domain，準備轉 threaded）</li>
+        <li>建立兩個 child：<code>myapp/workers</code>、<code>myapp/gc</code></li>
+        <li>把 workers 與 gc 都轉成 threaded：<code>echo threaded &gt; cgroup.type</code></li>
+        <li>此時 myapp 自動變成 <code>domain threaded</code></li>
+        <li>啟用 cpu controller：<code>echo +cpu &gt; myapp/cgroup.subtree_control</code></li>
+        <li>設 weight：<code>workers/cpu.weight=800</code>、<code>gc/cpu.weight=200</code></li>
+        <li>JVM 啟動後，把 GC thread 的 TID 寫進 <code>gc/cgroup.threads</code></li>
+      </ol>
+      <p>
+        識別 GC thread 的方法：JVM 啟動時用 <code>-XX:+PrintGCDetails</code> 看 thread name；或 runtime 用 <code>jstack</code> 看（GC threads 命名包含 <code>GC Thread</code>、<code>Concurrent GC Thread</code> 等）。
+      </p>
+      <p>
+        效果：當系統有 CPU 競爭時，worker 拿到 80% CPU、GC 拿 20%。GC pause 仍然存在（GC 邏輯沒變），但 GC 跑得慢一點，worker 不會被 GC 搶 CPU 而尖峰。
+        memory 計量在 <code>myapp</code>（domain threaded）統一算，符合 JVM 共享 heap 的事實。
+      </p>
+
+      <h3>3.7 哪些場景<em>不該</em>用 thread mode</h3>
+      <p>
+        最後反過來說：以下場景<strong>強烈建議用 process cgroup（不是 threaded）</strong>：
+      </p>
+      <ul>
+        <li><strong>多容器隔離</strong>：每個容器是獨立 process group，用 process cgroup 給 memory.max + cpu.max 已經足夠</li>
+        <li><strong>限 service 用多少資源</strong>：systemd service 每個是獨立 process tree，用標準 cgroup</li>
+        <li><strong>容器內隔離不同 sub-process</strong>：fork 出新 process 不需要 thread mode</li>
+        <li><strong>「<em>我覺得 thread mode 應該很酷</em>」</strong>：真的不要無腦上，後面 debug 會痛苦</li>
+      </ul>
+      <p>
+        thread mode 只有在<strong>同一 process 內 thread 有差別需求</strong>時才用。<em>判斷標準：你需要 <code>memory.max</code> 分開設定嗎？需要的話別用 thread mode</em>。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 4: 實戰範例 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例</h2>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · 建立基本的 threaded subtree</div>
+<pre><code># 1. 建立 thread root candidate
+sudo mkdir /sys/fs/cgroup/lab6
+cat /sys/fs/cgroup/lab6/cgroup.type
+# domain (預設)
+
+# 2. 建兩個 child
+sudo mkdir /sys/fs/cgroup/lab6/group-a
+sudo mkdir /sys/fs/cgroup/lab6/group-b
+
+# 3. 把 group-a 轉成 threaded
+echo threaded | sudo tee /sys/fs/cgroup/lab6/group-a/cgroup.type
+cat /sys/fs/cgroup/lab6/group-a/cgroup.type
+# threaded
+
+# 4. 看 lab6 自動變成什麼
+cat /sys/fs/cgroup/lab6/cgroup.type
+# domain threaded   ← 自動轉換！
+
+# 5. group-b 此時被卡到什麼狀態？
+cat /sys/fs/cgroup/lab6/group-b/cgroup.type
+# domain invalid  ← parent 是 threaded 了，它變 invalid
+
+# 6. 救它：轉成 threaded
+echo threaded | sudo tee /sys/fs/cgroup/lab6/group-b/cgroup.type
+cat /sys/fs/cgroup/lab6/group-b/cgroup.type
+# threaded
+
+# 7. 嘗試把 group-a 變回 domain（不可逆操作）
+echo domain | sudo tee /sys/fs/cgroup/lab6/group-a/cgroup.type
+# 預期失敗：Invalid argument
+
+# 清理
+sudo rmdir /sys/fs/cgroup/lab6/group-a /sys/fs/cgroup/lab6/group-b
+sudo rmdir /sys/fs/cgroup/lab6
+</code></pre>
+      <p>觀察點：第 4、5 步展示 thread mode 的「<em>連動效應</em>」——一個 child 變 threaded，parent 與所有 sibling domain 都被影響。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · 嘗試啟用 memory（會失敗）</div>
+<pre><code># 1. 建一個 domain threaded（如 Lab 1 的步驟）
+sudo mkdir /sys/fs/cgroup/lab6
+sudo mkdir /sys/fs/cgroup/lab6/g1
+echo threaded | sudo tee /sys/fs/cgroup/lab6/g1/cgroup.type
+
+# 2. 嘗試啟用 memory（domain controller）
+echo "+memory" | sudo tee /sys/fs/cgroup/lab6/cgroup.subtree_control
+# 預期失敗：Invalid argument
+# 原因：domain threaded 不能對 child 啟用 domain controllers
+
+# 3. 但啟用 cpu（threaded controller）成功
+echo "+cpu" | sudo tee /sys/fs/cgroup/lab6/cgroup.subtree_control
+
+# 4. 看 g1 收到什麼 controllers
+cat /sys/fs/cgroup/lab6/g1/cgroup.controllers
+# cpu  ← 只有 threaded controllers 出現
+
+# 清理
+sudo rmdir /sys/fs/cgroup/lab6/g1
+sudo rmdir /sys/fs/cgroup/lab6
+</code></pre>
+      <p>第 2 步的失敗證實了「<em>thread mode 不支援 domain controllers</em>」。memory 計量會自動歸到 thread root（lab6 自己）。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · 用 cgroup.threads 移動 thread</div>
+<pre><code># 1. 建立 threaded subtree
+sudo mkdir /sys/fs/cgroup/lab6
+sudo mkdir /sys/fs/cgroup/lab6/{a,b}
+echo threaded | sudo tee /sys/fs/cgroup/lab6/a/cgroup.type
+echo threaded | sudo tee /sys/fs/cgroup/lab6/b/cgroup.type
+echo "+cpu" | sudo tee /sys/fs/cgroup/lab6/cgroup.subtree_control
+echo 100 | sudo tee /sys/fs/cgroup/lab6/a/cpu.weight
+echo 800 | sudo tee /sys/fs/cgroup/lab6/b/cpu.weight
+
+# 2. 啟動一個多 thread 的 program
+sudo bash -c '
+    python3 -c "
+import threading, os
+def worker(name):
+    print(f\"{name} TID={os.gettid()}\")
+    while True:
+        pass
+threads = [threading.Thread(target=worker, args=(f\"t{i}\",)) for i in range(4)]
+for t in threads: t.start()
+for t in threads: t.join()
+" &
+'
+PYTHON_PID=$!
+
+sleep 1
+
+# 3. 列出該 process 的所有 thread
+ls /proc/$PYTHON_PID/task/
+
+# 4. 把 PID 寫進 cgroup.procs（整個 process 都進來）
+echo $PYTHON_PID | sudo tee /sys/fs/cgroup/lab6/cgroup.procs
+# 注意：thread mode 下，process 仍透過 cgroup.procs 進入 thread root
+
+# 5. 取得各 thread TID（task 目錄名就是 TID）
+TIDS=$(ls /proc/$PYTHON_PID/task/)
+
+# 6. 把前兩個 thread 移到 a，後兩個移到 b
+TIDS_ARR=($TIDS)
+echo ${TIDS_ARR[0]} | sudo tee /sys/fs/cgroup/lab6/a/cgroup.threads
+echo ${TIDS_ARR[1]} | sudo tee /sys/fs/cgroup/lab6/a/cgroup.threads
+echo ${TIDS_ARR[2]} | sudo tee /sys/fs/cgroup/lab6/b/cgroup.threads
+echo ${TIDS_ARR[3]} | sudo tee /sys/fs/cgroup/lab6/b/cgroup.threads
+
+# 7. 確認 thread 分布
+cat /sys/fs/cgroup/lab6/a/cgroup.threads
+cat /sys/fs/cgroup/lab6/b/cgroup.threads
+
+# 8. 看 CPU 分配（b 的 thread 應該拿到 800/(100+800) ≈ 89% 比例）
+top -p $PYTHON_PID -H
+
+# 清理
+sudo kill $PYTHON_PID
+sudo rmdir /sys/fs/cgroup/lab6/{a,b}
+sudo rmdir /sys/fs/cgroup/lab6
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 4 · JVM GC vs worker 隔離（完整範例）</div>
+<pre><code># 1. 建立 threaded subtree
+sudo mkdir /sys/fs/cgroup/jvmapp
+sudo mkdir /sys/fs/cgroup/jvmapp/{workers,gc}
+echo threaded | sudo tee /sys/fs/cgroup/jvmapp/workers/cgroup.type
+echo threaded | sudo tee /sys/fs/cgroup/jvmapp/gc/cgroup.type
+
+# 2. 啟用 cpu，分配 weight
+echo "+cpu" | sudo tee /sys/fs/cgroup/jvmapp/cgroup.subtree_control
+echo 800 | sudo tee /sys/fs/cgroup/jvmapp/workers/cpu.weight
+echo 200 | sudo tee /sys/fs/cgroup/jvmapp/gc/cpu.weight
+
+# 3. 啟動 JVM（範例用 simple Java program）
+java -XX:+UnlockDiagnosticVMOptions \
+     -XX:+PrintGCDetails \
+     YourApp &
+JVM_PID=$!
+
+# 4. 把 JVM main process 移進 thread root
+echo $JVM_PID | sudo tee /sys/fs/cgroup/jvmapp/cgroup.procs
+
+# 5. 識別 GC thread (用 jstack)
+GC_TIDS=$(jstack $JVM_PID | \
+    grep -E "GC Thread|Concurrent GC Thread|G1 GC Thread" | \
+    grep -oP 'nid=\K0x[a-f0-9]+' | \
+    while read hex; do printf "%d\n" $hex; done)
+
+# 6. 把 GC thread 移到 gc cgroup
+for tid in $GC_TIDS; do
+    echo $tid | sudo tee /sys/fs/cgroup/jvmapp/gc/cgroup.threads
+done
+
+# 7. 其他 thread (worker) 移到 workers cgroup
+for tid in $(ls /proc/$JVM_PID/task); do
+    # 跳過已在 gc 的 thread
+    grep -q "^$tid$" /sys/fs/cgroup/jvmapp/gc/cgroup.threads && continue
+    echo $tid | sudo tee /sys/fs/cgroup/jvmapp/workers/cgroup.threads
+done
+
+# 8. 觀察分布
+echo "GC threads:"
+wc -l < /sys/fs/cgroup/jvmapp/gc/cgroup.threads
+echo "Worker threads:"
+wc -l < /sys/fs/cgroup/jvmapp/workers/cgroup.threads
+
+# 9. 此時跑 workload，CPU 競爭時 worker 拿 80%、GC 拿 20%
+# memory 計量仍在 jvmapp 上統一（因為 thread root）
+cat /sys/fs/cgroup/jvmapp/memory.current
+
+# 清理
+kill $JVM_PID
+sudo rmdir /sys/fs/cgroup/jvmapp/{workers,gc}
+sudo rmdir /sys/fs/cgroup/jvmapp
+</code></pre>
+      <p>
+        <strong>注意</strong>：這個 lab 在 production 不建議直接照搬——應該包成 systemd service，並讓 JVM 啟動時就帶 <code>-XX:+PerfDisableSharedMem</code> 等選項。實作通常用 JVMTI agent 自動分類 thread。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 5: 常見陷阱 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · 想隔離容器卻用 thread mode</div>
+      <p>
+        最常見的誤用：聽說 thread mode 可以「<em>更精細地控制</em>」，於是想把 Kubernetes Pod 搞成 threaded subtree。
+        錯——Pod 內每個 container 是獨立 process group，<em>本來就用 process cgroup 隔離</em>。thread mode 只在「<em>同一個 process 內 thread 有差別</em>」時才有意義。
+        套用在 Pod 上會失去 <code>memory.max</code> 等核心 limits，整個事情變得更複雜不是更簡單。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · domain invalid 狀態救不回來時整棵砍掉</div>
+      <p>
+        當你看到 <code>cat cgroup.type</code> 顯示 <code>domain invalid</code>，第一反應通常是「<em>怎麼讓它變回 domain</em>」。
+        答案是：<strong>不能</strong>。<code>domain invalid</code> 只能轉 <code>threaded</code> 或被 <code>rmdir</code>。
+        如果整個拓撲設計錯了，<em>砍掉重建</em>是唯一解。所以做 thread mode 之前要想清楚拓撲。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · 啟用 memory 後再想轉 threaded</div>
+      <p>
+        典型流程錯誤：先 <code>echo +memory &gt; subtree_control</code> 設好 memory limits，<em>再</em>想 <code>echo threaded &gt; cgroup.type</code> 把 child 轉 threaded——失敗。
+        正確順序：<strong>先決定要不要走 thread mode</strong>，要的話<em>不要啟用 domain controllers</em>。
+        memory 等資源的控制要在更上層的 domain cgroup 設，threaded subtree 內只能用 cpu / cpuset / pids / perf_event。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · cgroup.threads 寫不進去（EOPNOTSUPP）</div>
+      <p>
+        在 domain cgroup 寫 <code>cgroup.threads</code>，會收到 <code>Operation not supported</code>。
+        原因：<code>cgroup.threads</code> 只在 threaded subtree 內可寫。
+        修法：先把對應 cgroup 轉成 threaded（會自動把 parent 轉成 domain threaded），才能寫入 TID。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 5 · JVM thread 識別後沒辦法持續追蹤新 thread</div>
+      <p>
+        用 jstack 識別 GC thread、寫進 cgroup.threads 之後，<em>JVM 動態產生的新 GC thread（例如 concurrent GC scaling up）不會自動加入</em>。
+        這需要 JVMTI agent 在 thread 啟動時 hook，或寫 daemon 定期 reconcile。<strong>產線使用必備持續監控與 reconcile</strong>，否則隔離效果會逐漸失效。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 6 · systemd 不直接管 thread mode</div>
+      <p>
+        systemd 的 <code>Delegate=yes</code> 給的是 process-level cgroup。
+        如果你想在 service 內用 thread mode，<strong>必須用 Delegate=yes 拿到自己的子樹後，再手動建立 threaded structure</strong>。
+        systemd 沒提供類似 <code>ThreadedCgroup=yes</code> 的選項——thread mode 是應用自管的事，systemd 只負責給 process 邊界。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 6: 動手練習 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · 觀察狀態機所有轉換（10 分鐘）</div>
+      <p>建立完整的狀態機演示——一個 cgroup 從 domain → domain threaded → threaded → invalid → 救回：</p>
+<pre><code># 跟著本章 Lab 1 操作，並在每一步把 cgroup.type 內容記錄下來，畫出實際的狀態轉移圖
+# 額外挑戰：故意建立一個 domain invalid 場景，再用最少步驟救回</code></pre>
+      <p>回答：domain invalid 需要幾步才能救回成可用狀態？</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · 確認 cpu.weight 在 threaded 子樹的精確比例（15 分鐘）</div>
+      <p>本章 Lab 3 看到比例近似 89:11，但實際比例會受 scheduler 細節影響。設計實驗精確量化：</p>
+<pre><code># 1. 建立 4 個 threaded cgroup，weight=100,200,400,800
+# 2. 在每個 cgroup 內放一個 100% CPU 的 thread
+# 3. 監控 1 分鐘內每個 thread 累計 CPU 時間
+# 4. 計算實際比例與理論比例的差異</code></pre>
+      <p>回答：實際比例與理論值偏差多少？什麼原因造成偏差？</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 用 cpuset 把 RT thread 綁到專用 CPU（15 分鐘）</div>
+      <p>需要 isolcpus boot parameter——這個練習適合在 VM 上做：</p>
+<pre><code># 1. 建立 threaded subtree
+sudo mkdir /sys/fs/cgroup/rt-app
+sudo mkdir /sys/fs/cgroup/rt-app/{rt,best-effort}
+echo threaded | sudo tee /sys/fs/cgroup/rt-app/rt/cgroup.type
+echo threaded | sudo tee /sys/fs/cgroup/rt-app/best-effort/cgroup.type
+
+# 2. 啟用 cpuset
+echo "+cpuset" | sudo tee /sys/fs/cgroup/rt-app/cgroup.subtree_control
+
+# 3. 把 RT thread 綁到 CPU 2-3（假設這些是 isolcpus）
+echo "2-3" | sudo tee /sys/fs/cgroup/rt-app/rt/cpuset.cpus
+
+# 4. best-effort 用其他核
+echo "0-1" | sudo tee /sys/fs/cgroup/rt-app/best-effort/cpuset.cpus
+
+# 5. 寫一個 multi-thread program，把 RT thread TID 寫進 rt cgroup，
+#    其他 TID 寫進 best-effort，觀察 affinity</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 思考題：能不能在 systemd service 內做 thread mode？（5 分鐘）</div>
+      <p>不需執行，只回答：</p>
+      <ol>
+        <li>service unit 的 cgroup（被 systemd 建立）預設是 domain，可以怎麼轉成 threaded？</li>
+        <li>需要 <code>Delegate=</code> 嗎？為什麼？</li>
+        <li>service ExecStart 啟動的腳本，能否在 ExecStartPre 中先建好 threaded structure？順序怎麼安排？</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 7: 自我檢查題 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>啟用 thread mode 的三個必要條件是什麼？哪個最容易踩雷？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>cgroup 沒有 child</strong>：必須是 leaf。</li>
+          <li><strong>cgroup 沒啟用任何 domain controller</strong>：<code>subtree_control</code> 不能含 memory、io 等。</li>
+          <li><strong>parent 必須適配</strong>：parent 是 valid threaded domain（root 或自身已 threaded）<em>或</em> 是 threaded cgroup。對 unthreaded domain，parent 也不能有 domain controllers 啟用或 populated 的 child。</li>
+        </ol>
+        <strong>最容易踩雷的是條件 3</strong>——多數情況都是「<em>parent 已經有別的 child 在跑 process</em>」或「<em>parent 已經啟用了 memory</em>」就不能轉。實作上要先規劃好 thread root 的位置，避免事後重來。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>cgroup.type 的四個狀態之間的轉換規則是什麼？哪些是自動觸發、哪些是手動觸發？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>手動觸發</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><code>domain → threaded</code>：寫 <code>threaded</code> 到 <code>cgroup.type</code></li>
+          <li><code>domain invalid → threaded</code>：寫 <code>threaded</code> 到 <code>cgroup.type</code></li>
+        </ul>
+        <strong>自動觸發</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><code>domain → domain threaded</code>：當任一 child 變成 threaded 時，parent 自動變</li>
+          <li><code>domain → domain invalid</code>：當 parent 變成 threaded（即所在的子樹變成 threaded subtree），原本是 domain 的 sibling 自動變 invalid</li>
+        </ul>
+        <strong>不存在的轉換</strong>：<code>threaded → domain</code>。一旦轉成 threaded 就不可逆。要回到 domain 必須刪除整個 threaded subtree 重建。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span>哪四個 controllers 支援 thread mode？為什麼這四個可以而 memory 不能？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>支援 thread mode 的四個 controllers</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><code>cpu</code>：每個 thread 獨立 schedule，CPU 時間天然 thread-level</li>
+          <li><code>cpuset</code>：affinity 可以 per-thread 設定（pthread_setaffinity_np）</li>
+          <li><code>perf_event</code>：perf 計數本來就是 per-thread 收集</li>
+          <li><code>pids</code>：限制 thread 數量是計數行為，per-thread 也合理</li>
+        </ul>
+        <strong>memory 不能的原因</strong>：同一 process 的所有 thread 共享 address space。一塊 page 的「<em>歸屬權</em>」在 process 層級才有意義——把不同 thread 放到不同 cgroup，「<em>這塊 page 算誰的記憶體</em>」沒有合理答案。
+        <strong>io 不能的原因</strong>：file descriptor、page cache、writeback 都在 process 層級共享，writeback 由非同步 kworker 觸發，根本無法歸到原始 thread。
+        <strong>結論</strong>：thread mode 適用於「<em>排程行為</em>」類資源（CPU/perf），不適用於「<em>共享狀態</em>」類資源（memory/io）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span>什麼是 thread root（resource domain）？它在 threaded subtree 中扮演什麼角色？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>thread root</strong>：threaded subtree 中最頂端的 cgroup，<code>cgroup.type</code> 顯示為 <code>domain threaded</code>。
+        <strong>角色與功能</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>承載所有 domain 資源計量</strong>：threaded subtree 內所有 thread 用的 memory、io 等都歸到這裡。從外面看，整個 threaded subtree 對 domain controllers 而言就是這一個 cgroup。</li>
+          <li><strong>提供共同的 resource ground</strong>：threaded controllers 在 subtree 內做 thread-level 控制，但所有 thread 共用 thread root 的 domain 資源。</li>
+          <li><strong>對外是 process cgroup</strong>：父層的 cgroup 看到 thread root 就是個普通 cgroup，可以對它設 memory.max、io.weight 等。</li>
+        </ul>
+        <strong>kernel 文件用語</strong>：「<em>The root of a threaded subtree, that is, the nearest ancestor which is not threaded, is called threaded domain or thread root interchangeably and serves as the resource domain for the entire subtree.</em>」
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span><code>cgroup.procs</code> 與 <code>cgroup.threads</code> 在 threaded subtree 內的行為差異？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>cgroup.procs</strong>：在 threaded subtree 內，寫入 PID 仍會把<em>整個 process 的所有 thread</em> 一起遷入該 cgroup。實務上典型用法：寫進 thread root 把整個 process 帶進 subtree。
+        <strong>cgroup.threads</strong>：寫入 TID 只遷移該 thread。<em>只在 threaded subtree 內可寫</em>——對 domain cgroup 寫入會收到 EOPNOTSUPP。
+        <strong>典型工作流</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>用 <code>cgroup.procs</code> 把整個 process 寫進 thread root</li>
+          <li>用 <code>cgroup.threads</code> 把特定 thread 分散到 child threaded cgroups</li>
+        </ol>
+        記住：<em>process 進入用 procs，thread 分散用 threads</em>。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>JVM thread 隔離為什麼要用 thread mode？用 process cgroup 替 JVM 整個設限不就好了嗎？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        用 process cgroup 給 JVM 整體設限（如 memory.max=8G、cpu.max=4 cores）<strong>確實能做基本資源隔離</strong>，這是 99% 場景的做法。
+        但 thread mode 解決的是<strong>同一 process 內不同 thread 的<em>差別優先級</em></strong>問題：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>process cgroup 限制了 JVM 整體用多少 CPU，但 GC pause 仍然會跟 worker thread 搶這個整體配額——當 GC 跑時，worker 看起來就是慢了。</li>
+          <li>thread mode 把 GC 與 worker 分開，給 worker 高 cpu.weight。<em>當 GC 跑時，scheduler 仍然優先給 worker CPU 時間</em>，GC 跑慢一點，但 worker 不被波及。</li>
+        </ul>
+        <strong>判斷標準</strong>：你只在意「<em>JVM 整體不超過多少資源</em>」嗎？用 process cgroup。你還在意「<em>JVM 內哪些 thread 優先</em>」？用 thread mode。
+        <strong>注意</strong>：thread mode 不會讓 GC pause 消失，只會讓 GC 不影響 worker 的 schedule 優先權。GC pause 本身要靠 GC tuning（G1、ZGC、Shenandoah）解決。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span>什麼情況下會看到 <code>domain invalid</code>？舉一個具體拓撲。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>典型觸發場景</strong>：拓撲是 <code>A (domain) → B (domain)</code>，後來把 B 轉成 threaded。kernel 自動把 A 變成 <code>domain threaded</code>，但<em>如果 A 還有其他 sibling C（也是 domain）</em>，C 就會自動變 <code>domain invalid</code>，因為它的 parent A 已經是 threaded subtree root 了。
+        <strong>具體例</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[初始] A (domain) ├─ B (domain) └─ C (domain)
+[做] echo threaded > B/cgroup.type
+[結果] A (domain threaded) ├─ B (threaded) └─ C (domain invalid)</pre>
+        <strong>另一觸發</strong>：在已是 threaded subtree 內 mkdir 新 child——新 child 預設是 domain，立刻陷入 invalid。
+        <strong>修復方式</strong>：把 invalid 的 cgroup 也轉 threaded（<code>echo threaded &gt; cgroup.type</code>）或刪除（<code>rmdir</code>）。<em>無法回到 domain</em>。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>實作判斷題：以下哪些情境應該用 thread mode？哪些應該用 process cgroup？（A）容器隔離；（B）JVM GC vs worker 分配；（C）Kubernetes Pod 級資源限制；（D）即時系統 RT thread 與 best-effort 隔離；（E）資料庫 query thread 限制總數。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>process cgroup（domain）</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>(A) 容器隔離</strong>：每個容器是獨立 process group，不需 thread mode。memory.max + cpu.max 標準做法。</li>
+          <li><strong>(C) Kubernetes Pod 級資源限制</strong>：Pod 是 process boundary，不需 thread mode。Pod 內 container 也是獨立 process。</li>
+          <li><strong>(E) 資料庫 query thread 限制總數</strong>：限制總數是 process 級的整體控制，用 pids.max（domain controller 也支援，更簡單）。</li>
+        </ul>
+        <strong>thread mode（threaded）</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>(B) JVM GC vs worker 分配</strong>：同一 process 內不同 thread 的差別優先級，thread mode 的典型場景。</li>
+          <li><strong>(D) RT thread 與 best-effort 隔離</strong>：同一 RT 應用的不同 thread 角色，thread mode 配合 cpuset 綁 isolcpus 是經典做法。</li>
+        </ul>
+        <strong>判斷規則</strong>：「<em>是否需要對同一 process 內不同 thread 做差別資源分配？</em>」是 → thread mode；否 → process cgroup。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 8: 延伸閱讀 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+
+    <div class="refs">
+      <ol>
+        <li>
+          <a href="https://docs.kernel.org/admin-guide/cgroup-v2.html#threads" target="_blank" rel="noopener">Linux Kernel 官方文件 · §2.2.2 Threads</a>
+          <span class="ref-source">docs.kernel.org · thread mode 的權威定義與啟用條件</span>
+        </li>
+        <li>
+          <a href="https://lwn.net/Articles/725224/" target="_blank" rel="noopener">cgroup: implement cgroup2 thread mode, v2 · LWN.net</a>
+          <span class="ref-source">lwn.net · Tejun Heo 的 thread mode 設計提案，含 root cgroup mixed mode 的設計動機</span>
+        </li>
+        <li>
+          <a href="https://lwn.net/Articles/729208/" target="_blank" rel="noopener">A thread mode for cgroup v2 · LWN.net</a>
+          <span class="ref-source">lwn.net · 設計討論，含 Peter Zijlstra 對 scheduler 整合的意見</span>
+        </li>
+        <li>
+          <a href="https://man7.org/linux/man-pages/man7/cgroups.7.html#THREADS_VERSUS_PROCESSES" target="_blank" rel="noopener">cgroups(7) · Threads versus processes</a>
+          <span class="ref-source">man7.org · 從 system administrator 角度看 thread mode</span>
+        </li>
+        <li>
+          <a href="https://developers.redhat.com/articles/2025/11/27/how-does-cgroups-v2-impact-java-net-and-nodejs-openshift-4" target="_blank" rel="noopener">How does cgroups v2 impact Java, .NET, and Node.js in OpenShift 4? · Red Hat Developer</a>
+          <span class="ref-source">developers.redhat.com · 2025 最新分析，JVM 與 cgroup v2 整合實務</span>
+        </li>
+        <li>
+          <a href="https://docs.oracle.com/en/java/javase/21/troubleshoot/working-with-cgroups.html" target="_blank" rel="noopener">Working with cgroups · Oracle JDK 21</a>
+          <span class="ref-source">docs.oracle.com · OpenJDK 對 cgroup limits 的識別與行為</span>
+        </li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Chapter nav ====================== -->
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn" href="ch05-delegation.html">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">Ch.5 Delegation 與權限模型</span>
+    </a>
+    <a class="nav-btn next disabled">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">Ch.7 CPU controller</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window.JHsunTheme = { get: getCurrentMode, set: (m) => { setStored(m); applyTheme(m); }, toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); }, };
+})();
+</script>
+
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+
+</body>
+</html>

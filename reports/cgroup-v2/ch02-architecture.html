@@ -1,0 +1,1436 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.2 架構與核心概念 — cgroup v2 完整教學</title>
+<meta name="description" content="深入理解 cgroup v2 的樹狀結構：core vs controllers、domain vs threaded、no internal process constraint、single-writer rule、top-down constraint。">
+
+<style>
+/* ============================================================
+   Inline tokens.css (v1.0 · Calm Teal)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px; --text-4xl: 64px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+</style>
+
+<style>
+/* ============================================================
+   Chapter-specific styles (與 Ch.1 同步)
+   ============================================================ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+}
+
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  background: color-mix(in oklch, var(--bg-canvas) 88%, transparent);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.topbar-inner {
+  max-width: var(--container-narrow);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
+}
+.brand {
+  display: flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: background .2s, border-color .2s, color .2s;
+}
+[data-theme-toggle]:hover {
+  background: var(--bg-muted);
+  border-color: var(--border-mid);
+  color: var(--text-primary);
+}
+[data-theme-toggle] .theme-icon { font-size: 14px; line-height: 1; }
+
+.container {
+  max-width: var(--container-narrow);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+
+.chapter-head {
+  padding: var(--space-7) 0 var(--space-6);
+  border-bottom: 1px solid var(--border-soft);
+}
+.chapter-tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-primary-text);
+  background: var(--color-primary-soft);
+  padding: 4px 12px;
+  border-radius: 999px;
+  margin-bottom: var(--space-4);
+}
+.chapter-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-3xl);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin-bottom: var(--space-3);
+}
+.chapter-subtitle {
+  font-family: var(--font-serif-body);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  line-height: 1.65;
+  font-style: italic;
+}
+.chapter-meta {
+  margin-top: var(--space-4);
+  display: flex; flex-wrap: wrap; gap: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before {
+  content: ""; width: 4px; height: 4px;
+  border-radius: 50%; background: var(--text-muted);
+}
+.chapter-meta-item:first-child::before { display: none; }
+
+.section {
+  padding: var(--space-7) 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.section:last-of-type { border-bottom: none; }
+.section-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+  margin-bottom: var(--space-3);
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.section-label::before {
+  content: ""; width: 24px; height: 1px; background: var(--color-primary);
+}
+.section-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  margin-bottom: var(--space-5);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.prose p {
+  font-family: var(--font-serif-body);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  line-height: 1.85;
+  margin-bottom: var(--space-4);
+}
+.prose h3 {
+  font-family: var(--font-sans);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: var(--space-6) 0 var(--space-3);
+  letter-spacing: -0.01em;
+}
+.prose h4 {
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--text-primary);
+  margin: var(--space-5) 0 var(--space-2);
+}
+.prose ul, .prose ol {
+  font-family: var(--font-serif-body);
+  margin-bottom: var(--space-4);
+  padding-left: var(--space-5);
+  line-height: 1.8;
+}
+.prose ul li, .prose ol li {
+  margin-bottom: var(--space-2);
+  color: var(--text-primary);
+}
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong { font-weight: 600; color: var(--text-primary); }
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--bg-code);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+  border: 1px solid var(--border-soft);
+}
+.prose a {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.prose a:hover { color: var(--color-primary-hover); }
+
+.highlights {
+  background: var(--color-primary-soft);
+  border-left: 3px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-4);
+}
+.highlights ol { font-family: var(--font-sans); padding-left: var(--space-5); margin: 0; }
+.highlights li {
+  font-size: var(--text-sm);
+  color: var(--color-primary-text);
+  margin-bottom: var(--space-2);
+  line-height: 1.65;
+}
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+
+.news-box {
+  background: var(--color-info-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-4);
+}
+.news-item {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  line-height: 1.7;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent);
+}
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-info);
+  margin-right: var(--space-2);
+}
+
+pre {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.7;
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  overflow-x: auto;
+  margin-bottom: var(--space-4);
+  color: var(--text-primary);
+}
+pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+.cmp-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: var(--space-4);
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+}
+.cmp-table th, .cmp-table td {
+  padding: var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: top;
+}
+.cmp-table th {
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-muted);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--bg-code);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+}
+
+.lab {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-4);
+}
+.lab-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-primary);
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px dashed var(--border-soft);
+}
+.lab-title::before { content: "▶ "; color: var(--color-primary); }
+.lab p {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-3);
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+.lab ol, .lab ul {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  padding-left: var(--space-5);
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.pitfall {
+  background: var(--color-warning-soft);
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-4);
+}
+.pitfall-title {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-warning);
+  margin-bottom: var(--space-2);
+}
+.pitfall p {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
+  line-height: 1.7;
+}
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code {
+  background: color-mix(in oklch, var(--color-warning) 15%, transparent);
+  border-color: color-mix(in oklch, var(--color-warning) 30%, transparent);
+  color: var(--text-primary);
+}
+
+.quiz-item {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-3);
+}
+.quiz-q {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
+  display: flex; gap: var(--space-2);
+}
+.quiz-q-num {
+  font-family: var(--font-mono);
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+.quiz-toggle {
+  background: transparent;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+  margin-top: var(--space-2);
+  transition: background .2s, color .2s;
+}
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a {
+  display: none;
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px dashed var(--border-soft);
+  font-family: var(--font-serif-body);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.75;
+}
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+
+.diagram {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+  margin-bottom: var(--space-4);
+  text-align: center;
+}
+.diagram svg { max-width: 100%; height: auto; }
+.diagram-caption {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: var(--space-3);
+  text-align: center;
+}
+
+.refs ol {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  padding-left: var(--space-5);
+  line-height: 1.8;
+}
+.refs li { margin-bottom: var(--space-2); color: var(--text-secondary); }
+.refs li::marker { color: var(--color-primary); }
+.refs a {
+  color: var(--color-primary);
+  text-decoration: none;
+  border-bottom: 1px dashed var(--color-primary);
+}
+.refs a:hover { color: var(--color-primary-hover); }
+.refs .ref-source {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  display: block;
+  margin-top: 2px;
+}
+
+.chapter-nav {
+  margin-top: var(--space-6);
+  padding: var(--space-5) 0;
+  display: flex; justify-content: space-between; gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.nav-btn {
+  flex: 1; min-width: 200px;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: border-color .2s, transform .15s;
+}
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<!-- ====================== Top bar ====================== -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.02</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<!-- ====================== Chapter header ====================== -->
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part I · 基礎篇 · Chapter 02</span>
+    <h1 class="chapter-title">架構與核心概念</h1>
+    <p class="chapter-subtitle">
+      cgroup v2 是一棵樹，但這棵樹不是隨便長的——它有嚴格的拓撲規則。
+      本章拆解 core 與 controllers 的職責切分、domain 與 threaded 的兩種 cgroup 型態，並建立貫穿全書的五個鐵律。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~5,800 字</span>
+      <span class="chapter-meta-item">閱讀時間 22 分鐘</span>
+      <span class="chapter-meta-item">難度：核心</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ====================== Section 1: 本章重點 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+
+    <div class="highlights">
+      <ol>
+        <li><strong>core vs controllers</strong>：cgroup core 負責「樹的結構」與「process 歸屬」；controllers 負責「資源分配」。core 的介面檔案以 <code>cgroup.</code> 開頭，controllers 的以 <code>{name}.</code> 開頭。</li>
+        <li><strong>domain vs threaded cgroup</strong>：domain 是預設型態，以 process 為粒度；threaded 允許同一 process 的 thread 散佈在子樹中，但只有 cpu / cpuset / perf_event / pids 四個 controllers 支援。</li>
+        <li><strong>五大鐵律</strong>：unified hierarchy、top-down constraint、no internal process constraint、single-writer rule、organize once and control。</li>
+        <li><strong>關鍵 interface files</strong>：<code>cgroup.controllers</code>、<code>cgroup.subtree_control</code>、<code>cgroup.procs</code>、<code>cgroup.type</code>、<code>cgroup.events</code>，這五個是後續所有操作的基礎。</li>
+        <li><strong>systemd 的角色</strong>：在 systemd-managed 系統上，systemd 是 root cgroup 的唯一 writer，這正是 single-writer rule 的真實體現。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 2: 最新動態 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+
+    <div class="news-box">
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>systemd CGROUP_DELEGATION 文件持續更新</strong>，明確強調 single-writer rule 是 cgroup v2 設計的兩大支柱之一（另一個是 no-processes-in-inner-nodes），並批評目前許多容器管理工具實作不佳。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2026-01</span>
+        <strong>systemd v258</strong> 完全移除強制 v1 boot 參數，意味著「systemd 是 cgroup 的唯一 writer」這個前提變得不可繞過。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025-09</span>
+        <strong>kernel 6.10+</strong> 持續在 v2 加入新功能（cgroup.kill、cgroup.pressure、cgroup.max.descendants 等），這些 core 介面檔案讓 v2 的可編程性遠超 v1。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>BPF + cgroup 整合深化</strong>，新增的 cgroup-aware BPF program types 全部只在 v2 提供，v1 不再有任何新功能加入。
+      </div>
+    </div>
+
+    <div class="prose">
+      <p>
+        從 2025 年起，<strong>v2 的設計拓撲規則已經是業界共識</strong>。不論你用 systemd、Kubernetes、LXC 還是寫自己的 container runtime，都會反覆遇到本章介紹的五大鐵律。
+        理解這些規則的「<em>為什麼</em>」遠比記住「<em>是什麼</em>」重要——後續所有章節在遇到看似奇怪的限制時，都可以回頭從本章找到答案。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 3: 核心內容 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+
+    <div class="prose">
+      <h3>3.1 cgroup tree 結構</h3>
+      <p>
+        cgroup v2 是一棵<strong>單一階層樹</strong>，掛在 <code>/sys/fs/cgroup/</code>。
+        樹上的<em>每個目錄就是一個 cgroup</em>，目錄之間的父子關係就是 cgroup 之間的階層關係。
+        Root cgroup 永遠存在，路徑是 <code>/sys/fs/cgroup/</code> 本身；子 cgroup 透過 <code>mkdir</code> 建立、<code>rmdir</code> 刪除。
+      </p>
+      <p>
+        每個 cgroup 目錄裡有兩類檔案：
+      </p>
+      <ul>
+        <li><strong>core 介面檔案</strong>：以 <code>cgroup.</code> 開頭，例如 <code>cgroup.procs</code>、<code>cgroup.type</code>、<code>cgroup.controllers</code>。這些檔案在<em>每個 cgroup 都存在</em>，由 cgroup core 提供。</li>
+        <li><strong>controller 介面檔案</strong>：以 controller 名字開頭，例如 <code>cpu.weight</code>、<code>memory.max</code>、<code>io.weight</code>。這些檔案<em>只有當對應 controller 在 parent 啟用時才出現</em>。</li>
+      </ul>
+      <p>
+        這個區分非常重要：core 介面是<strong>結構性</strong>的（樹怎麼長、process 屬於哪個 cgroup）；controller 介面是<strong>資源性</strong>的（這個 cgroup 能用多少資源）。
+        本書 Part I–II 主要講 core，Part III–IV 才深入 controllers。
+      </p>
+
+      <h3>3.2 一個典型的 cgroup tree 長什麼樣子</h3>
+      <p>
+        在 systemd-managed 系統上，systemd 會在開機時建立一個標準化的 cgroup tree。下面是一個簡化的範例：
+      </p>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 680 400" role="img" aria-label="systemd 預設 cgroup tree 結構">
+        <!-- root -->
+        <rect x="280" y="20" width="120" height="36" rx="6" fill="var(--color-primary-soft)" stroke="var(--color-primary)" stroke-width="0.5"/>
+        <text x="340" y="38" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-primary-text)">/sys/fs/cgroup/</text>
+        <text x="340" y="50" text-anchor="middle" font-family="var(--font-mono)" font-size="9" fill="var(--text-muted)">root (-.slice)</text>
+
+        <!-- divider lines from root -->
+        <line x1="340" y1="58" x2="340" y2="80" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="120" y1="80" x2="560" y2="80" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="120" y1="80" x2="120" y2="100" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="340" y1="80" x2="340" y2="100" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="560" y1="80" x2="560" y2="100" stroke="var(--text-muted)" stroke-width="0.5"/>
+
+        <!-- system.slice -->
+        <rect x="60" y="100" width="120" height="36" rx="6" fill="var(--color-info-soft)" stroke="var(--color-info)" stroke-width="0.5"/>
+        <text x="120" y="118" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-info)">system.slice/</text>
+        <text x="120" y="130" text-anchor="middle" font-family="var(--font-mono)" font-size="9" fill="var(--text-muted)">系統服務</text>
+
+        <line x1="120" y1="136" x2="120" y2="160" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="60" y1="160" x2="180" y2="160" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="80" y1="160" x2="80" y2="180" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="160" y1="160" x2="160" y2="180" stroke="var(--text-muted)" stroke-width="0.5"/>
+
+        <rect x="30" y="180" width="100" height="32" rx="6" fill="var(--bg-surface)" stroke="var(--border-mid)" stroke-width="0.5"/>
+        <text x="80" y="200" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--text-primary)">sshd.service</text>
+
+        <rect x="120" y="180" width="80" height="32" rx="6" fill="var(--bg-surface)" stroke="var(--border-mid)" stroke-width="0.5"/>
+        <text x="160" y="200" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--text-primary)">nginx</text>
+
+        <!-- machine.slice -->
+        <rect x="280" y="100" width="120" height="36" rx="6" fill="var(--color-info-soft)" stroke="var(--color-info)" stroke-width="0.5"/>
+        <text x="340" y="118" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-info)">machine.slice/</text>
+        <text x="340" y="130" text-anchor="middle" font-family="var(--font-mono)" font-size="9" fill="var(--text-muted)">VM/容器</text>
+
+        <line x1="340" y1="136" x2="340" y2="180" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <rect x="270" y="180" width="140" height="32" rx="6" fill="var(--bg-surface)" stroke="var(--border-mid)" stroke-width="0.5"/>
+        <text x="340" y="200" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--text-primary)">kubepods.slice/</text>
+
+        <!-- user.slice -->
+        <rect x="500" y="100" width="120" height="36" rx="6" fill="var(--color-info-soft)" stroke="var(--color-info)" stroke-width="0.5"/>
+        <text x="560" y="118" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-info)">user.slice/</text>
+        <text x="560" y="130" text-anchor="middle" font-family="var(--font-mono)" font-size="9" fill="var(--text-muted)">使用者 session</text>
+
+        <line x1="560" y1="136" x2="560" y2="180" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <rect x="490" y="180" width="140" height="32" rx="6" fill="var(--bg-surface)" stroke="var(--border-mid)" stroke-width="0.5"/>
+        <text x="560" y="200" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--text-primary)">user-1000.slice/</text>
+
+        <!-- 標註：domain cgroup 為主 -->
+        <rect x="60" y="250" width="560" height="40" rx="6" fill="var(--bg-muted)" stroke="var(--border-soft)" stroke-width="0.5"/>
+        <text x="340" y="270" text-anchor="middle" font-family="var(--font-sans)" font-size="11" fill="var(--text-secondary)">這棵樹上每個節點預設都是 <tspan font-family="var(--font-mono)" fill="var(--color-primary)">domain cgroup</tspan></text>
+        <text x="340" y="284" text-anchor="middle" font-family="var(--font-sans)" font-size="11" fill="var(--text-secondary)">非 leaf 節點不能持有 process（no internal process constraint）</text>
+
+        <!-- 圖例 -->
+        <text x="60" y="320" font-family="var(--font-sans)" font-size="10" fill="var(--text-muted)">圖例：</text>
+        <rect x="100" y="312" width="14" height="10" rx="2" fill="var(--color-primary-soft)" stroke="var(--color-primary)" stroke-width="0.5"/>
+        <text x="120" y="321" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">root</text>
+        <rect x="160" y="312" width="14" height="10" rx="2" fill="var(--color-info-soft)" stroke="var(--color-info)" stroke-width="0.5"/>
+        <text x="180" y="321" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">slice (容器)</text>
+        <rect x="240" y="312" width="14" height="10" rx="2" fill="var(--bg-surface)" stroke="var(--border-mid)" stroke-width="0.5"/>
+        <text x="260" y="321" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">service / scope (leaf)</text>
+
+        <text x="60" y="350" font-family="var(--font-sans)" font-size="11" font-style="italic" fill="var(--text-muted)">三大 slice 是 systemd 規範的標準切分：</text>
+        <text x="60" y="368" font-family="var(--font-sans)" font-size="11" fill="var(--text-secondary)">  · system.slice ─ 系統服務 (daemon、長駐 process)</text>
+        <text x="60" y="384" font-family="var(--font-sans)" font-size="11" fill="var(--text-secondary)">  · machine.slice ─ VM、容器 workload (Kubernetes 在此)</text>
+      </svg>
+      <div class="diagram-caption">圖 2.1 · systemd 預設的 cgroup tree 結構（簡化版）</div>
+    </div>
+
+    <div class="prose">
+      <p>
+        這個切分方式不是 kernel 規定的，而是 systemd 的<em>慣例</em>——但因為幾乎所有現代 Linux distro 都用 systemd，這個慣例已經是事實標準。
+        理解它讓你看到任何 cgroup 路徑都能立刻知道這是哪一類 workload。
+      </p>
+
+      <h3>3.3 五大鐵律</h3>
+      <p>
+        cgroup v2 有五個核心規則，是設計哲學的具體體現。後續所有章節都建立在這五條規則之上。
+      </p>
+
+      <h4>鐵律 1：Unified Hierarchy（單一階層）</h4>
+      <p>
+        全系統只有一棵 cgroup tree。每個 process 在這棵樹上只有<em>一個位置</em>，由 <code>/proc/$PID/cgroup</code> 的單行 <code>0::/path</code> 完整描述。
+        這條規則我們在 Ch.1 已經詳細討論過——它解決了 v1 多階層的所有歷史問題。
+      </p>
+
+      <h4>鐵律 2：Top-down Constraint（自頂向下約束）</h4>
+      <p>
+        一個 cgroup<strong>只能對它的子 cgroup 啟用 parent 已經啟用的 controllers</strong>。
+        換句話說，子 cgroup 永遠不能擁有 parent 沒給它的能力。kernel 文件原話：
+      </p>
+      <p style="font-style: italic; color: var(--text-secondary); padding-left: var(--space-4); border-left: 2px solid var(--color-primary);">
+        Resources are distributed top-down and a cgroup can further distribute a resource only if the resource has been distributed to it from the parent.
+      </p>
+      <p>
+        實作上，這透過兩個檔案配合：<code>cgroup.controllers</code>（這個 cgroup 「可用」的 controllers）和 <code>cgroup.subtree_control</code>（這個 cgroup 「對子 cgroup 開放」的 controllers）。
+        你只能把 <code>cgroup.controllers</code> 列出的東西寫進 <code>cgroup.subtree_control</code>。
+      </p>
+
+      <h4>鐵律 3：No Internal Process Constraint（非 leaf 不准放 process）</h4>
+      <p>
+        一個非 root cgroup<strong>一旦在 <code>cgroup.subtree_control</code> 啟用任何 domain controller，就不能直接持有 process</strong>。
+        process 必須放在這棵樹的<em>葉子節點</em>上。這條規則是為了避免「parent 自己的 process」與「parent 的子 cgroup 的 process」之間的資源競爭歧義（這正是 v1 的痛點之一）。
+      </p>
+      <p>
+        man-page 對這條規則有更精確的描述：規則並不是「<em>不能同時有 process 和 child cgroup</em>」，
+        而是「<em>不能同時有 process 和啟用 controllers 的 child cgroup</em>」（即 <code>cgroup.subtree_control</code> 非空）。
+        這個微妙差異留給 root cgroup 一個豁免權——root 可以同時持有 kernel thread 和 child cgroups。
+      </p>
+      <p>
+        實務上，<strong>建議建立一個 <code>leaf/</code> 子目錄</strong>，把所有原本要放在這個 cgroup 的 process 移到 <code>leaf/</code>，然後在 parent 啟用 controllers。
+        這是 kernel 文件本身推薦的做法。
+      </p>
+
+      <h4>鐵律 4：Single-writer Rule（單一寫入者）</h4>
+      <p>
+        每個 cgroup<strong>只應該由一個 process 管理</strong>。systemd 文件直白地說：
+      </p>
+      <p style="font-style: italic; color: var(--text-secondary); padding-left: var(--space-4); border-left: 2px solid var(--color-primary);">
+        Each cgroup only has a single writer, i.e. a single process managing it. It's OK if different cgroups have different processes managing them.
+      </p>
+      <p>
+        這條規則 kernel <em>不會強制</em>（root 想做什麼都可以），但違反它會帶來無止盡的痛苦——多個工具會互相覆蓋對方的設定，行為變得不可預期。
+        在 systemd-managed 系統上，<strong>systemd 是 root cgroup 的唯一 writer</strong>，
+        其他想管 cgroup 的軟體（容器 runtime、應用本身）必須透過 systemd 的 <code>Delegate=</code> 機制申請一塊「<em>可以自己管</em>」的子樹（這是 Ch.5 的主題）。
+      </p>
+
+      <h4>鐵律 5：Organize Once and Control（一次組織、長期控制）</h4>
+      <p>
+        把一個 process 從一個 cgroup 移到另一個是<strong>昂貴的操作</strong>——除了 syscall 開銷，已經累積的 stateful 資源（最重要的是 memory）<em>不會跟著遷移</em>。
+        kernel 文件明確警告：
+      </p>
+      <p style="font-style: italic; color: var(--text-secondary); padding-left: var(--space-4); border-left: 2px solid var(--color-primary);">
+        Migrating processes across cgroups frequently as a means to apply different resource restrictions is discouraged. A workload should be assigned to a cgroup according to the system's logical and resource structure once on start-up.
+      </p>
+      <p>
+        正確做法是：<strong>啟動時把 workload 放進對的 cgroup，然後透過修改 controller interface files 動態調整</strong>，而不是頻繁搬 process。
+        這也是 Kubernetes <em>In-Place Resize</em>（v1.35 GA）試圖解決的問題——讓 Pod 在不重啟的情況下調整資源。
+      </p>
+
+      <h3>3.4 Domain vs Threaded cgroup</h3>
+      <p>
+        前面說過 v2 預設以 process 為粒度。但 v2 後來加回了限制版的 thread mode，於是 cgroup 多了一個<strong>型態（type）</strong>的概念。
+      </p>
+      <p>
+        每個 cgroup 都有一個 <code>cgroup.type</code> 檔案，可以是以下四種值之一：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr>
+          <th>cgroup.type</th>
+          <th>意義</th>
+          <th>典型用途</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>domain</code></td>
+          <td>標準 cgroup，以 process 為粒度。<em>新建 cgroup 預設就是這個型態</em>。</td>
+          <td>絕大多數場景：systemd service、Kubernetes Pod、容器</td>
+        </tr>
+        <tr>
+          <td><code>domain threaded</code></td>
+          <td>「<em>承載 threaded subtree 的 root</em>」。一個 domain cgroup 在 child 變成 threaded 後，自動變成這個型態。</td>
+          <td>需要做 thread-level 控制的應用入口</td>
+        </tr>
+        <tr>
+          <td><code>threaded</code></td>
+          <td>thread-granular cgroup。可以放同一 process 的不同 thread。寫入 <code>"threaded"</code> 到 <code>cgroup.type</code> 就會轉成這個型態。</td>
+          <td>JVM thread pool 隔離、即時系統的 worker thread 分組</td>
+        </tr>
+        <tr>
+          <td><code>domain invalid</code></td>
+          <td>無效狀態。在某些拓撲下會自動進入此狀態（見下方說明）。</td>
+          <td>不該出現，需要修正</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        把 cgroup 變成 threaded 是<strong>單向操作</strong>——一旦轉成 threaded，就不能再變回 domain。同時，並非所有 controllers 都支援 threaded mode：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr>
+          <th>類別</th>
+          <th>Controllers</th>
+          <th>說明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Threaded controllers</strong><br><span style="font-size:11px;color:var(--text-muted)">支援 threaded subtree</span></td>
+          <td><code>cpu</code>, <code>cpuset</code>, <code>perf_event</code>, <code>pids</code></td>
+          <td>這些資源天然可以 thread-level 分配（CPU 時間、affinity、perf 計數），所以 v2 補回了這部分功能。</td>
+        </tr>
+        <tr>
+          <td><strong>Domain controllers</strong><br><span style="font-size:11px;color:var(--text-muted)">只支援 process-level</span></td>
+          <td><code>memory</code>, <code>io</code>, <code>hugetlb</code>, <code>rdma</code>, <code>misc</code></td>
+          <td>這些資源在 thread 層級分配沒有意義（如 memory）或實作上很困難（如 io）。永遠在 process 粒度。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h4>Threaded subtree 的拓撲規則</h4>
+      <p>
+        一旦你把 cgroup B 變成 threaded，<strong>整個從 B 開始往下的子樹都必須是 threaded</strong>。從根往上找，會遇到一個 <code>domain threaded</code> 型態的祖先，這個祖先就是<em>整個 threaded subtree 的 resource domain</em>——所有 domain controllers（memory、io 等）的計量都歸到這個祖先頭上。
+      </p>
+      <p>
+        這個概念有點繞，下面這張圖比文字更容易懂：
+      </p>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 680 360" role="img" aria-label="domain vs threaded cgroup 拓撲示意">
+        <!-- 標題 -->
+        <text x="340" y="22" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="600" fill="var(--text-primary)">Threaded subtree 拓撲</text>
+
+        <!-- A: domain threaded (resource domain) -->
+        <rect x="240" y="50" width="200" height="50" rx="6" fill="var(--color-primary-soft)" stroke="var(--color-primary)" stroke-width="2"/>
+        <text x="340" y="72" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-primary-text)">A · domain threaded</text>
+        <text x="340" y="88" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">承載整個 threaded subtree</text>
+        <text x="340" y="100" text-anchor="middle" font-family="var(--font-sans)" font-size="9" font-style="italic" fill="var(--color-primary-text)">memory / io 等 domain 資源計量歸到這裡</text>
+
+        <!-- 連線到 B, C -->
+        <line x1="340" y1="100" x2="340" y2="120" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="200" y1="120" x2="480" y2="120" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="200" y1="120" x2="200" y2="140" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="480" y1="120" x2="480" y2="140" stroke="var(--text-muted)" stroke-width="0.5"/>
+
+        <!-- B: threaded -->
+        <rect x="100" y="140" width="200" height="50" rx="6" fill="var(--color-warning-soft)" stroke="var(--color-warning)" stroke-width="0.5"/>
+        <text x="200" y="162" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-warning)">B · threaded</text>
+        <text x="200" y="178" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">放 worker threads</text>
+
+        <!-- C: threaded -->
+        <rect x="380" y="140" width="200" height="50" rx="6" fill="var(--color-warning-soft)" stroke="var(--color-warning)" stroke-width="0.5"/>
+        <text x="480" y="162" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-warning)">C · threaded</text>
+        <text x="480" y="178" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">放 GC threads</text>
+
+        <!-- 線到 thread -->
+        <line x1="200" y1="190" x2="200" y2="210" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="480" y1="190" x2="480" y2="210" stroke="var(--text-muted)" stroke-width="0.5"/>
+
+        <!-- threads -->
+        <rect x="120" y="210" width="160" height="32" rx="6" fill="var(--bg-surface)" stroke="var(--border-mid)" stroke-width="0.5"/>
+        <text x="200" y="230" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--text-primary)">TID 1234, 1235</text>
+
+        <rect x="400" y="210" width="160" height="32" rx="6" fill="var(--bg-surface)" stroke="var(--border-mid)" stroke-width="0.5"/>
+        <text x="480" y="230" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--text-primary)">TID 1236</text>
+
+        <!-- 重要說明 -->
+        <text x="340" y="270" text-anchor="middle" font-family="var(--font-sans)" font-size="11" fill="var(--text-secondary)">PID 1234（包含 TID 1234, 1235, 1236）的所有 thread 散佈在 B、C</text>
+        <text x="340" y="286" text-anchor="middle" font-family="var(--font-sans)" font-size="11" fill="var(--text-secondary)">但 process 整體仍歸屬於 A 這個 resource domain</text>
+
+        <!-- 規則框 -->
+        <rect x="40" y="305" width="600" height="40" rx="6" fill="var(--bg-muted)" stroke="var(--border-soft)" stroke-width="0.5"/>
+        <text x="340" y="324" text-anchor="middle" font-family="var(--font-sans)" font-size="11" font-weight="500" fill="var(--text-primary)">規則：threaded controllers (cpu/cpuset/perf_event/pids) 在 B、C 上控制 thread；</text>
+        <text x="340" y="338" text-anchor="middle" font-family="var(--font-sans)" font-size="11" fill="var(--text-secondary)">domain controllers (memory/io) 只能在 A 控制整個 process</text>
+      </svg>
+      <div class="diagram-caption">圖 2.2 · domain threaded 與 threaded 子樹的關係</div>
+    </div>
+
+    <div class="prose">
+      <h4>什麼時候才會用 threaded？</h4>
+      <p>
+        老實說，<strong>絕大多數應用都不需要 threaded mode</strong>。它的設計目的非常具體：那些一個 process 內有「<em>不同類型 thread</em>」需要差別對待的場景。
+        最常被引用的例子是 <strong>JVM</strong>——你可能想把 GC threads 限制在某些 CPU 核上，把 worker threads 放開；或是即時系統把 high-priority threads 與 background threads 分開排程。
+      </p>
+      <p>
+        如果你只是想做容器、限 service 用多少 CPU，<em>停在 domain 就好</em>，不需要碰 threaded。Ch.6 會詳細討論 threaded 的進階用法。
+      </p>
+
+      <h3>3.5 關鍵 interface files 速覽</h3>
+      <p>
+        本章最後介紹貫穿全書的五個 core interface files。後續每章都會用到它們：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr>
+          <th>檔案</th>
+          <th>類型</th>
+          <th>作用</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>cgroup.controllers</code></td>
+          <td>read-only</td>
+          <td>列出當前 cgroup 「<em>可以啟用</em>」的所有 controllers（由 parent 決定）。</td>
+        </tr>
+        <tr>
+          <td><code>cgroup.subtree_control</code></td>
+          <td>read-write</td>
+          <td>啟用對 child cgroup 生效的 controllers。寫入 <code>+cpu +memory</code> 啟用、<code>-io</code> 停用。</td>
+        </tr>
+        <tr>
+          <td><code>cgroup.procs</code></td>
+          <td>read-write</td>
+          <td>讀取列出此 cgroup 內所有 PID；寫入 PID 把該 process（連同所有 thread）遷入此 cgroup。</td>
+        </tr>
+        <tr>
+          <td><code>cgroup.type</code></td>
+          <td>read-write</td>
+          <td>顯示型態（<code>domain</code>/<code>domain threaded</code>/<code>threaded</code>/<code>domain invalid</code>）；可寫入 <code>threaded</code> 轉換型態。</td>
+        </tr>
+        <tr>
+          <td><code>cgroup.events</code></td>
+          <td>read-only + poll</td>
+          <td>包含 <code>populated</code>（子樹是否有 live process）等事件。可用 <code>inotify</code>/<code>poll</code> 監聽變化。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        其他 core interface files（<code>cgroup.kill</code>、<code>cgroup.pressure</code>、<code>cgroup.threads</code>、<code>cgroup.max.depth</code> 等）會在後續對應章節介紹。
+        附錄 A 會提供完整的 interface files 速查表。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 4: 實戰範例 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例：建立並觀察一棵樹</h2>
+
+    <div class="prose">
+      <p>下面三個實作從零建立一個簡單的 cgroup tree，逐步驗證本章每個概念。<em>需要 root 權限</em>。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · 建立第一個 cgroup 並啟用 controllers</div>
+      <p>先看 root cgroup 「可給」哪些 controllers，再啟用對 child 的 controllers，然後建立 child cgroup：</p>
+<pre><code># 1. 看 root 可用的 controllers
+sudo cat /sys/fs/cgroup/cgroup.controllers
+# 預期輸出: cpuset cpu io memory hugetlb pids rdma misc
+
+# 2. 看 root 已對 child 啟用哪些（多半 systemd 已經啟用 cpu memory pids）
+sudo cat /sys/fs/cgroup/cgroup.subtree_control
+
+# 3. 確認 root 沒禁用 io（沒有 io 就需要先啟用）
+echo "+io" | sudo tee /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null
+
+# 4. 建立 child cgroup（注意：要建在不會跟 systemd 衝突的位置）
+sudo mkdir /sys/fs/cgroup/mydemo
+
+# 5. 觀察 child 收到了哪些 controllers
+ls /sys/fs/cgroup/mydemo/ | head -20
+cat /sys/fs/cgroup/mydemo/cgroup.controllers
+</code></pre>
+      <p>觀察點：當你在 root 啟用 <code>+io</code> 後，<code>/sys/fs/cgroup/mydemo/</code> 應該會出現 <code>io.weight</code>、<code>io.max</code> 等檔案。
+      這就是 <strong>top-down constraint</strong> 的具體表現——child 收到 parent 給的 controllers。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · 違反 no internal process constraint</div>
+      <p>故意觸發違規，看 kernel 會回什麼錯：</p>
+<pre><code># 1. 把當前 shell 移進 mydemo
+echo $$ | sudo tee /sys/fs/cgroup/mydemo/cgroup.procs
+
+# 2. 確認 shell 已經在 mydemo
+cat /proc/$$/cgroup
+# 預期: 0::/mydemo
+
+# 3. 嘗試在 mydemo 啟用 controllers 給 child
+echo "+cpu" | sudo tee /sys/fs/cgroup/mydemo/cgroup.subtree_control
+# 預期失敗：tee: write error: Device or resource busy
+# 原因：mydemo 內已有 process，違反 no internal process constraint
+
+# 4. 正確做法：先建 leaf 子目錄，把 process 移進去
+sudo mkdir /sys/fs/cgroup/mydemo/leaf
+echo $$ | sudo tee /sys/fs/cgroup/mydemo/leaf/cgroup.procs
+
+# 5. 再次嘗試啟用 cpu controller
+echo "+cpu" | sudo tee /sys/fs/cgroup/mydemo/cgroup.subtree_control
+# 預期成功
+</code></pre>
+      <p>這個 lab 親身體驗了 kernel 文件推薦的 <code>leaf/</code> 模式：<em>非 leaf cgroup 只負責「管」controllers，process 都放 leaf</em>。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · 觀察 cgroup.events 的 populated 變化</div>
+      <p><code>cgroup.events</code> 會在子樹從「有 process」變成「無 process」（或反過來）時觸發 inotify 事件。可以用一個簡單腳本觀察：</p>
+<pre><code># Terminal 1: 持續監看 cgroup.events
+while true; do
+  cat /sys/fs/cgroup/mydemo/cgroup.events
+  sleep 1
+done
+
+# Terminal 2: 把 shell 從 mydemo/leaf 搬走
+# (假設 mydemo/leaf 內只有這個 shell，搬走後 mydemo 子樹就空了)
+echo $$ | sudo tee /sys/fs/cgroup/user.slice/cgroup.procs
+
+# Terminal 1 應觀察到 populated 從 1 變成 0
+</code></pre>
+      <p>這個機制是 <code>systemd-oomd</code> 與 <code>cAdvisor</code> 等工具的基礎——它們監聽事件而非 polling。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 4 · 清理</div>
+<pre><code># 把所有 process 移走後刪除 cgroup
+sudo rmdir /sys/fs/cgroup/mydemo/leaf
+sudo rmdir /sys/fs/cgroup/mydemo
+</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 5: 常見陷阱 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · 與 systemd 搶 cgroup 控制權</div>
+      <p>
+        在 systemd-managed 系統上，<strong>systemd 是 root cgroup 的 single writer</strong>。
+        如果你直接 <code>mkdir</code> 在 <code>/sys/fs/cgroup/</code> 下建立 cgroup（像本章 Lab 那樣做測試是 OK 的，但放生產不行），
+        systemd 不會理會它，但會在某些操作時把你的設定覆寫掉。
+        正確做法是用 <code>systemd-run</code> 或在自己的 service unit 加上 <code>Delegate=yes</code> 申請一塊委派的子樹。Ch.5 會詳細說明。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · 誤以為「啟用 controller」是在 child 操作</div>
+      <p>
+        要讓 cgroup B 受 cpu controller 控制，必須在<strong>它的 parent A</strong> 寫入 <code>+cpu</code> 到 <code>cgroup.subtree_control</code>，<em>不是</em>在 B 自己。
+        這是因為 controller interface files（如 <code>cpu.max</code>）「<em>由 parent 持有，控制資源如何分配給 children</em>」。
+        記住這句話：<strong>controller 介面檔案是給 parent 用的，不是給自己用的</strong>。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · 寫入 cgroup.procs 一次只能一個 PID</div>
+      <p>
+        <code>cgroup.procs</code> 在<em>單次 write(2) syscall</em> 只接受一個 PID。要遷移多個 process，必須<em>每個 PID 一次寫入</em>。
+        常見錯誤是把多個 PID 用換行串起來一次寫入，會只寫進第一個。
+        遷移整個 process group 應該寫個 loop，或用 <code>systemctl move</code> 之類的高階工具。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · domain invalid 狀態自動觸發</div>
+      <p>
+        在以下拓撲：<code>A (threaded domain) → B (threaded) → C (新建的 domain)</code>，
+        C 因為 parent B 是 threaded，而它自己被預設建為 domain，<strong>立即進入 <code>domain invalid</code> 狀態</strong>，無法做任何操作。
+        修法是：把 C 也轉成 threaded（<code>echo threaded > C/cgroup.type</code>），或者直接刪除 C。
+        kernel 提供 <code>domain invalid</code> 而不是直接幫你轉換，是為了未來可能有更多 domain 子型態保留彈性。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 5 · 嘗試把 threaded cgroup 變回 domain</div>
+      <p>
+        <code>cgroup.type</code> 從 domain 轉 threaded 是<strong>單向操作</strong>，不能反過來。如果寫錯了型態，唯一辦法是<em>刪除整個 threaded subtree 重建</em>。
+        所以做 threaded mode 之前要想清楚拓撲設計。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 6: 動手練習 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="prose">
+      <p>本章四題練習，總時間約 30 分鐘。建議全做完再進入下一章。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · 走訪整棵 cgroup tree（5 分鐘）</div>
+      <p>用 <code>find</code> 列出系統上所有 cgroup directory，並統計總數：</p>
+<pre><code>sudo find /sys/fs/cgroup/ -maxdepth 5 -type d | wc -l
+sudo find /sys/fs/cgroup/ -maxdepth 5 -type d | head -30
+</code></pre>
+      <p>回答：</p>
+      <ol>
+        <li>你的系統有多少個 cgroup？</li>
+        <li>排前面的多半是 systemd 的 slice 還是 service？</li>
+        <li>找一個 service 對應的 cgroup directory，列出它有哪些檔案——能找到多少 <code>cgroup.*</code>？多少 <code>{controller}.*</code>？</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · 驗證 top-down constraint（10 分鐘）</div>
+      <p>跟著做，每一步觀察結果：</p>
+<pre><code># Step 1: 在 systemd 的 user slice 下建一個測試 cgroup
+sudo mkdir /sys/fs/cgroup/user.slice/test_topdown
+
+# Step 2: 看它收到哪些 controllers
+cat /sys/fs/cgroup/user.slice/test_topdown/cgroup.controllers
+
+# Step 3: 把 user.slice 對 child 啟用的 controllers 列出來
+cat /sys/fs/cgroup/user.slice/cgroup.subtree_control
+
+# Step 4: 觀察兩者的關係（前者應該等於後者，或是後者的子集）
+</code></pre>
+      <p>回答：你看到的兩個輸出有什麼關係？這對應到本章哪個鐵律？</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 找出系統中持有 process 最多的 cgroup（10 分鐘）</div>
+<pre><code>sudo find /sys/fs/cgroup -name cgroup.procs -exec sh -c '
+  count=$(wc -l < "$1")
+  if [ "$count" -gt 0 ]; then
+    echo "$count $(dirname $1)"
+  fi
+' _ {} \; 2>/dev/null | sort -rn | head -10
+</code></pre>
+      <p>回答：你最大的 cgroup 是哪一個？放了多少 process？這跟你跑的 workload 有什麼關係？</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 嘗試 threaded mode（15 分鐘）</div>
+      <p>建立一個小的 threaded subtree 並觀察：</p>
+<pre><code># 1. 建立 domain cgroup A
+sudo mkdir /sys/fs/cgroup/test_thread
+
+# 2. 在 A 下建立 child B
+sudo mkdir /sys/fs/cgroup/test_thread/B
+
+# 3. 把 B 變成 threaded
+echo threaded | sudo tee /sys/fs/cgroup/test_thread/B/cgroup.type
+
+# 4. 看 A 的 type 變成什麼了
+cat /sys/fs/cgroup/test_thread/cgroup.type
+# 預期：domain threaded
+
+# 5. 試圖在 B 啟用 memory controller（應失敗，因為 memory 是 domain controller）
+echo "+memory" | sudo tee /sys/fs/cgroup/test_thread/B/cgroup.subtree_control 2>&1
+
+# 6. 在 A 啟用 cpu 給 B
+echo "+cpu" | sudo tee /sys/fs/cgroup/test_thread/cgroup.subtree_control
+
+# 7. 看 B 收到的 controllers
+cat /sys/fs/cgroup/test_thread/B/cgroup.controllers
+
+# 8. 清理
+sudo rmdir /sys/fs/cgroup/test_thread/B
+sudo rmdir /sys/fs/cgroup/test_thread
+</code></pre>
+      <p>回答：</p>
+      <ol>
+        <li>第 5 步為什麼失敗？對應到本章哪個概念？</li>
+        <li>第 7 步顯示的 controllers 跟 root 的 <code>cgroup.controllers</code> 有什麼差異？為什麼？</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 7: 自我檢查題 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>cgroup core 與 controllers 的職責怎麼劃分？怎麼從檔案名快速判斷是哪一類？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>core 負責「樹的結構」</strong>——cgroup 怎麼建、process 屬於哪個 cgroup、樹的拓撲約束。介面檔案以 <code>cgroup.</code> 開頭，例如 <code>cgroup.procs</code>、<code>cgroup.type</code>、<code>cgroup.controllers</code>。
+        <strong>controllers 負責「資源分配」</strong>——CPU、memory、IO 等資源的計量與限制。介面檔案以 controller 名字開頭，例如 <code>cpu.weight</code>、<code>memory.max</code>、<code>io.weight</code>。
+        看開頭就能分辨。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>解釋 top-down constraint，並說明它為什麼必要。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>規則</strong>：一個 cgroup 只能對它的 child 啟用 parent 已經啟用的 controllers。具體實作上：要把某個 controller 寫進 <code>cgroup.subtree_control</code>，必須先在 <code>cgroup.controllers</code> 中可見，而 <code>cgroup.controllers</code> 由 parent 的 <code>cgroup.subtree_control</code> 決定。
+        <strong>為什麼必要</strong>：保證資源分配的一致性與可預測性——子 cgroup 永遠不能擁有 parent 沒給它的能力，避免「<em>parent 想限制 cpu，但 child 偷偷不受 cpu 控制</em>」這種矛盾。同時也讓 delegation 的安全模型成為可能。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span>no internal process constraint 的精確定義是什麼？root cgroup 為什麼可以豁免？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>精確定義</strong>：一個非 root cgroup<em>不能同時</em>「直接持有 process」與「在 <code>cgroup.subtree_control</code> 啟用任何 domain controller」。注意這不是「不能同時有 process 和 child cgroup」——可以有，只要 child 沒啟用 controllers 就可以。
+        <strong>root 豁免</strong>：root cgroup 必須能持有 kernel thread（idle thread、kthreadd、各種 kworker），這些 thread 不屬於任何使用者 process，無法移到 child。所以 root 是設計上的特例，可以同時有 process 與啟用 controllers 的 child。
+        <strong>推薦寫法</strong>：建立 <code>leaf/</code> 子目錄專門放 process，parent 只負責管 controllers，把 process 與 controller 管理徹底分離。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span>single-writer rule 是 kernel 強制的嗎？違反了會發生什麼？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>不是 kernel 強制的</strong>——root 想做什麼都可以，kernel 不會阻止你同時用多個工具去寫同一個 cgroup。
+        但<strong>違反它會帶來無止盡的痛苦</strong>：不同工具會互相覆蓋對方的設定，比如你用 <code>systemctl set-property</code> 設了 MemoryMax=1G，又直接 <code>echo 2G > memory.max</code>，下一次 systemd reload 時你的 2G 會被覆寫回 1G。
+        實務上：<strong>systemd-managed 系統由 systemd 是唯一 writer</strong>，其他軟體想管自己的子樹要透過 <code>Delegate=yes</code> 機制申請，這是 cgroup v2 設計的合作模型。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span>「organize once and control」這條規則的實務意義是什麼？舉一個違反的例子。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>實務意義</strong>：把 workload 放進對的 cgroup 是<em>啟動時的一次性決定</em>，後續用 controller interface files 動態調整資源，不要頻繁搬 process。
+        <strong>違反例</strong>：寫一個 cron job，每天根據負載把某個 service 從 <code>highprio.slice</code> 搬到 <code>lowprio.slice</code>，希望實現「<em>白天高優、晚上低優</em>」。這會踩兩個雷：（1）累積的 memory 不會跟著遷移，搬完後 cgroup 統計會失真；（2）syscall 開銷在大型 service 上不可忽略。
+        <strong>正確做法</strong>：放在固定 cgroup 內，用 <code>systemctl set-property xxx.service CPUWeight=...</code> 動態調整 weight，不搬 process。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>哪些 controllers 支援 threaded mode？為什麼 memory 與 io 不支援？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>Threaded controllers</strong>：<code>cpu</code>、<code>cpuset</code>、<code>perf_event</code>、<code>pids</code>。這四個資源天然可以 thread-level 分配——CPU 時間每個 thread 獨立排程、cpuset affinity 可以 per-thread 設定、perf 計數本來就是 per-thread、pids 數量是計數而非歸屬。
+        <strong>memory 不支援的原因</strong>：同一 process 的所有 thread 共享 address space，把它們放進不同 memory cgroup 在語意上講不通——同一塊 page 屬於誰？
+        <strong>io 不支援的原因</strong>：file descriptor 與 page cache 在 process 層級共享，writeback 是非同步的（kworker 觸發），thread 層級的 io 歸屬實作上極為困難。
+        所以這兩個典型的 domain controllers 永遠在 process 粒度。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span>什麼情況下 cgroup 會進入 <code>domain invalid</code> 狀態？怎麼修復？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>觸發情境</strong>：當 cgroup 的 parent 是 <code>threaded</code> 型態，但 cgroup 自己被建為 domain（<em>所有新建的 cgroup 預設都是 domain</em>），它就會立即進入 <code>domain invalid</code> 狀態。
+        典型例子：<code>A (threaded domain) → B (threaded) → C (domain, just created)</code>，C 因為 parent B 是 threaded 而陷入 invalid。
+        <strong>修復方式</strong>：兩條路。（a）把 C 也轉成 threaded：<code>echo threaded > C/cgroup.type</code>，融入 threaded subtree；（b）刪除 C：<code>rmdir C</code>。
+        kernel 不直接幫你自動轉換，是為了未來可能有更多 domain 子型態保留 API 彈性。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>解釋下面這個指令的每一步在做什麼：</span></div>
+<pre style="font-size: var(--text-xs); margin-top: var(--space-2);"><code>echo "+cpu +memory" | sudo tee /sys/fs/cgroup/myapp/cgroup.subtree_control
+echo $$ | sudo tee /sys/fs/cgroup/myapp/leaf/cgroup.procs</code></pre>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>第一行</strong>：在 <code>myapp</code> cgroup 啟用 cpu 與 memory controllers 對它的 child cgroups 生效。<em>注意是對 child 生效，不是對 myapp 自己</em>。執行後 <code>myapp/leaf/</code> 等所有 child 會多出 <code>cpu.*</code> 與 <code>memory.*</code> 介面檔案。
+        <strong>第二行</strong>：把當前 shell（<code>$$</code> 是 shell PID）遷入 <code>myapp/leaf</code>。寫入後 <code>/proc/$$/cgroup</code> 會顯示 <code>0::/myapp/leaf</code>。
+        <strong>整體意義</strong>：建立了一個典型的 cgroup 操作模式——在 parent 設好 controllers，把 process 都放在 leaf。這正是 kernel 文件推薦的標準做法，避開了 no internal process constraint。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 8: 延伸閱讀 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+
+    <div class="refs">
+      <ol>
+        <li>
+          <a href="https://docs.kernel.org/admin-guide/cgroup-v2.html#basic-operations" target="_blank" rel="noopener">Linux Kernel 官方文件 · §2 Basic Operations</a>
+          <span class="ref-source">docs.kernel.org · 樹結構、process/thread 組織、controller 啟用的權威說明</span>
+        </li>
+        <li>
+          <a href="https://systemd.io/CGROUP_DELEGATION/" target="_blank" rel="noopener">systemd · Control Group APIs and Delegation</a>
+          <span class="ref-source">systemd.io · 由 systemd 維護者撰寫，明確列出 single-writer rule 與 no-internal-process rule</span>
+        </li>
+        <li>
+          <a href="https://man7.org/linux/man-pages/man7/cgroups.7.html" target="_blank" rel="noopener">cgroups(7) · §"Cgroups v2"</a>
+          <span class="ref-source">man7.org · 系統管理員視角的完整參考，含 thread mode 詳述</span>
+        </li>
+        <li>
+          <a href="https://lwn.net/Articles/729208/" target="_blank" rel="noopener">A thread mode for cgroup v2 · LWN.net</a>
+          <span class="ref-source">LWN.net · Tejun Heo 與 Peter Zijlstra 對 thread mode 設計的討論文章</span>
+        </li>
+        <li>
+          <a href="https://kernel-internals.org/cgroups/cgroup-v2/" target="_blank" rel="noopener">Cgroup v2 Architecture · Linux Kernel Internals</a>
+          <span class="ref-source">kernel-internals.org · 從 kernel 程式碼層面解析 css_set、cgroup_subsys 結構</span>
+        </li>
+        <li>
+          <a href="https://docs.kernel.org/admin-guide/cgroup-v2.html#interface-files" target="_blank" rel="noopener">Linux Kernel 官方文件 · §4 Interface Files</a>
+          <span class="ref-source">docs.kernel.org · core interface files 完整定義（速查用）</span>
+        </li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Chapter nav ====================== -->
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn" href="ch01-why-cgroup-v2.html">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">Ch.1 為什麼需要 cgroup v2</span>
+    </a>
+    <a class="nav-btn next" href="ch03-distribution-models.html">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">Ch.3 資源分配三模型</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<!-- ====================== Inline theme-toggle.js ====================== -->
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+
+<!-- ====================== Quiz toggle ====================== -->
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+
+</body>
+</html>

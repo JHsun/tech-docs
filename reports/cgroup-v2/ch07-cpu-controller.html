@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.7 CPU controller 深度解析 — cgroup v2 完整教學</title>
+<meta name="description" content="cgroup v2 CPU controller 完整介面解析：cpu.weight、cpu.max、cpu.weight.nice、cpu.idle、cpu.uclamp、cpu.stat、cpu.pressure。">
+
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626; --color-danger-soft: #fee2e2;
+  --color-info: #0891b2; --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px; --text-4xl: 64px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+</style>
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.topbar { position: sticky; top: 0; z-index: 50; background: color-mix(in oklch, var(--bg-canvas) 88%, transparent); backdrop-filter: saturate(180%) blur(12px); -webkit-backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--border-soft); }
+.topbar-inner { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.brand { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-secondary); }
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 999px; padding: 6px 14px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background .2s, border-color .2s, color .2s; }
+[data-theme-toggle]:hover { background: var(--bg-muted); border-color: var(--border-mid); color: var(--text-primary); }
+[data-theme-toggle] .theme-icon { font-size: 14px; line-height: 1; }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: 0 var(--space-5); }
+
+.chapter-head { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); }
+.chapter-tag { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary-text); background: var(--color-primary-soft); padding: 4px 12px; border-radius: 999px; margin-bottom: var(--space-4); }
+.chapter-title { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; margin-bottom: var(--space-3); }
+.chapter-subtitle { font-family: var(--font-serif-body); font-size: var(--text-md); color: var(--text-secondary); line-height: 1.65; font-style: italic; }
+.chapter-meta { margin-top: var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.chapter-meta-item:first-child::before { display: none; }
+
+.section { padding: var(--space-7) 0; border-bottom: 1px solid var(--border-soft); }
+.section:last-of-type { border-bottom: none; }
+.section-label { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2); }
+.section-label::before { content: ""; width: 24px; height: 1px; background: var(--color-primary); }
+.section-title { font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600; margin-bottom: var(--space-5); letter-spacing: -0.01em; line-height: 1.2; }
+
+.prose p { font-family: var(--font-serif-body); font-size: var(--text-base); color: var(--text-primary); line-height: 1.85; margin-bottom: var(--space-4); }
+.prose h3 { font-family: var(--font-sans); font-size: var(--text-lg); font-weight: 600; color: var(--text-primary); margin: var(--space-6) 0 var(--space-3); letter-spacing: -0.01em; }
+.prose h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 500; color: var(--text-primary); margin: var(--space-5) 0 var(--space-2); }
+.prose ul, .prose ol { font-family: var(--font-serif-body); margin-bottom: var(--space-4); padding-left: var(--space-5); line-height: 1.8; }
+.prose ul li, .prose ol li { margin-bottom: var(--space-2); color: var(--text-primary); }
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong { font-weight: 600; color: var(--text-primary); }
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 1px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+.prose a { color: var(--color-primary); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.prose a:hover { color: var(--color-primary-hover); }
+
+.highlights { background: var(--color-primary-soft); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.highlights ol { font-family: var(--font-sans); padding-left: var(--space-5); margin: 0; }
+.highlights li { font-size: var(--text-sm); color: var(--color-primary-text); margin-bottom: var(--space-2); line-height: 1.65; }
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+
+.news-box { background: var(--color-info-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.news-item { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); line-height: 1.7; padding: var(--space-2) 0; border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent); }
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-info); margin-right: var(--space-2); }
+
+pre { font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.7; background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; margin-bottom: var(--space-4); color: var(--text-primary); }
+pre code { background: transparent; border: none; padding: 0; font-size: inherit; color: inherit; }
+
+.cmp-table { width: 100%; border-collapse: collapse; margin-bottom: var(--space-4); font-size: var(--text-sm); font-family: var(--font-sans); }
+.cmp-table th, .cmp-table td { padding: var(--space-3); text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.cmp-table th { font-weight: 600; color: var(--text-primary); background: var(--bg-muted); font-size: var(--text-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 1px 5px; border-radius: var(--radius-sm); color: var(--color-primary-text); }
+
+.lab { background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.lab-title { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--color-primary); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px dashed var(--border-soft); }
+.lab-title::before { content: "▶ "; color: var(--color-primary); }
+.lab p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-3); color: var(--text-secondary); line-height: 1.7; }
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+.lab ol, .lab ul { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); color: var(--text-secondary); line-height: 1.7; }
+
+.pitfall { background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.pitfall-title { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 600; color: var(--color-warning); margin-bottom: var(--space-2); }
+.pitfall p { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); margin-bottom: var(--space-2); line-height: 1.7; }
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code { background: color-mix(in oklch, var(--color-warning) 15%, transparent); border-color: color-mix(in oklch, var(--color-warning) 30%, transparent); color: var(--text-primary); }
+
+.quiz-item { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-3); }
+.quiz-q { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; color: var(--text-primary); margin-bottom: var(--space-2); display: flex; gap: var(--space-2); }
+.quiz-q-num { font-family: var(--font-mono); color: var(--color-primary); flex-shrink: 0; }
+.quiz-toggle { background: transparent; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 4px 10px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; margin-top: var(--space-2); transition: background .2s, color .2s; }
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a { display: none; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px dashed var(--border-soft); font-family: var(--font-serif-body); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.75; }
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+
+.refs ol { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); line-height: 1.8; }
+.refs li { margin-bottom: var(--space-2); color: var(--text-secondary); }
+.refs li::marker { color: var(--color-primary); }
+.refs a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dashed var(--color-primary); }
+.refs a:hover { color: var(--color-primary-hover); }
+.refs .ref-source { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); display: block; margin-top: 2px; }
+
+.chapter-nav { margin-top: var(--space-6); padding: var(--space-5) 0; display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.nav-btn { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; padding: var(--space-3) var(--space-4); background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); text-decoration: none; color: var(--text-primary); transition: border-color .2s, transform .15s; }
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.04em; }
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.07</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part III · Controllers 上 · Chapter 07</span>
+    <h1 class="chapter-title">CPU controller 深度解析</h1>
+    <p class="chapter-subtitle">
+      CPU controller 是 cgroup v2 最常用的 controller，也是 Kubernetes、容器、systemd 的資源管理核心。
+      本章深入每個介面檔案——cpu.weight 的 CFS share 對應、cpu.max 的 throttle 行為、
+      cpu.weight.nice 的轉換公式、cpu.idle 的 SCHED_IDLE 整合、
+      cpu.uclamp 對 schedutil 的影響、cpu.pressure 與 cpu.stat 的監控用途。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~6,500 字</span>
+      <span class="chapter-meta-item">閱讀時間 25 分鐘</span>
+      <span class="chapter-meta-item">難度：核心</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ====================== Section 1: 本章重點 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+
+    <div class="highlights">
+      <ol>
+        <li><strong>三類介面</strong>：分配（<code>cpu.weight</code>、<code>cpu.weight.nice</code>、<code>cpu.idle</code>）、限制（<code>cpu.max</code>、<code>cpu.max.burst</code>、<code>cpu.uclamp.{min,max}</code>）、觀測（<code>cpu.stat</code>、<code>cpu.pressure</code>）。</li>
+        <li><strong>cpu.weight 與 nice 的對應</strong>：weight 1–10000 線性對應到 CFS load weight。<code>cpu.weight.nice</code>（kernel 5.16+）讓你用熟悉的 nice 值（-20 到 +19）設定，內部公式 <code>weight = 1024 / (1.25 ^ nice)</code>。</li>
+        <li><strong>cpu.max 格式</strong>：<code>$MAX $PERIOD</code>，預設 <code>max 100000</code>。每個 PERIOD（預設 100ms）內 cgroup 最多用 MAX 微秒 CPU 時間。<code>cpu.max.burst</code> 允許短期累積額度突破上限。</li>
+        <li><strong>cpu.idle</strong>：寫 1 把整個 cgroup 的 process 改用 SCHED_IDLE 排程——只在系統真的閒置時才跑。對 batch / 背景 workload 是黃金設定。</li>
+        <li><strong>cpu.uclamp</strong>：影響 schedutil governor 的 CPU frequency 決策，主要用於行動裝置與 EAS（Energy Aware Scheduling）系統，server 場景使用較少。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 2: 最新動態 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+
+    <div class="news-box">
+      <div class="news-item">
+        <span class="news-date">2026-04</span>
+        <strong>Kubernetes 1.36 In-Place Pod Resize 持續演進</strong>，CPU resources 的動態調整已能透過 cgroup v2 的 cpu.weight 與 cpu.max 即時變更，不需重啟 Pod。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>Go 1.25 內建 GOMAXPROCS cgroup-aware</strong>。runtime 自動讀 cpu.max（與 /proc/self/cgroup 解析），不再需要 uber-go/automaxprocs。對舊版仍建議用 automaxprocs 補上。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2024-2025</span>
+        <strong>EEVDF scheduler 取代 CFS</strong>（kernel 6.6+）。雖然介面不變（仍是 cpu.weight），但底層演算法從 vruntime fair queueing 換成 EEVDF（Earliest Eligible Virtual Deadline First），對 latency-sensitive workload 有改善。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>cpu.idle 在資料中心普及</strong>。Meta、Google 公開分享用 cpu.idle 跑 background analytics，與 latency-critical 工作負載完美 collocation，顯著提升 CPU 利用率。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025-11</span>
+        <strong>OpenJDK 持續優化 cgroup v2 awareness</strong>，PrettyPrint of resource limits 對應到 JVM heap 與 thread pool 計算更精確。詳見 Red Hat 2025-11 OpenShift 分析報告。
+      </div>
+    </div>
+
+    <div class="prose">
+      <p>
+        2026 年的時點，<strong>CPU controller 已是非常成熟穩定的 API</strong>。介面層基本沒變，但底層 scheduler 從 CFS 演進到 EEVDF（kernel 6.6+），加上 cpu.idle、cpu.uclamp 的廣泛採用，
+        讓 CPU 資源管理達到前所未有的精細度。本章把這些介面講透，並用實戰示範告訴你<em>什麼場景配什麼設定</em>。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 3: 核心內容 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+
+    <div class="prose">
+      <h3>3.1 CPU controller 介面總覽</h3>
+      <p>
+        現代 kernel（6.6+）的 CPU controller 在 v2 提供以下介面檔案：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr>
+          <th>檔案</th>
+          <th>類型</th>
+          <th>作用</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>cpu.weight</code></td>
+          <td>RW · 數值</td>
+          <td>CPU 比例分配，1–10000，預設 100</td>
+        </tr>
+        <tr>
+          <td><code>cpu.weight.nice</code></td>
+          <td>RW · 數值</td>
+          <td>用 nice 值（-20 到 +19）設定 weight，預設 0</td>
+        </tr>
+        <tr>
+          <td><code>cpu.max</code></td>
+          <td>RW · 雙值</td>
+          <td>CPU bandwidth 上限，格式 <code>$MAX $PERIOD</code>，預設 <code>max 100000</code></td>
+        </tr>
+        <tr>
+          <td><code>cpu.max.burst</code></td>
+          <td>RW · 數值</td>
+          <td>burst 容量（μs），預設 0（無 burst）</td>
+        </tr>
+        <tr>
+          <td><code>cpu.idle</code></td>
+          <td>RW · 開關</td>
+          <td>1 = SCHED_IDLE，整個 cgroup 只在系統閒置時跑</td>
+        </tr>
+        <tr>
+          <td><code>cpu.uclamp.min</code></td>
+          <td>RW · 百分比</td>
+          <td>schedutil 視角的最小 CPU 利用率（boost），預設 0</td>
+        </tr>
+        <tr>
+          <td><code>cpu.uclamp.max</code></td>
+          <td>RW · 百分比</td>
+          <td>schedutil 視角的最大 CPU 利用率（cap），預設 max</td>
+        </tr>
+        <tr>
+          <td><code>cpu.stat</code></td>
+          <td>R · 統計</td>
+          <td>累計 CPU 時間、throttle 次數、burst 統計</td>
+        </tr>
+        <tr>
+          <td><code>cpu.pressure</code></td>
+          <td>RW · PSI</td>
+          <td>CPU pressure stall information（some/full avg10/60/300/total）</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h3>3.2 cpu.weight：比例分配的核心</h3>
+      <p>
+        cpu.weight 是 v1 <code>cpu.shares</code> 的 v2 替代品。範圍 <strong>1–10000、預設 100</strong>，這是 v2 規範對所有 weight 介面的統一要求（詳見 Ch.4）。
+      </p>
+      <p>
+        kernel 內部，cpu.weight 線性對應到 <strong>CFS load weight</strong>（取代 EEVDF 後語意相同）。具體公式（簡化版）：
+      </p>
+<pre><code>// CFS share = cpu.weight * 1024 / 100
+// 等價於 nice 值換算（見 cpu.weight.nice 一節）
+
+// cpu.weight=100  → CFS share = 1024  (nice 0)
+// cpu.weight=200  → CFS share = 2048  (約 nice -3)
+// cpu.weight=400  → CFS share = 4096  (約 nice -7)
+// cpu.weight=10000 → CFS share = 102400  (極端優先)
+</code></pre>
+      <p>
+        實務上記住 <strong>「<em>weight 是相對的、競爭時才生效、可超額</em>」</strong> 三條原則就夠了——細節 scheduler 會處理。
+      </p>
+
+      <h4>典型配置場景</h4>
+      <ul>
+        <li><strong>系統服務 vs 使用者 workload</strong>：<code>system.slice/cpu.weight=100</code>（預設）+ <code>user.slice/cpu.weight=100</code>，平等競爭。</li>
+        <li><strong>關鍵服務優先</strong>：<code>critical.service/cpu.weight=400</code>，4 倍於其他預設 service。</li>
+        <li><strong>背景作業降權</strong>：<code>backup.service/cpu.weight=10</code>，幾乎只用閒置 CPU（但更好的選擇是 <code>cpu.idle=1</code>）。</li>
+      </ul>
+
+      <h3>3.3 cpu.weight.nice：nice 值風格的 weight</h3>
+      <p>
+        cpu.weight.nice 是 kernel 5.16+ 新增的<strong>替代介面</strong>，讓你用熟悉的 nice 值（-20 到 +19，預設 0）設定 weight。
+        kernel 內部用 PeterZ 提議的固定公式換算：
+      </p>
+<pre><code>// 數學公式（從 sched/core.c sched_prio_to_weight[] 表）
+// weight = round(1024 / (1.25 ^ nice))
+
+// nice -20 → weight 88761  →  cpu.weight 約 8665
+// nice -10 → weight 9548   →  cpu.weight 932
+// nice 0   → weight 1024   →  cpu.weight 100   (預設)
+// nice +10 → weight 110    →  cpu.weight 10
+// nice +19 → weight 15     →  cpu.weight 1
+</code></pre>
+      <p>
+        cpu.weight 與 cpu.weight.nice 是<strong>同一份內部狀態的兩種視角</strong>——讀寫任一個，另一個會跟著變。
+      </p>
+      <p>
+        <strong>選擇建議</strong>：
+      </p>
+      <ul>
+        <li>從 nice/renice 思維轉過來 → 用 cpu.weight.nice</li>
+        <li>從零學 cgroup → 用 cpu.weight（範圍直觀，1–10000 線性）</li>
+        <li>systemd 兩者都支援：<code>CPUWeight=</code> 對應 cpu.weight，<code>Nice=</code> 對應 cpu.weight.nice</li>
+      </ul>
+
+      <h3>3.4 cpu.max：硬性 bandwidth 上限</h3>
+      <p>
+        <code>cpu.max</code> 是 v1 <code>cpu.cfs_quota_us</code> + <code>cpu.cfs_period_us</code> 的 v2 替代品，合併成單一檔案。格式：
+      </p>
+<pre><code>$MAX $PERIOD
+</code></pre>
+      <p>
+        <strong>$MAX</strong>：每個 PERIOD 內這個 cgroup 最多能用多少微秒 CPU 時間。寫 <code>max</code> 表示無上限。<br>
+        <strong>$PERIOD</strong>：以微秒為單位的時間窗，預設 100000（100ms）。
+      </p>
+      <p>
+        計算公式：<strong>cgroup 可用的 CPU 比例 = MAX / PERIOD</strong>。例如：
+      </p>
+<pre><code># 限制最多用 1 顆 CPU（100% 一核）
+echo "100000 100000" > cpu.max
+
+# 限制最多用 0.5 顆 CPU（50% 一核）
+echo "50000 100000" > cpu.max
+
+# 限制最多用 2.5 顆 CPU
+echo "250000 100000" > cpu.max
+
+# 解除限制
+echo "max 100000" > cpu.max
+</code></pre>
+      <p>
+        <strong>幾個關鍵特性</strong>：
+      </p>
+      <ul>
+        <li><strong>可超過一核</strong>：MAX &gt; PERIOD 表示允許跑滿多核（例如 <code>200000 100000</code> = 2 cores worth）。</li>
+        <li><strong>可 over-commit</strong>：所有 child cgroup 的 cpu.max 加總可超過 parent 的——只要實際同時跑的不超過。</li>
+        <li><strong>throttle 機制</strong>：cgroup 用完 quota 後會被 throttle 到 PERIOD 結束才能繼續。throttle 次數記在 <code>cpu.stat</code>。</li>
+        <li><strong>與 cpu.weight 互動</strong>：cpu.max 是天花板，cpu.weight 在天花板下決定比例。詳見 Ch.3 §3.7。</li>
+      </ul>
+
+      <h4>cpu.max.burst：應對短期尖峰</h4>
+      <p>
+        <code>cpu.max</code> 的硬性 quota 對「<em>平均流量低、偶爾尖峰</em>」的 workload 不友善——尖峰時被 throttle，但其他時間明明有閒置 CPU。
+        kernel 5.14+ 引入 <strong>cpu.max.burst</strong> 解決這問題：
+      </p>
+<pre><code># cpu.max=50000 100000 (0.5 cores)
+# cpu.max.burst=20000  (允許短期累積 20ms 額度)
+
+# 行為：在不被 throttle 的 PERIOD 中累積 burst 額度（最多 20ms），
+# 尖峰時可以「借用」這些額度，最多突破到 50000+20000=70000us。
+echo 50000 100000 > cpu.max
+echo 20000 > cpu.max.burst
+</code></pre>
+      <p>
+        典型場景：批次作業有間歇式 CPU 需求、Web 服務應對突發請求。<strong>burst 不會讓平均超過 cpu.max</strong>——只是允許更平滑的瞬時表現。
+      </p>
+
+      <h3>3.5 cpu.idle：SCHED_IDLE 整合</h3>
+      <p>
+        <code>cpu.idle</code>（kernel 5.15+）是 v2 的一個<strong>大殺器</strong>——寫 1 進去，整個 cgroup 的 process 都改用 <strong>SCHED_IDLE</strong> 排程策略。
+        SCHED_IDLE 是 Linux scheduler 的最低優先級——只在所有 SCHED_NORMAL（一般）process 都在 sleep 時才跑。
+      </p>
+<pre><code># 把 cgroup 設為 idle（所有 process 變 SCHED_IDLE）
+echo 1 > /sys/fs/cgroup/batch.slice/cpu.idle
+
+# 反向：恢復為 SCHED_NORMAL
+echo 0 > /sys/fs/cgroup/batch.slice/cpu.idle
+</code></pre>
+      <p>
+        <strong>cpu.idle 的優勢</strong>（相對於只設 cpu.weight=1）：
+      </p>
+      <ul>
+        <li><strong>絕對讓位</strong>：weight=1 仍會搶到一點 CPU；SCHED_IDLE 真的只在系統空閒時跑。</li>
+        <li><strong>對 latency 友好</strong>：不影響其他 cgroup 的 latency-critical workload，連 cache thrashing 都更少。</li>
+        <li><strong>適合 collocation</strong>：把 batch / analytics 跟 latency-critical workload 放在同一 host，<em>免費利用空閒 CPU</em>。</li>
+      </ul>
+      <p>
+        實際 production 案例：Meta、Google 在 2024-2025 公開分享，把背景 ML training、log processing 標為 cpu.idle，
+        與 user-facing service co-locate，整體 CPU 利用率提升 30–50%。
+      </p>
+
+      <h3>3.6 cpu.uclamp：utilization clamping</h3>
+      <p>
+        <code>cpu.uclamp.min</code> 與 <code>cpu.uclamp.max</code>（kernel 5.3+）控制 <strong>schedutil CPU frequency governor</strong> 對這個 cgroup 的決策。
+        值是百分比（如 <code>50.00</code>），對應 0–100% 的 CPU 利用率。
+      </p>
+<pre><code># 確保 cgroup 的 process 跑時 CPU 至少跳到 50% utilization
+# 等同於提示 schedutil 把 frequency 拉高
+echo 50.00 > cpu.uclamp.min
+
+# 反向：限制 CPU 不超過 50%（節能）
+echo 50.00 > cpu.uclamp.max
+</code></pre>
+      <p>
+        <strong>主要應用場景</strong>：
+      </p>
+      <ul>
+        <li><strong>行動裝置</strong>（Android）：UI thread 設 uclamp.min=80 強制高頻、背景 service 設 uclamp.max=20 強制低頻省電。</li>
+        <li><strong>EAS（Energy Aware Scheduling）系統</strong>：big.LITTLE 架構決定 task 該放 little 還是 big core。</li>
+        <li><strong>Server 用法少見</strong>：資料中心 CPU 通常已是固定 P-state 或統一頻率管理，uclamp 影響不大。</li>
+      </ul>
+
+      <h3>3.7 cpu.stat：累計統計</h3>
+      <p>
+        <code>cpu.stat</code> 是<strong>監控與容量規劃的關鍵介面</strong>。讀出範例：
+      </p>
+<pre><code>$ cat /sys/fs/cgroup/myapp/cpu.stat
+usage_usec 1234567890
+user_usec 987654321
+system_usec 246913569
+nr_periods 12345
+nr_throttled 234
+throttled_usec 12345678
+nr_bursts 56
+burst_usec 1234567
+</code></pre>
+      <p>
+        欄位解讀：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>欄位</th><th>說明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>usage_usec</code></td><td>累計 CPU 時間（user + system），微秒</td></tr>
+        <tr><td><code>user_usec</code></td><td>累計 user-mode CPU 時間</td></tr>
+        <tr><td><code>system_usec</code></td><td>累計 kernel-mode CPU 時間</td></tr>
+        <tr><td><code>nr_periods</code></td><td>(僅 cpu.max 啟用時) PERIOD 經過的總次數</td></tr>
+        <tr><td><code>nr_throttled</code></td><td>(僅 cpu.max 啟用時) 被 throttle 的 PERIOD 次數</td></tr>
+        <tr><td><code>throttled_usec</code></td><td>(僅 cpu.max 啟用時) 被 throttle 的累計時間</td></tr>
+        <tr><td><code>nr_bursts</code></td><td>(burst 啟用時) 使用 burst 額度的次數</td></tr>
+        <tr><td><code>burst_usec</code></td><td>(burst 啟用時) 累計 burst 使用時間</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        <strong>關鍵監控指標</strong>：<code>nr_throttled / nr_periods</code> 比例就是「<em>throttled rate</em>」。
+        如果這個值 &gt; 1%，cpu.max 設得太緊；&gt; 5% 通常 latency 已經有感影響。
+        實務上把 cpu.stat 推到 Prometheus / Datadog 做 graph，能看出 service 的真實 CPU 狀況。
+      </p>
+
+      <h3>3.8 cpu.pressure：PSI 監控</h3>
+      <p>
+        <code>cpu.pressure</code> 是 PSI（Pressure Stall Information）對 CPU 的監控介面。讀出範例：
+      </p>
+<pre><code>$ cat /sys/fs/cgroup/myapp/cpu.pressure
+some avg10=2.04 avg60=0.75 avg300=0.40 total=157656722
+full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+</code></pre>
+      <p>
+        <strong>欄位解讀</strong>：
+      </p>
+      <ul>
+        <li><code>some</code>：「<em>至少有一個 task 在等 CPU</em>」的時間百分比。</li>
+        <li><code>full</code>：「<em>所有 runnable task 都在等 CPU</em>」的時間百分比（system-wide CPU 飽和）。</li>
+        <li><code>avg10/60/300</code>：過去 10 秒、1 分鐘、5 分鐘的滑動平均（百分比）。</li>
+        <li><code>total</code>：累計 stall 時間（微秒），用來偵測短暫的 stall 尖峰。</li>
+      </ul>
+      <p>
+        cpu.pressure 是 Ch.12 PSI 章節的主題，這裡只簡介。實務上 <code>some avg10 &gt; 5%</code> 是 CPU 開始緊繃的訊號。
+        PSI 比 CPU utilization 更能反映「<em>使用者實際感受到的延遲</em>」——CPU 100% 不一定 stall 高（可能就是有事做），但 stall 高一定是 latency 有問題。
+      </p>
+
+      <h3>3.9 systemd 介面對應</h3>
+      <p>
+        production 上幾乎都透過 systemd 設定 CPU controller，而非直接寫 cgroup 介面。對應關係：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>systemd directive</th><th>cgroup 介面</th><th>備註</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>CPUWeight=</code></td><td><code>cpu.weight</code></td><td>1–10000，預設 100</td></tr>
+        <tr><td><code>StartupCPUWeight=</code></td><td><code>cpu.weight</code></td><td>啟動階段的 weight，啟動完成後切回 CPUWeight</td></tr>
+        <tr><td><code>CPUQuota=</code></td><td><code>cpu.max</code></td><td>百分比形式，<code>50%</code> = 50000 100000</td></tr>
+        <tr><td><code>CPUQuotaPeriodSec=</code></td><td><code>cpu.max</code> 的 PERIOD</td><td>預設 100ms</td></tr>
+        <tr><td>(無)</td><td><code>cpu.max.burst</code></td><td>systemd 244+ 部分版本支援</td></tr>
+        <tr><td>(無，間接)</td><td><code>cpu.idle</code></td><td>透過 systemd OOM policy / Slice 設計，未來版本可能加直接 directive</td></tr>
+        <tr><td><code>Nice=</code></td><td>process nice (非 cgroup)</td><td>注意：這設的是 process nice，不是 cpu.weight.nice</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        <strong>注意</strong>：systemd 的 <code>Nice=</code> 設定的是<strong>個別 process 的 nice 值</strong>（影響 scheduler 內部 weight），<em>不是</em> cgroup 的 cpu.weight.nice。
+        要設 cgroup-level 的 weight 一律用 <code>CPUWeight=</code>。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 4: 實戰範例 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例</h2>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · cpu.weight 比例驗證</div>
+<pre><code># 跑兩個 100% CPU 的 worker，分別給 weight=100 和 weight=400
+sudo systemd-run --slice=user.slice --unit=w100 \
+    -p CPUWeight=100 \
+    bash -c 'while :; do :; done'
+
+sudo systemd-run --slice=user.slice --unit=w400 \
+    -p CPUWeight=400 \
+    bash -c 'while :; do :; done'
+
+# 5 秒後觀察 CPU 比例
+sleep 5
+sudo systemd-cgtop --order=cpu --iterations=1 user.slice
+
+# 預期：w400 約占 80% CPU、w100 約占 20%（比例 1:4）
+# 注意：實際測試需要把 host 限制到單核才看得出比例，
+# 否則兩者都各跑滿一核，看不出 weight 差別
+
+# 清理
+sudo systemctl stop w100 w400
+</code></pre>
+      <p>觀察點：weight 在<em>有競爭時</em> 才生效。如果 host 有多核且兩個 worker 都跑得下，比例可能看不出。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · cpu.max 與 throttle 觀察</div>
+<pre><code># 限定 service 只能用 50% 一核
+sudo systemd-run --slice=user.slice --unit=throttled \
+    -p CPUQuota=50% \
+    bash -c 'while :; do :; done' &
+
+sleep 3
+
+# 讀 cpu.stat 看 throttle 統計
+CG=$(systemctl show -p ControlGroup --value throttled.service)
+cat /sys/fs/cgroup$CG/cpu.stat
+
+# 預期看到（部分欄位）：
+# nr_periods 30
+# nr_throttled 25         ← 多數 PERIOD 都被 throttle
+# throttled_usec 1500000  ← 累計 throttle 時間
+
+# 計算 throttled rate
+NR_THROTTLED=$(grep nr_throttled /sys/fs/cgroup$CG/cpu.stat | awk '{print $2}')
+NR_PERIODS=$(grep nr_periods /sys/fs/cgroup$CG/cpu.stat | awk '{print $2}')
+echo "Throttled rate: $((NR_THROTTLED * 100 / NR_PERIODS))%"
+
+# 清理
+sudo systemctl stop throttled
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · cpu.idle vs cpu.weight=1 行為比較</div>
+<pre><code># 場景：一個前景 worker（CPU 滿載）+ 一個背景 worker
+
+# 方案 A：背景 worker 用 cpu.weight=1
+sudo systemd-run --slice=user.slice --unit=fg-a \
+    -p CPUWeight=10000 \
+    bash -c 'while :; do :; done'
+
+sudo systemd-run --slice=user.slice --unit=bg-weight \
+    -p CPUWeight=1 \
+    bash -c 'while :; do :; done'
+
+sleep 5
+sudo systemd-cgtop --order=cpu --iterations=1 user.slice
+# 觀察：bg-weight 仍會搶到一點 CPU（因為 weight 只是極低，不是 0）
+
+sudo systemctl stop fg-a bg-weight
+
+# 方案 B：背景 worker 用 cpu.idle
+sudo systemd-run --slice=user.slice --unit=fg-b \
+    bash -c 'while :; do :; done'
+
+sudo systemd-run --slice=user.slice --unit=bg-idle \
+    bash -c 'while :; do :; done'
+
+# 把 bg-idle 設為 SCHED_IDLE
+CG=$(systemctl show -p ControlGroup --value bg-idle.service)
+echo 1 | sudo tee /sys/fs/cgroup$CG/cpu.idle
+
+sleep 5
+sudo systemd-cgtop --order=cpu --iterations=1 user.slice
+# 觀察：bg-idle 應該 ≈ 0% CPU（因為 fg-b 一直在跑）
+# 真正的 SCHED_IDLE 行為：完全讓位
+
+# 清理
+sudo systemctl stop fg-b bg-idle
+</code></pre>
+      <p>觀察點：cpu.idle 是「<em>絕對讓位</em>」，cpu.weight=1 是「<em>盡量讓位但仍有最小份額</em>」。生產環境用 cpu.idle 更乾淨。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 4 · cpu.weight.nice 與 cpu.weight 互通驗證</div>
+<pre><code># 建立測試 cgroup
+sudo mkdir /sys/fs/cgroup/lab7
+echo "+cpu" | sudo tee /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null
+sudo mkdir /sys/fs/cgroup/lab7/test
+
+# 寫 cpu.weight，看 cpu.weight.nice 怎麼變
+echo 100 | sudo tee /sys/fs/cgroup/lab7/test/cpu.weight
+cat /sys/fs/cgroup/lab7/test/cpu.weight.nice
+# 預期：0
+
+echo 400 | sudo tee /sys/fs/cgroup/lab7/test/cpu.weight
+cat /sys/fs/cgroup/lab7/test/cpu.weight.nice
+# 預期：約 -6 或 -7（400/100 = 4 = 1.25^約6.2）
+
+echo 25 | sudo tee /sys/fs/cgroup/lab7/test/cpu.weight
+cat /sys/fs/cgroup/lab7/test/cpu.weight.nice
+# 預期：約 +6 或 +7
+
+# 反向：寫 nice，看 weight 怎麼變
+echo -10 | sudo tee /sys/fs/cgroup/lab7/test/cpu.weight.nice
+cat /sys/fs/cgroup/lab7/test/cpu.weight
+# 預期：約 932（公式 1024 / 1.25^-10 = 1024 * 9.31 ≈ 9531，對應 cpu.weight 932）
+
+# 清理
+sudo rmdir /sys/fs/cgroup/lab7/test
+sudo rmdir /sys/fs/cgroup/lab7
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 5 · 用 cpu.pressure 偵測 CPU 飽和</div>
+<pre><code># 啟動超量 CPU worker（4 個 100% CPU，但 host 只有 4 核）
+for i in 1 2 3 4 5 6; do
+    sudo systemd-run --slice=user.slice --unit=stress-$i \
+        bash -c 'while :; do :; done'
+done
+
+sleep 10
+
+# 看 user.slice 的 cpu.pressure
+cat /sys/fs/cgroup/user.slice/cpu.pressure
+
+# 預期看到：
+# some avg10=20-50  ← 有 task 在等 CPU
+# full avg10=10-30  ← 所有 task 都在等的時間比例
+
+# 對照：看 host 的整體 cpu.pressure
+cat /proc/pressure/cpu
+
+# 清理
+for i in 1 2 3 4 5 6; do
+    sudo systemctl stop stress-$i
+done
+</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 5: 常見陷阱 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · cpu.max 比想像中的更早 throttle</div>
+      <p>
+        設 <code>cpu.max=100000 100000</code>（1 顆 CPU）但發現 process 只用了 60% 就被 throttle？
+        原因：<strong>cpu.max 是「同一 PERIOD 內的累計」，不是即時上限</strong>。
+        如果一個 burst 在 PERIOD 開頭把 100ms 用光，接下來 PERIOD 結束前都被 throttle，平均看起來只用 60%。
+        修法：用 <code>cpu.max.burst</code> 平滑、或 <strong>調短 PERIOD</strong>（例如 50ms）讓 throttle 更頻繁但每次更短，平均行為更平順。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · cpu.weight 在沒競爭時完全不影響行為</div>
+      <p>
+        典型誤解：<em>「我設 cpu.weight=1，這個 service 只會用很少 CPU」</em>。
+        錯。cpu.weight 是<strong>比例</strong>，沒競爭時 weight=1 的 service 也能跑滿 CPU。
+        要硬上限請用 <code>cpu.max</code>，要絕對讓位請用 <code>cpu.idle=1</code>。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · realtime process 在非 root cgroup 會讓 cpu controller 啟用失敗</div>
+      <p>
+        kernel 文件警告：「<em>The CPU controller can only be enabled when all realtime processes are in the root cgroup.</em>」
+        如果 systemd 啟動時把某些 RT process（例如 <code>chronyd</code> 設了 <code>CPUSchedulingPolicy=fifo</code>）放到 service cgroup，
+        嘗試在這個 cgroup 啟用 cpu controller 會失敗。
+        修法：把 RT process 移回 root cgroup，或避免在含 RT process 的子樹啟用 cpu controller。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · CPUQuota=200% 在 systemd 上的語意</div>
+      <p>
+        systemd 的 <code>CPUQuota=</code> 接受百分比，<strong>但允許超過 100%</strong>——意思是允許用超過一核。
+        例如 <code>CPUQuota=250%</code> 對應 <code>cpu.max=250000 100000</code>，允許用 2.5 顆 CPU。
+        踩雷點：很多人以為 <code>CPUQuota=200%</code> 是「<em>使用率上限 200%</em>」（沒意義），實際是「<em>最多用 2 顆 CPU</em>」。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 5 · cpu.idle 不能用於有 RT process 的 cgroup</div>
+      <p>
+        cpu.idle 把 process 改用 SCHED_IDLE，但 SCHED_FIFO / SCHED_RR 的 RT process<em>無法</em>降級到 SCHED_IDLE。
+        如果 cgroup 內有 mixed RT 與普通 process，寫 cpu.idle=1 會失敗或行為不如預期。
+        修法：確保 cgroup 內全是普通 SCHED_NORMAL process。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 6 · cpu.weight 的 nested cgroup 計算非直觀</div>
+      <p>
+        典型問題：<code>A/cpu.weight=100, B/cpu.weight=100</code>（兄弟），它們各分 50%。
+        但 A 內又有兩個 child <code>A/x, A/y</code>，<code>A/x/cpu.weight=100, A/y/cpu.weight=100</code>——它們在 A 的 50% 內各分 50%，所以實際只各佔 host 的 25%。
+        每多一層 cgroup，比例會被「<em>稀釋</em>」一次。實作大型 hierarchy 時要逐層算下來。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 7 · Java 在 cgroup v2 取 CPU 數量的方式</div>
+      <p>
+        OpenJDK 8u372+、11.0.16+、17+ 已支援 v2，<code>Runtime.getRuntime().availableProcessors()</code> 會回 cgroup limit 對應的核數，<em>不是 host 的</em>。
+        例如 <code>cpu.max=200000 100000</code>（2 cores）的容器，Java 會看到 2 cores（向上取整）。
+        但<strong>舊版 Java 只認 v1</strong>，在 v2 host 上會看到 host 的全部核數，導致 thread pool 過大、context switch 暴增。
+        升級 Java 是首要解決方法。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 6: 動手練習 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · cpu.weight.nice 公式驗證（10 分鐘）</div>
+      <p>用實際的 nice 值驗證內部公式 <code>weight = round(1024 / (1.25 ^ nice))</code> 對應到的 cpu.weight：</p>
+<pre><code># 為下列 nice 值算理論 cpu.weight，再對照實際讀出的值
+for nice in -20 -10 -5 0 5 10 19; do
+    echo $nice | sudo tee /sys/fs/cgroup/lab7/cpu.weight.nice
+    actual=$(cat /sys/fs/cgroup/lab7/cpu.weight)
+    # 計算理論值（python）
+    theoretical=$(python3 -c "print(round(1024 / 1.25**$nice * 100 / 1024))")
+    echo "nice=$nice: 實際=$actual 理論≈$theoretical"
+done</code></pre>
+      <p>回答：實際與理論值差幾%？什麼原因造成偏差？</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · 用 cpu.stat 計算實時 throttled rate（15 分鐘）</div>
+      <p>寫一個 monitoring script，每 10 秒讀一次 cpu.stat，計算最近 10 秒的 throttled rate：</p>
+<pre><code>#!/bin/bash
+# cpu-throttle-monitor.sh
+
+CG="$1"
+[ -z "$CG" ] && { echo "Usage: $0 /sys/fs/cgroup/path"; exit 1; }
+
+prev_periods=0
+prev_throttled=0
+
+while true; do
+    cur_periods=$(grep nr_periods $CG/cpu.stat | awk '{print $2}')
+    cur_throttled=$(grep nr_throttled $CG/cpu.stat | awk '{print $2}')
+    
+    delta_periods=$((cur_periods - prev_periods))
+    delta_throttled=$((cur_throttled - prev_throttled))
+    
+    if [ $delta_periods -gt 0 ]; then
+        rate=$((delta_throttled * 100 / delta_periods))
+        echo "$(date +%T) throttled rate (last 10s): ${rate}%"
+    fi
+    
+    prev_periods=$cur_periods
+    prev_throttled=$cur_throttled
+    sleep 10
+done</code></pre>
+      <p>跑這個 script 監控某個 service，觀察什麼負載下 throttle rate 會暴增。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 用 cpu.idle + cpu.weight 設計 batch + interactive 共存（10 分鐘）</div>
+      <p>設計一個系統配置，讓 batch jobs 與 interactive service 共存：</p>
+      <ol>
+        <li>建立兩個 slice：<code>interactive.slice</code> 與 <code>batch.slice</code></li>
+        <li>interactive.slice 設 <code>CPUWeight=400</code></li>
+        <li>batch.slice 設定方式 1：<code>CPUWeight=10</code>（保留少量 CPU）</li>
+        <li>batch.slice 設定方式 2：把 cgroup 設 <code>cpu.idle=1</code>（完全讓位）</li>
+        <li>各跑 4 個 stress 測試，比較兩種設定下 interactive.slice 的 latency</li>
+      </ol>
+      <p>回答：哪種設定下 interactive 的 cpu.pressure 更低？為什麼？</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 寫一個 cpu.pressure 告警 daemon（思考題，15 分鐘）</div>
+      <p>不需執行，只回答以下設計問題：</p>
+      <ol>
+        <li>怎麼用 <code>poll(2)</code> 監聽 cpu.pressure 觸發告警，而不需要 polling？提示：cpu.pressure 支援寫入 trigger。</li>
+        <li>「告警 threshold」應該設 some avg10、some avg60、還是 total 的 delta？理由是什麼？</li>
+        <li>怎麼跟 Prometheus 整合？應該 export 哪些 metrics？</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 7: 自我檢查題 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>cpu.weight、cpu.weight.nice、cpu.max、cpu.idle 各自解決什麼問題？什麼場景該選哪一個？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>cpu.weight</strong>：<em>比例分配</em>。用於正常 workload 之間的相對優先級。範圍 1–10000，預設 100。</li>
+          <li><strong>cpu.weight.nice</strong>：<em>nice 值風格的 weight</em>。內部與 cpu.weight 同一份狀態，給習慣 nice/renice 的人用。範圍 -20 到 +19。</li>
+          <li><strong>cpu.max</strong>：<em>絕對 bandwidth 上限</em>。需要硬性限制（多租戶、預算控制）時用。格式 <code>$MAX $PERIOD</code>。</li>
+          <li><strong>cpu.idle</strong>：<em>SCHED_IDLE</em>。整個 cgroup 只在系統閒置時跑。給 batch / 背景 workload 用，與 latency-critical workload 完美 collocation。</li>
+        </ul>
+        <strong>選擇邏輯</strong>：要絕對防爆 → cpu.max；要正常優先級 → cpu.weight；要絕對讓位 → cpu.idle。三者可組合（cpu.max 當天花板 + cpu.weight 處理日常）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>cpu.max 格式是 <code>$MAX $PERIOD</code>，怎麼設「最多用 2.5 顆 CPU」？怎麼設「無上限」？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>2.5 顆 CPU</strong>：<code>echo "250000 100000" &gt; cpu.max</code>。意思是每 100ms 內可用 250ms CPU 時間（橫跨多核累計），等於 2.5 cores。
+        <strong>無上限</strong>：<code>echo "max 100000" &gt; cpu.max</code>。<em>不是 -1，不是 0</em>，是字串 <code>max</code>——v2 規範統一用法。
+        <strong>等價的 systemd</strong>：<code>CPUQuota=250%</code>。systemd 接受百分比形式並自動換算。
+        <strong>$PERIOD 怎麼選</strong>：預設 100ms 對多數場景合適。短 PERIOD（如 50ms）讓 throttle 更頻繁但每次更短，適合 latency-sensitive 場景；長 PERIOD（500ms）允許更大的瞬時 burst。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span>cpu.idle=1 與 cpu.weight=1 的行為差別？production 應該用哪個跑 batch jobs？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>cpu.weight=1</strong>：把 CPU 分配 weight 設成最低，但仍是 SCHED_NORMAL。在系統有空時可以跑滿 CPU；在系統繁忙時拿到的 CPU 約 <code>1/(1+其他人 weight 總和)</code>，<em>仍會搶走極少量 CPU</em>。
+        <strong>cpu.idle=1</strong>：整個 cgroup 改用 SCHED_IDLE，scheduler 視角下這個 cgroup 內的 process<em>絕對讓位</em>於 SCHED_NORMAL——只有當所有 SCHED_NORMAL task 都 sleep 時才被 schedule。
+        <strong>production 建議</strong>：跑 batch jobs <strong>用 cpu.idle=1</strong>。原因：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>真的不影響 latency-critical workload（cache thrashing 都更少）</li>
+          <li>能與 latency-critical workload 完美 collocation，提升整體 CPU 利用率 30–50%（Meta、Google 案例）</li>
+          <li>不用花心思調 weight 大小</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span>cpu.max.burst 解決什麼問題？舉一個適合用它的場景。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>解決問題</strong>：cpu.max 是「<em>每個 PERIOD 內的累計</em>」，對「<em>平均流量低、偶爾尖峰</em>」的 workload 不友善——尖峰時被 throttle，但其他時間明明有閒置 CPU。
+        <strong>cpu.max.burst 機制</strong>：在不被 throttle 的 PERIOD 中累積 burst 額度（最多 burst 值），尖峰時可以「<em>借用</em>」這些額度突破 cpu.max。<em>平均不會超過 cpu.max</em>，只是允許更平滑的瞬時表現。
+        <strong>適用場景</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>Web 服務應對突發請求</strong>：一般時段 CPU 用量低，但 traffic spike 時短暫需要更多 CPU。</li>
+          <li><strong>批次作業有間歇式 CPU 需求</strong>：平均使用低，但每次處理時需要快速完成。</li>
+          <li><strong>JVM startup</strong>：JIT compile 階段需要短暫的高 CPU，啟動完成後降下來。</li>
+        </ul>
+        <strong>典型配置</strong>：<code>cpu.max="50000 100000"</code>（0.5 cores 平均）+ <code>cpu.max.burst="50000"</code>（允許短期突破到 1 core）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span>cpu.stat 的 <code>nr_throttled / nr_periods</code> 比例代表什麼？多少算太高？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>意義</strong>：在 cpu.max 啟用的情況下，這個 cgroup 在多少比例的 PERIOD 內被 throttle。比例越高表示越常撞 cpu.max 上限。
+        <strong>判讀標準</strong>（經驗值，會因 workload 而異）：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>&lt; 1%</strong>：正常，cpu.max 設定合理。</li>
+          <li><strong>1% – 5%</strong>：偶爾撞牆，latency 開始有感受到尖峰。考慮用 cpu.max.burst 平滑或調整 cpu.max。</li>
+          <li><strong>&gt; 5%</strong>：cpu.max 設得太緊。Latency 已明顯惡化，p99 會不穩定。</li>
+          <li><strong>&gt; 20%</strong>：嚴重不足。或是 workload 變大，或是設定錯了。</li>
+        </ul>
+        <strong>監控做法</strong>：把 cpu.stat 推到 Prometheus，設 alert 在 throttled rate &gt; 5%。Kubernetes 中 cAdvisor 已自動 export <code>container_cpu_cfs_throttled_periods_total</code> / <code>container_cpu_cfs_periods_total</code>。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>cpu.pressure 的 some 與 full 有什麼差別？哪個對 latency 監控更有用？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>some</strong>：「<em>至少有一個 task 在等 CPU</em>」的時間百分比。表示這個 cgroup 中有 task 受到 CPU 不足影響——這個 task 的 latency 會增加。
+        <strong>full</strong>：「<em>所有 runnable task 都在等 CPU</em>」的時間百分比。表示<strong>整個 cgroup 完全卡在 CPU 等待</strong>，沒有任何 task 在跑——這時 cgroup 整體吞吐量降為零。
+        <strong>對 latency 監控</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>some 更有用</strong>：反映「<em>使用者實際感受到的延遲</em>」。任何一個 task 在等 CPU，使用者就感受到了。</li>
+          <li><strong>full 更嚴重</strong>：full &gt; 0 表示嚴重 CPU 飽和，整個 cgroup 卡住。應該觸發 alarm。</li>
+        </ul>
+        <strong>實務建議</strong>：日常監控用 <code>some avg10</code>，閾值 5–10%；嚴重 alarm 用 <code>full avg10</code>，閾值 1%。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span>systemd 的 <code>Nice=</code> 與 <code>CPUWeight=</code> 有什麼差別？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        兩者<em>不是同一件事</em>，雖然名字相似：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>Nice=</strong>：設定 service 啟動時的<strong>個別 process nice 值</strong>，影響 scheduler 對個別 task 的優先級。對應 syscall <code>setpriority(PRIO_PROCESS)</code>，作用在 task struct 上。</li>
+          <li><strong>CPUWeight=</strong>：設定 service <strong>cgroup 的 cpu.weight</strong>，影響整個 cgroup 在競爭時的比例。作用在 cgroup struct 上。</li>
+        </ul>
+        <strong>關鍵差異</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>Nice= 影響的是「<em>單個 process 與其他 process 的相對優先</em>」（不論在不在同一 cgroup）。</li>
+          <li>CPUWeight= 影響的是「<em>這個 cgroup 整體與兄弟 cgroup 的相對比例</em>」。</li>
+          <li>在 cgroup 內部，所有 process 的相對優先仍由 nice 決定。</li>
+        </ol>
+        <strong>建議</strong>：production 用 <code>CPUWeight=</code>（cgroup 層級），<code>Nice=</code> 留給特殊場景。要設 cgroup-level 的 nice 風格用 <code>cpu.weight.nice</code> 介面（systemd 沒有直接 directive，需要 ExecStartPost 寫入）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>實作思考題：你管理一個 4 核機器，要跑：（A）latency-critical Web service、（B）一般 batch job、（C）夜間 ML training。如何用 CPU controller 配置三者，最大化 CPU 利用率同時保護 A 的 latency？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>方案</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[A: web.service]
+CPUWeight=400      # 高權重，競爭時拿大份額
+CPUQuota=300%      # 最多 3 cores（保留 1 core 給 OS+其他）
+# 不設 cpu.idle（A 是 latency-critical）
+
+[B: batch.service]
+CPUWeight=100      # 預設，普通優先級
+CPUQuota=200%      # 最多 2 cores（防爆）
+
+[C: ml-training.service]
+# 直接把整個 cgroup 設 cpu.idle=1
+ExecStartPost=/bin/bash -c 'echo 1 > /sys/fs/cgroup/system.slice/ml-training.service/cpu.idle'
+# 不設 CPUQuota（讓它在 idle CPU 上跑滿）</pre>
+        <strong>設計理由</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>A 用 weight + quota</strong>：weight=400 確保競爭時優先；quota=300% 防爆，避免 A 自己出 bug 吃滿 host。</li>
+          <li><strong>B 用標準配置</strong>：與其他普通 service 同等競爭，quota 防止失控。</li>
+          <li><strong>C 用 cpu.idle</strong>：完全讓位給 A 與 B，<em>免費</em> 利用閒置 CPU。夜間 A、B 流量低時 C 自然跑滿；白天 A 流量高時 C 自動讓位，A 的 latency 不受影響。</li>
+        </ol>
+        <strong>監控配套</strong>：對 A 監控 <code>cpu.pressure some avg10 &lt; 5%</code> 與 <code>cpu.stat nr_throttled / nr_periods &lt; 1%</code>。任一超標就要重新檢視配置。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 8: 延伸閱讀 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+
+    <div class="refs">
+      <ol>
+        <li>
+          <a href="https://docs.kernel.org/admin-guide/cgroup-v2.html#cpu" target="_blank" rel="noopener">Linux Kernel 官方文件 · §5.1 CPU</a>
+          <span class="ref-source">docs.kernel.org · CPU controller 介面權威定義</span>
+        </li>
+        <li>
+          <a href="https://facebookmicrosites.github.io/cgroup2/docs/cpu-controller.html" target="_blank" rel="noopener">CPU Controller · Meta cgroup2 guide</a>
+          <span class="ref-source">facebookmicrosites.github.io · Meta 大規模生產的 CPU controller 案例（Laser）</span>
+        </li>
+        <li>
+          <a href="https://lwn.net/Articles/792599/" target="_blank" rel="noopener">Bursty CPU bandwidth · LWN.net</a>
+          <span class="ref-source">lwn.net · cpu.max.burst 設計動機與實作討論</span>
+        </li>
+        <li>
+          <a href="https://lwn.net/Articles/873244/" target="_blank" rel="noopener">SCHED_IDLE for cgroups · LWN.net</a>
+          <span class="ref-source">lwn.net · cpu.idle 介面提案與設計</span>
+        </li>
+        <li>
+          <a href="https://docs.kernel.org/scheduler/sched-eevdf.html" target="_blank" rel="noopener">EEVDF scheduler · kernel docs</a>
+          <span class="ref-source">docs.kernel.org · 取代 CFS 的 EEVDF（kernel 6.6+），cpu.weight 底層演算法</span>
+        </li>
+        <li>
+          <a href="https://docs.kernel.org/scheduler/sched-bwc.html" target="_blank" rel="noopener">CFS Bandwidth Control · kernel docs</a>
+          <span class="ref-source">docs.kernel.org · cpu.max throttle 機制細節</span>
+        </li>
+        <li>
+          <a href="https://developers.redhat.com/articles/2025/11/27/how-does-cgroups-v2-impact-java-net-and-nodejs-openshift-4" target="_blank" rel="noopener">cgroups v2 impact on Java · Red Hat 2025-11</a>
+          <span class="ref-source">developers.redhat.com · JVM 與 cgroup v2 CPU 限制整合分析</span>
+        </li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Chapter nav ====================== -->
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn" href="ch06-thread-mode.html">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">Ch.6 Thread-level 控制</span>
+    </a>
+    <a class="nav-btn next disabled">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">Ch.8 Memory controller</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window.JHsunTheme = { get: getCurrentMode, set: (m) => { setStored(m); applyTheme(m); }, toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); }, };
+})();
+</script>
+
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+
+</body>
+</html>

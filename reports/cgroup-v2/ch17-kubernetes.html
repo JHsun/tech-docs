@@ -1,0 +1,1332 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.17 Kubernetes 整合 — cgroup v2 完整教學</title>
+<meta name="description" content="cgroup v2 與 Kubernetes 完整整合：kubepods 階層、QoS class、CPU/Memory Manager、Memory QoS、In-Place Resize、PSI metrics（K8s 1.34/1.35/1.36）。">
+
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626; --color-danger-soft: #fee2e2;
+  --color-info: #0891b2; --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px;
+  --container-narrow: 720px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px;
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.topbar { position: sticky; top: 0; z-index: 50; background: color-mix(in oklch, var(--bg-canvas) 88%, transparent); backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--border-soft); }
+.topbar-inner { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.brand { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-secondary); }
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 999px; padding: 6px 14px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all .2s; }
+[data-theme-toggle]:hover { background: var(--bg-muted); border-color: var(--border-mid); color: var(--text-primary); }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: 0 var(--space-5); }
+.chapter-head { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); }
+.chapter-tag { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary-text); background: var(--color-primary-soft); padding: 4px 12px; border-radius: 999px; margin-bottom: var(--space-4); }
+.chapter-title { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; margin-bottom: var(--space-3); }
+.chapter-subtitle { font-family: var(--font-serif-body); font-size: var(--text-md); color: var(--text-secondary); line-height: 1.65; font-style: italic; }
+.chapter-meta { margin-top: var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.chapter-meta-item:first-child::before { display: none; }
+.section { padding: var(--space-7) 0; border-bottom: 1px solid var(--border-soft); }
+.section:last-of-type { border-bottom: none; }
+.section-label { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2); }
+.section-label::before { content: ""; width: 24px; height: 1px; background: var(--color-primary); }
+.section-title { font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600; margin-bottom: var(--space-5); letter-spacing: -0.01em; line-height: 1.2; }
+.prose p { font-family: var(--font-serif-body); font-size: var(--text-base); line-height: 1.85; margin-bottom: var(--space-4); }
+.prose h3 { font-family: var(--font-sans); font-size: var(--text-lg); font-weight: 600; margin: var(--space-6) 0 var(--space-3); letter-spacing: -0.01em; }
+.prose h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 500; margin: var(--space-5) 0 var(--space-2); }
+.prose ul, .prose ol { font-family: var(--font-serif-body); margin-bottom: var(--space-4); padding-left: var(--space-5); line-height: 1.8; }
+.prose ul li, .prose ol li { margin-bottom: var(--space-2); }
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong { font-weight: 600; }
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 1px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+.prose a { color: var(--color-primary); text-decoration: underline; text-underline-offset: 3px; }
+.highlights { background: var(--color-primary-soft); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.highlights ol { font-family: var(--font-sans); padding-left: var(--space-5); margin: 0; }
+.highlights li { font-size: var(--text-sm); color: var(--color-primary-text); margin-bottom: var(--space-2); line-height: 1.65; }
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+.news-box { background: var(--color-info-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.news-item { font-family: var(--font-sans); font-size: var(--text-sm); line-height: 1.7; padding: var(--space-2) 0; border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent); }
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-info); margin-right: var(--space-2); }
+pre { font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.7; background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; margin-bottom: var(--space-4); }
+pre code { background: transparent; border: none; padding: 0; font-size: inherit; color: inherit; }
+.cmp-table { width: 100%; border-collapse: collapse; margin-bottom: var(--space-4); font-size: var(--text-sm); font-family: var(--font-sans); }
+.cmp-table th, .cmp-table td { padding: var(--space-3); text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.cmp-table th { font-weight: 600; background: var(--bg-muted); font-size: var(--text-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 1px 5px; border-radius: var(--radius-sm); color: var(--color-primary-text); }
+.lab { background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.lab-title { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--color-primary); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px dashed var(--border-soft); }
+.lab-title::before { content: "▶ "; }
+.lab p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-3); color: var(--text-secondary); line-height: 1.7; }
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+.lab ol, .lab ul { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); color: var(--text-secondary); line-height: 1.7; }
+.pitfall { background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.pitfall-title { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 600; color: var(--color-warning); margin-bottom: var(--space-2); }
+.pitfall p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-2); line-height: 1.7; }
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code { background: color-mix(in oklch, var(--color-warning) 15%, transparent); border-color: color-mix(in oklch, var(--color-warning) 30%, transparent); }
+.quiz-item { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-3); }
+.quiz-q { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; margin-bottom: var(--space-2); display: flex; gap: var(--space-2); }
+.quiz-q-num { font-family: var(--font-mono); color: var(--color-primary); flex-shrink: 0; }
+.quiz-toggle { background: transparent; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 4px 10px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; margin-top: var(--space-2); transition: all .2s; }
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a { display: none; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px dashed var(--border-soft); font-family: var(--font-serif-body); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.75; }
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+.diagram { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); margin-bottom: var(--space-4); text-align: center; }
+.diagram svg { max-width: 100%; height: auto; }
+.diagram-caption { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-3); }
+.refs ol { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); line-height: 1.8; }
+.refs li { margin-bottom: var(--space-2); color: var(--text-secondary); }
+.refs li::marker { color: var(--color-primary); }
+.refs a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dashed var(--color-primary); }
+.refs .ref-source { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); display: block; margin-top: 2px; }
+.chapter-nav { margin-top: var(--space-6); padding: var(--space-5) 0; display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.nav-btn { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; padding: var(--space-3) var(--space-4); background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); text-decoration: none; color: var(--text-primary); transition: all .2s; }
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.04em; }
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.17</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part VI · 生態系 · Chapter 17</span>
+    <h1 class="chapter-title">Kubernetes 整合（雲原生）</h1>
+    <p class="chapter-subtitle">
+      Kubernetes 是 cgroup v2 在生產環境最大規模的使用者。每個 Pod 對應一個 cgroup 子樹、
+      每個 QoS class 對應不同 cgroup 階層、每個 limit / request 對應特定 cgroup 介面。
+      但 K8s 也是 cgroup v2 最複雜的整合——kubelet、container runtime、CRI、CPU Manager、Memory Manager 多層協作，
+      加上 2024–2026 年 K8s 1.34/1.35/1.36 推出的 PSI metrics、Memory QoS、In-Place Resize、Pod-level resources 等新功能讓 cgroup 整合更深入。
+      本章把 K8s + cgroup v2 完整講透——從 kubepods 階層到 QoS class、從 Memory QoS 到 In-Place Resize、
+      從 PSI-based autoscaling 到生產級 troubleshooting。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~8,000 字</span>
+      <span class="chapter-meta-item">閱讀時間 30 分鐘</span>
+      <span class="chapter-meta-item">難度：核心</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+    <div class="highlights">
+      <ol>
+        <li><strong>kubelet 維護的 cgroup 階層</strong>：<code>/kubepods.slice/</code> 三層樹——root → QoS slice → Pod slice → container scope。每層 cgroup 設不同 limit，由 kubelet 與 container runtime 分工管理。</li>
+        <li><strong>QoS class 決定 cgroup 行為</strong>：Guaranteed（限=請求）、Burstable（限&gt;請求）、BestEffort（無限）。三類各自進不同 slice，OOM 順序與 reclaim 優先級由 cgroup hierarchy 自動 enforce。</li>
+        <li><strong>Memory QoS（K8s 1.34 Beta）</strong>：用 cgroup v2 的 memory.min（保證請求記憶體不被 reclaim）+ memory.high（接近 limit 時 throttle 而非 OOM）取代 v1 的純 hard limit 設計。需要 kernel 5.9+。</li>
+        <li><strong>In-Place Pod Resize（K8s 1.35 GA / 1.36 Pod-level Beta）</strong>：不重啟 Pod 就能調整 resources，靠 cgroup v2 的 dynamic update。配合 PSI 可做 closed-loop autoscaling。</li>
+        <li><strong>PSI metrics（K8s 1.34 Beta）</strong>：kubelet 直接 export 節點與 Pod 的 PSI 到 metrics endpoint，是<em>autoscaling 的 killer metric</em>——告訴你 process 是不是真的在等資源，而非「<em>看似忙</em>」。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+    <div class="news-box">
+      <div class="news-item"><span class="news-date">2026-04</span><strong>K8s 1.36 In-Place Pod Resize 持續演進</strong>。container-level resize 已 GA（1.35）；Pod-level resources resize 在 1.36 進入 Beta（feature gate <code>InPlacePodLevelResourcesVerticalScaling</code>）。配合 VPA 終於從「<em>recommendation 工具</em>」變成生產可用。</div>
+      <div class="news-item"><span class="news-date">2025-09</span><strong>K8s 1.34 是分水嶺</strong>：PSI metrics、Memory QoS、Swap 全部進 Beta；user namespaces on-by-default。從這版起 cgroup v2 整合「<em>感覺終於成熟</em>」。</div>
+      <div class="news-item"><span class="news-date">2026-02</span><strong>K8s 1.36 移除對 cgroup v1 的官方支援</strong>。<code>failCgroupV1: false</code> 可暫時繞過但「<em>operationally dangerous</em>」——會 lock 你出 Memory QoS、PSI 等需要 v2 的功能。</div>
+      <div class="news-item"><span class="news-date">2026-02</span><strong>containerd 2.0+ 在 K8s 1.36 為強制</strong>。1.36 移除 containerd 1.x 支援，KubeletCgroupDriverFromCRI 成主流——kubelet 自動從 runtime 偵測 cgroup driver。</div>
+      <div class="news-item"><span class="news-date">2025</span><strong>PSI-based node tainting（K8s 1.36 Alpha）</strong>：節點 PSI 過高自動加 taint，避免新 Pod schedule 進來。是 autoscaling 之外的另一保護層。</div>
+    </div>
+    <div class="prose">
+      <p>
+        2026 年的時點，<strong>K8s + cgroup v2 整合已從「<em>能用</em>」變成「<em>必用</em>」</strong>——v1 完全淘汰、Memory QoS 解決 OOM 痛點、In-Place Resize 解決 VPA 痛點、PSI 解決 autoscaling 痛點。
+        本章把這些放進<em>生產實戰</em> 角度——不只介紹功能，還教你怎麼遷移、怎麼 debug、怎麼設計 closed-loop。
+      </p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+
+    <div class="prose">
+      <h3>3.1 kubelet 的 cgroup 階層</h3>
+      <p>
+        K8s 啟動時，kubelet 在 <code>/sys/fs/cgroup</code> 下建立<strong>三層樹狀結構</strong>：root cgroup → QoS slice → Pod slice → container scope。
+        所有 Pod 都進這個 tree，cgroup 限制由<em>分層繼承與 enforcement</em>。
+      </p>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 680 400" role="img" aria-label="K8s kubelet cgroup tree">
+        <text x="340" y="22" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="600" fill="var(--text-primary)">K8s kubelet 維護的 cgroup tree</text>
+
+        <!-- root -->
+        <rect x="240" y="50" width="200" height="36" rx="6" fill="var(--bg-muted)" stroke="var(--border-mid)" stroke-width="1"/>
+        <text x="340" y="73" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--text-primary)">/kubepods.slice (root)</text>
+
+        <!-- 三個 QoS slice 分支 -->
+        <line x1="340" y1="86" x2="340" y2="100" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="120" y1="100" x2="560" y2="100" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="120" y1="100" x2="120" y2="115" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="340" y1="100" x2="340" y2="115" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="560" y1="100" x2="560" y2="115" stroke="var(--text-muted)" stroke-width="0.5"/>
+
+        <!-- Guaranteed 直接在 root 之下 -->
+        <rect x="60" y="115" width="120" height="36" rx="6" fill="var(--color-success-soft)" stroke="var(--color-success)" stroke-width="0.5"/>
+        <text x="120" y="138" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--color-success)">Guaranteed</text>
+        <text x="120" y="160" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-muted)">（root 直下）</text>
+
+        <!-- Burstable -->
+        <rect x="280" y="115" width="120" height="36" rx="6" fill="var(--color-info-soft)" stroke="var(--color-info)" stroke-width="0.5"/>
+        <text x="340" y="138" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--color-info)">burstable.slice</text>
+        <text x="340" y="160" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-muted)">中間 slice</text>
+
+        <!-- BestEffort -->
+        <rect x="500" y="115" width="120" height="36" rx="6" fill="var(--color-warning-soft)" stroke="var(--color-warning)" stroke-width="0.5"/>
+        <text x="560" y="138" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--color-warning)">besteffort.slice</text>
+        <text x="560" y="160" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-muted)">中間 slice</text>
+
+        <!-- Pod slices -->
+        <line x1="120" y1="151" x2="120" y2="175" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <rect x="20" y="180" width="200" height="32" rx="4" fill="var(--bg-surface)" stroke="var(--border-soft)" stroke-width="0.5"/>
+        <text x="120" y="195" text-anchor="middle" font-family="var(--font-mono)" font-size="9" fill="var(--text-secondary)">kubepods-pod{UID}.slice</text>
+        <text x="120" y="207" text-anchor="middle" font-family="var(--font-sans)" font-size="8" fill="var(--text-muted)">memory.max=2G ｜ cpu.max=2 cores</text>
+
+        <line x1="340" y1="151" x2="340" y2="175" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <rect x="240" y="180" width="200" height="32" rx="4" fill="var(--bg-surface)" stroke="var(--border-soft)" stroke-width="0.5"/>
+        <text x="340" y="195" text-anchor="middle" font-family="var(--font-mono)" font-size="9" fill="var(--text-secondary)">kubepods-burstable-pod{UID}.slice</text>
+        <text x="340" y="207" text-anchor="middle" font-family="var(--font-sans)" font-size="8" fill="var(--text-muted)">memory.max=1G ｜ cpu.max=1 core</text>
+
+        <line x1="560" y1="151" x2="560" y2="175" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <rect x="460" y="180" width="200" height="32" rx="4" fill="var(--bg-surface)" stroke="var(--border-soft)" stroke-width="0.5"/>
+        <text x="560" y="195" text-anchor="middle" font-family="var(--font-mono)" font-size="9" fill="var(--text-secondary)">kubepods-besteffort-pod{UID}.slice</text>
+        <text x="560" y="207" text-anchor="middle" font-family="var(--font-sans)" font-size="8" fill="var(--text-muted)">無 limit ｜ cpu.weight 低</text>
+
+        <!-- Container scopes -->
+        <line x1="120" y1="212" x2="120" y2="230" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <rect x="40" y="235" width="160" height="22" rx="3" fill="var(--bg-canvas)" stroke="var(--border-soft)" stroke-width="0.5"/>
+        <text x="120" y="250" text-anchor="middle" font-family="var(--font-mono)" font-size="8" fill="var(--text-secondary)">cri-containerd-{ID}.scope</text>
+        <rect x="40" y="262" width="160" height="22" rx="3" fill="var(--bg-canvas)" stroke="var(--border-soft)" stroke-width="0.5"/>
+        <text x="120" y="277" text-anchor="middle" font-family="var(--font-mono)" font-size="8" fill="var(--text-secondary)">pause container .scope</text>
+
+        <line x1="340" y1="212" x2="340" y2="230" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <rect x="260" y="235" width="160" height="22" rx="3" fill="var(--bg-canvas)" stroke="var(--border-soft)" stroke-width="0.5"/>
+        <text x="340" y="250" text-anchor="middle" font-family="var(--font-mono)" font-size="8" fill="var(--text-secondary)">cri-containerd-{ID}.scope</text>
+
+        <line x1="560" y1="212" x2="560" y2="230" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <rect x="480" y="235" width="160" height="22" rx="3" fill="var(--bg-canvas)" stroke="var(--border-soft)" stroke-width="0.5"/>
+        <text x="560" y="250" text-anchor="middle" font-family="var(--font-mono)" font-size="8" fill="var(--text-secondary)">cri-containerd-{ID}.scope</text>
+
+        <!-- 圖例 -->
+        <text x="60" y="320" font-family="var(--font-sans)" font-size="10" font-weight="600" fill="var(--text-primary)">圖例與職責：</text>
+        <text x="60" y="340" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">• kubelet 管 root + QoS slice + Pod slice 三層</text>
+        <text x="60" y="358" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">• container runtime（containerd / CRI-O）管 container scope（最內層）</text>
+        <text x="60" y="376" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">• Guaranteed 直接掛 root 之下；Burstable / BestEffort 走中間 slice</text>
+      </svg>
+      <div class="diagram-caption">圖 17.1 · K8s kubelet 維護的 cgroup tree</div>
+    </div>
+
+    <div class="prose">
+      <p>
+        <strong>關鍵設計</strong>：
+      </p>
+      <ul>
+        <li><strong>kubelet 管前三層</strong>：<code>kubepods.slice</code>、QoS slice、Pod slice。透過 <code>libcontainer</code> 直接寫 cgroup 介面。</li>
+        <li><strong>container runtime 管最內層</strong>：containerd / CRI-O 建 container scope，在 Pod slice 之下。</li>
+        <li><strong>Guaranteed 直接掛 root</strong>：<em>沒有</em> 中間的 guaranteed.slice——這是設計簡化，因為 Guaranteed Pod limit 確定，不需要中間層匯總。</li>
+        <li><strong>Burstable / BestEffort 走中間 slice</strong>：方便整類 Pod 統一限制（如「<em>所有 BestEffort 加起來不能超過 1GB</em>」）。</li>
+      </ul>
+
+      <h3>3.2 QoS class 完整對應 cgroup 設定</h3>
+      <p>
+        QoS class 在 Pod 創建時自動決定（看 resources.requests / limits）：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>QoS class</th><th>判斷規則</th><th>cgroup 設定</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Guaranteed</strong></td>
+          <td>所有 container 的 cpu / memory <em>limits == requests</em>，且都有設</td>
+          <td>memory.max = limit<br>cpu.max = limit<br>cpu.weight 高（最大優先級）<br>OOM 最後被殺</td>
+        </tr>
+        <tr>
+          <td><strong>Burstable</strong></td>
+          <td>至少有一個 container 的 limit ≠ request（含部分沒設）</td>
+          <td>memory.max = limit<br>memory.min = request（Memory QoS）<br>cpu.weight = request × 比例<br>OOM 中等優先級</td>
+        </tr>
+        <tr>
+          <td><strong>BestEffort</strong></td>
+          <td>所有 container 都<em>沒有</em> request 與 limit</td>
+          <td>memory.max = max（無）<br>cpu.weight 最低（2）<br>OOM 最先被殺</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h4>OOM 順序的 cgroup 機制</h4>
+      <p>
+        K8s「<em>BestEffort 先殺、Guaranteed 最後殺</em>」靠 kernel OOM 計算 score——每個 process 的 <code>oom_score_adj</code> 由 kubelet 設定：
+      </p>
+      <ul>
+        <li><strong>Guaranteed</strong>：oom_score_adj = -997（極低，幾乎不會被選中）</li>
+        <li><strong>Burstable</strong>：oom_score_adj = 計算值（基於 memory.request / node 容量）</li>
+        <li><strong>BestEffort</strong>：oom_score_adj = 1000（最高，最先被殺）</li>
+      </ul>
+
+      <h3>3.3 Memory QoS（K8s 1.34 Beta）</h3>
+      <p>
+        傳統 K8s 記憶體限制只用 v1 的 hard limit——應用接近 limit 直接 OOM。<strong>Memory QoS</strong> 引入 v2 的 memory.high 做<em>軟限制 + throttle</em>，避免直接 OOM：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>QoS</th><th>memory.min</th><th>memory.high</th><th>memory.max</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Guaranteed</td>
+          <td>= request</td>
+          <td><em>不設</em>（豁免 throttle）</td>
+          <td>= limit</td>
+        </tr>
+        <tr>
+          <td>Burstable（有 limit）</td>
+          <td>= request</td>
+          <td>request + 0.9 × (limit − request)</td>
+          <td>= limit</td>
+        </tr>
+        <tr>
+          <td>Burstable（無 limit）</td>
+          <td>= request</td>
+          <td>0.9 × node allocatable</td>
+          <td>= max（無）</td>
+        </tr>
+        <tr>
+          <td>BestEffort</td>
+          <td>0</td>
+          <td>不設</td>
+          <td>max</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        <strong>memoryThrottlingFactor</strong>：預設 0.9（可調）。意思是「<em>當記憶體使用達到 limit 與 request 之間 90% 時開始 throttle</em>」。
+      </p>
+      <p>
+        <strong>啟用方式</strong>：
+      </p>
+<pre><code># /var/lib/kubelet/config.yaml
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+featureGates:
+  MemoryQoS: true
+memoryQoS:
+  memoryThrottlingFactor: 0.9   # 預設
+</code></pre>
+      <p>
+        <strong>需求</strong>：kernel 5.9+（livelock 修復）、cgroup v2、CRI runtime 支援 LinuxContainerResources.Unified（containerd 1.6+、CRI-O 1.22+）。
+      </p>
+      <p>
+        <strong>觀察 Memory QoS 在運作</strong>：
+      </p>
+<pre><code>POD_UID=$(kubectl get pod my-pod -o jsonpath='{.metadata.uid}')
+CG=/sys/fs/cgroup/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod${POD_UID//-/_}.slice
+
+# 看 memory.min（保證）
+cat $CG/memory.min     # 應該等於 request
+
+# 看 memory.high（throttle 閾值）
+cat $CG/memory.high
+
+# 看 throttle 事件
+cat $CG/memory.events
+# high counter 增加 = 應用達到 throttle，受 Memory QoS 保護
+
+# 看是否在 throttle 中（PSI）
+cat $CG/memory.pressure
+# full avg10 > 5 表示嚴重 throttle
+</code></pre>
+
+      <h3>3.4 In-Place Pod Resize（K8s 1.35 GA）</h3>
+      <p>
+        傳統 Pod 的 <code>resources</code> 是 immutable——改 limit 必須重啟 Pod。在 production 這意味著：
+      </p>
+      <ul>
+        <li><strong>JVM 重啟丟失 JIT</strong>，需要 5–15 分鐘 warm-up</li>
+        <li><strong>Redis 重啟丟失 cache</strong>，下游服務 cache miss spike</li>
+        <li><strong>PostgreSQL 重啟觸發 WAL replay</strong>，可能 5+ 分鐘 unavailable</li>
+        <li>結果：VPA 只能當「<em>建議工具</em>」，沒人敢自動 resize 生產 Pod</li>
+      </ul>
+      <p>
+        <strong>In-Place Resize</strong> 利用 cgroup v2 的<em>動態更新能力</em>——kubelet 直接寫新值到 memory.max / cpu.max，<em>不重啟 process</em>。
+      </p>
+      <p>
+        <strong>API：subresource resize</strong>（K8s 1.32+ kubectl 支援）：
+      </p>
+<pre><code># 增加 CPU（不重啟）
+kubectl patch pod my-pod --subresource resize --patch \
+  '{"spec":{"containers":[{"name":"app","resources":{"requests":{"cpu":"800m"},"limits":{"cpu":"800m"}}}]}}'
+
+# 等同於 kubelet 寫入：
+echo "800000 100000" > /sys/fs/cgroup/.../cpu.max
+# process 立即取得新 quota，沒有任何中斷
+
+# 看狀態
+kubectl get pod my-pod -o yaml | grep -A 10 'status'
+# observedResources 顯示實際 cgroup 中的值
+# allocatedResources 顯示 kubelet 已套用的值
+</code></pre>
+
+      <h4>resizePolicy 控制重啟行為</h4>
+<pre><code>spec:
+  containers:
+  - name: app
+    resizePolicy:
+    - resourceName: cpu
+      restartPolicy: NotRequired   # CPU 改變不重啟（推薦）
+    - resourceName: memory
+      restartPolicy: RestartContainer  # 記憶體減少時重啟（保守）
+    resources:
+      limits: { cpu: "1", memory: "1Gi" }
+      requests: { cpu: "500m", memory: "512Mi" }
+</code></pre>
+      <p>
+        <strong>1.36 進入 Pod-level Beta</strong>：除了 container-level，也能調整 Pod 整體的 <code>spec.resources</code>（feature gate <code>InPlacePodLevelResourcesVerticalScaling</code>）。
+      </p>
+      <p>
+        <strong>限制</strong>：
+      </p>
+      <ul>
+        <li>只支援 CPU 與 memory（其他 resource type 不行）</li>
+        <li>QoS class 不能變（Guaranteed → Burstable 不允許）</li>
+        <li>記憶體減少時 best-effort——若實際使用 &gt; 新 limit 會跳過</li>
+        <li>需要 cgroup v2 + containerd 2.0+</li>
+      </ul>
+
+      <h3>3.5 PSI metrics（K8s 1.34 Beta）</h3>
+      <p>
+        前面 Ch.12 講過 PSI 是 cgroup v2 的核心觀測能力。K8s 1.34 把它整合進 kubelet metrics endpoint：
+      </p>
+<pre><code># 看節點 PSI
+curl https://node-ip:10250/metrics | grep psi
+# node_cpu_pressure_some_avg10
+# node_memory_pressure_full_avg10
+# node_io_pressure_some_avg10
+
+# 看 Pod PSI（per-pod metrics）
+kubectl top pod --use-protocol-buffers my-pod
+# 或從 Prometheus
+kube_pod_pressure_memory_full_avg10{pod="my-pod"}
+</code></pre>
+      <p>
+        <strong>為什麼 PSI 是「<em>autoscaling killer metric</em>」</strong>：
+      </p>
+      <ul>
+        <li>傳統 HPA 看 CPU usage——但 80% CPU 可能是「<em>真的忙</em>」也可能是「<em>有人卡住</em>」。</li>
+        <li>PSI 直接告訴你「<em>process 因等資源而 stall 多久</em>」——這是 user-perceived latency 的根源。</li>
+        <li>用 PSI 做 autoscaling target 比 CPU usage 準確得多——「<em>memory.pressure full avg10 &gt; 5%</em>」是「<em>imminent OOM 強烈訊號</em>」（Netdata 文件）。</li>
+      </ul>
+
+      <h4>PSI-based HPA 範例</h4>
+<pre><code>apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: psi-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: my-app
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+  - type: Pods
+    pods:
+      metric:
+        name: kube_pod_pressure_memory_some_avg10
+      target:
+        type: AverageValue
+        averageValue: "5"   # PSI &gt; 5% 就 scale out
+</code></pre>
+      <p>
+        <strong>PSI-based node tainting（K8s 1.36 Alpha）</strong>：節點 PSI 過高自動加 taint，scheduler 不再 schedule 新 Pod 到該節點——避免雪崩。
+      </p>
+
+      <h3>3.6 CPU Manager 與 cpuset</h3>
+      <p>
+        Pod 設 Guaranteed QoS + CPU 為整數時，<strong>CPU Manager</strong>（kubelet feature）可以把 container 綁到特定 CPU——透過 cgroup v2 的 cpuset。
+      </p>
+<pre><code># 啟用 CPU Manager（static policy）
+# /var/lib/kubelet/config.yaml
+cpuManagerPolicy: "static"
+reservedSystemCPUs: "0,1"  # CPU 0-1 給系統，不給 Pod 用
+
+# Pod 必須是 Guaranteed + 整數 CPU
+spec:
+  containers:
+  - name: app
+    resources:
+      limits:    { cpu: "4", memory: "8Gi" }
+      requests:  { cpu: "4", memory: "8Gi" }
+
+# CPU Manager 自動把 container 綁到 4 個獨佔 CPU
+# 看 cgroup
+cat /sys/fs/cgroup/.../cpuset.cpus
+# 例：4-7（4 個獨佔 CPU）
+</code></pre>
+      <p>
+        <strong>適用場景</strong>：低延遲應用（DB、game server、media processing）需要避免 CPU 上下文切換。設 static policy 後，這些 Pod 獨佔 CPU，不被其他 Pod 干擾。
+      </p>
+
+      <h3>3.7 Pod-level resources（K8s 1.34 Beta，1.36 持續完善）</h3>
+      <p>
+        傳統 K8s 只能在 container 層設 resources。<strong>Pod-level resources</strong> 讓你在 Pod spec 直接設整體限制：
+      </p>
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-level-demo
+spec:
+  resources:
+    requests: { cpu: "2", memory: "4Gi" }
+    limits:   { cpu: "4", memory: "8Gi" }
+  containers:
+  - name: app
+    image: my-app
+    # 不設 resources，從 Pod-level 繼承
+  - name: sidecar
+    image: my-sidecar
+    resources:
+      limits: { cpu: "500m", memory: "1Gi" }
+</code></pre>
+      <p>
+        <strong>意義</strong>：Pod-level resources 對應 <em>Pod cgroup</em>（kubepods-pod{UID}.slice）的限制，整個 Pod 共享這個上限。container-level limit 仍可在 Pod-level 之下細分。
+      </p>
+      <p>
+        <strong>啟用</strong>：feature gate <code>PodLevelResources</code>（1.34 Beta、1.35 預設啟用）。
+      </p>
+
+      <h3>3.8 Pod 排查與 cgroup 對應</h3>
+      <p>
+        實戰技巧——<strong>從 Pod 找 cgroup path</strong>：
+      </p>
+<pre><code># 取 Pod UID
+POD_UID=$(kubectl get pod my-pod -o jsonpath='{.metadata.uid}')
+
+# Guaranteed
+CG=/sys/fs/cgroup/kubepods.slice/kubepods-pod${POD_UID//-/_}.slice/
+
+# Burstable
+CG=/sys/fs/cgroup/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod${POD_UID//-/_}.slice/
+
+# BestEffort
+CG=/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-pod${POD_UID//-/_}.slice/
+
+# 看 Pod 整體限制（Pod-level cgroup）
+cat $CG/memory.max
+cat $CG/cpu.max
+cat $CG/memory.pressure
+
+# 看 container 限制
+ls $CG  # 看到 cri-containerd-{ID}.scope/
+cat $CG/cri-containerd-{ID}.scope/memory.max
+
+# 看 Pod 即時用量
+cat $CG/memory.current
+cat $CG/memory.peak
+cat $CG/cpu.stat
+</code></pre>
+
+      <h3>3.9 K8s 對 cgroup v2 的完整 timeline</h3>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>K8s 版本</th><th>cgroup v2 相關更新</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>1.19</td><td>cgroup v2 Alpha 支援</td></tr>
+        <tr><td>1.22</td><td>cgroup v2 Beta；Memory QoS Alpha</td></tr>
+        <tr><td>1.25</td><td>cgroup v2 GA（穩定預設）</td></tr>
+        <tr><td>1.27</td><td>In-Place Resize Alpha</td></tr>
+        <tr><td>1.31</td><td>cgroup v1 進入 maintenance mode（不再積極開發）</td></tr>
+        <tr><td>1.32</td><td>kubectl --subresource resize 支援；Swap 支援 Beta</td></tr>
+        <tr><td>1.33</td><td>In-Place Resize Beta；Image Volumes Beta；user namespaces on-by-default Beta</td></tr>
+        <tr><td><strong>1.34</strong></td><td><strong>PSI metrics Beta；Memory QoS Beta；Swap GA；Pod-level resources Beta</strong></td></tr>
+        <tr><td><strong>1.35</strong></td><td><strong>In-Place Resize GA；containerd 1.x 最後支援</strong></td></tr>
+        <tr><td><strong>1.36</strong></td><td><strong>Pod-level In-Place Resize Beta；KubeletCgroupDriverFromCRI；PSI node tainting Alpha；containerd 2.0+ 強制</strong></td></tr>
+        <tr><td>1.37（規劃）</td><td>v1 完全移除；KubeletCgroupDriverFromCRI fallback 移除</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h3>3.10 best practices</h3>
+      <ul>
+        <li><strong>所有節點升級到 cgroup v2 + kernel 5.9+</strong>：Memory QoS 與 PSI 都要這個底</li>
+        <li><strong>kubelet 與 runtime 用 systemd driver</strong>：1.36+ 用 KubeletCgroupDriverFromCRI 自動偵測</li>
+        <li><strong>啟用 Memory QoS</strong>：Burstable Pod 享受 throttle 而非直接 OOM</li>
+        <li><strong>VPA 配合 In-Place Resize</strong>：終於可以讓 VPA 在 production 自動 resize</li>
+        <li><strong>HPA 用 PSI metrics</strong>：比 CPU usage 準得多，特別對 memory-bound、IO-bound workload</li>
+        <li><strong>Guaranteed QoS 給 critical service</strong>：保證 cgroup 優先級，OOM 最後被殺</li>
+        <li><strong>CPU Manager static policy 給 latency-critical</strong>：DB、game server、media 等</li>
+        <li><strong>監控 PSI + memory.events</strong>：是 alert / autoscaling 的最佳訊號</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例</h2>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · 探索 K8s cgroup tree</div>
+<pre><code># 在 K8s node 上跑（非控制平面）
+systemd-cgls /kubepods.slice | head -40
+
+# 看 root 限制
+cat /sys/fs/cgroup/kubepods.slice/memory.max
+cat /sys/fs/cgroup/kubepods.slice/cpu.max
+# 預期：memory 接近 node allocatable
+
+# 看每個 Pod
+for d in /sys/fs/cgroup/kubepods.slice/kubepods-pod*.slice/; do
+    UID=$(basename $d | sed 's/kubepods-pod//; s/.slice//')
+    POD=$(kubectl get pods --all-namespaces -o jsonpath="{range .items[?(@.metadata.uid=='${UID//_/-}')]}{.metadata.namespace}/{.metadata.name}{end}")
+    echo "$POD: memory.max=$(cat $d/memory.max), cpu.max=$(cat $d/cpu.max)"
+done
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · 觀察 QoS class 對 cgroup 設定的影響</div>
+<pre><code># 建立三個 Pod，QoS class 各不同
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-guaranteed
+  namespace: default
+spec:
+  containers:
+  - name: app
+    image: pause:3.10
+    resources:
+      requests: { cpu: "100m", memory: "128Mi" }
+      limits:   { cpu: "100m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-burstable
+spec:
+  containers:
+  - name: app
+    image: pause:3.10
+    resources:
+      requests: { cpu: "100m", memory: "128Mi" }
+      limits:   { cpu: "200m", memory: "256Mi" }
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-besteffort
+spec:
+  containers:
+  - name: app
+    image: pause:3.10
+EOF
+
+# 看每個 Pod 的 cgroup path
+for pod in pod-guaranteed pod-burstable pod-besteffort; do
+    UID=$(kubectl get pod $pod -o jsonpath='{.metadata.uid}')
+    QOS=$(kubectl get pod $pod -o jsonpath='{.status.qosClass}')
+    echo "=== $pod ($QOS) ==="
+    case $QOS in
+        Guaranteed) CG=/sys/fs/cgroup/kubepods.slice/kubepods-pod${UID//-/_}.slice ;;
+        Burstable) CG=/sys/fs/cgroup/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod${UID//-/_}.slice ;;
+        BestEffort) CG=/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-pod${UID//-/_}.slice ;;
+    esac
+    cat $CG/memory.max
+    cat $CG/cpu.max
+done
+
+# 清理
+kubectl delete pod pod-guaranteed pod-burstable pod-besteffort
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · 啟用並驗證 Memory QoS</div>
+<pre><code># 1. 確認 kernel 5.9+
+uname -r
+
+# 2. 啟用 MemoryQoS feature gate（如果還沒）
+sudo systemctl edit kubelet
+# 加入 --feature-gates=MemoryQoS=true 到 ExecStart
+# 或編輯 /var/lib/kubelet/config.yaml
+
+# 3. 重啟 kubelet
+sudo systemctl restart kubelet
+
+# 4. 啟動 Burstable Pod 測試
+kubectl run mem-qos-test --image=alpine --restart=Never \
+    --requests='memory=200Mi' --limits='memory=500Mi' \
+    -- sleep 3600
+
+# 5. 看 Memory QoS 設定的 cgroup
+UID=$(kubectl get pod mem-qos-test -o jsonpath='{.metadata.uid}')
+CG=/sys/fs/cgroup/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod${UID//-/_}.slice/
+
+cat $CG/memory.min     # 應該 = 200Mi（request）
+cat $CG/memory.high    # 應該 = 200Mi + 0.9 * (500Mi - 200Mi) = 470Mi
+cat $CG/memory.max     # 應該 = 500Mi（limit）
+
+# 6. 製造記憶體壓力觀察 throttle
+kubectl exec -it mem-qos-test -- sh -c '
+apk add stress-ng
+stress-ng --vm 1 --vm-bytes 480M --timeout 30s
+'
+
+# 觀察 events
+cat $CG/memory.events
+# high counter 應該增加（達到 throttle）
+# 如果沒 Memory QoS，會直接 OOM kill
+
+# 清理
+kubectl delete pod mem-qos-test
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 4 · 體驗 In-Place Pod Resize</div>
+<pre><code># 1. 確認 K8s 版本 ≥ 1.32 + In-Place Resize Beta+
+kubectl version --short
+
+# 2. 建立 Pod 含 resizePolicy
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: resize-demo
+spec:
+  containers:
+  - name: app
+    image: pause:3.10
+    resizePolicy:
+    - resourceName: cpu
+      restartPolicy: NotRequired
+    - resourceName: memory
+      restartPolicy: NotRequired
+    resources:
+      limits:    { cpu: "200m", memory: "200Mi" }
+      requests:  { cpu: "200m", memory: "200Mi" }
+EOF
+
+# 3. 看初始 cgroup
+UID=$(kubectl get pod resize-demo -o jsonpath='{.metadata.uid}')
+CG=/sys/fs/cgroup/kubepods.slice/kubepods-pod${UID//-/_}.slice/
+cat $CG/cpu.max
+cat $CG/memory.max
+
+# 4. 動態 resize CPU
+kubectl patch pod resize-demo --subresource resize --patch \
+  '{"spec":{"containers":[{"name":"app","resources":{"requests":{"cpu":"500m"},"limits":{"cpu":"500m"}}}]}}'
+
+# 5. 確認 cgroup 即時更新
+sleep 2
+cat $CG/cpu.max
+# 應該變成 500000 100000（500m）
+
+# 6. 看 restartCount 沒變
+kubectl get pod resize-demo -o jsonpath='{.status.containerStatuses[0].restartCount}'
+echo
+
+# 清理
+kubectl delete pod resize-demo
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 5 · 採集 PSI metrics 給 Prometheus</div>
+<pre><code># 1. 確認 K8s 1.34+ 與 PSI feature gate
+kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.kubeletVersion}'
+
+# 2. 直接訪問 kubelet metrics
+TOKEN=$(kubectl create token default)
+NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+
+curl -k -H "Authorization: Bearer $TOKEN" \
+    https://$NODE_IP:10250/metrics | grep -E '_pressure_'
+
+# 預期看到：
+# node_cpu_pressure_some_avg10
+# node_memory_pressure_full_avg10
+# kube_pod_pressure_memory_some_avg10{pod="..."}
+
+# 3. 透過 Prometheus 看時序
+# query: rate(kube_pod_pressure_memory_full_avg10[5m]) > 5
+
+# 4. 設 alert
+cat <<EOF
+groups:
+- name: psi_alerts
+  rules:
+  - alert: PodMemoryPressureHigh
+    expr: kube_pod_pressure_memory_full_avg10 > 5
+    for: 2m
+    annotations:
+      summary: "Pod {{ \$labels.pod }} memory pressure full > 5%"
+      description: "Imminent OOM signal"
+EOF
+</code></pre>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · Memory QoS 在舊 kernel 觸發 livelock</div>
+      <p>kernel &lt; 5.9 啟用 Memory QoS：memory.high 達到後 kernel 持續嘗試 reclaim，process 進入「<em>looking running but doing nothing</em>」狀態。修法：升 kernel 到 5.9+，或 disable MemoryQoS feature gate。檢測：<code>cat memory.pressure</code> full avg10 持續高、<code>memory.events</code> high counter 暴增。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · In-Place Resize 改 QoS class 失敗</div>
+      <p>Pod 是 Burstable（limit ≠ request），想 resize 成 Guaranteed（limit = request）——失敗。原因：QoS class 在 Pod 創建時固定，不能透過 resize 改變。修法：要改 QoS 必須重建 Pod。In-Place Resize 只能在<em>同 QoS</em> 內調整。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · 記憶體 In-Place 減少觸發 OOM</div>
+      <p>Pod 當前用 800MB，把 limit 從 1Gi 減到 500Mi——預期：直接 OOM。實際 K8s 1.36 行為：kubelet 偵測到 current &gt; new limit，跳過 resize，狀態 "In Progress"。但這只是 best-effort，race condition 下仍可能 OOM。修法：減記憶體前先確認 current usage &lt; 新 limit，或設 resizePolicy=RestartContainer 接受重啟。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · kubelet 與 runtime cgroup driver 不一致</div>
+      <p>kubelet 設 systemd、containerd 設 cgroupfs（或反之）——Pod 啟動偶發失敗、cAdvisor 取資料錯亂。Ch.16 講過。修法：兩邊一致用 systemd。K8s 1.36+ 用 KubeletCgroupDriverFromCRI 自動偵測。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 5 · CPU Manager static policy 配 Burstable Pod 沒效果</div>
+      <p>啟用 static policy，期望 CPU 綁定——但 Burstable 與非整數 CPU Pod 完全沒 CPU pinning。原因：static policy <em>只</em> 對 Guaranteed + 整數 CPU 的 container 生效。修法：要 CPU pinning 必須 Guaranteed + 整數 cpu.limits（cpu: "4" 而非 "3500m"）。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 6 · 嘗試在 Pod cgroup 自己 mkdir 子 cgroup</div>
+      <p>應用想在自己的 cgroup 之下建子 cgroup（如 nested container）——失敗。原因：K8s 預設沒對 Pod cgroup 設 Delegate=yes，違反 single-writer。修法：Pod 若需要管自己的 cgroup 子樹，要透過 RuntimeClass 自訂 runtime 加 Delegate，或用 user namespace + rootless container（K8s 1.33+ user namespaces on-by-default）。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 7 · 想看 BestEffort Pod 用了多少資源</div>
+      <p>BestEffort Pod 沒設 limit，<code>kubectl top pod</code> 顯示「<em>?</em>」或空白？原因：metrics-server 部分 metric 依賴 limit 計算，沒 limit 就無法顯示「<em>used / limit</em>」百分比。修法：直接看 cgroup memory.current / cpu.stat。或部署 cAdvisor 看絕對值。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 8 · K8s 1.36 升級後 containerd 1.x 整個炸</div>
+      <p>升級 K8s 1.35 → 1.36，所有 containerd 1.x 節點 Pod 啟動失敗——KubeletCgroupDriverFromCRI 在 1.36 強制使用，舊 containerd 不支援 RuntimeConfig CRI RPC。修法：升級<em>前</em> 確認所有節點 containerd ≥ 2.0。1.37 將完全移除 fallback。</p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · 設計 Pod resources 對應特定 cgroup 行為（10 分鐘）</div>
+      <p>對以下需求各寫一個 Pod yaml：</p>
+      <ol>
+        <li>關鍵 DB Pod：保證 4 CPU + 8GB，OOM 最後被殺</li>
+        <li>Web service Pod：平常 100m CPU、burst 到 500m，記憶體 200Mi-500Mi 區間，受 Memory QoS throttle 保護</li>
+        <li>Background batch：BestEffort，可被 evict</li>
+        <li>Pod-level resources：3 個 container 共享 2 CPU + 4GB 上限</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · 寫 audit script 找出 unbounded Pods（15 分鐘）</div>
+<pre><code>#!/bin/bash
+# k8s-resource-audit.sh
+
+echo "=== Unbounded Pods ==="
+kubectl get pods --all-namespaces -o json | \
+    jq -r '.items[] | select(
+        .spec.containers[] |
+        (.resources.limits.memory == null or .resources.limits.cpu == null)
+    ) | "\(.metadata.namespace)/\(.metadata.name)"'
+
+echo "=== BestEffort Pods（無 request 與 limit）==="
+kubectl get pods --all-namespaces -o json | \
+    jq -r '.items[] | select(.status.qosClass == "BestEffort") | 
+        "\(.metadata.namespace)/\(.metadata.name)"'
+
+echo "=== 高優先級但非 Guaranteed 的 Pod ==="
+# priorityClassName=high 但 QoS != Guaranteed 是常見錯配
+kubectl get pods --all-namespaces -o json | \
+    jq -r '.items[] | select(
+        .spec.priorityClassName == "high" and
+        .status.qosClass != "Guaranteed"
+    ) | "\(.metadata.namespace)/\(.metadata.name)"'</code></pre>
+      <p>跑在你的 cluster，看有多少 Pod 設定不健康。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 設計 PSI-based HPA（思考題，15 分鐘）</div>
+      <p>不需執行，回答以下設計問題：</p>
+      <ol>
+        <li>對 latency-critical web service：HPA 用 cpu pressure some &gt; X% 還是 memory pressure full &gt; X%？閾值設多少？</li>
+        <li>對 IO-heavy batch：用什麼 PSI metric？</li>
+        <li>PSI metric 與 traditional CPU usage 比，哪個更準確？哪些情況前者誤導後者準？</li>
+        <li>用 PSI 加 In-Place Resize 設計 closed-loop autoscaling，怎麼避免抖動？</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 規劃 cluster 升級到 K8s 1.36（思考題，20 分鐘）</div>
+      <p>你管理 100 節點 K8s 1.32 cluster，要升到 1.36。回答：</p>
+      <ol>
+        <li>升級前必做的 cgroup v2 / containerd 2.0 / kernel 5.9+ 檢查項目？</li>
+        <li>哪些 feature gate 該開啟？（MemoryQoS、PodLevelResources、InPlacePodVerticalScaling 等）</li>
+        <li>怎麼分階段 rollout 避免風險？</li>
+        <li>升級後該怎麼驗證 cgroup v2 整合在 work？</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>K8s 的 cgroup tree 有幾層？kubelet 與 container runtime 各自管哪些？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>三層結構</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>root：<code>/kubepods.slice</code></strong>——所有 Pod 容器的根（不含 system / user.slice）</li>
+          <li><strong>QoS slice</strong>：burstable.slice、besteffort.slice（Guaranteed 直接掛 root，沒中間層）</li>
+          <li><strong>Pod slice</strong>：<code>kubepods-pod{UID}.slice</code> 或 <code>kubepods-burstable-pod{UID}.slice</code></li>
+          <li><strong>Container scope</strong>：<code>cri-containerd-{ID}.scope</code>（在 Pod slice 之下）</li>
+        </ol>
+        <strong>分工</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>kubelet 管前三層（root、QoS slice、Pod slice）</strong>：透過 libcontainer 直接寫 cgroup 介面。維護 hierarchy 結構與 Pod-level limit。</li>
+          <li><strong>container runtime 管最內層 container scope</strong>：containerd / CRI-O 透過 OCI runtime（runc / crun）建 scope，套用 container-level limit。</li>
+        </ul>
+        <strong>為什麼 Guaranteed 沒 QoS slice 中間層</strong>：Guaranteed Pod 的 limit 都是確定的，不需要中間層匯總。BestEffort / Burstable 走中間 slice 是為了「<em>整類 Pod 統一限制</em>」（如系統設「<em>BestEffort 加起來不超過 X%</em>」）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>QoS class 怎麼決定？三類各自對應的 cgroup 設定差別？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>判斷規則</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>Guaranteed</strong>：所有 container 的 cpu / memory <em>limits == requests</em> 且都有設</li>
+          <li><strong>Burstable</strong>：至少一個 container 的 limit ≠ request</li>
+          <li><strong>BestEffort</strong>：所有 container 都<em>沒</em> request 與 limit</li>
+        </ul>
+        <strong>cgroup 對應</strong>：
+        <table style="font-size:11px;margin-top:8px;width:100%;border-collapse:collapse;">
+          <tr style="background:var(--bg-muted);"><th style="padding:4px;">QoS</th><th>memory.max</th><th>memory.min</th><th>cpu.weight</th><th>oom_score_adj</th></tr>
+          <tr><td>Guaranteed</td><td>= limit</td><td>= request</td><td>高</td><td>-997</td></tr>
+          <tr><td>Burstable</td><td>= limit</td><td>= request</td><td>中</td><td>計算</td></tr>
+          <tr><td>BestEffort</td><td>max</td><td>0</td><td>2（最低）</td><td>1000</td></tr>
+        </table>
+        <strong>OOM 順序</strong>：oom_score_adj 高的先被殺。BestEffort（1000）→ Burstable（變動）→ Guaranteed（-997，幾乎不會被殺）。
+        <strong>實務影響</strong>：critical service 必設 Guaranteed（DB、auth）；web app 可 Burstable；可丟的 batch job 可 BestEffort（但要注意 K8s 內某些 controller 限制 BestEffort）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span>Memory QoS（K8s 1.34 Beta）解決什麼問題？memory.high 怎麼計算？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>解決問題</strong>：傳統 K8s 記憶體限制只用 hard limit（memory.limit_in_bytes）——應用接近 limit 直接 OOM kill。沒有「<em>慢慢 throttle</em>」中間態。
+        <strong>Memory QoS 設計</strong>：用 cgroup v2 的三介面：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>memory.min = request</strong>：保證請求記憶體不被 reclaim</li>
+          <li><strong>memory.high</strong>：軟限制 + throttle threshold</li>
+          <li><strong>memory.max = limit</strong>：硬限，超過 OOM</li>
+        </ul>
+        <strong>memory.high 計算</strong>（throttling factor 預設 0.9）：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>Guaranteed：<em>不設</em>（豁免 throttle，享受最高優先級）</li>
+          <li>Burstable（有 limit）：<code>request + 0.9 × (limit − request)</code></li>
+          <li>Burstable（無 limit）：<code>0.9 × node allocatable</code></li>
+          <li>BestEffort：不設</li>
+        </ul>
+        <strong>意義</strong>：當應用記憶體用到 90% 區間時，kernel 開始 throttle 而不是直接 OOM，給 monitor / autoscaler 介入時間。
+        <strong>需求</strong>：kernel 5.9+（livelock 修復）、cgroup v2、CRI runtime 支援 LinuxContainerResources.Unified（containerd 1.6+、CRI-O 1.22+）。
+        <strong>1.34 Beta 啟用</strong>：feature gate <code>MemoryQoS</code>、kubelet config 設 <code>memoryQoS.memoryThrottlingFactor</code>（預設 0.9）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span>In-Place Pod Resize 解決什麼問題？怎麼實作？有什麼限制？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>解決問題</strong>：傳統 K8s 的 <code>resources</code> 是 immutable——改 limit 必須重啟 Pod。在 production 痛點：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>JVM 重啟丟失 JIT，5–15 分鐘 warm-up</li>
+          <li>Redis 重啟丟失 cache，下游 cache miss spike</li>
+          <li>PostgreSQL 重啟觸發 WAL replay，5+ 分鐘 unavailable</li>
+          <li>結果：VPA 只能當「<em>建議工具</em>」，沒人敢自動 resize 生產 Pod</li>
+        </ul>
+        <strong>實作機制</strong>：利用 cgroup v2 的<em>動態更新能力</em>。kubelet 直接 write 新值到 memory.max / cpu.max——process 立即取得新 quota，<em>不重啟</em>。
+        <strong>API</strong>：<code>kubectl patch pod NAME --subresource resize --patch '{...}'</code>（需 kubectl 1.32+）。
+        <strong>resizePolicy</strong>：每個 resource 可獨立設 <code>NotRequired</code>（不重啟）或 <code>RestartContainer</code>（重啟）。CPU 通常 NotRequired，memory 視 application 而定。
+        <strong>限制</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>只支援 cpu 與 memory（其他 resource type 不行）</li>
+          <li>QoS class 不能變</li>
+          <li>記憶體減少時 best-effort——若 current usage &gt; 新 limit 會跳過或重啟</li>
+          <li>需要 cgroup v2 + containerd 2.0+ + K8s 1.32+</li>
+        </ol>
+        <strong>1.35 GA / 1.36 Pod-level Beta</strong>：1.35 container-level GA；1.36 Pod-level（spec.resources）進 Beta。VPA 終於可以在 production 自動 resize。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span>PSI metrics 在 K8s 1.34 Beta 整合，為什麼是「<em>autoscaling killer metric</em>」？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>傳統 HPA 指標的問題</strong>：CPU usage 80% 可能是「<em>真的忙</em>」也可能是「<em>有人卡住</em>」。HPA 看不到差別，可能誤判：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>application 卡在 IO（CPU 30% 但 latency 飛漲）→ CPU-based HPA 不 scale</li>
+          <li>application CPU 真的滿載做有用工作 → CPU-based HPA scale 也合理</li>
+          <li>memory 接近 limit 但還沒 OOM → CPU-based HPA 看不到</li>
+        </ul>
+        <strong>PSI 的優勢</strong>：直接告訴你「<em>process 因等資源而 stall 多少時間</em>」——這就是 user-perceived latency 的根源。
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>cpu.pressure some</strong>：有 task 在等 CPU。&gt; 5% 表示明顯擁擠。</li>
+          <li><strong>memory.pressure full</strong>：所有 process 都在 stall 等記憶體。&gt; 5% 是「<em>imminent OOM 強烈訊號</em>」（Netdata 文件）。</li>
+          <li><strong>io.pressure full</strong>：整個 cgroup 都在等 IO。throughput 為零。</li>
+        </ul>
+        <strong>K8s 1.34 整合</strong>：kubelet 直接 export 節點與 Pod 的 PSI 到 metrics endpoint：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><code>node_cpu_pressure_some_avg10</code></li>
+          <li><code>node_memory_pressure_full_avg10</code></li>
+          <li><code>kube_pod_pressure_memory_full_avg10{pod="..."}</code></li>
+        </ul>
+        <strong>HPA 範例</strong>：
+        <pre style="margin-top:8px;font-size:11px;">metrics:
+- type: Pods
+  pods:
+    metric:
+      name: kube_pod_pressure_memory_some_avg10
+    target:
+      type: AverageValue
+      averageValue: "5"   # PSI > 5% 就 scale out</pre>
+        <strong>1.36 Alpha 進階</strong>：PSI-based node tainting——節點 PSI 過高自動加 taint，scheduler 不再 schedule 新 Pod，避免雪崩。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>CPU Manager 的 static policy 怎麼運作？什麼 Pod 才能受益？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>static policy 運作機制</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>kubelet 啟動時讀 <code>reservedSystemCPUs</code>（給系統保留的 CPU）</li>
+          <li>Pod 啟動時，若是 Guaranteed + 整數 cpu limit，CPU Manager 從可用 pool 分配獨佔 CPU</li>
+          <li>透過 cgroup v2 的 <code>cpuset.cpus</code> 把 container 綁到這些 CPU</li>
+          <li>其他 Pod 不能使用這些 CPU——避免上下文切換干擾</li>
+        </ol>
+        <strong>什麼 Pod 受益</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>必須是 <strong>Guaranteed QoS</strong>（limit = request）</li>
+          <li>cpu limit 必須是<strong>整數</strong>（"4" 而非 "3500m"）</li>
+          <li>典型 workload：低延遲應用（DB、game server、media processing、HFT）</li>
+        </ul>
+        <strong>非 Guaranteed Pod</strong>：跑在 shared CPU pool（剩下的 CPU），可隨意排程，沒 pinning。
+        <strong>啟用方式</strong>：
+        <pre style="margin-top:8px;font-size:11px;"># /var/lib/kubelet/config.yaml
+cpuManagerPolicy: static
+reservedSystemCPUs: "0,1"  # 給系統用</pre>
+        <strong>注意</strong>：靜態策略一旦啟用<em>不能直接切回 none</em>——需要 drain node、清理 cpu_manager_state 檔案、再重啟 kubelet。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span>Pod-level resources 與 container-level resources 的關係？什麼時候用 Pod-level？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>關係</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>Pod-level</strong>（<code>spec.resources</code>，K8s 1.34 Beta）：對應 <em>Pod cgroup</em>（kubepods-pod{UID}.slice）的限制。整個 Pod 的所有 container 加起來不能超過。</li>
+          <li><strong>container-level</strong>（<code>spec.containers[].resources</code>）：對應 <em>container scope</em> 的限制。單一 container 的限制。</li>
+        </ul>
+        <strong>cgroup 階層</strong>：
+        <pre style="margin-top:8px;font-size:11px;">/kubepods.slice/kubepods-pod{UID}.slice/    ← Pod-level limit
+    cri-containerd-{ID-1}.scope/            ← container 1 limit
+    cri-containerd-{ID-2}.scope/            ← container 2 limit</pre>
+        Pod-level 是<em>外部上限</em>，container-level 在它之下細分。container-level 不能超過 Pod-level。
+        <strong>什麼時候用 Pod-level</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>多 container Pod 共享配額</strong>：3 個 sidecar，總共給 2 CPU + 4GB，container 之間自動分配 idle 資源。</li>
+          <li><strong>難以準確估各 container 用量</strong>：沒辦法精確分到每個 container，但 Pod 整體合理。</li>
+          <li><strong>避免過度規劃</strong>：傳統做法每個 container 設 limit 加起來容易超過實際 Pod 需求；Pod-level 更精確。</li>
+        </ol>
+        <strong>啟用</strong>：feature gate <code>PodLevelResources</code>（1.34 Beta）。
+        <strong>1.36 進階</strong>：Pod-level In-Place Resize 進 Beta（feature gate <code>InPlacePodLevelResourcesVerticalScaling</code>）——Pod 整體配額也可以 in-place 調整。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>實作思考題：你管理 200 節點 K8s 1.32 cluster，跑生產 workload。要升到 1.36 並啟用 Memory QoS / In-Place Resize / PSI HPA。請設計完整 migration 計劃。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>完整 migration 計劃（5 階段）</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[Phase 1: 前置檢查（1-2 週）]
+1. 所有節點檢查：
+   - kernel 版本 ≥ 5.9（Memory QoS 需要）
+   - cgroup v2 in use：mount | grep cgroup2fs
+   - containerd 版本 ≥ 2.0（K8s 1.36 強制）
+   - cgroup driver = systemd（kubelet + runtime）
+2. 寫 audit script 找問題節點
+3. 升級 kernel / containerd 到符合需求
+
+[Phase 2: cluster 升級到 1.34 first（不跳版）]
+4. 1.32 → 1.33（測試 In-Place Resize Beta）
+5. 1.33 → 1.34（PSI metrics、Memory QoS 進 Beta）
+6. 觀察 1-2 週，確認沒有 regression
+7. 在 1.34 stage 啟用 feature gates（先 staging cluster）：
+   - MemoryQoS=true
+   - InPlacePodVerticalScaling=true
+   - PodLevelResources=true
+
+[Phase 3: 漸進啟用新功能]
+8. Memory QoS：先對 dev / staging 啟用
+   - 觀察 memory.events high counter
+   - 確認 PSI full avg10 不會持續 &gt; 5
+   - 1 週後 rollout 到 production
+9. PSI metrics 採集：
+   - 部署 Prometheus PSI scraping
+   - 建 Grafana dashboard
+   - 設 alert（PSI &gt; 閾值）
+10. In-Place Resize：
+    - 從非 critical service 試
+    - 改 resizePolicy 為 NotRequired
+    - 結合 VPA recommend mode 測試 resize 效果
+    - 確認沒有 OOM / 不正確 throttle 後 rollout
+
+[Phase 4: 升到 1.35 / 1.36]
+11. 1.34 → 1.35（In-Place Resize GA）
+12. 1.35 → 1.36（containerd 2.0 強制、PSI node tainting Alpha）
+13. 啟用 1.36 新 feature gate：
+    - InPlacePodLevelResourcesVerticalScaling
+    - KubeletCgroupDriverFromCRI（自動偵測）
+
+[Phase 5: 進階 closed-loop]
+14. PSI-based HPA：
+    - 對 latency-critical service 設 HPA target = memory.pressure some
+    - 對 batch service 設 cpu.pressure some
+15. VPA + In-Place Resize 自動化：
+    - VPA 改成 Auto mode（不再只是 recommend）
+    - 配合 PSI alerts 做 closed-loop
+16. PSI node tainting：
+    - 啟用後 node 過載自動避免新 Pod schedule
+
+[防護措施]
+17. 每階段都有 rollback plan
+18. canary deploy：先 1 個 node，再 10%，再 100%
+19. 寫 runbook：每個 alert 對應 playbook
+20. 定期 review：traffic pattern 變化時調整 PSI 閾值</pre>
+        <strong>關鍵風險點</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>kernel 升級</strong>：必須 reboot node，drain → upgrade → reboot 流程要熟。</li>
+          <li><strong>containerd 1.x → 2.0</strong>：API 有 breaking change，需重啟 runtime。</li>
+          <li><strong>Memory QoS 在舊 kernel livelock</strong>：必須先確認 kernel 5.9+ 再 enable。</li>
+          <li><strong>cgroupfs → systemd driver 切換</strong>：必須 drain node 並重啟所有 Pod（不能線上切換）。</li>
+          <li><strong>PSI HPA 抖動</strong>：閾值要保守、設 stabilization window 防 thrashing。</li>
+        </ol>
+        <strong>成功指標</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>所有節點 cgroup v2 + containerd 2.0+ + kernel 5.9+</li>
+          <li>Memory QoS 啟用，OOM rate 下降 50%+</li>
+          <li>VPA + In-Place Resize 可生產用，cluster utilization 從 30% 升到 60%+</li>
+          <li>PSI HPA 啟用，latency p99 改善</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+    <div class="refs">
+      <ol>
+        <li><a href="https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/" target="_blank" rel="noopener">Resource Management for Pods and Containers · Kubernetes</a><span class="ref-source">kubernetes.io · resources、QoS、Memory QoS 完整官方文件</span></li>
+        <li><a href="https://kubernetes.io/docs/tasks/configure-pod-container/resize-container-resources/" target="_blank" rel="noopener">Resize CPU and Memory Resources · Kubernetes</a><span class="ref-source">kubernetes.io · In-Place Pod Resize 完整指引</span></li>
+        <li><a href="https://kubernetes.io/docs/tasks/configure-pod-container/assign-pod-level-resources/" target="_blank" rel="noopener">Pod-level resources · Kubernetes</a><span class="ref-source">kubernetes.io · 1.34 Beta Pod-level resources</span></li>
+        <li><a href="https://github.com/kubernetes/enhancements/blob/master/keps/sig-node/2570-memory-qos/README.md" target="_blank" rel="noopener">KEP-2570 Memory QoS · K8s enhancements</a><span class="ref-source">github.com · Memory QoS 設計與實作完整 KEP</span></li>
+        <li><a href="https://kubernetes.io/blog/2023/05/05/qos-memory-resources/" target="_blank" rel="noopener">Memory QoS for Pods · Kubernetes Blog</a><span class="ref-source">kubernetes.io · Memory QoS 設計動機</span></li>
+        <li><a href="https://kubernetes.io/docs/tasks/administer-cluster/cpu-management-policies/" target="_blank" rel="noopener">CPU Management Policies · Kubernetes</a><span class="ref-source">kubernetes.io · CPU Manager static policy 完整文件</span></li>
+        <li><a href="https://scaleops.com/blog/kubernetes-1-35-release-overview/" target="_blank" rel="noopener">Kubernetes v1.35 Deep Dive · ScaleOps 2025-12</a><span class="ref-source">scaleops.com · 1.35 In-Place Resize GA / cgroup v2 完整 review</span></li>
+        <li><a href="https://cloudsmith.com/blog/kubernetes-1-36-what-you-need-to-know" target="_blank" rel="noopener">Kubernetes 1.36 · Cloudsmith 2026-03</a><span class="ref-source">cloudsmith.com · 1.36 完整 feature 清單</span></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn" href="ch16-container-runtime.html">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">Ch.16 容器引擎整合</span>
+    </a>
+    <a class="nav-btn next disabled">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">Ch.18 on-prem + HPC</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.title = `Theme: ${LABELS[mode]}`;
+      btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+</body>
+</html>

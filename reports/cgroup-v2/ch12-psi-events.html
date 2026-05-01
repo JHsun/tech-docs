@@ -1,0 +1,1311 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.12 PSI 與事件監控 — cgroup v2 完整教學</title>
+<meta name="description" content="cgroup v2 PSI（Pressure Stall Information）完整解析：cpu/memory/io.pressure、cgroup.events、systemd-oomd、poll-based trigger 機制。">
+
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626; --color-danger-soft: #fee2e2;
+  --color-info: #0891b2; --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px; --text-4xl: 64px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+</style>
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.topbar { position: sticky; top: 0; z-index: 50; background: color-mix(in oklch, var(--bg-canvas) 88%, transparent); backdrop-filter: saturate(180%) blur(12px); -webkit-backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--border-soft); }
+.topbar-inner { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.brand { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-secondary); }
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 999px; padding: 6px 14px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background .2s, border-color .2s, color .2s; }
+[data-theme-toggle]:hover { background: var(--bg-muted); border-color: var(--border-mid); color: var(--text-primary); }
+[data-theme-toggle] .theme-icon { font-size: 14px; line-height: 1; }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: 0 var(--space-5); }
+
+.chapter-head { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); }
+.chapter-tag { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary-text); background: var(--color-primary-soft); padding: 4px 12px; border-radius: 999px; margin-bottom: var(--space-4); }
+.chapter-title { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; margin-bottom: var(--space-3); }
+.chapter-subtitle { font-family: var(--font-serif-body); font-size: var(--text-md); color: var(--text-secondary); line-height: 1.65; font-style: italic; }
+.chapter-meta { margin-top: var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.chapter-meta-item:first-child::before { display: none; }
+
+.section { padding: var(--space-7) 0; border-bottom: 1px solid var(--border-soft); }
+.section:last-of-type { border-bottom: none; }
+.section-label { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2); }
+.section-label::before { content: ""; width: 24px; height: 1px; background: var(--color-primary); }
+.section-title { font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600; margin-bottom: var(--space-5); letter-spacing: -0.01em; line-height: 1.2; }
+
+.prose p { font-family: var(--font-serif-body); font-size: var(--text-base); color: var(--text-primary); line-height: 1.85; margin-bottom: var(--space-4); }
+.prose h3 { font-family: var(--font-sans); font-size: var(--text-lg); font-weight: 600; color: var(--text-primary); margin: var(--space-6) 0 var(--space-3); letter-spacing: -0.01em; }
+.prose h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 500; color: var(--text-primary); margin: var(--space-5) 0 var(--space-2); }
+.prose ul, .prose ol { font-family: var(--font-serif-body); margin-bottom: var(--space-4); padding-left: var(--space-5); line-height: 1.8; }
+.prose ul li, .prose ol li { margin-bottom: var(--space-2); color: var(--text-primary); }
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong { font-weight: 600; color: var(--text-primary); }
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 1px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+.prose a { color: var(--color-primary); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.prose a:hover { color: var(--color-primary-hover); }
+
+.highlights { background: var(--color-primary-soft); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.highlights ol { font-family: var(--font-sans); padding-left: var(--space-5); margin: 0; }
+.highlights li { font-size: var(--text-sm); color: var(--color-primary-text); margin-bottom: var(--space-2); line-height: 1.65; }
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+
+.news-box { background: var(--color-info-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.news-item { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); line-height: 1.7; padding: var(--space-2) 0; border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent); }
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-info); margin-right: var(--space-2); }
+
+pre { font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.7; background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; margin-bottom: var(--space-4); color: var(--text-primary); }
+pre code { background: transparent; border: none; padding: 0; font-size: inherit; color: inherit; }
+
+.cmp-table { width: 100%; border-collapse: collapse; margin-bottom: var(--space-4); font-size: var(--text-sm); font-family: var(--font-sans); }
+.cmp-table th, .cmp-table td { padding: var(--space-3); text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.cmp-table th { font-weight: 600; color: var(--text-primary); background: var(--bg-muted); font-size: var(--text-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 1px 5px; border-radius: var(--radius-sm); color: var(--color-primary-text); }
+
+.lab { background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.lab-title { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--color-primary); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px dashed var(--border-soft); }
+.lab-title::before { content: "▶ "; color: var(--color-primary); }
+.lab p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-3); color: var(--text-secondary); line-height: 1.7; }
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+.lab ol, .lab ul { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); color: var(--text-secondary); line-height: 1.7; }
+
+.pitfall { background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.pitfall-title { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 600; color: var(--color-warning); margin-bottom: var(--space-2); }
+.pitfall p { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); margin-bottom: var(--space-2); line-height: 1.7; }
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code { background: color-mix(in oklch, var(--color-warning) 15%, transparent); border-color: color-mix(in oklch, var(--color-warning) 30%, transparent); color: var(--text-primary); }
+
+.quiz-item { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-3); }
+.quiz-q { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; color: var(--text-primary); margin-bottom: var(--space-2); display: flex; gap: var(--space-2); }
+.quiz-q-num { font-family: var(--font-mono); color: var(--color-primary); flex-shrink: 0; }
+.quiz-toggle { background: transparent; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 4px 10px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; margin-top: var(--space-2); transition: background .2s, color .2s; }
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a { display: none; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px dashed var(--border-soft); font-family: var(--font-serif-body); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.75; }
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+
+.diagram { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); margin-bottom: var(--space-4); text-align: center; }
+.diagram svg { max-width: 100%; height: auto; }
+.diagram-caption { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-3); text-align: center; }
+
+.refs ol { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); line-height: 1.8; }
+.refs li { margin-bottom: var(--space-2); color: var(--text-secondary); }
+.refs li::marker { color: var(--color-primary); }
+.refs a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dashed var(--color-primary); }
+.refs a:hover { color: var(--color-primary-hover); }
+.refs .ref-source { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); display: block; margin-top: 2px; }
+
+.chapter-nav { margin-top: var(--space-6); padding: var(--space-5) 0; display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.nav-btn { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; padding: var(--space-3) var(--space-4); background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); text-decoration: none; color: var(--text-primary); transition: border-color .2s, transform .15s; }
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.04em; }
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.12</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part V · 可觀測性 · Chapter 12</span>
+    <h1 class="chapter-title">PSI 與事件監控</h1>
+    <p class="chapter-subtitle">
+      過去 30 年，Linux 用 load average 衡量系統忙碌——但這個指標<em>分不清「<em>忙</em>」與「<em>卡住</em>」</em>。
+      PSI（Pressure Stall Information，kernel 4.20+）首次提供「<em>系統因資源不足而 stall 多少時間</em>」的量化指標，
+      徹底改變了 Linux 的觀測方法論。本章把 PSI 講透——三維度（CPU/Memory/IO）與兩層（some/full）、
+      poll-based trigger 機制、systemd-oomd 的決策邏輯、生產監控建議。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~6,800 字</span>
+      <span class="chapter-meta-item">閱讀時間 26 分鐘</span>
+      <span class="chapter-meta-item">難度：核心</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ====================== Section 1: 本章重點 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+
+    <div class="highlights">
+      <ol>
+        <li><strong>PSI 解決 load average 的根本問題</strong>：load average 把「<em>busy</em>」與「<em>stall</em>」混為一談——CPU 100% 跑滿 vs CPU 100% 等 IO，load 數字差不多，但意義天差地別。PSI 直接量化「<em>等待時間</em>」。</li>
+        <li><strong>三維度 × 兩層次</strong>：cpu / memory / io 三個資源，每個有 <code>some</code>（至少一個 task stalled）與 <code>full</code>（所有 task 都 stalled）兩個層次。共 6 個關鍵指標。</li>
+        <li><strong>per-cgroup PSI 是 v2 獨有</strong>：v1 沒有 cgroup-level PSI，只能看全機。v2 每個 cgroup 都有 cpu.pressure / memory.pressure / io.pressure，per-container 觀測得以實現。</li>
+        <li><strong>poll-based trigger</strong>：用 <code>write()</code> 設定閾值 + <code>poll(POLLPRI)</code> 阻塞等待——當壓力超過閾值才喚醒，<em>零 polling overhead</em>。systemd-oomd、oomd 都靠這個。</li>
+        <li><strong>cgroup.events 補完監控全景</strong>：PSI 看「<em>慢</em>」，cgroup.events 看「<em>事件</em>」（freeze、populated、frozen）。memory.events / pids.events / io.stat 各有獨立事件流。組合監控才完整。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 2: 最新動態 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+
+    <div class="news-box">
+      <div class="news-item">
+        <span class="news-date">2025-09</span>
+        <strong>K8s 1.34 PSI metrics 進 Beta</strong>：kubelet 開始 export node 與 Pod 的 PSI 指標到 Prometheus，讓 cluster-wide PSI 監控成為標準能力。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025-09</span>
+        <strong>Netdata 發布 PSI 完整監控指南</strong>，明確指出 PSI <code>full</code> 非零是「<em>imminent OOM kill 的強烈訊號</em>」，比 memory.current 接近 limit 更可靠。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2024–2025</span>
+        <strong>systemd-oomd 在 Fedora、Ubuntu 普及</strong>。取代傳統 earlyoom，用 PSI trigger 主動殺 process 而非等 kernel OOM——latency 顯著降低。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>cgroup.pressure 開關介面</strong>：kernel 6.x 新增此檔案。對深層 cgroup hierarchy 可關掉非 leaf 的 PSI 計算，減少 overhead。預設 enabled。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>IRQ pressure 介面</strong>（kernel 6.x+）：<code>irq.pressure</code> 在 root cgroup 與部分子樹提供 IRQ/SOFTIRQ 的 pressure，補上 PSI 第四維度。
+      </div>
+    </div>
+
+    <div class="prose">
+      <p>
+        2026 年的時點，<strong>PSI 已成為 Linux 觀測性的<em>事實標準</em></strong>。從個人筆電（systemd-oomd）到資料中心（K8s + Prometheus）都依賴它。
+        本章除了介面說明，會把<em>怎麼讀懂 PSI 數字</em>、<em>什麼閾值該 alert</em>、<em>systemd-oomd 怎麼決策</em>講清楚——這些是文檔上找不到的實戰知識。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 3: 核心內容 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+
+    <div class="prose">
+      <h3>3.1 為什麼 load average 不夠用</h3>
+      <p>
+        Unix 的 load average 自 1970s 沿用至今——一個取在 1/5/15 分鐘的「<em>runnable + uninterruptible task 移動平均</em>」。問題：它<strong>分不清兩種完全不同的狀況</strong>：
+      </p>
+      <ul>
+        <li><strong>系統忙（busy）</strong>：CPU 100% 跑滿、所有 core 都在工作——應用 throughput 滿載但<em>正常</em>。</li>
+        <li><strong>系統卡（stalled）</strong>：CPU 沒滿但 task 在等 IO / memory reclaim / 鎖——應用 throughput 嚴重下降，使用者感受到 latency。</li>
+      </ul>
+      <p>
+        兩者 load average 數字可能相同，但<strong>意義天差地別</strong>。
+        對 SRE / DevOps 而言，<em>真正關心的是「<em>使用者多慢</em>」而非「<em>機器多忙</em>」</em>。PSI 直接量化前者。
+      </p>
+
+      <h3>3.2 PSI 的核心定義</h3>
+      <p>
+        kernel 文件原話：「<em>pressure stall information ... measures the time tasks spend stalled on a resource</em>」。
+        PSI 把「<em>task 因等資源而 stall 的時間</em>」轉成<strong>百分比（占 wall-clock time）</strong>，分三個資源（cpu / memory / io）、兩個層次（some / full）：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>層次</th><th>定義</th><th>意義</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>some</code></td>
+          <td><em>至少有一個</em> task 在 stall 等資源的時間百分比</td>
+          <td>「<em>有人卡住</em>」——使用者已感受到 latency</td>
+        </tr>
+        <tr>
+          <td><code>full</code></td>
+          <td><em>所有 runnable</em> task 都 stalled 的時間百分比</td>
+          <td>「<em>整個 cgroup 動不了</em>」——嚴重資源飢荒</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        <strong>full 一定 ≤ some</strong>。「<em>所有都 stalled</em>」必然包含「<em>至少一個 stalled</em>」。
+        full 是 some 的子集，且通常遠小於 some——除非系統真的飢荒，否則 full 多半是 0。
+      </p>
+
+      <h3>3.3 PSI 介面格式</h3>
+      <p>
+        三個介面檔案：<code>cpu.pressure</code>、<code>memory.pressure</code>、<code>io.pressure</code>，格式統一：
+      </p>
+<pre><code>$ cat /sys/fs/cgroup/myapp/memory.pressure
+some avg10=0.12 avg60=0.08 avg300=0.05 total=12345678
+full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+</code></pre>
+      <p>
+        欄位解讀：
+      </p>
+      <ul>
+        <li><strong>avg10 / avg60 / avg300</strong>：過去 10 秒、1 分鐘、5 分鐘的 stalled 時間百分比（指數移動平均）。</li>
+        <li><strong>total</strong>：累計 stalled 時間，<em>微秒</em>。用來偵測<em>短暫 spike</em>——如果 avg 都是 0 但 total 在快速增長，表示有秒級 stall 但被平均稀釋了。</li>
+      </ul>
+      <p>
+        <strong>細節差別</strong>：
+      </p>
+      <ul>
+        <li><code>cpu.pressure</code> <em>沒有 full</em>（早期 kernel）。kernel 6.x+ 加入了 cpu full（雖然 CPU full stall 罕見）。</li>
+        <li><code>memory.pressure</code>、<code>io.pressure</code> 都有完整 some + full。</li>
+      </ul>
+
+      <h3>3.4 怎麼解讀 PSI 數字</h3>
+      <p>
+        新手常見問題：「<em>some avg10=2.5 算高嗎？</em>」沒有絕對標準，但有實務經驗值：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>some avg10</th><th>解讀</th><th>建議行動</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>&lt; 1%</td>
+          <td>極健康，無壓力</td>
+          <td>正常運作</td>
+        </tr>
+        <tr>
+          <td>1–5%</td>
+          <td>偶有壓力，仍可接受</td>
+          <td>觀察趨勢，不需介入</td>
+        </tr>
+        <tr>
+          <td>5–10%</td>
+          <td>壓力明顯，latency 受影響</td>
+          <td>容量規劃、檢查是否近 limit</td>
+        </tr>
+        <tr>
+          <td>10–25%</td>
+          <td>嚴重壓力，可能影響 SLA</td>
+          <td>立即介入：擴容、降載、調 limit</td>
+        </tr>
+        <tr>
+          <td>&gt; 25%</td>
+          <td>飢荒，systemd-oomd 可能介入</td>
+          <td>緊急處理</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        <strong>full 的標準更嚴</strong>：
+      </p>
+      <ul>
+        <li>full avg10 &gt; 1% — 已經很糟，多半 imminent OOM</li>
+        <li>full avg10 &gt; 5% — 整個 cgroup 卡死，立即行動</li>
+        <li>memory full avg10 &gt; 5% — Netdata 文件指出這是「<em>imminent OOM kill 的強烈訊號</em>」</li>
+      </ul>
+
+      <h3>3.5 poll-based PSI trigger 機制</h3>
+      <p>
+        這是 PSI 的<strong>殺手鐧</strong>——你不需要 polling，可以「<em>等</em>」。
+        kernel 提供 trigger 機制：<em>對 pressure file 寫入閾值，用 <code>poll()</code> 阻塞，當壓力超過閾值才喚醒</em>。
+      </p>
+      <p>
+        <strong>trigger 寫入格式</strong>：<code>$LEVEL $WINDOW $THRESHOLD</code>
+      </p>
+      <ul>
+        <li><code>$LEVEL</code>：<code>some</code> 或 <code>full</code></li>
+        <li><code>$WINDOW</code>：時間窗（微秒），最少 500ms（500000）、最多 10 秒（10000000）</li>
+        <li><code>$THRESHOLD</code>：在這個 window 內 stall 多久就觸發（微秒）</li>
+      </ul>
+      <p>
+        範例：「<em>memory some 在 1 秒內 stall 超過 150ms 就喚醒我</em>」：
+      </p>
+<pre><code>// 完整範例（C）
+#include &lt;fcntl.h&gt;
+#include &lt;poll.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;string.h&gt;
+
+int main() {
+    const char trig[] = "some 150000 1000000";  // 150ms in 1s window
+    struct pollfd fds;
+    
+    fds.fd = open("/sys/fs/cgroup/myapp/memory.pressure",
+                  O_RDWR | O_NONBLOCK);
+    fds.events = POLLPRI;
+    
+    write(fds.fd, trig, strlen(trig));
+    
+    while (1) {
+        if (poll(&fds, 1, -1) &lt; 0) break;
+        if (fds.revents & POLLPRI) {
+            // 觸發！執行 mitigation 邏輯
+            handle_memory_pressure();
+        }
+    }
+    return 0;
+}
+</code></pre>
+      <p>
+        <strong>為什麼這個機制重要</strong>：
+      </p>
+      <ul>
+        <li><strong>零 polling overhead</strong>：傳統做法是每秒 cat 檔案——浪費 CPU，且 1 秒內的 spike 會錯過。</li>
+        <li><strong>即時反應</strong>：壓力一達到閾值立刻 wake——比 polling 早 1 秒能反應。</li>
+        <li><strong>正是 systemd-oomd 的工作機制</strong>：用 PSI trigger 監控所有 cgroup，達到閾值才介入。</li>
+      </ul>
+
+      <h3>3.6 systemd-oomd 內部運作</h3>
+      <p>
+        systemd-oomd 是 systemd 244+ 的 user-space OOM 守護程序，<em>取代</em>傳統 earlyoom，行為完全基於 PSI。
+      </p>
+      <p>
+        <strong>核心邏輯</strong>：
+      </p>
+      <ol>
+        <li>讀取設定（<code>OOMSwapKillPercent</code>、<code>OOMMemoryKillPercent</code> 等）</li>
+        <li>對指定 cgroup 設定 PSI trigger</li>
+        <li>等待 trigger 觸發</li>
+        <li>觸發時掃描子 cgroup，找<em>最該被殺</em>的目標（基於 oom_score_adj、memory.current、swap usage）</li>
+        <li>用 <code>cgroup.kill</code>（v2 新介面，atomic kill 整個 subtree）殺掉目標</li>
+        <li>記錄 journal log 並繼續監控</li>
+      </ol>
+      <p>
+        <strong>系統管理員設定</strong>：systemd unit 加 <code>ManagedOOMSwap=kill</code> 或 <code>ManagedOOMMemoryPressure=kill</code>：
+      </p>
+<pre><code># 對 user.slice 啟用 oomd 監控
+sudo systemctl edit user.slice
+# 加入：
+[Slice]
+ManagedOOMMemoryPressure=kill
+ManagedOOMMemoryPressureLimit=50%
+# 當 user.slice 的 memory.pressure full avg10 &gt; 50% 持續一段時間，
+# systemd-oomd 自動殺最佔記憶體的子 cgroup
+</code></pre>
+      <p>
+        <strong>為什麼比 kernel OOM 好</strong>：
+      </p>
+      <ul>
+        <li><strong>更早介入</strong>：在 OOM 之前先 throttle 階段就動手，避免 process 真的 OOM 死掉。</li>
+        <li><strong>選擇更好</strong>：可以根據 cgroup 結構（如「<em>殺 user-1.slice 整個 user session</em>」）做整批決策，而非 kernel 的「<em>殺 oom_score 最高的單一 process</em>」。</li>
+        <li><strong>policy 可調</strong>：在 unit 層級設定，不像 kernel OOM 全機統一行為。</li>
+      </ul>
+
+      <h3>3.7 cgroup.events 與其他事件介面</h3>
+      <p>
+        PSI 看「<em>慢</em>」，但 cgroup 還有<em>事件</em>系列檔案——記錄具體發生什麼：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>檔案</th><th>欄位</th><th>意義</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td rowspan="2"><code>cgroup.events</code></td>
+          <td><code>populated</code></td>
+          <td>0 / 1：cgroup 內是否有 process</td>
+        </tr>
+        <tr>
+          <td><code>frozen</code></td>
+          <td>0 / 1：是否被 cgroup.freeze 凍結</td>
+        </tr>
+        <tr>
+          <td rowspan="6"><code>memory.events</code></td>
+          <td><code>low</code></td>
+          <td>從受保護額度被 reclaim 的次數</td>
+        </tr>
+        <tr><td><code>high</code></td><td>用量超過 memory.high 後 throttle 次數</td></tr>
+        <tr><td><code>max</code></td><td>用量超過 memory.max 次數</td></tr>
+        <tr><td><code>oom</code></td><td>觸發 OOM 條件次數</td></tr>
+        <tr><td><code>oom_kill</code></td><td>實際被殺的 process 數</td></tr>
+        <tr><td><code>oom_group_kill</code></td><td>因 oom.group=1 整批被殺次數</td></tr>
+        <tr><td><code>pids.events</code></td><td><code>max</code></td><td>達到 pids.max 上限次數</td></tr>
+        <tr>
+          <td rowspan="3"><code>cpu.stat</code> (含事件)</td>
+          <td><code>nr_throttled</code></td>
+          <td>cpu.max throttle 次數</td>
+        </tr>
+        <tr><td><code>throttled_usec</code></td><td>throttle 累計時間</td></tr>
+        <tr><td><code>nr_bursts</code></td><td>使用 cpu.max.burst 次數</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h4>事件監聽：inotify</h4>
+      <p>
+        cgroup events 檔案支援 <code>inotify</code> 監聽——檔案變動時 wake：
+      </p>
+<pre><code># 監聽 memory.events 變化（每次 OOM 等事件都會喚醒）
+inotifywait -m /sys/fs/cgroup/myapp/memory.events |
+while read path event filename; do
+    echo "Event! Reading new values..."
+    cat /sys/fs/cgroup/myapp/memory.events
+done
+</code></pre>
+      <p>
+        實務上 systemd-oomd、cAdvisor、Prometheus node_exporter 都用 inotify + read 機制收集事件，<em>不</em>用 polling。
+      </p>
+
+      <h3>3.8 PSI vs 傳統指標的對應</h3>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>傳統指標</th><th>限制</th><th>PSI 對應</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>load average</td>
+          <td>分不清 busy 與 stalled</td>
+          <td><code>cpu.pressure some</code></td>
+        </tr>
+        <tr>
+          <td>%CPU usage</td>
+          <td>看不到 CPU 等待</td>
+          <td><code>cpu.pressure some</code></td>
+        </tr>
+        <tr>
+          <td>memory usage / RSS</td>
+          <td>數字接近 limit 不一定是壓力</td>
+          <td><code>memory.pressure some/full</code></td>
+        </tr>
+        <tr>
+          <td>iostat %util</td>
+          <td>裝置忙不等於應用慢</td>
+          <td><code>io.pressure some/full</code></td>
+        </tr>
+        <tr>
+          <td>vmstat si/so</td>
+          <td>看 swap activity 但不看 latency 影響</td>
+          <td><code>memory.pressure full</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        <strong>建議轉變思維</strong>：在 cgroup v2 環境，<em>把 PSI 當第一指標</em>，傳統指標當輔助。
+        PSI 直接反映「<em>使用者感受到的 latency</em>」，這才是 SRE 真正該關心的。
+      </p>
+
+      <h3>3.9 cgroup.pressure：開關 PSI 計算</h3>
+      <p>
+        kernel 6.x+ 引入的<strong>per-cgroup 開關</strong>。寫 0 關閉、寫 1 啟用，預設 1：
+      </p>
+<pre><code># 對深層中間 cgroup 關掉 PSI 計算（減少 overhead）
+echo 0 > /sys/fs/cgroup/system.slice/myservice.service/middle-layer/cgroup.pressure
+</code></pre>
+      <p>
+        <strong>為什麼需要</strong>：PSI 對每個 cgroup 獨立計算並逐層 aggregate。深層 cgroup hierarchy（10+ 層）下，PSI overhead 變得不可忽略。
+        對中間層 cgroup 通常不關心 PSI（你關心 leaf 與 root），可以關掉中間層計算。
+      </p>
+      <p>
+        <strong>非 hierarchical</strong>：在 A 關掉不影響 child B、C。每個 cgroup 獨立決定。
+
+      </p>
+
+      <h3>3.10 監控架構建議</h3>
+      <p>
+        生產環境推薦三層監控架構：
+      </p>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 680 320" role="img" aria-label="生產環境 PSI 監控架構">
+        <text x="340" y="22" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="600" fill="var(--text-primary)">生產環境 PSI + events 三層監控架構</text>
+
+        <!-- Layer 1: per-cgroup -->
+        <rect x="40" y="55" width="600" height="70" rx="6" fill="var(--color-success-soft)" stroke="var(--color-success)" stroke-width="0.5"/>
+        <text x="60" y="78" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-success)">Layer 1: 即時防禦</text>
+        <text x="60" y="98" font-family="var(--font-sans)" font-size="11" fill="var(--text-primary)">systemd-oomd / oomd 用 PSI trigger 主動殺 process</text>
+        <text x="60" y="115" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">技術：poll(POLLPRI) on memory.pressure ｜ 反應時間 &lt;100ms</text>
+
+        <!-- Layer 2: per-host metrics -->
+        <rect x="40" y="140" width="600" height="70" rx="6" fill="var(--color-info-soft)" stroke="var(--color-info)" stroke-width="0.5"/>
+        <text x="60" y="163" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-info)">Layer 2: 監控告警</text>
+        <text x="60" y="183" font-family="var(--font-sans)" font-size="11" fill="var(--text-primary)">Prometheus / cAdvisor 採集 PSI + cgroup.events</text>
+        <text x="60" y="200" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">頻率：每 5–10 秒 ｜ 用 PromQL 規則 alert</text>
+
+        <!-- Layer 3: cluster -->
+        <rect x="40" y="225" width="600" height="70" rx="6" fill="var(--color-primary-soft)" stroke="var(--color-primary)" stroke-width="0.5"/>
+        <text x="60" y="248" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-primary)">Layer 3: 容量規劃</text>
+        <text x="60" y="268" font-family="var(--font-sans)" font-size="11" fill="var(--text-primary)">長期 PSI 趨勢分析、k8s VPA、HPA</text>
+        <text x="60" y="285" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">資料：7-30 天 PSI history ｜ 自動調整 limits / replicas</text>
+      </svg>
+      <div class="diagram-caption">圖 12.1 · 生產環境 PSI + events 三層監控架構</div>
+    </div>
+
+    <div class="prose">
+      <p>
+        <strong>每層職責清楚</strong>：
+      </p>
+      <ul>
+        <li>Layer 1 處理「<em>急性</em>」問題（OOM、severe stall）——sub-second 反應</li>
+        <li>Layer 2 處理「<em>慢性</em>」趨勢（pressure 開始上升、events 累積）——分鐘級告警</li>
+        <li>Layer 3 處理「<em>容量</em>」規劃（這個 service 該擴容嗎？limit 該調嗎？）——長期分析</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 4: 實戰範例 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例</h2>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · 體驗 PSI（製造 memory pressure）</div>
+<pre><code># 1. 建立有限制的 service
+sudo systemd-run --slice=user.slice --unit=psi-test \
+    -p MemoryHigh=200M \
+    -p MemoryMax=300M \
+    --pty \
+    bash
+
+# 進入後跑記憶體分配
+python3 -c '
+import time
+data = bytearray(0)
+for i in range(100):
+    data.extend(bytearray(10 * 1024 * 1024))  # 每次 +10MB
+    time.sleep(0.5)
+'
+
+# 2. 在另一 terminal 觀察 PSI 變化
+CG=$(systemctl show -p ControlGroup --value psi-test.service)
+watch -n 1 "cat /sys/fs/cgroup$CG/memory.pressure"
+
+# 預期：當分配到 200MB 後（超過 high），看到：
+# some avg10=10.x  ← 開始有 stall
+# full avg10=5.x   ← 全 stall 也開始
+# 而 total 數字快速增長
+
+# 清理
+sudo systemctl stop psi-test 2>/dev/null
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · 寫 PSI trigger Python 監控</div>
+<pre><code>#!/usr/bin/env python3
+# psi_monitor.py
+# 等待 memory pressure 超過閾值才介入
+
+import os
+import select
+
+CGROUP = "/sys/fs/cgroup/user.slice"
+TRIGGER = "some 150000 1000000"  # 1 秒內 stall 超 150ms
+
+# 開啟 pressure 檔案
+fd = os.open(f"{CGROUP}/memory.pressure", os.O_RDWR | os.O_NONBLOCK)
+
+# 註冊 trigger
+os.write(fd, TRIGGER.encode())
+
+# 用 poll 等待
+poller = select.poll()
+poller.register(fd, select.POLLPRI)
+
+print(f"Monitoring {CGROUP}/memory.pressure with trigger: {TRIGGER}")
+while True:
+    events = poller.poll()
+    for f, ev in events:
+        if ev & select.POLLPRI:
+            # 觸發！讀當前值
+            os.lseek(fd, 0, 0)
+            content = os.read(fd, 1024).decode()
+            print(f"=== TRIGGERED ===\n{content}")
+            # 在這裡執行 mitigation 邏輯
+            # 例如：通知監控系統、暫停 batch jobs
+</code></pre>
+      <p>跑這個 script 然後跑 Lab 1 的記憶體壓力測試，會看到 trigger 觸發。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · 啟用 systemd-oomd 並觀察行為</div>
+<pre><code># 1. 確認 systemd-oomd 啟用
+sudo systemctl status systemd-oomd
+
+# 如果沒啟用，啟動它
+sudo systemctl enable --now systemd-oomd
+
+# 2. 對某個 slice 啟用 oomd 監控
+sudo mkdir -p /etc/systemd/system/user.slice.d
+cat <<'EOF' | sudo tee /etc/systemd/system/user.slice.d/oomd.conf
+[Slice]
+ManagedOOMMemoryPressure=kill
+ManagedOOMMemoryPressureLimit=50%
+EOF
+
+sudo systemctl daemon-reload
+
+# 3. 製造記憶體壓力測試
+sudo systemd-run --slice=user.slice --unit=victim \
+    --pty \
+    python3 -c '
+import time
+data = bytearray(2 * 1024 * 1024 * 1024)  # 2GB
+print("allocated 2GB")
+time.sleep(60)
+'
+
+# 4. 觀察 systemd-oomd journal
+journalctl -u systemd-oomd -f
+# 預期看到類似：
+# systemd-oomd: Killed user.slice/victim.service due to memory pressure...
+
+# 清理
+sudo systemctl stop victim 2>/dev/null
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 4 · 寫 cgroup.events 監聽 daemon</div>
+<pre><code>#!/usr/bin/env python3
+# events_monitor.py
+# 監聽所有 service 的 memory.events，事件變化就 alert
+
+import os
+import time
+import inotify_simple as inotify  # pip install inotify_simple
+
+WATCH_BASE = "/sys/fs/cgroup/system.slice"
+
+i = inotify.INotify()
+watches = {}
+
+# 註冊所有 service 的 memory.events
+for service in os.listdir(WATCH_BASE):
+    path = os.path.join(WATCH_BASE, service, "memory.events")
+    if os.path.exists(path):
+        wd = i.add_watch(path, inotify.flags.MODIFY)
+        watches[wd] = path
+
+print(f"Monitoring {len(watches)} memory.events files...")
+
+# 記錄初始值
+last_values = {p: open(p).read() for p in watches.values()}
+
+while True:
+    for event in i.read():
+        path = watches[event.wd]
+        new = open(path).read()
+        old = last_values[path]
+        if new != old:
+            print(f"=== CHANGE ===")
+            print(f"Path: {path}")
+            print(f"Old:\n{old}")
+            print(f"New:\n{new}")
+            last_values[path] = new
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 5 · Prometheus PSI metrics 採集設計</div>
+<pre><code># Prometheus node_exporter 預設不 export PSI per-cgroup
+# 需要 cAdvisor（Kubernetes 用）或自己寫 exporter
+
+# 用 textfile collector 簡單實作：
+cat <<'EOF' > /usr/local/bin/psi_textfile.sh
+#!/bin/bash
+# 為每個 service 輸出 PSI metrics
+
+OUT=/var/lib/node_exporter/textfile_collector/psi.prom
+
+{
+    echo "# HELP psi_pressure_some Pressure some avg10"
+    echo "# TYPE psi_pressure_some gauge"
+    
+    for cg in /sys/fs/cgroup/system.slice/*.service; do
+        name=$(basename "$cg" .service)
+        for resource in cpu memory io; do
+            file="$cg/$resource.pressure"
+            [ -f "$file" ] || continue
+            avg10=$(grep '^some' "$file" | grep -oP 'avg10=\K[\d.]+')
+            echo "psi_pressure_some{service=\"$name\",resource=\"$resource\"} $avg10"
+        done
+    done
+} > "$OUT.tmp"
+
+mv "$OUT.tmp" "$OUT"
+EOF
+
+chmod +x /usr/local/bin/psi_textfile.sh
+
+# 設定 cron 每分鐘跑一次
+echo "* * * * * /usr/local/bin/psi_textfile.sh" | sudo crontab -
+
+# Prometheus alert rule 範例：
+cat <<'EOF'
+groups:
+- name: psi_alerts
+  rules:
+  - alert: HighMemoryPressure
+    expr: psi_pressure_some{resource="memory"} > 10
+    for: 2m
+    annotations:
+      summary: "{{ $labels.service }} memory pressure > 10%"
+EOF
+</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 5: 常見陷阱 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · 把 PSI some 當作 CPU usage 看</div>
+      <p>
+        看到 <code>cpu.pressure some avg10=2.5</code>，以為「<em>2.5% CPU 利用率</em>」——錯！PSI <strong>不是 utilization 而是 stall time</strong>。
+        2.5% 表示「<em>有人因等 CPU 而卡住的時間占比</em>」。可能 host CPU 才用 30%（沒滿），但有 task 在等 CPU——例如綁了 cpuset 只用 1 核但有多個 task，一直在等。
+        修法：<em>另外</em>看 <code>cpu.stat</code> 的 usage 欄位才是真實 CPU usage。PSI 與 usage 是不同維度。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · 只看 avg10、忽略 total 的 spike</div>
+      <p>
+        avg10、avg60 都顯示低數字（&lt; 1%），以為沒事——但 <code>total</code> 在 1 分鐘內漲了 5 秒（5,000,000 微秒）。
+        這表示<em>有秒級的嚴重 stall</em>，但被 10/60 秒平均稀釋了。對 latency-critical 應用這已經是大問題。
+        修法：監控 total 的 delta（每秒增量）。delta 大表示有 spike，要進一步調查。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · cpu.pressure 沒有 full（舊 kernel）</div>
+      <p>
+        老 kernel（5.x 之前）的 <code>cpu.pressure</code> 只有 some 沒有 full。寫監控腳本期待 full 欄位會 parse 失敗。
+        kernel 6.x+ 已加入 cpu full（雖然 CPU full stall 罕見）。
+        修法：監控腳本要 graceful 處理 missing full 欄位。或檢查 kernel 版本決定要不要採集 cpu full。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · PSI trigger 的 window 設太小被 reject</div>
+      <p>
+        嘗試設 <code>some 50000 100000</code>（100ms window，stall 50ms 觸發）——<code>write()</code> 回 EINVAL。
+        kernel 對 trigger window 有<strong>下限 500ms</strong>（500000 us）、上限 10 秒（10000000 us）。少於 500ms 會拒絕。
+        修法：window 至少 500ms。如果需要更快反應，threshold 調低（如 <code>some 50000 500000</code> = 500ms 內 stall 50ms）。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 5 · systemd-oomd 沒對應 unit 啟用</div>
+      <p>
+        啟動了 systemd-oomd，但「<em>怎麼都不殺東西</em>」？
+        原因：systemd-oomd <em>只</em> 監控有 <code>ManagedOOM*=kill</code> directive 的 unit。預設沒任何 unit 啟用，所以 oomd 待著沒事做。
+        修法：對想被監控的 slice / service 加上 <code>ManagedOOMMemoryPressure=kill</code> 與 <code>ManagedOOMMemoryPressureLimit=</code>。Fedora、Ubuntu 對 user.slice 預設啟用。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 6 · cgroup.events 用 polling 反應太慢</div>
+      <p>
+        寫 cron 每分鐘 cat <code>memory.events</code> 算 OOM rate——OOM 已經發生 30 秒才被偵測，太慢。
+        正確做法：用 <code>inotify</code> 監聽檔案變動，事件發生 ms 級即偵測。實作參考 Lab 4。
+        systemd-oomd / cAdvisor 等都用 inotify 機制，才能即時反應。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 7 · 容器內讀 host 的 /proc/pressure 被誤導</div>
+      <p>
+        在容器內 <code>cat /proc/pressure/memory</code>——數字反映的是 <em>host</em> 整體壓力，不是容器內。
+        因為 <code>/proc/pressure/</code> 由 host kernel 提供，沒有 namespace 化。
+        要看容器自己的 pressure：<code>cat /sys/fs/cgroup/memory.pressure</code>（容器內看到的是<em>容器 cgroup root</em> 的 PSI，已經 namespace 化）。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 8 · PSI 在深層 hierarchy 帶來 overhead</div>
+      <p>
+        有些系統（特別是 K8s）cgroup 樹深達 8–10 層。PSI 對每層獨立計算並逐層 aggregate，<em>深層 hierarchy 下 PSI overhead 不可忽略</em>。
+        某些 benchmark 顯示 8 層 hierarchy 下 PSI 計算占 1-2% CPU。
+        修法：對中間層（不關心 PSI 的）寫 <code>0 &gt; cgroup.pressure</code> 關掉。kernel 6.x+ 才有這個介面。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 6: 動手練習 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · 比較 PSI 與 load average（10 分鐘）</div>
+      <p>跑兩個不同類型的 stress 測試，比較數據：</p>
+<pre><code># 測試 A：CPU 滿載（純運算）
+stress-ng --cpu $(nproc) --timeout 30s &
+sleep 5
+echo "--- Test A: CPU bound ---"
+uptime
+cat /proc/pressure/cpu
+
+# 測試 B：IO 滿載
+stress-ng --io 4 --hdd 4 --timeout 30s &
+sleep 5
+echo "--- Test B: IO bound ---"
+uptime
+cat /proc/pressure/cpu
+cat /proc/pressure/io</code></pre>
+      <p>回答：兩個 test 的 load average 數字是否類似？兩個 test 的 cpu / io pressure 數字差別有多大？</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · 寫 systemd-oomd 不愛你的 service（10 分鐘）</div>
+      <p>故意寫一個會被 oomd 殺的 service，學它的決策過程：</p>
+<pre><code># 1. 對 user.slice 啟用 oomd（前面 Lab 3）
+
+# 2. 啟動兩個有問題的 service
+sudo systemd-run --slice=user.slice --unit=greedy-A \
+    python3 -c 'data = bytearray(1024**3 * 2); import time; time.sleep(60)'
+
+sudo systemd-run --slice=user.slice --unit=greedy-B \
+    python3 -c 'data = bytearray(1024**3 * 1); import time; time.sleep(60)'
+
+# 3. 觀察 journalctl -u systemd-oomd -f
+# oomd 應該殺掉某一個（通常是吃最多的）
+
+# 4. 確認哪個被殺了
+systemctl is-active greedy-A
+systemctl is-active greedy-B</code></pre>
+      <p>回答：哪個被殺了？為什麼？看 journal log 找線索。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 設計 alert 閾值（思考題，10 分鐘）</div>
+      <p>不需執行，只回答以下設計問題：</p>
+      <ol>
+        <li>對 latency-critical web service：memory.pressure some avg10 的 alert 閾值該設多少？理由？</li>
+        <li>對 batch processing service：同樣問題，閾值會不一樣嗎？</li>
+        <li>什麼情況下應該用 full 而非 some 做 alert？</li>
+        <li>memory.pressure 與 memory.events.oom_kill 哪個 alert 觸發得更早？</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 寫 PSI 趨勢分析腳本（15 分鐘）</div>
+<pre><code>#!/bin/bash
+# psi_trend.sh
+# 每 10 秒記錄一次 PSI，每分鐘印出趨勢
+
+CG=${1:-/sys/fs/cgroup}
+DURATION=${2:-300}  # 5 分鐘
+
+echo "ts,cpu_some_avg10,memory_some_avg10,io_some_avg10,memory_full_avg10"
+for ((i=0; i&lt;$DURATION; i+=10)); do
+    ts=$(date +%s)
+    cpu=$(grep '^some' "$CG/cpu.pressure" | grep -oP 'avg10=\K[\d.]+')
+    mem_s=$(grep '^some' "$CG/memory.pressure" | grep -oP 'avg10=\K[\d.]+')
+    mem_f=$(grep '^full' "$CG/memory.pressure" | grep -oP 'avg10=\K[\d.]+')
+    io=$(grep '^some' "$CG/io.pressure" | grep -oP 'avg10=\K[\d.]+')
+    echo "$ts,$cpu,$mem_s,$io,$mem_f"
+    sleep 10
+done</code></pre>
+      <p>跑 5 分鐘收集資料，畫成圖看趨勢。練習從 PSI 數字判斷系統健康。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 7: 自我檢查題 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>PSI 解決 load average 什麼問題？舉一個 load average 誤導但 PSI 正確的場景。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>load average 的根本問題</strong>：把「<em>busy</em>」（CPU 全滿且都在工作）與「<em>stalled</em>」（task 在等資源）混為一談。兩種狀況的 load 數字相同，但意義天差地別。
+        <strong>誤導場景</strong>：機器有 8 核，跑 IO-heavy 應用——4 個 worker 因等 disk read 而 stalled。load average 顯示 4.0，看起來「<em>使用率 50%</em>」沒事；實際上應用 latency 已經很糟。
+        <strong>PSI 怎麼揭露</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><code>cpu.pressure some avg10 ≈ 0.5</code>（CPU 很閒）</li>
+          <li><code>io.pressure some avg10 = 30+</code>（IO 嚴重 stall）</li>
+        </ul>
+        看 PSI 立刻知道是 IO 問題不是 CPU——load average 看不出來。
+        <strong>結論</strong>：PSI 告訴你「<em>你的應用有多慢</em>」，load average 告訴你「<em>機器有多忙</em>」。前者是 SRE 真正關心的。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>some 與 full 的差別是什麼？什麼場景該用 full alert 而非 some？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>some</strong>：<em>至少有一個</em> task 因等資源而 stall 的時間百分比。代表「<em>有人慢了</em>」——使用者已感受到部分 latency。
+        <strong>full</strong>：<em>所有</em> runnable task 都 stalled 的時間百分比。代表「<em>整個 cgroup 完全卡住</em>」——沒有任何 task 在跑。
+        <strong>full ≤ some</strong>：「<em>所有都 stalled</em>」必然包含「<em>至少一個 stalled</em>」。
+        <strong>什麼時候用 full alert</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>嚴重程度區分</strong>：some 是「<em>warn</em>」、full 是「<em>critical</em>」。例如 some &gt; 10% 是 warn、full &gt; 1% 是 critical page。</li>
+          <li><strong>memory 場景</strong>：memory.pressure full 非零是「<em>imminent OOM kill 強烈訊號</em>」（Netdata 文件）。應該觸發立即介入（reduce load、kill non-critical）。</li>
+          <li><strong>IO 場景</strong>：io.pressure full &gt; 0 表示整個 cgroup 在等 IO，throughput 為零——比 some 嚴重得多。</li>
+        </ul>
+        <strong>cpu 例外</strong>：cpu.pressure full 罕見（CPU 很少完全沒人能跑）。多數時候只看 cpu some 即可。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span>poll-based PSI trigger 怎麼運作？比 polling 好在哪？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>poll-based trigger 機制</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>open pressure file（O_RDWR | O_NONBLOCK）</li>
+          <li>write 閾值字串：<code>"some 150000 1000000"</code>（在 1 秒 window 內 stall 超 150ms 就觸發）</li>
+          <li>poll(POLLPRI) 阻塞等待</li>
+          <li>kernel 持續監控；當壓力達閾值，wake poll 並回 POLLPRI</li>
+          <li>userspace handle 該事件、做 mitigation</li>
+        </ol>
+        <strong>比 polling 好</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>零 polling overhead</strong>：傳統「<em>每秒 cat 檔案</em>」浪費 CPU，且無壓力時也在跑。trigger 模式只在實際達閾值才喚醒。</li>
+          <li><strong>反應速度快</strong>：壓力一達閾值立刻 wake，比 polling 早 1 秒能反應。對 OOM 場景這 1 秒可能是「<em>救活還是 OOM</em>」的差別。</li>
+          <li><strong>單 process 監控多 cgroup</strong>：一個 daemon 開多個 fd、用 epoll 同時等多個 trigger，scalable。</li>
+        </ul>
+        <strong>限制</strong>：window 必須在 [500ms, 10s] 之間。極短窗口（&lt; 500ms）kernel 會 reject。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span>systemd-oomd 跟 kernel OOM killer 有什麼不同？哪個應該先生效？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>kernel OOM killer</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>在 kernel 真的 allocation 失敗（reclaim 都搞不定）才介入</li>
+          <li>選最高 oom_score 的單一 process 殺</li>
+          <li>整機統一 policy</li>
+        </ul>
+        <strong>systemd-oomd</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>在 PSI 顯示嚴重壓力時主動殺（OOM 之前）</li>
+          <li>用 cgroup 做整批決策（殺整個 user session、整個 service）</li>
+          <li>per-unit policy（systemd directive）</li>
+        </ul>
+        <strong>應該先生效的是 systemd-oomd</strong>，原因：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>更早介入</strong>：在 throttle 階段就動手，不等到 OOM 才反應。</li>
+          <li><strong>選擇更聰明</strong>：可以「<em>整個 user session 都殺</em>」而非保留半死的 process。</li>
+          <li><strong>policy 可調</strong>：對 user.slice 與 system.slice 用不同策略。</li>
+        </ol>
+        <strong>協作關係</strong>：systemd-oomd 先試圖優雅處理；如果還是失控（記憶體飆漲速度太快），kernel OOM 作為最後防線。兩者互補，不衝突。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span>cgroup.events、memory.events、cpu.stat 三個事件介面分別記錄什麼？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>cgroup.events</strong>：cgroup 整體狀態事件。
+            <ul>
+              <li><code>populated</code>：是否有 process</li>
+              <li><code>frozen</code>：是否被 cgroup.freeze 凍結</li>
+            </ul>
+          </li>
+          <li><strong>memory.events</strong>：記憶體相關閾值觸發事件。
+            <ul>
+              <li><code>low</code>：從受保護額度 reclaim</li>
+              <li><code>high</code>：超過 memory.high 後 throttle</li>
+              <li><code>max</code>、<code>oom</code>、<code>oom_kill</code>、<code>oom_group_kill</code></li>
+            </ul>
+          </li>
+          <li><strong>cpu.stat</strong>：CPU 統計（包含事件）。
+            <ul>
+              <li><code>nr_throttled</code>：cpu.max throttle 次數</li>
+              <li><code>throttled_usec</code>：累計 throttle 時間</li>
+            </ul>
+          </li>
+        </ul>
+        <strong>監控建議</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>用 inotify 監聽 events 檔案，事件發生即刻反應</li>
+          <li>combine PSI（看「<em>慢</em>」）+ events（看「<em>事件</em>」）= 完整觀測</li>
+          <li>把這些 metrics 推到 Prometheus，alert rule 要包含 events delta（如 oom_kill rate &gt; 0/min）</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>cgroup.pressure 介面是做什麼的？什麼情況該關掉某個 cgroup 的 PSI？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>cgroup.pressure 介面</strong>（kernel 6.x+）：per-cgroup 的 PSI 計算開關。寫 1 啟用、寫 0 關閉，預設 1。
+        <strong>為什麼需要這個開關</strong>：PSI 對每個 cgroup 獨立計算並逐層 aggregate。深層 hierarchy（10+ 層）下，PSI 計算 overhead 變得不可忽略——某些 benchmark 顯示 8 層下占 1–2% CPU。
+        <strong>該關掉 PSI 的場景</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>中間層 cgroup</strong>：你關心 root 與 leaf 的 PSI，不關心 user-1.slice / user@1.service 這種中間層。可關掉中間層減 overhead。</li>
+          <li><strong>高密度 K8s 節點</strong>：跑幾百個 Pod 時，多層 cgroup 的 PSI 累積 overhead 顯著。</li>
+          <li><strong>性能敏感的 latency-critical workload</strong>：每個 us 都計較，關掉非必要的 PSI 計算。</li>
+        </ul>
+        <strong>非 hierarchical</strong>：在 A 關掉<em>不影響</em> child B、C。每個 cgroup 獨立決定。可以「<em>葉子層繼續算、中間層不算</em>」。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span>容器內 cat /proc/pressure/memory 看到的數字代表什麼？怎麼看容器自己的 pressure？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>/proc/pressure/memory</strong>：由 host kernel 提供，<em>沒有 namespace 化</em>。容器內 cat 看到的是 <strong>host 整體</strong> memory pressure，不是容器自己。
+        <strong>為什麼這樣</strong>：/proc/pressure/* 是 system-wide 介面，從 PSI 引入時就是這樣設計。namespace 化會破壞 host 視角的 monitoring 工具。
+        <strong>看容器自己的 pressure</strong>：
+        <pre style="margin-top:8px;font-size:11px;">cat /sys/fs/cgroup/memory.pressure</pre>
+        在 cgroup namespace 化的容器內，<code>/sys/fs/cgroup</code> 看到的是<em>容器 cgroup root</em>——這個 root 的 memory.pressure 就是容器自己的 PSI。
+        <strong>實務影響</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>容器內監控應用：用 <code>/sys/fs/cgroup/*.pressure</code></li>
+          <li>K8s sidecar / DaemonSet 採集 host 指標：直接讀 /proc/pressure/*（這時候要的就是 host 視角）</li>
+          <li>cAdvisor、node_exporter 等工具會兩個都讀，分別 export per-container 與 per-node metrics</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>實作思考題：你管理一個 K8s cluster，要設計完整 PSI 監控與告警系統，從 Pod 級到 cluster 級。請描述完整架構。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>三層監控架構</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[Layer 1: Node-local 即時防禦]
+- 每個 node 跑 systemd-oomd
+- 對 user.slice、system.slice 設 ManagedOOMMemoryPressure=kill
+  ManagedOOMMemoryPressureLimit=50%
+- 反應時間 &lt; 1 秒，避免 kernel OOM
+
+[Layer 2: 監控告警]
+- DaemonSet 跑 cAdvisor 採集所有 cgroup PSI + events
+- Prometheus 抓 cAdvisor metrics（每 15 秒）
+- 關鍵 alert rules:
+  * container_pressure_memory_full_avg10 &gt; 1% for 2m → critical
+  * container_pressure_memory_some_avg10 &gt; 10% for 5m → warning
+  * container_pressure_io_some_avg10 &gt; 20% for 5m → warning
+  * rate(container_oom_events[5m]) &gt; 0 → critical
+
+[Layer 3: 容量規劃]
+- Long-term Prometheus retention (30 天)
+- VPA（Vertical Pod Autoscaler）讀 PSI history 自動調整 limits
+- HPA（Horizontal Pod Autoscaler）配合 PSI 而非只看 CPU usage
+- 每週 review report：哪些 service 的 PSI 趨勢上升？該擴容嗎？</pre>
+        <strong>關鍵設計決策</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>Layer 1 用 systemd-oomd 而非 K8s eviction</strong>：oomd 反應更快（&lt; 1s vs eviction 30s+）。</li>
+          <li><strong>Layer 2 alert 用 PSI 而非 memory.current</strong>：PSI 直接反映 latency 影響，比 utilization 更可靠。</li>
+          <li><strong>Layer 2 區分 some / full</strong>：full 是 critical（imminent failure）、some 是 warning。</li>
+          <li><strong>Layer 3 整合 VPA/HPA</strong>：用 PSI 自動 tune，比靜態 limit 更靈活。K8s 1.34+ 支援 PSI-based autoscaling。</li>
+          <li><strong>多維度監控</strong>：cpu / memory / io 三個都看，不要只盯 memory。</li>
+        </ol>
+        <strong>Runbook</strong>：alert 觸發時，從 PSI + memory.events + memory.stat 三方資料判斷是 leak、流量尖峰、還是 limit 設太緊。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 8: 延伸閱讀 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+
+    <div class="refs">
+      <ol>
+        <li>
+          <a href="https://docs.kernel.org/accounting/psi.html" target="_blank" rel="noopener">PSI · Linux Kernel 官方文件</a>
+          <span class="ref-source">docs.kernel.org · PSI 設計、介面、trigger 完整定義</span>
+        </li>
+        <li>
+          <a href="https://facebookmicrosites.github.io/psi/" target="_blank" rel="noopener">PSI · facebookmicrosites</a>
+          <span class="ref-source">PSI 概念入門，Meta 開發團隊的設計動機</span>
+        </li>
+        <li>
+          <a href="https://facebookmicrosites.github.io/cgroup2/docs/pressure-metrics.html" target="_blank" rel="noopener">PSI Pressure Metrics · Meta cgroup2 guide</a>
+          <span class="ref-source">facebookmicrosites.github.io · fbtax2 案例：PSI 在生產的實戰</span>
+        </li>
+        <li>
+          <a href="https://www.netdata.cloud/academy/diagnosing-linux-cgroups/" target="_blank" rel="noopener">Diagnosing cgroups v2 · Netdata 2025-09</a>
+          <span class="ref-source">netdata.cloud · 完整的 PSI 診斷流程與閾值建議</span>
+        </li>
+        <li>
+          <a href="https://www.freedesktop.org/software/systemd/man/systemd-oomd.service.html" target="_blank" rel="noopener">systemd-oomd · systemd manual</a>
+          <span class="ref-source">freedesktop.org · systemd-oomd 介面與 ManagedOOM* directive</span>
+        </li>
+        <li>
+          <a href="https://github.com/facebookincubator/oomd" target="_blank" rel="noopener">oomd · Meta open source</a>
+          <span class="ref-source">github.com · Meta 用於 fbtax2 的 user-space OOM daemon</span>
+        </li>
+        <li>
+          <a href="https://lwn.net/Articles/759781/" target="_blank" rel="noopener">PSI: pressure stall information · LWN.net</a>
+          <span class="ref-source">lwn.net · PSI 引入提案的歷史與設計討論</span>
+        </li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Chapter nav ====================== -->
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn" href="ch11-other-controllers.html">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">Ch.11 其他 controllers</span>
+    </a>
+    <a class="nav-btn next disabled">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">Ch.13 eBPF 觀測</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window.JHsunTheme = { get: getCurrentMode, set: (m) => { setStored(m); applyTheme(m); }, toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); }, };
+})();
+</script>
+
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+
+</body>
+</html>

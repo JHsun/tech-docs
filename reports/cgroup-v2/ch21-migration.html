@@ -1,0 +1,1410 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.21 cgroup v1 → v2 遷移完整指南 — cgroup v2 完整教學</title>
+<meta name="description" content="從 cgroup v1 遷移到 v2 完整指南：發行版時間軸、systemd.unified_cgroup_hierarchy 開關、Slurm/K8s/Docker 配合、企業 fleet 100+ 節點 migration 策略、回滾與防護。">
+
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626; --color-danger-soft: #fee2e2;
+  --color-info: #0891b2; --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px;
+  --container-narrow: 720px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px;
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.topbar { position: sticky; top: 0; z-index: 50; background: color-mix(in oklch, var(--bg-canvas) 88%, transparent); backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--border-soft); }
+.topbar-inner { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.brand { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-secondary); }
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 999px; padding: 6px 14px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all .2s; }
+[data-theme-toggle]:hover { background: var(--bg-muted); border-color: var(--border-mid); color: var(--text-primary); }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: 0 var(--space-5); }
+.chapter-head { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); }
+.chapter-tag { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary-text); background: var(--color-primary-soft); padding: 4px 12px; border-radius: 999px; margin-bottom: var(--space-4); }
+.chapter-title { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; margin-bottom: var(--space-3); }
+.chapter-subtitle { font-family: var(--font-serif-body); font-size: var(--text-md); color: var(--text-secondary); line-height: 1.65; font-style: italic; }
+.chapter-meta { margin-top: var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.chapter-meta-item:first-child::before { display: none; }
+.section { padding: var(--space-7) 0; border-bottom: 1px solid var(--border-soft); }
+.section:last-of-type { border-bottom: none; }
+.section-label { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2); }
+.section-label::before { content: ""; width: 24px; height: 1px; background: var(--color-primary); }
+.section-title { font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600; margin-bottom: var(--space-5); letter-spacing: -0.01em; line-height: 1.2; }
+.prose p { font-family: var(--font-serif-body); font-size: var(--text-base); line-height: 1.85; margin-bottom: var(--space-4); }
+.prose h3 { font-family: var(--font-sans); font-size: var(--text-lg); font-weight: 600; margin: var(--space-6) 0 var(--space-3); letter-spacing: -0.01em; }
+.prose h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 500; margin: var(--space-5) 0 var(--space-2); }
+.prose ul, .prose ol { font-family: var(--font-serif-body); margin-bottom: var(--space-4); padding-left: var(--space-5); line-height: 1.8; }
+.prose ul li, .prose ol li { margin-bottom: var(--space-2); }
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong { font-weight: 600; }
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 1px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+.prose a { color: var(--color-primary); text-decoration: underline; text-underline-offset: 3px; }
+.highlights { background: var(--color-primary-soft); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.highlights ol { font-family: var(--font-sans); padding-left: var(--space-5); margin: 0; }
+.highlights li { font-size: var(--text-sm); color: var(--color-primary-text); margin-bottom: var(--space-2); line-height: 1.65; }
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+.news-box { background: var(--color-info-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.news-item { font-family: var(--font-sans); font-size: var(--text-sm); line-height: 1.7; padding: var(--space-2) 0; border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent); }
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-info); margin-right: var(--space-2); }
+pre { font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.7; background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; margin-bottom: var(--space-4); }
+pre code { background: transparent; border: none; padding: 0; font-size: inherit; color: inherit; }
+.cmp-table { width: 100%; border-collapse: collapse; margin-bottom: var(--space-4); font-size: var(--text-sm); font-family: var(--font-sans); }
+.cmp-table th, .cmp-table td { padding: var(--space-3); text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.cmp-table th { font-weight: 600; background: var(--bg-muted); font-size: var(--text-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 1px 5px; border-radius: var(--radius-sm); color: var(--color-primary-text); }
+.lab { background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.lab-title { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--color-primary); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px dashed var(--border-soft); }
+.lab-title::before { content: "▶ "; }
+.lab p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-3); color: var(--text-secondary); line-height: 1.7; }
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+.lab ol, .lab ul { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); color: var(--text-secondary); line-height: 1.7; }
+.pitfall { background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.pitfall-title { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 600; color: var(--color-warning); margin-bottom: var(--space-2); }
+.pitfall p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-2); line-height: 1.7; }
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code { background: color-mix(in oklch, var(--color-warning) 15%, transparent); border-color: color-mix(in oklch, var(--color-warning) 30%, transparent); }
+.quiz-item { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-3); }
+.quiz-q { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; margin-bottom: var(--space-2); display: flex; gap: var(--space-2); }
+.quiz-q-num { font-family: var(--font-mono); color: var(--color-primary); flex-shrink: 0; }
+.quiz-toggle { background: transparent; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 4px 10px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; margin-top: var(--space-2); transition: all .2s; }
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a { display: none; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px dashed var(--border-soft); font-family: var(--font-serif-body); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.75; }
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+.diagram { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); margin-bottom: var(--space-4); text-align: center; }
+.diagram svg { max-width: 100%; height: auto; }
+.diagram-caption { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-3); }
+.refs ol { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); line-height: 1.8; }
+.refs li { margin-bottom: var(--space-2); color: var(--text-secondary); }
+.refs li::marker { color: var(--color-primary); }
+.refs a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dashed var(--color-primary); }
+.refs .ref-source { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); display: block; margin-top: 2px; }
+.chapter-nav { margin-top: var(--space-6); padding: var(--space-5) 0; display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.nav-btn { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; padding: var(--space-3) var(--space-4); background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); text-decoration: none; color: var(--text-primary); transition: all .2s; }
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.04em; }
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.21</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part VII · 遷移與附錄 · Chapter 21</span>
+    <h1 class="chapter-title">cgroup v1 → v2 遷移完整指南</h1>
+    <p class="chapter-subtitle">
+      到 2026 年，主流發行版預設都已經是 cgroup v2——但<em>仍有大量 production 機器跑在 v1</em>。
+      RHEL 8 / 9 預設 v1 但支援 v2，RHEL 10 only v2；Ubuntu 22.04 之後預設 v2，舊機器升級時碰到的 systemd / Docker / Slurm 三方配合是業界經典痛點。
+      切換靠單一 kernel boot parameter <code>systemd.unified_cgroup_hierarchy=1</code>——但這背後牽涉
+      <strong>整個系統的 process 都要重新進 cgroup tree</strong>、舊 libcgroup 工具失效、
+      容器 runtime 配置可能不對、HPC scheduler 需要重新設定。
+      本章把企業 fleet 的完整遷移實戰整理：發行版時間軸、kernel 切換、systemd 角色、Slurm/K8s/Docker 配合、回滾、防護。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~7,000 字</span>
+      <span class="chapter-meta-item">閱讀時間 27 分鐘</span>
+      <span class="chapter-meta-item">難度：實戰</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+    <div class="highlights">
+      <ol>
+        <li><strong>切換靠 kernel boot parameter</strong>：<code>systemd.unified_cgroup_hierarchy=1</code> 啟用 v2，<code>=0</code> 退回 v1。需要 reboot；切換不能 hot swap。同時用 v1 + v2 hybrid 模式可以但生產不建議。</li>
+        <li><strong>RHEL 8/9 預設仍是 v1</strong>，RHEL 10（2025）only v2；<strong>Ubuntu 22.04+</strong> 預設 v2；<strong>Debian 11+</strong> 預設 v2；<strong>Fedora 31+</strong> 早就 v2。Rocky / Alma 跟 RHEL 走。檢查指令：<code>stat -fc %T /sys/fs/cgroup/</code>。</li>
+        <li><strong>libcgroup-style（cgconfig.conf、cgrulesengd）已 deprecated</strong>。Red Hat 強烈建議遷移到 systemd-style（CPUWeight=、MemoryMax= drop-in）。舊 cgrulesengd 在 v2 不工作，沒等價物。</li>
+        <li><strong>Docker 20.10+、containerd 1.4+、Slurm 22.05+ 都支援 v2</strong>。但 cgroup driver 配置要全 stack 一致——kubelet、container runtime、systemd 必須<em>都</em> 用 systemd driver（Ch.16 / Ch.17 重點再次強調）。</li>
+        <li><strong>企業 fleet migration 看「<em>一次切還是分階段</em>」</strong>：保守策略「<em>新節點上 v2、舊節點不動</em>」最安全。RHEL 9 → 10 跳版時是天然遷移點。HPC 因 Slurm 需停機，常選 maintenance window 一次切。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+    <div class="news-box">
+      <div class="news-item"><span class="news-date">2025</span><strong>RHEL 10 發布，only cgroup v2</strong>。RHEL 8/9 仍預設 v1（向後相容），但 RHEL 10 完全不再支援 v1。從 9 升 10 的人必須先處理 v2 相容性。</div>
+      <div class="news-item"><span class="news-date">2026-04</span><strong>Ubuntu 26.04 LTS（Resolute Raccoon）完全移除 v1 fallback</strong>。systemd 259 不再 mount v1 hierarchy——舊腳本寫 <code>/sys/fs/cgroup/memory/...</code> 直接 fail。</div>
+      <div class="news-item"><span class="news-date">2025</span><strong>Kubernetes kubelet 在 v1 節點預設 fail to start</strong>。1.36+ 加入 <code>failCgroupV1: true</code> 預設。要繞過需明確設 false，「<em>operationally dangerous</em>」官方說法。</div>
+      <div class="news-item"><span class="news-date">2025</span><strong>Slurm cgroup/v1 plugin 正式 deprecated</strong>。SchedMD 文件「<em>no new features</em>」。新 cluster 建議用 cgroup/v2。HPC 中心多在 25.x 升級時切換。</div>
+      <div class="news-item"><span class="news-date">2025</span><strong>libcgroup 移除提案討論</strong>。Red Hat 與 Fedora 多次討論 libcgroup-tools（cgcreate、cgexec、cgconfigparser）的移除——目前還在，但官方建議改用 systemd-run / systemctl set-property。</div>
+    </div>
+    <div class="prose">
+      <p>
+        2026 年的時點，<strong>「<em>還沒遷移到 v2 就是 risk</em>」</strong>——K8s 1.36 拒啟動、Ubuntu 26.04 移除 v1、RHEL 10 only v2、Slurm v1 plugin EOL。本章講的不只是「<em>怎麼切</em>」，更是「<em>怎麼在生產環境<em>安全地</em> 切</em>」——分階段、有 rollback、考慮所有依賴。
+      </p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+
+    <div class="prose">
+      <h3>3.1 主流發行版的 cgroup 預設</h3>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>發行版 / 版本</th><th>預設</th><th>備註</th></tr>
+      </thead>
+      <tbody>
+        <tr><td colspan="3" style="background: var(--color-primary-soft); font-weight: 600; color: var(--color-primary-text);">RHEL / Rocky / Alma 系</td></tr>
+        <tr><td>RHEL 7</td><td>v1 only</td><td>2024-06 EOL，仍有大量 legacy</td></tr>
+        <tr><td>RHEL 8</td><td>v1 預設，可選 v2</td><td>kernel 4.18，主流企業仍在用</td></tr>
+        <tr><td>RHEL 9</td><td>v1 預設，可選 v2</td><td>kernel 5.14，向後相容考量</td></tr>
+        <tr><td>RHEL 10（2025）</td><td>v2 only</td><td>不再支援 v1，遷移分水嶺</td></tr>
+        <tr><td colspan="3" style="background: var(--color-primary-soft); font-weight: 600; color: var(--color-primary-text);">Ubuntu / Debian 系</td></tr>
+        <tr><td>Ubuntu 20.04 LTS</td><td>v1 預設</td><td>仍可長期支援到 2030 ESM</td></tr>
+        <tr><td>Ubuntu 22.04 LTS</td><td>v2 預設</td><td>cgroup 切換轉折點</td></tr>
+        <tr><td>Ubuntu 24.04 LTS</td><td>v2 預設，仍 mount v1 fallback</td><td>少量 legacy 工具仍可用</td></tr>
+        <tr><td>Ubuntu 26.04 LTS</td><td>v2 only</td><td>v1 fallback 完全移除</td></tr>
+        <tr><td>Debian 10 / 11</td><td>v1 預設</td><td>Debian 11 仍多數 v1</td></tr>
+        <tr><td>Debian 12 (Bookworm)</td><td>v2 預設</td><td>2023 發布</td></tr>
+        <tr><td colspan="3" style="background: var(--color-primary-soft); font-weight: 600; color: var(--color-primary-text);">Fedora / SUSE / Arch</td></tr>
+        <tr><td>Fedora 31+</td><td>v2 預設</td><td>2019 早期 adopter</td></tr>
+        <tr><td>SUSE / openSUSE 15.x</td><td>v2 預設（15.3+）</td><td>SLES 主流</td></tr>
+        <tr><td>Arch Linux</td><td>v2 預設</td><td>滾動更新已久</td></tr>
+        <tr><td>Alpine 3.16+</td><td>v2 預設</td><td>容器 base image 主流</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h3>3.2 切換的核心機制：kernel boot parameter</h3>
+      <p>
+        切換 cgroup 版本是<strong>boot-time 決定</strong>，不能 hot swap：
+      </p>
+<pre><code># 啟用 v2（unified hierarchy）
+systemd.unified_cgroup_hierarchy=1
+
+# 退回 v1
+systemd.unified_cgroup_hierarchy=0
+
+# 進階：禁用特定 v1 controller，讓它們 v2-only
+cgroup_no_v1=memory,cpu
+
+# 完全禁用 v1
+cgroup_no_v1=all
+</code></pre>
+      <p>
+        <strong>為什麼是 boot-time</strong>：
+      </p>
+      <ol>
+        <li>systemd PID 1 啟動<em>非常早</em>——它需要決定走哪個 cgroup 版本來組織所有 process。</li>
+        <li>cgroup 一旦 mount 並有 process，<em>就不能輕易切換</em>——所有 process 都已掛在 hierarchy 上。</li>
+        <li>kernel 設計：v1 是多 hierarchy（每個 controller 一個），v2 是單 hierarchy；<em>同一 controller</em> 不能同時掛在 v1 與 v2。</li>
+      </ol>
+
+      <h3>3.3 v1 vs v2 hybrid 模式（不推薦但可能存在）</h3>
+      <p>
+        RHEL 8/9、Ubuntu 22.04/24.04 在預設 v1 時，systemd 會額外 mount v2 在 <code>/sys/fs/cgroup/unified</code>——形成<strong>hybrid mode</strong>：
+      </p>
+<pre><code># Hybrid mode 結構
+$ mount | grep cgroup
+tmpfs on /sys/fs/cgroup type tmpfs
+cgroup on /sys/fs/cgroup/systemd type cgroup (name=systemd)
+cgroup on /sys/fs/cgroup/cpu,cpuacct type cgroup (cpu,cpuacct)
+cgroup on /sys/fs/cgroup/memory type cgroup (memory)
+... 共 10+ v1 mounts ...
+cgroup2 on /sys/fs/cgroup/unified type cgroup2  ← v2 在這
+</code></pre>
+      <p>
+        <strong>問題</strong>：
+      </p>
+      <ul>
+        <li>v2 unified mount 之下沒有 controllers（都被 v1 occupied）</li>
+        <li>應用同時看到 v1 與 v2，行為不可預測</li>
+        <li>K8s / Slurm 多數忽略 hybrid mode 的 v2 mount</li>
+      </ul>
+      <p>
+        <strong>實務建議</strong>：<em>不要靠 hybrid</em>。要嘛 v1 要嘛 v2，明確選擇。
+      </p>
+
+      <h3>3.4 切換步驟（典型流程）</h3>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 680 320" role="img" aria-label="v1 → v2 遷移流程">
+        <text x="340" y="22" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="600" fill="var(--text-primary)">v1 → v2 遷移流程</text>
+
+        <!-- 5 個 box，水平 -->
+        <rect x="30" y="55" width="120" height="60" rx="6" fill="var(--color-info-soft)" stroke="var(--color-info)" stroke-width="0.5"/>
+        <text x="90" y="78" text-anchor="middle" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="var(--color-info)">1. 檢查相容性</text>
+        <text x="90" y="93" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-secondary)">kernel ≥ 5.8</text>
+        <text x="90" y="105" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-secondary)">runtime, scheduler</text>
+
+        <path d="M 150 85 L 175 85" stroke="var(--text-muted)" stroke-width="1" marker-end="url(#arrM)"/>
+
+        <rect x="180" y="55" width="120" height="60" rx="6" fill="var(--color-warning-soft)" stroke="var(--color-warning)" stroke-width="0.5"/>
+        <text x="240" y="78" text-anchor="middle" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="var(--color-warning)">2. 改 GRUB</text>
+        <text x="240" y="93" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-secondary)">unified_cgroup</text>
+        <text x="240" y="105" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-secondary)">_hierarchy=1</text>
+
+        <path d="M 300 85 L 325 85" stroke="var(--text-muted)" stroke-width="1" marker-end="url(#arrM)"/>
+
+        <rect x="330" y="55" width="120" height="60" rx="6" fill="var(--color-warning-soft)" stroke="var(--color-warning)" stroke-width="0.5"/>
+        <text x="390" y="78" text-anchor="middle" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="var(--color-warning)">3. Reboot</text>
+        <text x="390" y="93" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-secondary)">drain workload</text>
+        <text x="390" y="105" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-secondary)">maintenance window</text>
+
+        <path d="M 450 85 L 475 85" stroke="var(--text-muted)" stroke-width="1" marker-end="url(#arrM)"/>
+
+        <rect x="480" y="55" width="120" height="60" rx="6" fill="var(--color-success-soft)" stroke="var(--color-success)" stroke-width="0.5"/>
+        <text x="540" y="78" text-anchor="middle" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="var(--color-success)">4. 驗證</text>
+        <text x="540" y="93" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-secondary)">stat -fc %T</text>
+        <text x="540" y="105" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-secondary)">cgroup2fs</text>
+
+        <!-- 第二行 -->
+        <path d="M 540 115 L 540 145" stroke="var(--text-muted)" stroke-width="1" marker-end="url(#arrM)"/>
+
+        <rect x="180" y="155" width="320" height="60" rx="6" fill="var(--color-success-soft)" stroke="var(--color-success)" stroke-width="0.5"/>
+        <text x="340" y="178" text-anchor="middle" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="var(--color-success)">5. 重啟相關 service</text>
+        <text x="340" y="193" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-secondary)">Docker / containerd / kubelet / slurmd</text>
+        <text x="340" y="206" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-secondary)">確認 cgroup driver = systemd</text>
+
+        <path d="M 340 215 L 340 245" stroke="var(--text-muted)" stroke-width="1" marker-end="url(#arrM)"/>
+
+        <rect x="180" y="250" width="320" height="60" rx="6" fill="var(--color-info-soft)" stroke="var(--color-info)" stroke-width="0.5"/>
+        <text x="340" y="273" text-anchor="middle" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="var(--color-info)">6. 監控與測試</text>
+        <text x="340" y="288" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-secondary)">workload 表現、metrics、alert</text>
+        <text x="340" y="301" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-secondary)">有問題 reboot 改回 =0 即可 rollback</text>
+
+        <defs>
+          <marker id="arrM" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--text-muted)"/>
+          </marker>
+        </defs>
+      </svg>
+      <div class="diagram-caption">圖 21.1 · v1 → v2 遷移 6 步驟流程</div>
+    </div>
+
+    <div class="prose">
+      <h3>3.5 GRUB 修改的具體做法</h3>
+<pre><code># RHEL / CentOS / Rocky / Alma
+# 永久修改：用 grubby
+sudo grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=1"
+
+# 確認生效（沒 reboot 前）
+sudo grubby --info=ALL | grep cgroup
+
+# Ubuntu / Debian
+# 編輯 /etc/default/grub
+sudo nano /etc/default/grub
+# 把 GRUB_CMDLINE_LINUX 改成：
+# GRUB_CMDLINE_LINUX="systemd.unified_cgroup_hierarchy=1"
+
+sudo update-grub
+
+# 重啟
+sudo reboot
+
+# 重啟後驗證
+$ stat -fc %T /sys/fs/cgroup/
+cgroup2fs    ← v2
+
+$ mount | grep cgroup
+cgroup2 on /sys/fs/cgroup type cgroup2 (rw,nosuid,nodev,noexec,relatime,nsdelegate,memory_recursiveprot)
+
+$ cat /sys/fs/cgroup/cgroup.controllers
+cpuset cpu io memory hugetlb pids rdma misc
+</code></pre>
+
+      <h3>3.6 各 component 配合：Docker</h3>
+      <p>
+        Docker <strong>20.10+</strong> 完整支援 cgroup v2（先前版本部分支援）。切換 v2 後檢查：
+      </p>
+<pre><code># 確認 Docker 看到 v2
+$ docker info --format '{{.CgroupDriver}} / {{.CgroupVersion}}'
+systemd / 2
+
+# 確保用 systemd cgroup driver（v2 強烈建議）
+# /etc/docker/daemon.json
+{
+    "exec-opts": ["native.cgroupdriver=systemd"]
+}
+sudo systemctl restart docker
+
+# 測試容器
+$ docker run --rm --cpus=1 --memory=500M alpine sh -c 'cat /sys/fs/cgroup/cpu.max /sys/fs/cgroup/memory.max'
+100000 100000     ← 1 CPU
+524288000         ← 500M
+</code></pre>
+      <p>
+        <strong>常見問題</strong>：cgroup driver 沒設 systemd（用 cgroupfs）→ resource pressure 下節點不穩定（Ch.16 已詳述）。
+      </p>
+
+      <h3>3.7 各 component 配合：Kubernetes</h3>
+      <p>
+        K8s 1.25+ cgroup v2 GA、1.36+ 預設拒絕 v1：
+      </p>
+<pre><code># Step 1: 升 kernel + 切 v2（如上）
+# Step 2: 確認 containerd 設 systemd driver
+# /etc/containerd/config.toml
+[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]
+  SystemdCgroup = true
+
+# Step 3: kubelet 設 systemd driver
+# /var/lib/kubelet/config.yaml
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: systemd
+
+# 1.36+ 自動偵測（KubeletCgroupDriverFromCRI）
+# kubelet 從 containerd 取 driver——不需手動設
+
+# Step 4: drain node、重啟 kubelet 與 containerd
+kubectl drain &lt;node&gt; --ignore-daemonsets --delete-emptydir-data
+sudo systemctl restart containerd kubelet
+kubectl uncordon &lt;node&gt;
+
+# 驗證
+$ kubectl get nodes &lt;node&gt; -o jsonpath='{.status.nodeInfo}' | jq
+{
+  "kubeletVersion": "v1.36.x",
+  "containerRuntimeVersion": "containerd://2.0.x",
+  ...
+}
+
+# Pod 啟動測試
+kubectl run test --image=alpine --restart=Never -- sleep 3600
+kubectl exec test -- cat /sys/fs/cgroup/cpu.max
+</code></pre>
+
+      <h3>3.8 各 component 配合：Slurm</h3>
+      <p>
+        Slurm 22.05+ 支援 cgroup/v2 plugin（Ch.18 已詳述）：
+      </p>
+<pre><code># 升 Slurm 到 22.05+ 之後
+
+# /etc/slurm/cgroup.conf
+CgroupPlugin=cgroup/v2          # 明確指定 v2（或 autodetect）
+ConstrainCores=yes
+ConstrainRAMSpace=yes
+ConstrainSwapSpace=yes
+ConstrainDevices=yes
+
+# slurmd.service 加 drop-in
+sudo mkdir -p /etc/systemd/system/slurmd.service.d/
+cat &lt;&lt;EOF | sudo tee /etc/systemd/system/slurmd.service.d/cgroup-v2.conf
+[Service]
+Slice=system.slice
+Delegate=yes
+EOF
+
+sudo systemctl daemon-reload
+
+# 重啟流程：
+# 1. drain 所有 node
+sudo scontrol update NodeName=ALL State=DRAIN Reason="cgroup v2 migration"
+
+# 2. 等所有 job 結束（或 cancel）
+squeue
+
+# 3. 重啟 slurmctld + slurmd
+sudo systemctl restart slurmctld
+sudo pdsh -w compute[01-N] "systemctl restart slurmd"
+
+# 4. resume node
+sudo scontrol update NodeName=ALL State=RESUME
+
+# 驗證
+sbatch --mem=2G --cpus-per-task=2 my_job.sh
+ssh compute01 "ls /sys/fs/cgroup/slurmstepd.scope/"
+# 應該看到 job_NNNN 子目錄
+</code></pre>
+
+      <h3>3.9 libcgroup 工具的命運</h3>
+      <p>
+        <strong>libcgroup-tools</strong>（cgcreate、cgexec、cgconfigparser、cgrulesengd 等）是早年 v1 主流工具。<em>不要在 v2 用</em>——多數命令會失敗或行為不正確：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>libcgroup 命令</th><th>v1 行為</th><th>v2 替代</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>cgcreate</code></td><td>建 cgroup 目錄</td><td>用 <code>systemd-run --slice=...</code> 或 <code>systemctl set-property</code></td></tr>
+        <tr><td><code>cgexec</code></td><td>把 process 跑進 cgroup</td><td><code>systemd-run --scope ...</code></td></tr>
+        <tr><td><code>cgclassify</code></td><td>移動 process 到 cgroup</td><td>echo 寫 <code>cgroup.procs</code> 或 <code>systemctl --user ...</code></td></tr>
+        <tr><td><code>cgconfigparser</code></td><td>讀 cgconfig.conf 應用</td><td>寫 systemd unit drop-in</td></tr>
+        <tr><td><code>cgrulesengd</code></td><td>規則 daemon 自動分類 process</td><td><em>沒等價</em>，用 systemd unit 或自寫</td></tr>
+        <tr><td><code>cgget</code></td><td>讀 cgroup 屬性</td><td><code>systemctl show &lt;unit&gt;</code> 或直接 cat 介面檔案</td></tr>
+        <tr><td><code>cgset</code></td><td>設 cgroup 屬性</td><td><code>systemctl set-property &lt;unit&gt; ...</code></td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        <strong>cgconfig.conf 遷移範例</strong>：
+      </p>
+<pre><code># 舊 v1 cgconfig.conf
+group myapp {
+    cpu {
+        cpu.shares = 512;
+    }
+    memory {
+        memory.limit_in_bytes = 1G;
+    }
+}
+
+# 對應 v2 systemd unit（推薦）
+# /etc/systemd/system/myapp.service
+[Unit]
+Description=My application
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/myapp
+CPUWeight=50          # 對應 cpu.shares=512（v1 default 1024 → v2 weight 100；512 ≈ 50）
+MemoryMax=1G          # 對應 memory.limit_in_bytes=1G
+
+[Install]
+WantedBy=multi-user.target
+
+# 啟用
+sudo systemctl daemon-reload
+sudo systemctl enable --now myapp
+</code></pre>
+
+      <h3>3.10 Rollback 策略</h3>
+      <p>
+        切換失敗時 rollback 非常簡單——改回 boot parameter 即可：
+      </p>
+<pre><code># RHEL / Rocky
+sudo grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=0"
+sudo reboot
+
+# Ubuntu / Debian
+sudo sed -i 's/systemd.unified_cgroup_hierarchy=1//' /etc/default/grub
+sudo update-grub
+sudo reboot
+
+# 確認回到 v1
+$ stat -fc %T /sys/fs/cgroup/
+tmpfs    ← v1（hybrid 或純 v1）
+</code></pre>
+      <p>
+        <strong>但要注意</strong>：
+      </p>
+      <ul>
+        <li>應用如果改用 v2-style 設定（drop-in 用 CPUWeight= 而非 CPUShares=），<em>仍會在 v1 work</em>——systemd 會自動轉換。</li>
+        <li>但 v2-only 功能（Memory QoS 的 memory.high、PSI）在 v1 沒有。</li>
+        <li>K8s 1.36+ 會拒絕 v1 啟動（除非 <code>failCgroupV1: false</code>）——如果你的 K8s 太新但要 rollback v1，要同時調整 kubelet 設定。</li>
+      </ul>
+
+      <h3>3.11 best practices 總結</h3>
+      <ul>
+        <li><strong>新節點直接 v2</strong>：不要建 v1 新機器。</li>
+        <li><strong>RHEL 9 → 10 跳版時切</strong>：天然遷移點。</li>
+        <li><strong>HPC 用 maintenance window 一次切</strong>：drain 全部 job 後 reboot。</li>
+        <li><strong>K8s 用 rolling node migration</strong>：drain 一個 node、reboot 切 v2、加回 cluster；逐個進行。</li>
+        <li><strong>遷移前確認所有 component 版本</strong>：Docker 20.10+、containerd 1.4+、Slurm 22.05+、kubelet 1.25+。</li>
+        <li><strong>移除 libcgroup 依賴</strong>：寫 systemd unit 取代 cgconfig.conf。</li>
+        <li><strong>監控 metric baseline</strong>：切換前後對比 throttle、OOM、latency；任何 regression 立即查。</li>
+        <li><strong>有 rollback plan</strong>：1 行 GRUB 改即可，但要事先測試。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例</h2>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · 確認當前 cgroup 版本與相關工具版本</div>
+<pre><code># 1. cgroup version
+$ stat -fc %T /sys/fs/cgroup/
+# cgroup2fs = v2，tmpfs = v1 或 hybrid
+
+# 2. mount 詳細
+$ mount | grep cgroup
+# v2 only：cgroup2 on /sys/fs/cgroup
+# v1 only：cgroup on /sys/fs/cgroup/&lt;controller&gt; 多個 mount
+
+# 3. kernel 版本
+$ uname -r
+# v2 推薦 ≥ 5.8（Memory QoS 5.9+）
+
+# 4. systemd 版本
+$ systemctl --version | head -1
+# 推薦 ≥ 245（v2 完整支援）
+
+# 5. Docker 版本
+$ docker version --format '{{.Server.Version}}' 2&gt;/dev/null
+# v2 完整支援需 ≥ 20.10
+
+# 6. K8s kubelet
+$ kubelet --version 2&gt;/dev/null
+# v2 GA 在 1.25，建議 ≥ 1.30
+
+# 7. Slurm（HPC）
+$ scontrol --version 2&gt;/dev/null
+# v2 plugin 需 ≥ 22.05
+
+# 一次跑完寫 audit
+cat &lt;&lt;'EOF' &gt; /tmp/cgroup-audit.sh
+#!/bin/bash
+echo "=== cgroup audit ==="
+echo "cgroup version: $(stat -fc %T /sys/fs/cgroup/)"
+echo "kernel: $(uname -r)"
+echo "systemd: $(systemctl --version | head -1)"
+which docker &gt;/dev/null && echo "docker: $(docker version --format '{{.Server.Version}}' 2&gt;/dev/null)"
+which kubelet &gt;/dev/null && echo "kubelet: $(kubelet --version 2&gt;/dev/null)"
+which scontrol &gt;/dev/null && echo "slurm: $(scontrol --version)"
+EOF
+bash /tmp/cgroup-audit.sh
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · 在測試 VM 切換 v1 → v2</div>
+<pre><code># 在 RHEL/Rocky 9 VM（預設 v1）
+
+# 1. 確認 baseline
+sudo systemd-cgls / | head -10
+# 應該看到 v1 階層
+
+# 2. 改 GRUB
+sudo grubby --update-kernel=ALL \
+    --args="systemd.unified_cgroup_hierarchy=1"
+
+# 3. 確認 grubby 生效
+sudo grubby --info=DEFAULT | grep -i cgroup
+
+# 4. 重啟
+sudo reboot
+
+# 5. 重啟後驗證
+stat -fc %T /sys/fs/cgroup/
+# cgroup2fs
+
+ls /sys/fs/cgroup/
+# 看到 cgroup.controllers 等 v2 介面
+
+systemd-cgls / | head -10
+# v2 階層
+
+# 6. 跑簡單測試
+systemd-run --scope --slice=test.slice -p MemoryMax=100M sleep 60 &
+sleep 1
+cat /sys/fs/cgroup/test.slice/run-*.scope/memory.max
+# 100M
+
+# 7. Rollback（如需要）
+sudo grubby --update-kernel=ALL \
+    --args="systemd.unified_cgroup_hierarchy=0"
+sudo reboot
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · 把舊 cgconfig.conf 轉成 systemd unit</div>
+<pre><code># 原 v1 cgconfig.conf
+cat &lt;&lt;'EOF' &gt; /tmp/old-cgconfig.conf
+group webapp {
+    cpu {
+        cpu.shares = 256;
+    }
+    memory {
+        memory.limit_in_bytes = 2G;
+        memory.soft_limit_in_bytes = 1G;
+    }
+    blkio {
+        blkio.weight = 200;
+    }
+}
+EOF
+
+# 對應 v2 systemd unit
+sudo tee /etc/systemd/system/webapp.service &lt;&lt;'EOF'
+[Unit]
+Description=Web Application
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/webapp
+
+# CPU
+CPUWeight=25                   # cpu.shares=256 → weight=25 (256/1024 * 100)
+
+# Memory
+MemoryMax=2G                   # memory.limit_in_bytes=2G
+MemoryHigh=1.5G                # 軟限（Memory QoS）
+MemoryLow=512M                 # memory.soft_limit_in_bytes 對應 MemoryLow（v2 概念不同）
+
+# IO
+IOWeight=200                   # blkio.weight=200
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now webapp
+
+# 確認設定
+systemctl show webapp -p CPUWeight,MemoryMax,MemoryHigh,IOWeight
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 4 · 寫 fleet migration audit 腳本</div>
+<pre><code>#!/bin/bash
+# fleet-cgroup-audit.sh
+# 對 100+ 節點檢查當前 cgroup 狀態，輸出 CSV
+
+NODES_FILE="$1"  # 一行一個 hostname
+
+if [ -z "$NODES_FILE" ]; then
+    echo "Usage: $0 nodes.txt"
+    exit 1
+fi
+
+echo "host,cgroup_version,kernel,systemd,docker,kubelet,migration_ready"
+
+while read host; do
+    if ! ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no $host true 2&gt;/dev/null; then
+        echo "$host,UNREACHABLE,,,,,no"
+        continue
+    fi
+    
+    cgroup_v=$(ssh $host "stat -fc %T /sys/fs/cgroup/" 2&gt;/dev/null)
+    kernel=$(ssh $host "uname -r" 2&gt;/dev/null)
+    systemd_v=$(ssh $host "systemctl --version 2&gt;/dev/null | head -1 | awk '{print \$2}'" 2&gt;/dev/null)
+    docker_v=$(ssh $host "docker version --format '{{.Server.Version}}' 2&gt;/dev/null" 2&gt;/dev/null)
+    kubelet_v=$(ssh $host "kubelet --version 2&gt;/dev/null | awk '{print \$2}'" 2&gt;/dev/null)
+    
+    # 簡單判斷是否 ready：kernel ≥ 5.8、systemd ≥ 245
+    kernel_major=$(echo $kernel | cut -d. -f1)
+    kernel_minor=$(echo $kernel | cut -d. -f2)
+    if [ "$kernel_major" -ge 5 ] && [ "$kernel_minor" -ge 8 ]; then
+        ready="yes"
+    else
+        ready="no_kernel"
+    fi
+    
+    echo "$host,$cgroup_v,$kernel,$systemd_v,$docker_v,$kubelet_v,$ready"
+done &lt; "$NODES_FILE"
+
+# 用法
+# $ echo -e "node1\nnode2\nnode3" &gt; nodes.txt
+# $ ./fleet-cgroup-audit.sh nodes.txt | tee audit.csv
+# $ awk -F, '$2=="cgroup2fs"' audit.csv  # 已 v2
+# $ awk -F, '$2=="tmpfs"' audit.csv      # 仍 v1
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 5 · K8s node 滾動遷移到 v2</div>
+<pre><code># 對 100 個 K8s node 漸進遷移
+NODES=$(kubectl get nodes -o jsonpath='{.items[*].metadata.name}')
+
+for node in $NODES; do
+    echo "=== Migrating $node ==="
+    
+    # 1. 看當前 cgroup version
+    current=$(kubectl debug node/$node -it --image=alpine -- \
+        chroot /host stat -fc %T /sys/fs/cgroup/ 2&gt;/dev/null)
+    echo "Current: $current"
+    
+    if [ "$current" = "cgroup2fs" ]; then
+        echo "  Already v2, skipping"
+        continue
+    fi
+    
+    # 2. drain
+    kubectl drain $node --ignore-daemonsets --delete-emptydir-data --timeout=10m
+    
+    # 3. SSH 到 node 改 GRUB + reboot
+    ssh $node "sudo grubby --update-kernel=ALL --args='systemd.unified_cgroup_hierarchy=1' && \
+               sudo systemctl reboot"
+    
+    # 4. 等 node 回來（大概 5-10 分鐘）
+    echo "Waiting for $node to come back..."
+    while ! kubectl get node $node 2&gt;/dev/null | grep -q Ready; do
+        sleep 30
+    done
+    
+    # 5. 確認 v2
+    new_v=$(kubectl debug node/$node -it --image=alpine -- \
+        chroot /host stat -fc %T /sys/fs/cgroup/)
+    if [ "$new_v" != "cgroup2fs" ]; then
+        echo "ERROR: $node migration failed!"
+        exit 1
+    fi
+    
+    # 6. uncordon
+    kubectl uncordon $node
+    
+    echo "  $node migrated to v2 successfully"
+    
+    # 7. 等 5 分鐘觀察新 Pod 跑得 OK
+    sleep 300
+done
+
+echo "Fleet migration complete!"
+</code></pre>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · Hybrid mode 誤以為已遷移</div>
+      <p>RHEL 8/9 預設 v1，但 systemd 在 <code>/sys/fs/cgroup/unified</code> 額外 mount 了 v2——應用看到 cgroup2 mount 誤以為 v2 in use，但實際上 controller 都還在 v1。檢查：<code>stat -fc %T /sys/fs/cgroup/</code> 必須回 <code>cgroup2fs</code>，<em>不是</em> 看是否有 cgroup2 mount。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · 切到 v2 後 libcgroup-tools 命令 silent fail</div>
+      <p><code>cgcreate -g cpu:test</code> 在 v2 看似成功實際沒效果（v2 controllers 是統一啟用）。修法：移除所有 cgconfig.conf 與 libcgroup 依賴，全部改 systemd unit。長期：考慮 uninstall libcgroup-tools 強制清乾淨。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · K8s 1.36 升級後 v1 節點 kubelet 拒啟動</div>
+      <p>升 K8s 到 1.36，v1 節點 kubelet 退出，「<em>cgroup v1 is deprecated and unsupported</em>」。Node 變 NotReady、Pod 全部 evict。修法：(1) 緊急：kubelet config 設 <code>failCgroupV1: false</code> 暫時繞過；(2) 正解：升所有節點到 v2。<em>不要</em> 一次升 K8s，先確保所有節點 v2 才升 K8s。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · cgroup driver 不一致導致切換後 K8s 節點不穩</div>
+      <p>切到 v2 後 kubelet 仍設 cgroupDriver: cgroupfs（預設）但 systemd 是 PID 1——two managers 衝突。Pod 啟動偶發失敗、cAdvisor 資料錯亂。修法：kubelet + containerd 都明確設 systemd driver；K8s 1.36+ 用 KubeletCgroupDriverFromCRI 自動偵測。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 5 · Slurm 切 v2 後 user 看不到自己的 cgroup</div>
+      <p>使用者 SSH 到 compute node 看 <code>cat /proc/self/cgroup</code> 顯示 <code>0::/user.slice/...</code>——不是 <code>/slurmstepd.scope/job_NNNN</code>。原因：使用者透過 SSH session 進入 user.slice，<em>不是</em> 透過 sbatch 進到 job cgroup。修法：使用者要在 job script 裡看自己的 cgroup（執行 srun 後）才正確；不是登入 node 隨便 cat。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 6 · 應用直接 hardcode v1 路徑</div>
+      <p>應用 code 寫死讀 <code>/sys/fs/cgroup/memory/memory.limit_in_bytes</code>——v2 沒這個 path（是 <code>/sys/fs/cgroup/memory.max</code>）。應用拋 FileNotFoundError 或當 unlimited。修法：寫 helper 同時試 v1 與 v2 路徑（fallback 順序）；或檢查 <code>/sys/fs/cgroup/cgroup.controllers</code> 是否存在判斷版本。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 7 · 切換後忘記 enable controllers</div>
+      <p>v2 切換成功，但 <code>cat /sys/fs/cgroup/cgroup.controllers</code> 缺少 io 或 cpuset——舊 kernel 或 systemd 版本。Slurm <code>EnableControllers=yes</code> 可手動 propagate；新版 systemd（240+）會自動處理。檢查：<code>echo "+io +cpuset" &gt; /sys/fs/cgroup/cgroup.subtree_control</code>。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 8 · 一次切整 fleet 沒 rollback plan</div>
+      <p>「<em>反正測試環境跑過了</em>」一次切 100 節點——某些應用 production 才暴露 v2 incompatibility，無法快速 rollback。修法：(1) <em>永遠</em> 分階段（5% → 25% → 100%）；(2) 寫好 GRUB 改回的腳本確保 1 命令 rollback；(3) 留一個 v1 canary node 作緊急回退。</p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · 把 cgconfig.conf 翻成 systemd unit（10 分鐘）</div>
+      <p>給定 v1 設定，寫對應的 v2 systemd unit drop-in：</p>
+<pre><code>group dataworker {
+    cpu {
+        cpu.shares = 2048;
+        cpu.cfs_quota_us = 400000;
+        cpu.cfs_period_us = 100000;
+    }
+    memory {
+        memory.limit_in_bytes = 8G;
+        memory.swappiness = 0;
+    }
+    blkio {
+        blkio.weight = 800;
+    }
+}</code></pre>
+      <p>翻成 systemd unit，注意 cpu.shares → CPUWeight 換算公式（v1 default 1024 → v2 default 100）。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · 寫 fleet migration runbook（20 分鐘）</div>
+      <p>你管理 200 個 K8s node（100 個 RHEL 8、100 個 Ubuntu 22.04）。寫一個 runbook 指引團隊：</p>
+      <ol>
+        <li>遷移前的 audit checklist（kernel/runtime/yaml）</li>
+        <li>每個 node 的標準操作步驟</li>
+        <li>遇到失敗時的判斷流程（什麼情況 retry、什麼情況 rollback）</li>
+        <li>rollback 完整步驟</li>
+        <li>監控指標清單與觸發 alert 條件</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 設計 HPC cluster 維護視窗 migration（思考題，15 分鐘）</div>
+      <p>你管理 500 節點 HPC cluster，跑 Slurm 22.05 + cgroup v1。決定一個維護視窗一次切到 v2。回答：</p>
+      <ol>
+        <li>遷移前要做哪些確認？（kernel、Slurm、應用）</li>
+        <li>用什麼順序切？（控制節點先還是計算節點先？）</li>
+        <li>使用者通知策略？（提前多久、如何通知）</li>
+        <li>job submit policy 在維護期怎麼設？</li>
+        <li>萬一遷移不順怎麼快速回退？</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 預測 RHEL 9 → 10 跳版風險（思考題，20 分鐘）</div>
+      <p>你公司有 50 台 RHEL 9 機器跑各種服務（Web、DB、cron job、Docker、Java JVM）。RHEL 9 EOL 規劃要升 RHEL 10——cgroup v1 完全不再支援。回答：</p>
+      <ol>
+        <li>哪些服務最可能在升級時 break？為什麼？</li>
+        <li>哪些可以先在 RHEL 9 上把 cgroup 切到 v2 提前驗證？</li>
+        <li>哪些需要應用程式 code 修改？</li>
+        <li>升級風險最低的順序？</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>切換 cgroup v1 ↔ v2 為什麼必須 reboot？能不能 hot swap？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>必須 reboot 的根本原因</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>systemd PID 1 啟動極早</strong>：kernel boot 後第一個 user-space process。它必須<em>立刻</em> 決定走哪個 cgroup 版本（建立 cgroup tree、組織所有後續 process）。</li>
+          <li><strong>cgroup mount 是「<em>單次決策</em>」</strong>：v1 是多 hierarchy（每 controller 一個 mount），v2 是單 hierarchy。同一 controller 不能<em>同時</em> 在兩個 hierarchy。</li>
+          <li><strong>所有 process 都進了 cgroup tree</strong>：切換意味著要把整個 system 的 process 重新組織——只能在啟動時一次做完。</li>
+        </ol>
+        <strong>能不能 hot swap</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>理論上</strong>：可以「<em>移動 controller</em>」——把一個 controller 從 v1 移到 v2 hierarchy。但需要先 disable 該 controller 在 v1（沒 reference），才能 enable 在 v2。</li>
+          <li><strong>實務上</strong>：strongly discouraged for production use（kernel 文件原話）。原因：disable controller 的過程是非同步的，可能要等很久；且 systemd 不支援這種動態切換。</li>
+          <li><strong>結論</strong>：reboot 是唯一<em>實務</em> 路徑。</li>
+        </ul>
+        <strong>對 production 影響</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>K8s node：drain → reboot → uncordon（5-10 分鐘 downtime）</li>
+          <li>HPC：drain job → reboot → resume（依 cluster size 1-N 小時）</li>
+          <li>Standalone server：reboot 期間 service unavailable</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>RHEL 8/9 預設 v1，怎麼確認當前版本？怎麼安全切到 v2？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>確認當前版本</strong>（最權威）：
+        <pre style="margin-top:8px;font-size:11px;">$ stat -fc %T /sys/fs/cgroup/
+cgroup2fs   ← v2
+tmpfs       ← v1（含 hybrid）
+
+# 配合看 mount 確認
+$ mount | grep '^cgroup'
+# v1 看到多個 cgroup mount（每個 controller 一個）
+# v2 只看到一個 cgroup2 mount</pre>
+        <strong>不要靠</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>看 <code>/sys/fs/cgroup/unified</code> 是否存在——hybrid mode 下兩者並存。</li>
+          <li>看 RHEL 版本——版本只決定預設，可能已被改過。</li>
+        </ul>
+        <strong>安全切到 v2 步驟</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>前置</strong>：確認 kernel ≥ 5.14（RHEL 9 標配）；應用 / runtime 支援 v2。</li>
+          <li><strong>drain workload</strong>：K8s drain node、HPC drain job、application stop。</li>
+          <li><strong>改 GRUB</strong>：<code>sudo grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=1"</code>。</li>
+          <li><strong>確認 grubby 寫入</strong>：<code>sudo grubby --info=DEFAULT | grep cgroup</code>。</li>
+          <li><strong>reboot</strong>。</li>
+          <li><strong>啟動後驗證</strong>：<code>stat -fc %T /sys/fs/cgroup/</code> 應為 cgroup2fs。</li>
+          <li><strong>重啟 service</strong>：Docker / containerd / kubelet / slurmd（很多會自動 detect 新 cgroup version 但保險起見）。</li>
+          <li><strong>監控 baseline</strong>：throttle、OOM、latency 對比切換前。</li>
+          <li><strong>有問題 rollback</strong>：<code>sudo grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=0"</code> + reboot。</li>
+        </ol>
+        <strong>RHEL 10 沒選擇</strong>：only v2，不需要切換。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span>libcgroup（cgconfig.conf、cgrulesengd）為什麼 deprecated？怎麼遷移？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>為什麼 deprecated</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>v2 single-writer rule</strong>：只能一個 manager。systemd 是 PID 1 已經是 manager；libcgroup 直接寫 cgroup 介面變成第二個 writer，違反規則。</li>
+          <li><strong>cgrulesengd（自動分類 daemon）</strong> 在 v2 完全不工作——v2 沒有「<em>自動依規則 classify</em>」概念。</li>
+          <li><strong>cgconfig.conf</strong> 設計面向 v1 多 hierarchy，無法表達 v2 unified hierarchy。</li>
+          <li><strong>Red Hat 官方</strong>：「<em>strongly recommends migrate from libcgroup style to systemd style</em>」。</li>
+        </ol>
+        <strong>遷移對應表</strong>：
+        <table style="font-size:11px;margin-top:8px;width:100%;border-collapse:collapse;">
+          <tr style="background:var(--bg-muted);"><th>libcgroup</th><th>systemd 對應</th></tr>
+          <tr><td>cgconfig.conf</td><td>systemd unit drop-in</td></tr>
+          <tr><td>cgcreate -g cpu:foo</td><td>systemd-run --slice=foo.slice</td></tr>
+          <tr><td>cgexec -g cpu:foo cmd</td><td>systemd-run --scope --slice=foo.slice cmd</td></tr>
+          <tr><td>cgclassify (移動 PID)</td><td>echo PID &gt; cgroup.procs（直接）</td></tr>
+          <tr><td>cgrulesengd（自動分類）</td><td><em>沒等價</em>，要應用自己進對的 cgroup</td></tr>
+          <tr><td>cgset -r cpu.shares=512</td><td>systemctl set-property foo.slice CPUWeight=50</td></tr>
+        </table>
+        <strong>cpu.shares → CPUWeight 換算</strong>：v1 default 1024、v2 default 100。<code>weight = 1 + ((shares - 2) × 9999) / 262142</code>。實務上 1024 → 39，512 → 20。
+        <strong>cgrulesengd 沒等價的處理</strong>：應用啟動時自己進對的 cgroup（透過 systemd unit 的 Slice= 指定）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span>K8s 1.36 拒絕 v1 啟動的 failCgroupV1 是什麼？該怎麼處理？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>failCgroupV1 是什麼</strong>：K8s 1.36 引入的 kubelet config 選項。
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><code>failCgroupV1: true</code>（預設）：偵測到 v1 → kubelet 直接 exit、Node NotReady。</li>
+          <li><code>failCgroupV1: false</code>：仍允許 v1 但 log warning。</li>
+        </ul>
+        <strong>K8s 官方原話</strong>：「<em>cgroup v1 is deprecated and unsupported</em>」。設 false「<em>operationally dangerous</em>」——失去 Memory QoS、PSI 等 v2-only 功能；K8s 後續版本會完全移除。
+        <strong>該怎麼處理</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>正解</strong>：升級 v1 節點到 v2。這是 K8s 1.36+ 的<em>事實要求</em>。</li>
+          <li><strong>緊急繞過</strong>：kubelet config 加：
+            <pre style="margin-top:4px;font-size:11px;">apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+failCgroupV1: false   # 暫時繞過</pre>
+            重啟 kubelet。但這是<em>暫時</em> 措施。
+          </li>
+          <li><strong>分階段</strong>：先升所有節點到 v2，再升 K8s 到 1.36+。<em>不要倒過來</em>——倒過來會大批 node NotReady。</li>
+        </ol>
+        <strong>升級順序建議</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[Phase 1] 升 kernel 到 ≥ 5.8（v2 + Memory QoS 支援）
+[Phase 2] 升 containerd 到 ≥ 2.0（K8s 1.36 強制）
+[Phase 3] 切 cgroup 到 v2（rolling drain + reboot）
+[Phase 4] 升 K8s 到 1.36+（這時所有節點都 v2）</pre>
+        反過來操作會在 Phase 4 大批 NotReady。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span>什麼是 cgroup hybrid mode？為什麼不該依賴它？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>Hybrid mode</strong>：v1 與 v2 同時 mount——v1 在傳統位置（<code>/sys/fs/cgroup/&lt;controller&gt;</code>）、v2 在額外位置（<code>/sys/fs/cgroup/unified</code>）。
+        <strong>誰會 hybrid</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>RHEL 8/9 預設模式</li>
+          <li>Ubuntu 22.04/24.04 預設（保留 v1 fallback）</li>
+          <li>Ubuntu 26.04+ 移除 hybrid，純 v2</li>
+        </ul>
+        <strong>看起來的樣子</strong>：
+        <pre style="margin-top:8px;font-size:11px;">$ mount | grep cgroup
+tmpfs on /sys/fs/cgroup type tmpfs
+cgroup on /sys/fs/cgroup/systemd type cgroup
+cgroup on /sys/fs/cgroup/cpu,cpuacct type cgroup
+cgroup on /sys/fs/cgroup/memory type cgroup
+... (10+ v1 mounts)
+cgroup2 on /sys/fs/cgroup/unified type cgroup2  ← v2 在這</pre>
+        <strong>為什麼不該依賴</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>v2 unified mount 沒 controllers</strong>：所有 controller 都被 v1 occupied。<code>cat /sys/fs/cgroup/unified/cgroup.controllers</code> 是空的。意思是 v2 mount 在但<em>沒功能</em>。</li>
+          <li><strong>應用混亂</strong>：應用同時看到兩個 mount，可能讀錯或寫錯。</li>
+          <li><strong>K8s / Slurm 都忽略 hybrid 的 v2</strong>：認為是 v1 模式。</li>
+          <li><strong>misleading 的「<em>好像在用 v2</em>」假象</strong>：管理員以為已遷移，實際沒。</li>
+        </ol>
+        <strong>怎麼確認</strong>：<code>stat -fc %T /sys/fs/cgroup/</code>。回 cgroup2fs 才是<em>真正</em> v2；回 tmpfs 就是 v1 或 hybrid（無論有沒有 unified mount）。
+        <strong>結論</strong>：明確選擇——要嘛 v1 要嘛 v2，不要靠 hybrid。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>遷移完成後怎麼驗證所有 component 都 work？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>分層驗證 checklist</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[Layer 1: kernel / mount]
+1. stat -fc %T /sys/fs/cgroup/  → cgroup2fs
+2. cat /sys/fs/cgroup/cgroup.controllers
+   應該有 cpu, memory, io, pids 等
+3. cat /sys/fs/cgroup/cgroup.subtree_control
+   確認 controller 已 propagate
+
+[Layer 2: systemd]
+4. systemctl --version | head -1  → systemd 245+
+5. systemd-cgls / | head -20
+   階層清楚（system.slice / user.slice 都在）
+6. systemctl status user.slice
+   active
+
+[Layer 3: container runtime]
+7. docker version --format '{{.Server.Version}}'  → 20.10+
+   或 containerd version  → 1.4+
+8. docker info --format '{{.CgroupDriver}} / {{.CgroupVersion}}'
+   應該是 systemd / 2
+
+[Layer 4: 容器測試]
+9. docker run --rm --cpus=1 --memory=500M alpine \
+       cat /sys/fs/cgroup/cpu.max /sys/fs/cgroup/memory.max
+   100000 100000
+   524288000
+
+[Layer 5: K8s（如有）]
+10. kubectl get nodes -o jsonpath='{.items[*].status.nodeInfo}' | jq
+    確認 kubelet 與 containerd 版本
+11. kubectl run test --image=alpine --requests='memory=100Mi' \
+        --limits='memory=200Mi' --restart=Never -- sleep 60
+    然後看 cgroup 設定
+
+[Layer 6: Slurm（如有）]
+12. scontrol --version  → 22.05+
+13. sbatch --mem=2G --cpus-per-task=2 test.sh
+    然後 ssh compute01 "ls /sys/fs/cgroup/slurmstepd.scope/"
+
+[Layer 7: 應用層]
+14. 確認應用 metric baseline：
+    - throttle rate（cAdvisor）
+    - OOM rate
+    - p99 latency
+    比較切換前後</pre>
+        <strong>監控對比</strong>：切換前 24 小時 vs 切換後 24 小時：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>throttle rate 應該<em>不會暴增</em></li>
+          <li>OOM 應該<em>不增加</em></li>
+          <li>latency p99 應該<em>不退化</em></li>
+        </ul>
+        如果有 regression，立刻 rollback 並 root cause 分析。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span>應用 code 直接讀 /sys/fs/cgroup 介面，怎麼寫才能 v1/v2 兼容？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>核心策略</strong>：先偵測版本，再讀對應介面。
+        <strong>偵測版本</strong>：
+        <pre style="margin-top:8px;font-size:11px;">def detect_cgroup_version():
+    """回傳 'v1', 'v2', 或 None"""
+    # v2 有 cgroup.controllers 在 root
+    if os.path.exists('/sys/fs/cgroup/cgroup.controllers'):
+        return 'v2'
+    # v1 有 /sys/fs/cgroup/&lt;controller&gt;/ 目錄
+    if os.path.exists('/sys/fs/cgroup/memory'):
+        return 'v1'
+    return None</pre>
+        <strong>取 memory limit</strong>：
+        <pre style="margin-top:8px;font-size:11px;">def get_memory_limit():
+    v = detect_cgroup_version()
+    
+    if v == 'v2':
+        try:
+            with open('/sys/fs/cgroup/memory.max') as f:
+                val = f.read().strip()
+            return None if val == 'max' else int(val)
+        except IOError:
+            return None
+    
+    elif v == 'v1':
+        try:
+            with open('/sys/fs/cgroup/memory/memory.limit_in_bytes') as f:
+                val = int(f.read().strip())
+            # v1 unlimited 是個極大值
+            return None if val &gt; 2**62 else val
+        except IOError:
+            return None
+    
+    return None</pre>
+        <strong>取 CPU quota</strong>：
+        <pre style="margin-top:8px;font-size:11px;">def get_cpu_quota():
+    v = detect_cgroup_version()
+    
+    if v == 'v2':
+        try:
+            with open('/sys/fs/cgroup/cpu.max') as f:
+                parts = f.read().split()
+            if parts[0] == 'max':
+                return None
+            quota, period = int(parts[0]), int(parts[1])
+            return quota / period
+        except IOError:
+            return None
+    
+    elif v == 'v1':
+        try:
+            with open('/sys/fs/cgroup/cpu/cpu.cfs_quota_us') as f:
+                quota = int(f.read())
+            if quota &lt;= 0:
+                return None
+            with open('/sys/fs/cgroup/cpu/cpu.cfs_period_us') as f:
+                period = int(f.read())
+            return quota / period
+        except IOError:
+            return None
+    
+    return None</pre>
+        <strong>注意點</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>cgroup namespace</strong>：容器內看到的可能是 namespaced view。</li>
+          <li><strong>process 可能在 nested cgroup</strong>：讀 root 不一定對，要讀 <code>/proc/self/cgroup</code> 找自己 path 後讀。</li>
+          <li><strong>v2 介面名變了</strong>：memory.max（不是 memory.limit_in_bytes）；cpu.max（不是 cpu.cfs_quota_us / period_us 兩檔）。</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>實作思考題：你管理 200 節點 fleet，混合 RHEL 9 + Ubuntu 22.04，跑 K8s 1.32 + Docker 20.10 + Java/Python 應用。要全面遷移到 cgroup v2，K8s 也要升 1.36。請設計完整 12 週計劃。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>完整 12 週計劃</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[Week 1-2: 盤點與準備]
+1. Fleet audit：跑腳本列出每節點：
+   - OS 版本（RHEL 9 / Ubuntu 22.04 子版本）
+   - kernel（必須 ≥ 5.8）
+   - cgroup version（stat -fc）
+   - Docker / containerd / kubelet 版本
+   - 跑哪些 critical workload
+
+2. 應用 audit：列出所有應用是否：
+   - hardcode v1 paths（Python/Bash 應用最常見）
+   - 用 libcgroup-tools
+   - 用 cgconfig.conf
+   - Java JVM 版本（需 8u372+ 或 11.0.16+ 或 17+）
+
+3. 寫好以下腳本：
+   - audit script
+   - migration script
+   - rollback script
+   - verification script
+
+[Week 3-4: lab 全測]
+4. 在 staging cluster（10 節點）做完整 dry-run
+5. 切換 → 跑 1 週 production-like load
+6. 對比 metric：throttle、OOM、latency
+7. 遇到問題在 staging 解決，不上 production
+
+[Week 5-6: 應用層改造]
+8. 修所有 hardcode v1 path 的應用：
+   - Python helper（v1/v2 兼容）
+   - Bash 腳本改寫
+9. 移除 libcgroup 依賴，改 systemd unit
+10. Java 應用確認 JVM ≥ 8u372 / 11.0.16 / 17
+
+[Week 7: 升 containerd 1.x → 2.0]
+11. 對所有節點 rolling 升 containerd
+12. 重啟 containerd（cordon → restart → uncordon）
+13. 觀察 1 週 stable
+
+[Week 8-10: 切 cgroup v2（rolling）]
+14. 第 1 週：5% 節點（10 節點 canary）
+    - 全程觀察，有問題 rollback
+15. 第 2 週：25% 節點
+    - 包含一個 GPU 節點
+16. 第 3 週：剩餘 70%
+    - 加快節奏（每天 20 節點）
+
+[Week 11: 升 K8s 1.32 → 1.36]
+17. 此時所有節點已 v2
+18. 升 control plane（HA: master 1 → 2 → 3）
+19. 升 worker node kubelet（rolling）
+20. 啟用 1.36 新 feature gate：
+    - MemoryQoS
+    - InPlacePodVerticalScaling
+    - PodLevelResources
+
+[Week 12: 收尾與防護]
+21. 加 monitoring：
+    - cgroup v1 detection alert（防止有人手動 rollback）
+    - 應用 throttle alert
+    - OOM alert
+22. 寫 runbook：
+    - 怎麼新建節點（必須 v2）
+    - 怎麼處理 K8s 拒啟動 node
+    - rollback playbook
+23. 內部 training：
+    - 開發者怎麼寫 cgroup-aware code
+    - SRE 怎麼 troubleshoot v2
+24. 關閉 v1 fallback：
+    - Ansible playbook 確保所有節點 GRUB 設定正確
+    - CI 加 lint：禁止寫 /sys/fs/cgroup/&lt;controller&gt;/ 這種 v1 path</pre>
+        <strong>關鍵風險點</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>Week 8 5% canary 出大問題</strong>：可能整個計劃延後。要設「<em>沒過就停止</em>」門檻。</li>
+          <li><strong>Java 版本太舊</strong>：JDK 8u300 等舊版本沒 v2 支援。要先升 JVM。</li>
+          <li><strong>Python 應用 hardcode v1 path</strong>：Week 5-6 必須<em>確實</em> 改完，否則 Week 8 切了立刻爆。</li>
+          <li><strong>libcgroup-tools 移除阻力</strong>：legacy script 多年沒人動，要花時間挖。</li>
+        </ol>
+        <strong>成功指標</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>200/200 節點 v2</li>
+          <li>K8s 1.36 全 cluster 跑穩</li>
+          <li>Memory QoS 啟用、OOM rate 下降</li>
+          <li>PSI metrics 採集中</li>
+          <li>所有 application 沒退化</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+    <div class="refs">
+      <ol>
+        <li><a href="https://access.redhat.com/articles/3735611" target="_blank" rel="noopener">Migrating from CGroups V1 to V2 in RHEL · Red Hat</a><span class="ref-source">access.redhat.com · 官方遷移指引含完整步驟</span></li>
+        <li><a href="https://kubernetes.io/docs/concepts/architecture/cgroups/" target="_blank" rel="noopener">About cgroup v2 · Kubernetes</a><span class="ref-source">kubernetes.io · failCgroupV1 與 K8s v2 整合</span></li>
+        <li><a href="https://docs.rockylinux.org/10/guides/migrating_cgroup_v1_to_v2/" target="_blank" rel="noopener">Migrating cgroups v1 to v2 on Rocky Linux · Rocky 10</a><span class="ref-source">docs.rockylinux.org · 含 Slurm + Podman HPC 場景</span></li>
+        <li><a href="https://docs.kernel.org/admin-guide/cgroup-v2.html" target="_blank" rel="noopener">Control Group v2 · Linux Kernel docs</a><span class="ref-source">docs.kernel.org · authoritative reference</span></li>
+        <li><a href="https://man7.org/linux/man-pages/man7/cgroups.7.html" target="_blank" rel="noopener">cgroups(7) · Linux man pages</a><span class="ref-source">man7.org · v1/v2 兼容性說明</span></li>
+        <li><a href="https://systemd.io/CGROUP_DELEGATION/" target="_blank" rel="noopener">Cgroup Delegation · systemd.io</a><span class="ref-source">systemd.io · single-writer rule 完整討論</span></li>
+        <li><a href="https://www.chkk.io/blog/cgroup-v1-to-v2-migration-in-kubernetes" target="_blank" rel="noopener">cgroup v1 to v2 Migration in Kubernetes · Chkk</a><span class="ref-source">chkk.io · K8s 完整遷移指引</span></li>
+        <li><a href="https://computingforgeeks.com/ubuntu-2604-cgroup-v2-migration/" target="_blank" rel="noopener">Ubuntu 26.04 cgroup v2 Migration · ComputingForGeeks 2026-04</a><span class="ref-source">computingforgeeks.com · 最新 Ubuntu 26.04 v1 完全移除</span></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn" href="ch20-python-integration.html">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">Ch.20 Python 整合</span>
+    </a>
+    <a class="nav-btn next" href="appendix-a-interface-files.html">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">附錄 A · 介面檔案速查</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.title = `Theme: ${LABELS[mode]}`;
+      btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,1195 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.9 cpuset 與 PID controllers — cgroup v2 完整教學</title>
+<meta name="description" content="cgroup v2 cpuset controller（CPU/NUMA 親和性、partition 機制、isolated partition）與 PID controller 完整解析。">
+
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626; --color-danger-soft: #fee2e2;
+  --color-info: #0891b2; --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px; --text-4xl: 64px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+</style>
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.topbar { position: sticky; top: 0; z-index: 50; background: color-mix(in oklch, var(--bg-canvas) 88%, transparent); backdrop-filter: saturate(180%) blur(12px); -webkit-backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--border-soft); }
+.topbar-inner { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.brand { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-secondary); }
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 999px; padding: 6px 14px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background .2s, border-color .2s, color .2s; }
+[data-theme-toggle]:hover { background: var(--bg-muted); border-color: var(--border-mid); color: var(--text-primary); }
+[data-theme-toggle] .theme-icon { font-size: 14px; line-height: 1; }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: 0 var(--space-5); }
+
+.chapter-head { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); }
+.chapter-tag { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary-text); background: var(--color-primary-soft); padding: 4px 12px; border-radius: 999px; margin-bottom: var(--space-4); }
+.chapter-title { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; margin-bottom: var(--space-3); }
+.chapter-subtitle { font-family: var(--font-serif-body); font-size: var(--text-md); color: var(--text-secondary); line-height: 1.65; font-style: italic; }
+.chapter-meta { margin-top: var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.chapter-meta-item:first-child::before { display: none; }
+
+.section { padding: var(--space-7) 0; border-bottom: 1px solid var(--border-soft); }
+.section:last-of-type { border-bottom: none; }
+.section-label { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2); }
+.section-label::before { content: ""; width: 24px; height: 1px; background: var(--color-primary); }
+.section-title { font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600; margin-bottom: var(--space-5); letter-spacing: -0.01em; line-height: 1.2; }
+
+.prose p { font-family: var(--font-serif-body); font-size: var(--text-base); color: var(--text-primary); line-height: 1.85; margin-bottom: var(--space-4); }
+.prose h3 { font-family: var(--font-sans); font-size: var(--text-lg); font-weight: 600; color: var(--text-primary); margin: var(--space-6) 0 var(--space-3); letter-spacing: -0.01em; }
+.prose h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 500; color: var(--text-primary); margin: var(--space-5) 0 var(--space-2); }
+.prose ul, .prose ol { font-family: var(--font-serif-body); margin-bottom: var(--space-4); padding-left: var(--space-5); line-height: 1.8; }
+.prose ul li, .prose ol li { margin-bottom: var(--space-2); color: var(--text-primary); }
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong { font-weight: 600; color: var(--text-primary); }
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 1px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+.prose a { color: var(--color-primary); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.prose a:hover { color: var(--color-primary-hover); }
+
+.highlights { background: var(--color-primary-soft); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.highlights ol { font-family: var(--font-sans); padding-left: var(--space-5); margin: 0; }
+.highlights li { font-size: var(--text-sm); color: var(--color-primary-text); margin-bottom: var(--space-2); line-height: 1.65; }
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+
+.news-box { background: var(--color-info-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.news-item { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); line-height: 1.7; padding: var(--space-2) 0; border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent); }
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-info); margin-right: var(--space-2); }
+
+pre { font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.7; background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; margin-bottom: var(--space-4); color: var(--text-primary); }
+pre code { background: transparent; border: none; padding: 0; font-size: inherit; color: inherit; }
+
+.cmp-table { width: 100%; border-collapse: collapse; margin-bottom: var(--space-4); font-size: var(--text-sm); font-family: var(--font-sans); }
+.cmp-table th, .cmp-table td { padding: var(--space-3); text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.cmp-table th { font-weight: 600; color: var(--text-primary); background: var(--bg-muted); font-size: var(--text-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 1px 5px; border-radius: var(--radius-sm); color: var(--color-primary-text); }
+
+.lab { background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.lab-title { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--color-primary); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px dashed var(--border-soft); }
+.lab-title::before { content: "▶ "; color: var(--color-primary); }
+.lab p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-3); color: var(--text-secondary); line-height: 1.7; }
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+.lab ol, .lab ul { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); color: var(--text-secondary); line-height: 1.7; }
+
+.pitfall { background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.pitfall-title { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 600; color: var(--color-warning); margin-bottom: var(--space-2); }
+.pitfall p { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); margin-bottom: var(--space-2); line-height: 1.7; }
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code { background: color-mix(in oklch, var(--color-warning) 15%, transparent); border-color: color-mix(in oklch, var(--color-warning) 30%, transparent); color: var(--text-primary); }
+
+.quiz-item { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-3); }
+.quiz-q { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; color: var(--text-primary); margin-bottom: var(--space-2); display: flex; gap: var(--space-2); }
+.quiz-q-num { font-family: var(--font-mono); color: var(--color-primary); flex-shrink: 0; }
+.quiz-toggle { background: transparent; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 4px 10px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; margin-top: var(--space-2); transition: background .2s, color .2s; }
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a { display: none; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px dashed var(--border-soft); font-family: var(--font-serif-body); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.75; }
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+
+.diagram { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); margin-bottom: var(--space-4); text-align: center; }
+.diagram svg { max-width: 100%; height: auto; }
+.diagram-caption { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-3); text-align: center; }
+
+.refs ol { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); line-height: 1.8; }
+.refs li { margin-bottom: var(--space-2); color: var(--text-secondary); }
+.refs li::marker { color: var(--color-primary); }
+.refs a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dashed var(--color-primary); }
+.refs a:hover { color: var(--color-primary-hover); }
+.refs .ref-source { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); display: block; margin-top: 2px; }
+
+.chapter-nav { margin-top: var(--space-6); padding: var(--space-5) 0; display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.nav-btn { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; padding: var(--space-3) var(--space-4); background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); text-decoration: none; color: var(--text-primary); transition: border-color .2s, transform .15s; }
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.04em; }
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.09</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part III · Controllers 上 · Chapter 09</span>
+    <h1 class="chapter-title">cpuset 與 PID controllers</h1>
+    <p class="chapter-subtitle">
+      cpuset controller 把 process 綁到特定 CPU 與 NUMA node，是 latency-sensitive、HPC、DPDK、K8s CPU manager static 的核心。
+      partition 機制（kernel 5.18+）讓 cgroup 動態建立 isolcpus 等價的隔離分區，不需要重開機。
+      PID controller 簡單但實用——一行 pids.max 就能擋下 fork bomb。本章把兩個 controllers 一次講透。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~6,500 字</span>
+      <span class="chapter-meta-item">閱讀時間 25 分鐘</span>
+      <span class="chapter-meta-item">難度：進階</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ====================== Section 1: 本章重點 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+
+    <div class="highlights">
+      <ol>
+        <li><strong>cpuset 兩大維度</strong>：<code>cpuset.cpus</code>（CPU 親和性）與 <code>cpuset.mems</code>（NUMA node 親和性）。前者決定 process 能在哪些核上跑，後者決定記憶體從哪些 NUMA node 分配。</li>
+        <li><strong>effective vs requested</strong>：<code>cpuset.cpus</code> 是<em>請求值</em>，<code>cpuset.cpus.effective</code> 是<em>實際生效值</em>（受 parent、CPU hotplug、partition 影響）。看 effective 才是真實狀況。</li>
+        <li><strong>partition 機制（kernel 5.18+）</strong>：<code>cpuset.cpus.partition</code> 把 cgroup 升級成 partition root，獨佔指定 CPU、與其他 cgroup 隔離。<code>isolated</code> 模式提供類似 isolcpus= boot parameter 的效果，但<em>動態可調</em>。</li>
+        <li><strong>cpuset.cpus.exclusive（kernel 6.7+）</strong>：明確列出獨佔的 CPU 子集，是 remote partition 的基礎——不需要連續的祖先鏈也能建 partition。</li>
+        <li><strong>PID controller 兩個重點</strong>：<code>pids.max</code> 防 fork bomb、<code>pids.peak</code> + <code>pids.events</code> 監控逼近上限的歷史。systemd <code>TasksMax=</code> 對應介面。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 2: 最新動態 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+
+    <div class="news-box">
+      <div class="news-item">
+        <span class="news-date">2025-09</span>
+        <strong>kernel 6.x 修正 isolated partition 與 isolcpus 共存問題</strong>（Tejun Heo patch series）。在含有 isolcpus 的系統上，isolated partition 之前無法正確啟用，現已修正。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2024–2025</span>
+        <strong>Kubernetes CPU Manager static policy 全面採用 cpuset v2</strong>。Guaranteed Pod 的 integer CPU request 自動透過 cpuset.cpus 綁定，避免 noisy neighbor。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2024-06</span>
+        <strong>Red Hat 發布 cgroup v2 cpuset isolation 官方指引</strong>，明確推薦 isolated partition 取代 isolcpus boot parameter，特別是動態 workload（NFV、即時系統）。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>cpuset.cpus.exclusive 與 remote partition 普及</strong>（kernel 6.7+）。現在可以在非直接祖先鏈上建立 partition，配置更靈活，DPDK / NFV 場景大量採用。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>systemd 256+ 完整支援 partition</strong>。<code>AllowedCPUs=</code> 與新的 partition 控制 directive 讓 systemd unit 可以直接設定 partition 角色，無需手寫 cgroup 介面。
+      </div>
+    </div>
+
+    <div class="prose">
+      <p>
+        2026 年的時點，<strong>cpuset 已從「<em>NUMA 系統的小眾工具</em>」演進成「<em>容器 CPU 隔離的標準機制</em>」</strong>。
+        partition 與 isolated partition 取代了 isolcpus boot parameter，動態可調且整合 cgroup tree——這是雲原生 latency-sensitive 工作負載的關鍵能力。
+        本章從基礎到 partition 完整覆蓋。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 3: 核心內容 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+
+    <div class="prose">
+      <h3>3.1 cpuset 介面總覽</h3>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>檔案</th><th>類型</th><th>作用</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>cpuset.cpus</code></td><td>RW</td><td>允許使用的 CPU 列表（如 <code>0-3,8-11</code>）</td></tr>
+        <tr><td><code>cpuset.cpus.effective</code></td><td>R</td><td>實際生效的 CPU 列表（考慮 parent、hotplug 後）</td></tr>
+        <tr><td><code>cpuset.mems</code></td><td>RW</td><td>允許分配的 NUMA node 列表</td></tr>
+        <tr><td><code>cpuset.mems.effective</code></td><td>R</td><td>實際生效的 NUMA node 列表</td></tr>
+        <tr><td><code>cpuset.cpus.exclusive</code></td><td>RW</td><td>獨佔的 CPU 子集（kernel 6.7+，partition 用）</td></tr>
+        <tr><td><code>cpuset.cpus.exclusive.effective</code></td><td>R</td><td>實際獨佔生效的 CPU</td></tr>
+        <tr><td><code>cpuset.cpus.partition</code></td><td>RW</td><td>partition 角色：<code>member</code>(預設) / <code>root</code> / <code>isolated</code></td></tr>
+        <tr><td><code>cpuset.cpus.isolated</code></td><td>R · 唯讀（在 root cgroup）</td><td>當前所有 isolated partition 的 CPU 集合</td></tr>
+        <tr><td><code>cpuset.mems.partition</code></td><td>RW</td><td>memory partition（kernel 6.7+，較少用）</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h3>3.2 cpuset.cpus 與 cpuset.mems 基礎</h3>
+      <p>
+        v2 的 cpuset 介面使用<strong>標準 CPU range 格式</strong>：
+      </p>
+<pre><code># 允許 CPU 0、1、2、3
+echo "0-3" > cpuset.cpus
+
+# 允許 CPU 0-3 和 8-11（混合範圍與單一 CPU）
+echo "0-3,8-11" > cpuset.cpus
+
+# 允許 NUMA node 0
+echo "0" > cpuset.mems
+
+# 允許所有可用 NUMA node（清空 = 繼承 parent）
+echo "" > cpuset.mems
+</code></pre>
+      <p>
+        kernel 把 cpuset 規則作為 <code>sched_setaffinity()</code> 與 <code>mbind()</code> 的<strong>前置 filter</strong>——
+        即使應用呼叫 sched_setaffinity 想設更廣的 mask，最終也會被 cpuset 限制住。
+      </p>
+
+      <h4>effective 與 requested 的差異</h4>
+      <p>
+        <code>cpuset.cpus</code> 是你設定的<em>請求值</em>。
+        <code>cpuset.cpus.effective</code> 是<em>實際生效值</em>。兩者可能不同，原因：
+      </p>
+      <ul>
+        <li><strong>parent 約束</strong>：parent 的 effective 縮小，child 的 effective 也跟著縮（無法超過）。</li>
+        <li><strong>CPU hotplug</strong>：機器上某些 CPU 被 offline，effective 自動排除。</li>
+        <li><strong>partition 邊界</strong>：sibling partition 占用了某些 CPU，這個 cgroup 自動排除。</li>
+      </ul>
+      <p>
+        實務上：<strong>debug cpuset 一律先看 effective，不要看 cpus</strong>。
+      </p>
+
+      <h3>3.3 NUMA 親和性的重要性</h3>
+      <p>
+        現代 server 多半是<strong>多 socket NUMA 架構</strong>——CPU 訪問 local NUMA node 的記憶體比 remote 快 1.5–3 倍。
+        cpuset.mems 配合 cpuset.cpus 把 process 與記憶體都綁在同一 NUMA node，<strong>大幅降低 cross-socket latency</strong>。
+      </p>
+<pre><code># 把 service 綁到 NUMA node 0（CPU 0-15、記憶體 node 0）
+echo "0-15" > /sys/fs/cgroup/myapp/cpuset.cpus
+echo "0" > /sys/fs/cgroup/myapp/cpuset.mems
+
+# 看當前 NUMA topology
+numactl --hardware
+# 範例輸出：
+# node 0 cpus: 0-15 32-47
+# node 1 cpus: 16-31 48-63
+</code></pre>
+      <p>
+        典型受惠 workload：DB（PostgreSQL、MySQL、Redis）、JVM、HPC、ML 訓練、所有 latency 敏感的 service。
+      </p>
+
+      <h3>3.4 partition 機制：cgroup 內的 isolcpus</h3>
+      <p>
+        傳統的 CPU 隔離靠 <code>isolcpus=</code> kernel boot parameter——指定的 CPU 從 scheduler 的 load balancing 中移除，<em>必須重開機</em>才能改。
+        對動態 workload（NFV、即時系統、租戶隔離）這個限制太死。
+      </p>
+      <p>
+        kernel 5.18+ 引入 <strong>partition 機制</strong>，把 cgroup 升級成「<em>partition root</em>」，獨佔指定 CPU 並建立獨立 sched domain。<code>cpuset.cpus.partition</code> 接受三個值：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>partition 角色</th><th>意義</th><th>典型用途</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>member</code></td>
+          <td>普通 cgroup（<em>預設值</em>）。CPU 屬於 parent partition。</td>
+          <td>絕大多數 cgroup</td>
+        </tr>
+        <tr>
+          <td><code>root</code></td>
+          <td>partition root。cgroup 獨佔 cpuset.cpus 列出的 CPU，與其他 partition 隔離。仍有 load balancing。</td>
+          <td>K8s Guaranteed Pod 的 CPU 隔離</td>
+        </tr>
+        <tr>
+          <td><code>isolated</code></td>
+          <td>類似 root 但<strong>禁用 sched load balancing</strong>。等同動態的 isolcpus。</td>
+          <td>NFV、DPDK、即時系統 worker thread</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h4>建立 partition 的步驟</h4>
+<pre><code># 1. 把 cgroup 的 cpuset.cpus 設好
+sudo mkdir /sys/fs/cgroup/dpdk-app
+echo "8-15" | sudo tee /sys/fs/cgroup/dpdk-app/cpuset.cpus
+echo "0" | sudo tee /sys/fs/cgroup/dpdk-app/cpuset.mems
+
+# 2. 把 cgroup 升級成 isolated partition
+echo "isolated" | sudo tee /sys/fs/cgroup/dpdk-app/cpuset.cpus.partition
+
+# 3. 確認狀態
+cat /sys/fs/cgroup/dpdk-app/cpuset.cpus.partition
+# 預期: isolated
+
+# 4. 看 root cgroup 的 isolated CPU 集合
+cat /sys/fs/cgroup/cpuset.cpus.isolated
+# 預期包含: 8-15
+</code></pre>
+      <p>
+        效果：CPU 8-15 從這刻起<strong>不會被 scheduler 用於其他 cgroup 的 task</strong>，且這個分區內<em>沒有 load balancing</em>——對 DPDK 這類 polling-based 應用是必要條件（避免 scheduler 偷打斷 polling thread）。
+      </p>
+
+      <h4>partition 的限制</h4>
+      <p>
+        建 partition 的條件相當嚴格：
+      </p>
+      <ul>
+        <li><strong>parent 必須是 partition root</strong>（root cgroup 是 implicit partition root）。</li>
+        <li><strong>cpus 必須是 parent partition CPU 的子集</strong>。</li>
+        <li><strong>cpus 不能與 sibling partition 重疊</strong>。</li>
+        <li><strong>建 partition 後，cpuset.cpus 不能改成造成衝突的值</strong>（會回 EINVAL 或進入 invalid 狀態）。</li>
+      </ul>
+      <p>
+        失敗時 partition 會進入 <code>invalid</code> 狀態：
+      </p>
+<pre><code>cat cpuset.cpus.partition
+# 範例：root invalid (Cpu list in cpuset.cpus mismatches with cpuset.cpus.exclusive in parent)
+</code></pre>
+
+      <h3>3.5 cpuset.cpus.exclusive 與 remote partition</h3>
+      <p>
+        kernel 6.7+ 引入 <code>cpuset.cpus.exclusive</code>，解決<strong>必須建立連續祖先鏈才能建 partition</strong> 的限制。
+      </p>
+      <p>
+        傳統限制：要在 <code>/A/B/C</code> 建 partition，必須先把 A 與 B 都改成 partition root——這對 systemd-managed 系統很麻煩（system.slice 不能輕易改 partition）。
+      </p>
+      <p>
+        <code>cpuset.cpus.exclusive</code> 讓你<strong>明確列出獨佔的 CPU 子集</strong>，從父層往下繼承，建立「<em>遠端 partition</em>」：
+      </p>
+<pre><code># Step 1: 在祖先 cgroup 列出獨佔 CPU
+echo "8-15" | sudo tee /sys/fs/cgroup/system.slice/cpuset.cpus.exclusive
+
+# Step 2: 在後代 cgroup 直接建立 isolated partition（不需祖先鏈都是 partition）
+echo "8-15" | sudo tee /sys/fs/cgroup/system.slice/myapp.service/cpuset.cpus
+echo "isolated" | sudo tee /sys/fs/cgroup/system.slice/myapp.service/cpuset.cpus.partition
+</code></pre>
+      <p>
+        這個機制讓 systemd 等 managed 系統可以無侵入地支援 partition——不需要強迫整條祖先鏈變成 partition。
+      </p>
+
+      <h3>3.6 partition 與 sched_load_balance</h3>
+      <p>
+        v1 cpuset 有 <code>cpuset.sched_load_balance</code> 開關，v2 把這個能力整合到 partition 機制中：
+      </p>
+      <ul>
+        <li><strong>member</strong>：跟著 parent partition 的 load balancing 設定。</li>
+        <li><strong>root</strong>：建立獨立 sched domain，<em>內部</em>仍有 load balancing，但<em>不</em>跨 partition 邊界。</li>
+        <li><strong>isolated</strong>：建立獨立 sched domain 並<strong>禁用 load balancing</strong>。task 在 partition 內的 CPU 之間不會自動遷移。</li>
+      </ul>
+
+      <h3>3.7 isolated partition vs isolcpus= boot parameter</h3>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>面向</th><th>isolcpus= boot</th><th>isolated partition</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>動態調整</td><td>❌ 改要重開機</td><td>✅ runtime 切換</td></tr>
+        <tr><td>cgroup 整合</td><td>❌ 無</td><td>✅ 完整整合</td></tr>
+        <tr><td>per-workload 控制</td><td>❌ 全機共用</td><td>✅ per-cgroup 設定</td></tr>
+        <tr><td>workqueue 排除</td><td>✅ 自動</td><td>✅ kernel 6.7+ 自動</td></tr>
+        <tr><td>kthread 排除</td><td>✅ 完整</td><td>⚠️ 部分</td></tr>
+        <tr><td>boot 階段保護</td><td>✅ 從 boot 就生效</td><td>❌ 需 cgroup 啟動後才生效</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        <strong>建議</strong>：
+      </p>
+      <ul>
+        <li><em>動態 workload</em>（容器、租戶隔離、可變的 NFV）→ <strong>isolated partition</strong></li>
+        <li><em>從 boot 階段就要絕對隔離</em>（極端 latency 要求）→ <strong>isolcpus=</strong> + 配合 isolated partition 雙重保護</li>
+        <li><em>HPC、即時系統</em>：通常組合使用——isolcpus 給 boot 層保護，partition 給 runtime 動態調整</li>
+      </ul>
+
+      <h3>3.8 PID controller：簡單但實用</h3>
+      <p>
+        PID controller 在 v2 介面非常簡潔，但它的價值在於<strong>它是阻擋 fork bomb 的最後一道防線</strong>。
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>檔案</th><th>類型</th><th>作用</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>pids.max</code></td><td>RW</td><td>cgroup 能持有的最大 task 數量（含 thread）</td></tr>
+        <tr><td><code>pids.current</code></td><td>R</td><td>當前 task 數量</td></tr>
+        <tr><td><code>pids.peak</code></td><td>R</td><td>歷史最高 task 數量（kernel 6.0+）</td></tr>
+        <tr><td><code>pids.events</code></td><td>R</td><td>事件統計：<code>max</code>（觸 limit 次數）</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h4>典型用法</h4>
+<pre><code># 限制這個 service 最多 100 個 task
+echo "100" > /sys/fs/cgroup/myapp/pids.max
+
+# 看當前用量
+cat /sys/fs/cgroup/myapp/pids.current
+cat /sys/fs/cgroup/myapp/pids.peak
+
+# 看是否曾經 hit limit
+cat /sys/fs/cgroup/myapp/pids.events
+# max 234   ← 234 次 fork 失敗（已被擋下）
+</code></pre>
+      <p>
+        <strong>關鍵特性</strong>：
+      </p>
+      <ul>
+        <li><strong>計數包含 thread</strong>：100 個限制不是 100 個 process，是 100 個 task（kernel 視角）。一個多 thread 的 process 算多個 task。</li>
+        <li><strong>fork 失敗時回 EAGAIN</strong>：到 limit 後 <code>fork()</code>、<code>clone()</code> 會直接失敗，不會殺現有 process。</li>
+        <li><strong>不影響已存在 task</strong>：把 limit 設低過 current 不會殺 task，只是擋下未來 fork。</li>
+      </ul>
+
+      <h4>fork bomb 防護案例</h4>
+      <p>
+        一個經典 fork bomb：
+      </p>
+<pre><code># 危險 - 不要在 production 跑
+:(){ :|:& };:
+</code></pre>
+      <p>
+        在沒設 pids.max 的 cgroup 跑這個會把 host 撐爆（task table 爆滿）。設 <code>pids.max=200</code> 後，fork 到第 200 個就被擋下，host 安全。
+      </p>
+
+      <h3>3.9 systemd 介面對應</h3>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>systemd directive</th><th>cgroup 介面</th><th>備註</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>AllowedCPUs=</code></td><td><code>cpuset.cpus</code></td><td>CPU 親和性，systemd 244+</td></tr>
+        <tr><td><code>StartupAllowedCPUs=</code></td><td><code>cpuset.cpus</code></td><td>啟動階段的 CPU set</td></tr>
+        <tr><td><code>AllowedMemoryNodes=</code></td><td><code>cpuset.mems</code></td><td>NUMA node 親和性</td></tr>
+        <tr><td><code>StartupAllowedMemoryNodes=</code></td><td><code>cpuset.mems</code></td><td>啟動階段的 mem set</td></tr>
+        <tr><td><code>TasksMax=</code></td><td><code>pids.max</code></td><td>最大 task 數</td></tr>
+        <tr><td><code>TasksAccounting=yes</code></td><td>啟用 pids controller</td><td>多數 distro 預設 yes</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        partition 控制目前 systemd 沒有 direct directive，仍需用 ExecStartPost 寫入 <code>cpuset.cpus.partition</code>。
+        systemd 256+ 已加入更完整的 partition 支援，但語法仍在演進。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 4: 實戰範例 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例</h2>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · 把 service 綁到指定 CPU</div>
+<pre><code># 簡單範例：把 service 限制只能在 CPU 0-3 跑
+sudo systemd-run --slice=user.slice --unit=cpu-pinned \
+    -p AllowedCPUs=0-3 \
+    bash -c 'while :; do :; done'
+
+# 確認設定生效
+CG=$(systemctl show -p ControlGroup --value cpu-pinned.service)
+cat /sys/fs/cgroup$CG/cpuset.cpus
+cat /sys/fs/cgroup$CG/cpuset.cpus.effective
+
+# 看 process 實際的 affinity
+PID=$(systemctl show -p MainPID --value cpu-pinned.service)
+taskset -pc $PID
+# 預期：current affinity list: 0-3
+
+# 清理
+sudo systemctl stop cpu-pinned
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · NUMA 親和性配置（需多 socket 機器）</div>
+<pre><code># 先看機器 NUMA topology
+numactl --hardware
+
+# 把 service 完整綁到 NUMA node 0
+sudo systemd-run --slice=user.slice --unit=numa-pinned \
+    -p AllowedCPUs=0-15 \
+    -p AllowedMemoryNodes=0 \
+    --pty \
+    python3 -c '
+import time
+data = bytearray(500 * 1024 * 1024)  # 分配 500MB
+print("allocated 500MB on NUMA 0")
+time.sleep(60)
+'
+
+# 在另一 terminal 看記憶體分配的 NUMA 位置
+PID=$(systemctl show -p MainPID --value numa-pinned.service)
+
+# 用 numastat 看
+sudo numastat -p $PID
+# 預期：所有記憶體都在 Node 0，Node 1 = 0
+
+# 對比：未綁 NUMA 的 service 通常記憶體散在多個 node
+# 測試結束清理
+sudo systemctl stop numa-pinned
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · 建立 isolated partition（DPDK 模擬）</div>
+<pre><code># 假設我們要為一個 DPDK 應用獨佔 CPU 4-7
+
+# Step 1: 在 user.slice 預先設好 cpus.exclusive
+echo "4-7" | sudo tee /sys/fs/cgroup/user.slice/cpuset.cpus.exclusive
+
+# Step 2: 啟動 service 並設置 cpus
+sudo systemd-run --slice=user.slice --unit=dpdk-sim \
+    -p AllowedCPUs=4-7 \
+    -p AllowedMemoryNodes=0 \
+    --pty \
+    bash -c '
+while :; do :; done &
+while :; do :; done &
+wait
+'
+
+# Step 3: 把 service cgroup 升級成 isolated partition
+CG=$(systemctl show -p ControlGroup --value dpdk-sim.service)
+echo "isolated" | sudo tee /sys/fs/cgroup$CG/cpuset.cpus.partition
+
+# 確認狀態
+cat /sys/fs/cgroup$CG/cpuset.cpus.partition
+# 預期：isolated
+
+# 看 root cgroup 知道哪些是 isolated
+cat /sys/fs/cgroup/cpuset.cpus.isolated
+# 預期包含：4-7
+
+# 觀察：CPU 4-7 上不會有 scheduler load balancing
+# 用 perf 看
+sudo perf stat -e sched:sched_migrate_task -C 4-7 sleep 5
+# 預期：很少甚至沒有 migrate event
+
+# 清理
+sudo systemctl stop dpdk-sim
+echo "" | sudo tee /sys/fs/cgroup/user.slice/cpuset.cpus.exclusive
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 4 · pids.max 防 fork bomb</div>
+<pre><code># 警告：在 VM 或測試機跑，不要在重要機器跑
+
+# 啟動受限 shell
+sudo systemd-run --slice=user.slice --unit=fork-test \
+    -p TasksMax=50 \
+    --pty \
+    bash
+
+# 在裡面跑類 fork bomb（已用 pids.max 擋下，安全）
+# 先看當前 task 數
+cat /proc/$$/cgroup
+ls /proc/$$/task | wc -l
+
+# 試圖 fork 100 次
+for i in $(seq 1 100); do
+    sleep 60 &
+done
+echo "Got $(jobs | wc -l) jobs"
+
+# 預期：到 50 之後 fork 失敗，看到 -bash: fork: retry: Resource temporarily unavailable
+
+# 看 pids.events
+CG=$(systemctl show -p ControlGroup --value fork-test.service)
+cat /sys/fs/cgroup$CG/pids.events
+# 預期：max > 0
+
+# 退出 shell
+exit
+sudo systemctl stop fork-test
+</code></pre>
+      <p>觀察點：fork 被擋下時系統還活著——這是 pids.max 的核心價值。沒設的話，host 可能已經 hang 了。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 5 · 用 pids.peak 監控容量規劃</div>
+<pre><code># 跑一個會啟很多 thread 的應用
+sudo systemd-run --slice=user.slice --unit=thread-app \
+    --pty \
+    python3 -c '
+import threading, time
+def worker():
+    time.sleep(30)
+threads = [threading.Thread(target=worker) for _ in range(80)]
+for t in threads: t.start()
+print(f"started {len(threads)} threads")
+time.sleep(5)
+# 多開一波
+threads2 = [threading.Thread(target=worker) for _ in range(40)]
+for t in threads2: t.start()
+print(f"now {len(threads)+len(threads2)} threads total")
+time.sleep(30)
+'
+
+# 跑完看 pids.peak
+CG=$(systemctl show -p ControlGroup --value thread-app.service)
+cat /sys/fs/cgroup$CG/pids.peak
+# 預期約 122（80 + 40 + main thread + python overhead）
+
+# 啟示：用 pids.peak 規劃 TasksMax 設多少
+# 規則：peak * 1.5 是合理 limit
+
+# 清理
+sudo systemctl stop thread-app 2>/dev/null
+</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 5: 常見陷阱 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · 看 cpuset.cpus 而不看 effective</div>
+      <p>
+        debug「<em>為什麼我的 process 沒在 CPU 5 上跑</em>」時，只看 <code>cpuset.cpus</code> 是錯的——應該看 <code>cpuset.cpus.effective</code>。
+        典型場景：parent 的 effective 是 0-3，你 child 設 0-7，effective 仍是 0-3（被 parent 限制）。
+        養成習慣：<strong>cpuset 任何 debug 都先看 effective</strong>。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · cpuset.cpus 與 cpuset.mems 必須都設</div>
+      <p>
+        在 v1，cpuset.cpus 設好就能用。v2 開始<strong>要求 cpus 與 mems 都必須有效</strong>，否則 process 不能進入 cgroup。
+        典型踩雷：只設 cpuset.cpus，把 process 寫進 cgroup.procs 失敗（EINVAL）。
+        修法：同時設 <code>cpuset.mems</code>。如果不在意 NUMA，可以設成所有可用 node（如 <code>0-1</code>）。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · partition root invalid 沒看到原因</div>
+      <p>
+        建 partition 失敗時，<code>cpuset.cpus.partition</code> 顯示 <code>root invalid (...)</code>，括號裡<em>是失敗原因</em>。
+        例如：<code>root invalid (Cpu list in cpuset.cpus mismatches with cpuset.cpus.exclusive in parent)</code>。
+        多數人沒看完整字串就以為是「<em>這版 kernel 不支援</em>」——其實 kernel 已經告訴你怎麼修了。
+        養成習慣：partition 出錯時 <code>cat cpuset.cpus.partition</code> 完整讀一遍。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · 在含有 isolcpus 的 host 上建 isolated partition 失敗</div>
+      <p>
+        kernel 6.x 之前的版本有 bug：機器設了 <code>isolcpus=4-7</code> boot parameter，再嘗試把 cgroup 改成 isolated partition 包含 4-7 會失敗或進 invalid。
+        修法（kernel 6.x 之前）：要嘛只用 isolcpus，要嘛拿掉 isolcpus 改用 isolated partition，<em>不要混用</em>。
+        kernel 6.x 後 Tejun Heo 已修正，可以共存（2025-09 patch series）。檢查 kernel 版本：<code>uname -r</code>，至少要 &gt; 6.10 才安全混用。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 5 · pids.max 計數包含 thread，limit 容易設太低</div>
+      <p>
+        把 <code>pids.max=20</code> 給 Java service，發現啟動失敗——JVM 一啟動就有 20+ thread（GC、JIT、main、watcher 等等）。
+        pids.max <em>計數所有 task（thread + process）</em>，不是只計 process。Java app 通常需要 100+。
+        正確做法：先觀察 <code>pids.peak</code>，再設 limit 為 peak 的 1.5–2 倍。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 6 · cpuset.cpus 在 systemd unit 寫 CPU mask 而非 list</div>
+      <p>
+        錯誤：<code>AllowedCPUs=0xff</code>（hex mask）。systemd 不接受 mask，只接受 CPU list（<code>0-7</code>）。
+        錯誤：<code>AllowedCPUs=4 5 6 7</code>（空格分隔）。應該用逗號或 dash：<code>AllowedCPUs=4-7</code> 或 <code>AllowedCPUs=4,5,6,7</code>。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 7 · taskset 與 cpuset 衝突</div>
+      <p>
+        process 在 <code>cpuset.cpus=0-3</code> 的 cgroup 內，呼叫 <code>taskset -pc 4-7 $PID</code> 想搬到 4-7——失敗。
+        kernel 把 cpuset 作為 <code>sched_setaffinity()</code> 的<strong>前置 filter</strong>，taskset 設的範圍會被 cgroup 限制住。
+        實際 affinity 是「<em>taskset 設的</em> ∩ <em>cpuset.cpus.effective</em>」。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 8 · 在 isolated partition 裡的 task 不會自動 spread</div>
+      <p>
+        建了 isolated partition 包含 CPU 4-7，但 service 內 4 個 thread 全部跑在 CPU 4？
+        因為 isolated partition <strong>禁用 load balancing</strong>，scheduler 不會自動把 task 分散到其他 CPU。
+        修法：應用層自己用 <code>pthread_setaffinity_np</code> 把 thread 綁到不同 CPU。或用 root（非 isolated）partition 保留 load balancing。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 6: 動手練習 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · 探索系統 NUMA 配置（10 分鐘）</div>
+<pre><code># 步驟 1：列出 NUMA topology
+numactl --hardware
+
+# 步驟 2：看每個 CPU 對應的 NUMA node
+for cpu in $(seq 0 $(($(nproc)-1))); do
+    node=$(cat /sys/devices/system/cpu/cpu$cpu/topology/physical_package_id 2>/dev/null)
+    echo "CPU $cpu -> Socket $node"
+done
+
+# 步驟 3：看一個 service 是否做了 NUMA 親和
+SERVICE=systemd-resolved.service
+CG=$(systemctl show -p ControlGroup --value $SERVICE)
+echo "cpuset.cpus.effective: $(cat /sys/fs/cgroup$CG/cpuset.cpus.effective 2>/dev/null)"
+echo "cpuset.mems.effective: $(cat /sys/fs/cgroup$CG/cpuset.mems.effective 2>/dev/null)"
+</code></pre>
+      <p>回答：你的機器有幾個 NUMA node？哪些 CPU 屬於哪個？預設 service 有沒有做 NUMA 綁定？</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · 量化 NUMA local vs remote 性能差異（15 分鐘）</div>
+      <p>需要多 socket 機器。寫一個 memory benchmark：</p>
+<pre><code># Local: CPU 與 mem 都在 NUMA 0
+sudo systemd-run --slice=user.slice --unit=numa-local \
+    -p AllowedCPUs=0 -p AllowedMemoryNodes=0 \
+    --pty \
+    bash -c 'time dd if=/dev/zero of=/tmp/test bs=1M count=1000 oflag=direct; rm /tmp/test'
+
+# Remote: CPU 在 NUMA 0，mem 在 NUMA 1
+sudo systemd-run --slice=user.slice --unit=numa-remote \
+    -p AllowedCPUs=0 -p AllowedMemoryNodes=1 \
+    --pty \
+    bash -c 'time dd if=/dev/zero of=/tmp/test bs=1M count=1000 oflag=direct; rm /tmp/test'
+</code></pre>
+      <p>回答：local vs remote 速度差幾倍？對你的 production workload 影響有多大？</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 建立 root partition 給 K8s Guaranteed Pod 模擬（15 分鐘）</div>
+<pre><code># 模擬 K8s static CPU manager 的行為：給一個 Pod 獨佔 CPU 8-9
+
+# Step 1: 在 system.slice 設 exclusive
+echo "8-9" | sudo tee /sys/fs/cgroup/user.slice/cpuset.cpus.exclusive
+
+# Step 2: 建立 service 模擬 Pod
+sudo systemd-run --slice=user.slice --unit=guaranteed-pod \
+    -p AllowedCPUs=8-9 \
+    --pty \
+    bash -c 'while :; do :; done'
+
+# Step 3: 升級成 root partition（保留 load balancing，但 CPU 獨佔）
+CG=$(systemctl show -p ControlGroup --value guaranteed-pod.service)
+echo "root" | sudo tee /sys/fs/cgroup$CG/cpuset.cpus.partition
+
+# Step 4: 確認其他 service 看不到 CPU 8-9
+cat /sys/fs/cgroup/user.slice/cpuset.cpus.effective
+# 應該排除了 8-9
+
+# 清理
+sudo systemctl stop guaranteed-pod
+echo "" | sudo tee /sys/fs/cgroup/user.slice/cpuset.cpus.exclusive
+</code></pre>
+      <p>回答：root partition 與 isolated partition 的差別是什麼？這個 Pod 用哪個比較合適？</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 寫一個 fork bomb 防護腳本（10 分鐘）</div>
+      <p>對所有 user.slice 下的 service 自動設 TasksMax：</p>
+<pre><code>#!/bin/bash
+# auto-task-limit.sh
+# 對 user.slice 下所有 active service 設 TasksMax=current_peak * 2
+
+for unit in $(systemctl list-units --type=service --state=active --no-legend --plain | awk '{print $1}'); do
+    cg=$(systemctl show -p ControlGroup --value "$unit" 2>/dev/null)
+    [ -z "$cg" ] && continue
+    [ ! -f "/sys/fs/cgroup$cg/pids.peak" ] && continue
+    
+    peak=$(cat /sys/fs/cgroup$cg/pids.peak)
+    if [ "$peak" -gt 10 ]; then  # 過濾沒任務的
+        new_limit=$((peak * 2))
+        echo "Setting TasksMax=$new_limit for $unit (peak=$peak)"
+        # 真實執行請取消註解：
+        # sudo systemctl set-property "$unit" "TasksMax=$new_limit"
+    fi
+done
+</code></pre>
+      <p>練習目的：把 pids.peak 當成容量規劃工具。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 7: 自我檢查題 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>cpuset.cpus 與 cpuset.cpus.effective 有什麼差別？debug 時應該看哪個？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>cpuset.cpus</strong>：你<em>請求</em>的 CPU 範圍——cgroup 「<em>希望</em>」用這些 CPU。
+        <strong>cpuset.cpus.effective</strong>：實際<em>生效</em>的 CPU 範圍——考慮所有限制因素後的真實值。
+        <strong>影響 effective 的因素</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>parent 的 effective 縮小（無法超過 parent）</li>
+          <li>CPU hotplug（被 offline 的 CPU 自動排除）</li>
+          <li>sibling partition 占用了某些 CPU</li>
+          <li>cpus.exclusive 的限制</li>
+        </ol>
+        <strong>debug 規則</strong>：永遠先看 effective。如果 effective 與 cpus 不同，<em>順著樹往上找原因</em>——多半是某個祖先的限制造成。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>cpuset.cpus.partition 的三個值（member、root、isolated）各自什麼意思？什麼場景用哪個？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>member</strong>（預設）：普通 cgroup，CPU 屬於 parent partition。絕大多數 cgroup 都是這個。</li>
+          <li><strong>root</strong>：partition root。<em>獨佔</em> cpuset.cpus 列出的 CPU，與其他 partition 隔離。<em>內部</em>仍有 load balancing。</li>
+          <li><strong>isolated</strong>：類似 root 但<strong>禁用 load balancing</strong>。等同動態的 isolcpus boot parameter。</li>
+        </ul>
+        <strong>場景對應</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>K8s Guaranteed Pod 的 CPU 獨佔</strong> → root（內部多 thread 仍可 load balance）</li>
+          <li><strong>DPDK 應用 polling thread</strong> → isolated（不要被 scheduler 打斷）</li>
+          <li><strong>NFV 即時系統 worker</strong> → isolated</li>
+          <li><strong>一般容器隔離</strong> → root（不需要禁 load balance）</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span>cpuset.cpus.exclusive 解決什麼問題？沒有它的話建 partition 有什麼限制？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>解決問題</strong>：傳統限制——要在 <code>/A/B/C</code> 建 partition，必須先把 A 與 B 都升級成 partition root。整條祖先鏈都要是 partition，限制太死。
+        <strong>cpuset.cpus.exclusive 機制</strong>（kernel 6.7+）：在祖先 cgroup 明確列出獨佔 CPU 的子集，後代 cgroup 可以直接拿這些 CPU 建 partition，<em>不需要祖先都是 partition root</em>。這稱為「<em>remote partition</em>」。
+        <strong>為什麼重要</strong>：systemd-managed 系統的 system.slice、user.slice 等本來就不是 partition root（會破壞太多現有行為）。有了 cpus.exclusive，systemd 可以無侵入地支援 partition——只在 system.slice 設 exclusive，service 自己升級 partition 就行。
+        <strong>實務範例</strong>：在 system.slice 的 cpus.exclusive 裡放 8-15，然後 myapp.service 直接 <code>echo isolated &gt; cpus.partition</code> 就能成功。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span>isolated partition 與 isolcpus= boot parameter 的差別？什麼時候用哪個？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>isolcpus= boot</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>從 boot 階段就生效（連 init 都不會用這些 CPU）</li>
+          <li>需要重開機才能改</li>
+          <li>全機共用（不是 per-cgroup）</li>
+          <li>對 kthread / workqueue 排除最完整</li>
+        </ul>
+        <strong>isolated partition</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>runtime 動態切換</li>
+          <li>per-cgroup 設定，不同 service 可獨立配置</li>
+          <li>整合 cgroup tree</li>
+          <li>需要 cgroup 啟動後才生效</li>
+        </ul>
+        <strong>建議</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>動態 workload</strong>（容器、租戶、可變的 NFV）→ isolated partition</li>
+          <li><strong>絕對隔離 + 從 boot 就要保護</strong> → isolcpus= + isolated partition 雙重</li>
+          <li><strong>HPC / 即時系統</strong> → 通常組合使用</li>
+        </ul>
+        kernel 6.x+ 後兩者可以共存，之前版本不要混用。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span>cpuset.mems 為什麼跟 cpuset.cpus 一樣重要？只設 cpus 會發生什麼？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>cpuset.mems 的作用</strong>：限制 cgroup 內 process 的記憶體只能從哪些 NUMA node 分配。對 multi-socket NUMA 機器影響巨大——cross-socket memory access 比 local 慢 1.5–3 倍。
+        <strong>只設 cpus 不設 mems 的問題</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>v2 強制要求兩者都設</strong>：mems 為空時 process 無法進入 cgroup（EINVAL）。</li>
+          <li><strong>NUMA mismatch</strong>：把 process 綁到 NUMA 0 的 CPU（cpus=0-15），但記憶體分散在 NUMA 0 與 NUMA 1，每次 access NUMA 1 的記憶體都跨 socket，性能差。</li>
+        </ol>
+        <strong>正確做法</strong>：
+        <pre style="margin-top:8px;font-size:11px;">echo "0-15" > cpuset.cpus       # CPU 在 NUMA 0
+echo "0" > cpuset.mems           # 記憶體也在 NUMA 0</pre>
+        如果不在意 NUMA（單 socket 機器），mems 設成所有可用 node（如 <code>0</code>）即可。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>pids.max 計數包含 thread 還是只算 process？實務上設多少合理？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>計數包含 thread</strong>。kernel 視角下「<em>task</em>」既是 process 也是 thread，pids.max 限制 task 總數。
+        <strong>實務影響</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>JVM service 一啟動就 20+ thread（GC、JIT、main）。設 <code>pids.max=20</code> 會啟動失敗。</li>
+          <li>Web server 用 thread pool（如 Tomcat）很容易 200+ thread。</li>
+          <li>fork-based 應用（如 PHP-FPM）每個 worker 一個 process，但每個 process 又可能多 thread。</li>
+        </ul>
+        <strong>合理設定方式</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>先觀察 <code>pids.peak</code> 跑一段時間（24 小時包含 traffic peak）</li>
+          <li>limit 設為 peak 的 1.5–2 倍，給 burst headroom</li>
+          <li>對 untrusted workload（multi-tenant）設更嚴格的 limit 防 fork bomb</li>
+          <li>對 trusted system service 設較寬，避免影響正常 spawn</li>
+        </ol>
+        <strong>典型值</strong>：systemd default <code>TasksMax</code> 是 80% × kernel.pid_max（通常幾萬）；個別 service 通常 1000–10000 之間。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span>在 isolated partition 內為什麼 task 不會自動 spread 到所有 CPU？怎麼手動分配？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>原因</strong>：<code>isolated</code> partition <em>禁用 sched load balancing</em>。scheduler 不會自動把 task 從一個 CPU 搬到另一個來平衡負載。建立 4 個 thread 在 partition 內，可能全部跑在同一個 CPU。
+        <strong>為什麼這樣設計</strong>：DPDK / 即時系統的 polling thread <em>不希望被 scheduler 干擾</em>——load balancing 本身會偷走 CPU 時間。所以 isolated 是<strong>明確選擇「<em>讓應用自管 affinity</em>」</strong>。
+        <strong>手動分配方法</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>應用層</strong>：用 <code>pthread_setaffinity_np</code> 或 <code>sched_setaffinity</code> 把 thread 綁到特定 CPU。</li>
+          <li><strong>外部工具</strong>：用 <code>taskset -pc CPU PID</code> 手動設定（但被 cpuset 限制住，只能在 partition 內）。</li>
+          <li><strong>DPDK 自帶</strong>：DPDK EAL 啟動參數 <code>--lcores</code> 直接指定每個 lcore 跑哪個 CPU。</li>
+        </ul>
+        <strong>替代方案</strong>：如果不需要禁 load balancing，用 <code>root</code> partition 而非 <code>isolated</code>——保留 load balancing，task 自動 spread。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>實作思考題：你管理一個 32 核 NUMA 機器（NUMA 0: CPU 0-15、NUMA 1: CPU 16-31），要跑：（A）DPDK 網路應用（要 4 核獨佔、無打斷）、（B）K8s container workload（用 16 核）、（C）系統服務（其餘）。設計完整的 cpuset 配置。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>方案</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[boot args]
+# 不用 isolcpus（用 isolated partition 代替）
+
+[user.slice / system.slice cpus.exclusive]
+echo "16-19" > /sys/fs/cgroup/.../cpus.exclusive
+# DPDK 獨佔的 CPU（從 NUMA 1 選，與 K8s 隔離）
+
+[A: dpdk.service]
+AllowedCPUs=16-19
+AllowedMemoryNodes=1                       # NUMA 1 local
+# 然後 ExecStartPost: echo isolated > cpus.partition
+# 結果：CPU 16-19 獨佔，無 load balancing，DPDK polling 不被打斷
+
+[B: kubepods.slice]
+AllowedCPUs=0-15                           # NUMA 0 全部
+AllowedMemoryNodes=0                       # NUMA 0 local
+# 結果：K8s Pod 在 NUMA 0 跑，避免跨 socket
+# 內部用 K8s CPU manager static 給 Guaranteed Pod 做 root partition
+
+[C: system.slice]
+AllowedCPUs=20-31                          # NUMA 1 剩餘
+AllowedMemoryNodes=1                       # NUMA 1 local
+# 系統服務在 NUMA 1，與 DPDK 共享 NUMA 但 CPU 不衝突</pre>
+        <strong>設計理由</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>DPDK 用 isolated partition</strong>：保證無 scheduler 打斷、polling 性能可預測。</li>
+          <li><strong>DPDK 與 K8s 分開 NUMA</strong>：避免 K8s 大量 task 在同 NUMA 影響 DPDK。</li>
+          <li><strong>每個 cgroup 都做 NUMA 親和</strong>：cpus 與 mems 都在同 NUMA，避免跨 socket。</li>
+          <li><strong>K8s 用 root partition（非 isolated）</strong>：內部多 Pod 仍要 load balancing，整體吞吐優先。</li>
+          <li><strong>system.slice 留 NUMA 1 一半 CPU</strong>：給 systemd、journal、network stack 等系統服務空間。</li>
+        </ol>
+        <strong>監控配套</strong>：對 DPDK 監控 <code>perf stat -e sched:sched_migrate_task</code> 確認沒被搬動；對 K8s Pod 監控 <code>numastat</code> 確認 NUMA locality；整體監控 cpu.pressure。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 8: 延伸閱讀 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+
+    <div class="refs">
+      <ol>
+        <li>
+          <a href="https://docs.kernel.org/admin-guide/cgroup-v2.html#cpuset" target="_blank" rel="noopener">Linux Kernel 官方文件 · §5.x cpuset</a>
+          <span class="ref-source">docs.kernel.org · cpuset 介面權威定義含 partition 說明</span>
+        </li>
+        <li>
+          <a href="https://docs.kernel.org/admin-guide/cgroup-v2.html#pid" target="_blank" rel="noopener">Linux Kernel 官方文件 · §5.4 PID</a>
+          <span class="ref-source">docs.kernel.org · PID controller 介面定義</span>
+        </li>
+        <li>
+          <a href="https://lwn.net/Articles/948869/" target="_blank" rel="noopener">cgroup/cpuset: Improve CPU isolation in isolated partitions · LWN.net</a>
+          <span class="ref-source">lwn.net · isolated partition 工作隊列排除設計</span>
+        </li>
+        <li>
+          <a href="https://lwn.net/Articles/936555/" target="_blank" rel="noopener">cgroup/cpuset: Support remote partitions · LWN.net</a>
+          <span class="ref-source">lwn.net · cpus.exclusive 與 remote partition 設計動機</span>
+        </li>
+        <li>
+          <a href="https://lwn.net/Articles/877722/" target="_blank" rel="noopener">cgroup/cpuset: New isolated partition type · LWN.net</a>
+          <span class="ref-source">lwn.net · isolated partition 引入提案</span>
+        </li>
+        <li>
+          <a href="https://access.redhat.com/solutions/6415571" target="_blank" rel="noopener">How to isolate CPUs using cgroup v2 cpuset · Red Hat 2024</a>
+          <span class="ref-source">access.redhat.com · 官方推薦的 cpuset 隔離流程</span>
+        </li>
+        <li>
+          <a href="https://kubernetes.io/docs/tasks/administer-cluster/cpu-management-policies/" target="_blank" rel="noopener">CPU Management Policies · Kubernetes</a>
+          <span class="ref-source">kubernetes.io · K8s CPU manager static 如何使用 cpuset</span>
+        </li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Chapter nav ====================== -->
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn" href="ch08-memory-controller.html">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">Ch.8 Memory controller</span>
+    </a>
+    <a class="nav-btn next disabled">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">Ch.10 IO controller</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window.JHsunTheme = { get: getCurrentMode, set: (m) => { setStored(m); applyTheme(m); }, toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); }, };
+})();
+</script>
+
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+
+</body>
+</html>

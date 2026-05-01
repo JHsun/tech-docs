@@ -1,0 +1,1444 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.3 資源分配三模型 — cgroup v2 完整教學</title>
+<meta name="description" content="深入理解 cgroup v2 的四種資源分配模型：Weights、Limits、Protections、Allocations。何時用哪一個的完整決策樹。">
+
+<style>
+/* ============================================================
+   Inline tokens.css (v1.0 · Calm Teal)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px; --text-4xl: 64px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+</style>
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+}
+
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  background: color-mix(in oklch, var(--bg-canvas) 88%, transparent);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.topbar-inner {
+  max-width: var(--container-narrow);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
+}
+.brand {
+  display: flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: background .2s, border-color .2s, color .2s;
+}
+[data-theme-toggle]:hover {
+  background: var(--bg-muted);
+  border-color: var(--border-mid);
+  color: var(--text-primary);
+}
+[data-theme-toggle] .theme-icon { font-size: 14px; line-height: 1; }
+
+.container {
+  max-width: var(--container-narrow);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+
+.chapter-head {
+  padding: var(--space-7) 0 var(--space-6);
+  border-bottom: 1px solid var(--border-soft);
+}
+.chapter-tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-primary-text);
+  background: var(--color-primary-soft);
+  padding: 4px 12px;
+  border-radius: 999px;
+  margin-bottom: var(--space-4);
+}
+.chapter-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-3xl);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin-bottom: var(--space-3);
+}
+.chapter-subtitle {
+  font-family: var(--font-serif-body);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  line-height: 1.65;
+  font-style: italic;
+}
+.chapter-meta {
+  margin-top: var(--space-4);
+  display: flex; flex-wrap: wrap; gap: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before {
+  content: ""; width: 4px; height: 4px;
+  border-radius: 50%; background: var(--text-muted);
+}
+.chapter-meta-item:first-child::before { display: none; }
+
+.section {
+  padding: var(--space-7) 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.section:last-of-type { border-bottom: none; }
+.section-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+  margin-bottom: var(--space-3);
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.section-label::before {
+  content: ""; width: 24px; height: 1px; background: var(--color-primary);
+}
+.section-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  margin-bottom: var(--space-5);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.prose p {
+  font-family: var(--font-serif-body);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  line-height: 1.85;
+  margin-bottom: var(--space-4);
+}
+.prose h3 {
+  font-family: var(--font-sans);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: var(--space-6) 0 var(--space-3);
+  letter-spacing: -0.01em;
+}
+.prose h4 {
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--text-primary);
+  margin: var(--space-5) 0 var(--space-2);
+}
+.prose ul, .prose ol {
+  font-family: var(--font-serif-body);
+  margin-bottom: var(--space-4);
+  padding-left: var(--space-5);
+  line-height: 1.8;
+}
+.prose ul li, .prose ol li {
+  margin-bottom: var(--space-2);
+  color: var(--text-primary);
+}
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong { font-weight: 600; color: var(--text-primary); }
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--bg-code);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+  border: 1px solid var(--border-soft);
+}
+.prose a {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.prose a:hover { color: var(--color-primary-hover); }
+
+.highlights {
+  background: var(--color-primary-soft);
+  border-left: 3px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-4);
+}
+.highlights ol { font-family: var(--font-sans); padding-left: var(--space-5); margin: 0; }
+.highlights li {
+  font-size: var(--text-sm);
+  color: var(--color-primary-text);
+  margin-bottom: var(--space-2);
+  line-height: 1.65;
+}
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+
+.news-box {
+  background: var(--color-info-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-4);
+}
+.news-item {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  line-height: 1.7;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent);
+}
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-info);
+  margin-right: var(--space-2);
+}
+
+pre {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.7;
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  overflow-x: auto;
+  margin-bottom: var(--space-4);
+  color: var(--text-primary);
+}
+pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+.cmp-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: var(--space-4);
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+}
+.cmp-table th, .cmp-table td {
+  padding: var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: top;
+}
+.cmp-table th {
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-muted);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--bg-code);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+}
+
+.lab {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-4);
+}
+.lab-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-primary);
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px dashed var(--border-soft);
+}
+.lab-title::before { content: "▶ "; color: var(--color-primary); }
+.lab p {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-3);
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+.lab ol, .lab ul {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  padding-left: var(--space-5);
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.pitfall {
+  background: var(--color-warning-soft);
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-4);
+}
+.pitfall-title {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-warning);
+  margin-bottom: var(--space-2);
+}
+.pitfall p {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
+  line-height: 1.7;
+}
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code {
+  background: color-mix(in oklch, var(--color-warning) 15%, transparent);
+  border-color: color-mix(in oklch, var(--color-warning) 30%, transparent);
+  color: var(--text-primary);
+}
+
+.quiz-item {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-3);
+}
+.quiz-q {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
+  display: flex; gap: var(--space-2);
+}
+.quiz-q-num {
+  font-family: var(--font-mono);
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+.quiz-toggle {
+  background: transparent;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+  margin-top: var(--space-2);
+  transition: background .2s, color .2s;
+}
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a {
+  display: none;
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px dashed var(--border-soft);
+  font-family: var(--font-serif-body);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.75;
+}
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+
+.diagram {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+  margin-bottom: var(--space-4);
+  text-align: center;
+}
+.diagram svg { max-width: 100%; height: auto; }
+.diagram-caption {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: var(--space-3);
+  text-align: center;
+}
+
+.refs ol {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  padding-left: var(--space-5);
+  line-height: 1.8;
+}
+.refs li { margin-bottom: var(--space-2); color: var(--text-secondary); }
+.refs li::marker { color: var(--color-primary); }
+.refs a {
+  color: var(--color-primary);
+  text-decoration: none;
+  border-bottom: 1px dashed var(--color-primary);
+}
+.refs a:hover { color: var(--color-primary-hover); }
+.refs .ref-source {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  display: block;
+  margin-top: 2px;
+}
+
+.chapter-nav {
+  margin-top: var(--space-6);
+  padding: var(--space-5) 0;
+  display: flex; justify-content: space-between; gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.nav-btn {
+  flex: 1; min-width: 200px;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: border-color .2s, transform .15s;
+}
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.03</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part I · 基礎篇 · Chapter 03</span>
+    <h1 class="chapter-title">資源分配三模型</h1>
+    <p class="chapter-subtitle">
+      cgroup v2 把所有 controllers 統一到三個資源分配模型：Weights、Limits、Protections。
+      這三個模型不是擇一使用，而是<em>互補組合</em>。
+      理解何時用哪一個，是寫好 controller 配置的核心能力。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~5,500 字</span>
+      <span class="chapter-meta-item">閱讀時間 20 分鐘</span>
+      <span class="chapter-meta-item">難度：核心</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ====================== Section 1: 本章重點 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+
+    <div class="highlights">
+      <ol>
+        <li><strong>四種模型，三種主流</strong>：Weights（比例分配）、Limits（硬上限）、Protections（保護下限），加上特殊的 Allocations（exclusive 配額，只用於 realtime）。</li>
+        <li><strong>命名規範</strong>：<code>{controller}.weight</code>（範圍 1–10000，預設 100）、<code>{controller}.max</code>（硬上限）、<code>{controller}.high</code>（軟上限）、<code>{controller}.min</code>（硬保護）、<code>{controller}.low</code>（軟保護）。</li>
+        <li><strong>競爭場景才生效</strong>：Weights 與 Protections 只在「<em>有資源競爭</em>」時起作用，沒競爭時誰都可以全速跑；Limits 永遠生效。</li>
+        <li><strong>三模型互補</strong>：實務上常見組合是「Protection（min/low）+ Limit（max/high）」，給保護下限與保護上限，中間用 Weight 做動態分配。</li>
+        <li><strong>Kubernetes 對應</strong>：requests → memory.min、limits → memory.max、Burstable QoS 觸發 memory.high；CPU 部分 requests → cpu.weight、limits → cpu.max。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 2: 最新動態 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+
+    <div class="news-box">
+      <div class="news-item">
+        <span class="news-date">2025-09</span>
+        <strong>Kubernetes 1.34 PSI metrics 升 Beta</strong>，配合 memory.high 軟上限的觀測能力，讓 throttling 在轉成 OOM 之前就能被監控。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2026-04</span>
+        <strong>Kubernetes Memory QoS</strong> 在 v1.36 持續擴展：Burstable Pod 預設用 memory.high 做 throttle，Guaranteed Pod 不設 memory.high 確保不會早期 throttle，Best-effort Pod 完全不做 memory protection。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>memory_recursiveprot 在多數新 distro 預設開啟</strong>，讓 memory.min / memory.low 自動套用到整個子樹，不再需要手動向下傳遞。Ubuntu 22.04+、RHEL 9+、Fedora 31+ 都已預設啟用。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>cpu.weight.nice</strong>（kernel 5.16+）在主流 distro 已普遍可用，提供與 nice 值相容的 CPU weight 設定方式（範圍 -20 到 +19）。
+      </div>
+    </div>
+
+    <div class="prose">
+      <p>
+        2025 年起，<strong>Memory Protection（memory.min / memory.low）</strong>已從「進階功能」變成「<em>主流預設</em>」。
+        Kubernetes 在 Burstable QoS class 預設啟用 memory.high，systemd-oomd 用 PSI + memory.high 做 proactive kill，
+        各家 distro 預設啟用 <code>memory_recursiveprot</code>。本章介紹的三模型已經是現代 Linux 資源管理的事實標準。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 3: 核心內容 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+
+    <div class="prose">
+      <h3>3.1 為什麼要有「模型」這個概念</h3>
+      <p>
+        cgroup v1 的 controllers 是各做各的：CPU 用 <code>cpu.shares</code>、memory 用 <code>memory.limit_in_bytes</code>、blkio 用 <code>blkio.weight</code>，每個 controller 自己決定怎麼分配資源、用什麼介面、特殊值是什麼。
+        這對使用者很不友善——每接一個新 controller 就要重學一遍規則。
+      </p>
+      <p>
+        v2 一開始就規範：<strong>controllers 必須選擇一種或多種「資源分配模型」，並依照模型統一介面命名與行為</strong>。
+        kernel 文件 §3 "Resource Distribution Models" 是這套規範的權威來源。共有四種模型：Weights、Limits、Protections、Allocations。
+        後三者比較直觀，第一個（Weights）需要花一點力氣理解。
+      </p>
+
+      <h3>3.2 Model 1: Weights（比例分配）</h3>
+      <p>
+        <strong>核心概念</strong>：父 cgroup 的資源依照子 cgroup 的 weight 「<em>按比例</em>」分給它們。
+      </p>
+      <p>
+        kernel 文件原文：「<em>parent's resource is distributed by adding up the weights of all active children and giving each the fraction matching the ratio of its weight against the sum.</em>」
+      </p>
+      <p>
+        舉例：parent 有 3 個 child，weight 分別是 100、200、700，總和是 1000。
+        當三個 child 都「<em>想要</em>」資源時（active），它們會分到 10% / 20% / 70% 的 parent 資源。
+      </p>
+      <p>
+        v2 規範所有 weight 介面命名為 <code>{controller}.weight</code>，範圍 <strong>1–10000，預設 100</strong>。
+        這個範圍不是隨便挑的——文件解釋：「<em>chosen to allow enough and symmetric bias in both directions while keeping it intuitive</em>」。
+        以 100 為中心，向上向下都有兩個數量級的調整空間。
+      </p>
+
+      <h4>Weights 的關鍵特性</h4>
+      <ul>
+        <li><strong>只在競爭時生效</strong>：如果只有一個 child 在用 CPU，它會吃滿，不管 weight 是多少。Weight=100 並不意味著「最多用 100 單位」。</li>
+        <li><strong>active children 才參與計算</strong>：閒置（idle）的 child 不會分到資源（也不會浪費比例）。</li>
+        <li><strong>可超額（over-commit）</strong>：所有 child weight 加總可以遠遠超過 parent 的 weight——比例分配天然支援這點。</li>
+        <li><strong>適合 stateless 資源</strong>：CPU 時間、IO bandwidth 這類「<em>用過就消失</em>」的資源最適合 weight 模型。</li>
+      </ul>
+
+      <h4>支援 Weights 的 controllers</h4>
+      <ul>
+        <li><code>cpu.weight</code> — CPU 時間比例分配（取代 v1 的 <code>cpu.shares</code>）</li>
+        <li><code>cpu.weight.nice</code> — 用 nice 值（-20 到 +19）的形式設定 weight，方便從傳統 nice 思維過渡</li>
+        <li><code>io.weight</code> — IO bandwidth 比例分配</li>
+      </ul>
+
+      <h3>3.3 Model 2: Limits（硬性上限）</h3>
+      <p>
+        <strong>核心概念</strong>：cgroup 最多能用<em>多少資源</em>，超過就會被卡住或殺掉。
+      </p>
+      <p>
+        Limits 又分兩個子類型：
+      </p>
+      <ul>
+        <li><strong>絕對上限（max）</strong>：<code>{controller}.max</code>，超過就觸發強制行為（OOM、被 throttle 到 0）。例如 <code>memory.max=1G</code> 表示一旦用超過 1GB，OOM killer 就會在這個 cgroup 內挑 process 殺掉。</li>
+        <li><strong>盡力上限（high）</strong>：<code>{controller}.high</code>，超過後 kernel 會「<em>盡力</em>」拉回去（throttle、reclaim），但不會直接殺。實務上這是更安全的軟剎車。</li>
+      </ul>
+      <p>
+        Limits 可以<strong>over-commit</strong>——所有 child 的 limit 加總可以超過 parent 的 limit。這是合理的，因為不一定所有 child 同時跑滿。
+      </p>
+
+      <h4>支援 Limits 的 controllers</h4>
+      <ul>
+        <li><code>memory.max</code> + <code>memory.high</code> — 記憶體硬上限與軟上限</li>
+        <li><code>memory.swap.max</code> — Swap 上限</li>
+        <li><code>cpu.max</code> — CPU bandwidth 上限（格式：<code>$MAX $PERIOD</code>，例如 <code>50000 100000</code> 代表每 100ms 最多用 50ms）</li>
+        <li><code>cpu.max.burst</code> — 允許短時間突破 cpu.max 的 burst 容量</li>
+        <li><code>io.max</code> — IO bandwidth 與 IOPS 上限（per device）</li>
+        <li><code>pids.max</code> — Process 數量上限</li>
+      </ul>
+
+      <h3>3.4 Model 3: Protections（保護下限）</h3>
+      <p>
+        <strong>核心概念</strong>：當系統有資源壓力時，<em>盡量不要從這個 cgroup 拿資源</em>，先去搶別人的。
+      </p>
+      <p>
+        Protections 是 v2 引入的全新概念，v1 完全沒有。它解決一個現實問題：在 over-commit 的系統上，當記憶體吃緊時，kernel 怎麼決定要從哪裡 reclaim？
+        v1 的答案是 LRU + memory pressure，沒有 cgroup 層級的保護。v2 補上了這塊。
+      </p>
+      <p>
+        和 Limits 一樣，Protections 也分兩個子類型：
+      </p>
+      <ul>
+        <li><strong>硬保護（min）</strong>：<code>{controller}.min</code>，受保護的部分<em>絕對不會</em>被 reclaim。例如 <code>memory.min=512M</code> 保證這個 cgroup 永遠擁有 512MB 不被回收的記憶體。</li>
+        <li><strong>軟保護（low）</strong>：<code>{controller}.low</code>，受保護部分<em>盡量</em>不被 reclaim，但在系統真的撐不住時還是可以動。</li>
+      </ul>
+
+      <h4>Protections 的關鍵特性</h4>
+      <ul>
+        <li><strong>有條件生效</strong>：cgroup 受保護到 min 額度，<em>前提是所有祖先 cgroup 也都在它們的 min 額度以下</em>。如果祖先已經吃超 min，保護失效。</li>
+        <li><strong>可 over-commit</strong>：children 的 min 加總可以超過 parent 能給的，這時只有「<em>parent 能提供的部分</em>」會被保護。</li>
+        <li><strong>memory_recursiveprot mount option</strong>（kernel 5.7+，現在多數 distro 預設開啟）：讓 min/low 自動沿著子樹遞迴傳播，不需要每個 child 重設。</li>
+      </ul>
+
+      <h4>支援 Protections 的 controllers</h4>
+      <ul>
+        <li><code>memory.min</code> + <code>memory.low</code> — Memory 硬保護與軟保護</li>
+        <li><code>io.cost.qos</code> — 部分 QoS 機制（有限支援，仍在演進中）</li>
+      </ul>
+
+      <h3>3.5 Model 4: Allocations（exclusive 配額）</h3>
+      <p>
+        Allocations 是<em>少數場景</em>用的模型——把固定數量的資源 exclusive 配給某個 cgroup，其他人不能用。
+        最典型的例子是 <strong>realtime CPU bandwidth</strong>（<code>cpu.max</code> 在 SCHED_FIFO/SCHED_RR 排程下的行為），給 RT process 預留 CPU。
+      </p>
+      <p>
+        除了 realtime 場景，一般 server / container workload <em>幾乎不會用到 Allocations</em>。
+        本書只在這裡簡略介紹，不深入展開。
+      </p>
+
+      <h3>3.6 三模型對照速覽</h3>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr>
+          <th>模型</th>
+          <th>介面命名</th>
+          <th>競爭時行為</th>
+          <th>無競爭時</th>
+          <th>典型應用</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Weights</strong></td>
+          <td><code>weight</code></td>
+          <td>按比例分配 active children</td>
+          <td>誰想用就讓誰用</td>
+          <td>CPU 時間、IO bandwidth（stateless 資源）</td>
+        </tr>
+        <tr>
+          <td><strong>Limits (max)</strong></td>
+          <td><code>max</code></td>
+          <td>絕對上限，超過 OOM/throttle</td>
+          <td>仍然是上限</td>
+          <td>記憶體硬上限、CPU quota、PID 上限</td>
+        </tr>
+        <tr>
+          <td><strong>Limits (high)</strong></td>
+          <td><code>high</code></td>
+          <td>盡力拉回，throttle 而不殺</td>
+          <td>仍然是軟剎車</td>
+          <td>Memory 軟上限、Burstable Pod throttling</td>
+        </tr>
+        <tr>
+          <td><strong>Protections (min)</strong></td>
+          <td><code>min</code></td>
+          <td>絕不被 reclaim（硬保證）</td>
+          <td>沒競爭時與此無關</td>
+          <td>Guaranteed Pod、關鍵服務</td>
+        </tr>
+        <tr>
+          <td><strong>Protections (low)</strong></td>
+          <td><code>low</code></td>
+          <td>盡量不 reclaim（best effort）</td>
+          <td>沒競爭時與此無關</td>
+          <td>重要但非關鍵的服務</td>
+        </tr>
+        <tr>
+          <td><strong>Allocations</strong></td>
+          <td>各種</td>
+          <td>exclusive 配額</td>
+          <td>已被佔用</td>
+          <td>Realtime CPU bandwidth</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h3>3.7 決策樹：何時用哪一個</h3>
+      <p>
+        理解了四個模型，下一個問題是：「<em>實際工作上我該用哪一個？</em>」。下面這個決策樹涵蓋 90% 的場景。
+      </p>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 680 460" role="img" aria-label="資源分配模型決策樹">
+        <text x="340" y="22" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="600" fill="var(--text-primary)">何時用哪一個分配模型？</text>
+
+        <!-- Q1: 是否要硬上限 -->
+        <rect x="220" y="50" width="240" height="44" rx="6" fill="var(--color-info-soft)" stroke="var(--color-info)" stroke-width="0.5"/>
+        <text x="340" y="69" text-anchor="middle" font-family="var(--font-sans)" font-size="11" font-weight="600" fill="var(--color-info)">這個 workload 有硬性資源上限嗎？</text>
+        <text x="340" y="84" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">（為了系統安全、預算、合約等）</text>
+
+        <!-- 分支 -->
+        <line x1="340" y1="94" x2="340" y2="110" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="170" y1="110" x2="510" y2="110" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="170" y1="110" x2="170" y2="130" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="510" y1="110" x2="510" y2="130" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <text x="180" y="106" font-family="var(--font-mono)" font-size="10" fill="var(--color-success)">是</text>
+        <text x="490" y="106" font-family="var(--font-mono)" font-size="10" fill="var(--text-muted)">否</text>
+
+        <!-- 左：要硬上限 -->
+        <rect x="50" y="130" width="240" height="44" rx="6" fill="var(--bg-surface)" stroke="var(--border-mid)" stroke-width="0.5"/>
+        <text x="170" y="149" text-anchor="middle" font-family="var(--font-sans)" font-size="11" font-weight="500" fill="var(--text-primary)">要直接 OOM？還是先 throttle？</text>
+        <text x="170" y="164" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">（行為差異）</text>
+
+        <line x1="170" y1="174" x2="170" y2="190" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="80" y1="190" x2="260" y2="190" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="80" y1="190" x2="80" y2="210" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="260" y1="190" x2="260" y2="210" stroke="var(--text-muted)" stroke-width="0.5"/>
+
+        <rect x="20" y="210" width="120" height="50" rx="6" fill="var(--color-danger-soft)" stroke="var(--color-danger)" stroke-width="0.5"/>
+        <text x="80" y="230" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-danger)">memory.max</text>
+        <text x="80" y="246" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-secondary)">硬上限 → OOM</text>
+
+        <rect x="200" y="210" width="120" height="50" rx="6" fill="var(--color-warning-soft)" stroke="var(--color-warning)" stroke-width="0.5"/>
+        <text x="260" y="230" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-warning)">memory.high</text>
+        <text x="260" y="246" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-secondary)">軟剎車 → throttle</text>
+
+        <!-- 右：不要硬上限 -->
+        <rect x="380" y="130" width="240" height="44" rx="6" fill="var(--bg-surface)" stroke="var(--border-mid)" stroke-width="0.5"/>
+        <text x="500" y="149" text-anchor="middle" font-family="var(--font-sans)" font-size="11" font-weight="500" fill="var(--text-primary)">想保證最低資源、還是按比例分？</text>
+        <text x="500" y="164" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">（保護 vs 比例）</text>
+
+        <line x1="500" y1="174" x2="500" y2="190" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="410" y1="190" x2="590" y2="190" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="410" y1="190" x2="410" y2="210" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="590" y1="190" x2="590" y2="210" stroke="var(--text-muted)" stroke-width="0.5"/>
+
+        <rect x="350" y="210" width="120" height="50" rx="6" fill="var(--color-success-soft)" stroke="var(--color-success)" stroke-width="0.5"/>
+        <text x="410" y="230" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-success)">memory.min</text>
+        <text x="410" y="246" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-secondary)">硬保護下限</text>
+
+        <rect x="530" y="210" width="120" height="50" rx="6" fill="var(--color-primary-soft)" stroke="var(--color-primary)" stroke-width="0.5"/>
+        <text x="590" y="230" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-primary-text)">cpu.weight</text>
+        <text x="590" y="246" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-secondary)">比例分配</text>
+
+        <!-- 實務組合提示 -->
+        <rect x="60" y="295" width="560" height="148" rx="6" fill="var(--bg-muted)" stroke="var(--border-soft)" stroke-width="0.5"/>
+        <text x="340" y="318" text-anchor="middle" font-family="var(--font-sans)" font-size="12" font-weight="600" fill="var(--text-primary)">實務組合（生產環境最常用）</text>
+        <text x="80" y="345" font-family="var(--font-sans)" font-size="11" fill="var(--text-secondary)">▸ <tspan font-weight="600" fill="var(--color-primary)">Guaranteed workload</tspan>：memory.min + memory.max 都設成 limit 值（保證 + 上限）</text>
+        <text x="80" y="365" font-family="var(--font-sans)" font-size="11" fill="var(--text-secondary)">▸ <tspan font-weight="600" fill="var(--color-primary)">Burstable workload</tspan>：memory.min = request、memory.high = 0.9×limit、memory.max = limit</text>
+        <text x="80" y="385" font-family="var(--font-sans)" font-size="11" fill="var(--text-secondary)">▸ <tspan font-weight="600" fill="var(--color-primary)">Best-effort</tspan>：只設 memory.max（避免吃光系統），其他不限</text>
+        <text x="80" y="405" font-family="var(--font-sans)" font-size="11" fill="var(--text-secondary)">▸ <tspan font-weight="600" fill="var(--color-primary)">CPU 一律</tspan>：cpu.weight（比例）+ 必要時 cpu.max（上限）</text>
+        <text x="80" y="425" font-family="var(--font-sans)" font-size="11" fill="var(--text-secondary)">▸ <tspan font-weight="600" fill="var(--color-primary)">IO 一律</tspan>：io.weight 為主，io.max 限頻寬</text>
+      </svg>
+      <div class="diagram-caption">圖 3.1 · 資源分配模型決策樹（實務組合）</div>
+    </div>
+
+    <div class="prose">
+      <h3>3.8 三模型互補：Kubernetes Memory QoS 案例</h3>
+      <p>
+        Kubernetes 1.27+ 的 Memory QoS 是三模型互補使用的經典範例。它依 Pod QoS class 決定 cgroup 設定：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr>
+          <th>QoS Class</th>
+          <th>memory.min</th>
+          <th>memory.high</th>
+          <th>memory.max</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Guaranteed</strong><br><span style="font-size:11px;color:var(--text-muted)">request = limit</span></td>
+          <td><code>= request</code></td>
+          <td>未設定（不 throttle）</td>
+          <td><code>= limit</code></td>
+        </tr>
+        <tr>
+          <td><strong>Burstable</strong><br><span style="font-size:11px;color:var(--text-muted)">request &lt; limit</span></td>
+          <td><code>= request</code></td>
+          <td><code>= request + 0.9 × (limit − request)</code></td>
+          <td><code>= limit</code></td>
+        </tr>
+        <tr>
+          <td><strong>BestEffort</strong><br><span style="font-size:11px;color:var(--text-muted)">沒設 request 與 limit</span></td>
+          <td>未設定</td>
+          <td>未設定</td>
+          <td>未設定（被 node allocatable 限制）</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        這套設計的妙處：
+      </p>
+      <ul>
+        <li><strong>Guaranteed Pod 同時用 Protection 與 Limit</strong>：min 保證它至少有 request 的記憶體不被 reclaim；max 限制它不能超過 limit。但故意不設 high，避免在還沒到 limit 之前就先被 throttle，影響 latency。</li>
+        <li><strong>Burstable Pod 三模型全用</strong>：min 給 request 的保護，high 在到達 90% (limit−request) 處設軟剎車（防止接近 OOM 才反應），max 是最後防線。</li>
+        <li><strong>BestEffort Pod 完全不保護</strong>：當系統有壓力時，這類 Pod 是第一批被 reclaim 與 evict 的對象。</li>
+      </ul>
+      <p>
+        理解這個設計，你就掌握了三模型互補的精髓。後續章節會更深入到每個 controller 的細節，但思考框架不離這三個模型。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 4: 實戰範例 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例：三模型實作體驗</h2>
+
+    <div class="prose">
+      <p>下面三個 lab 分別示範三種模型的實際行為。所有 lab 使用 systemd-run，避免直接動 cgroup 介面而與 systemd 衝突。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · Weights 體驗：兩個無限迴圈搶 CPU</div>
+      <p>啟動兩個 100% CPU 的 process，但給它們不同的 CPUWeight，觀察實際分配比例：</p>
+<pre><code># 啟動 weight=100 的 worker
+sudo systemd-run --slice=user.slice --unit=worker-light \
+    -p CPUWeight=100 \
+    bash -c 'while :; do :; done'
+
+# 啟動 weight=400 的 worker（4 倍權重）
+sudo systemd-run --slice=user.slice --unit=worker-heavy \
+    -p CPUWeight=400 \
+    bash -c 'while :; do :; done'
+
+# 觀察 1 分鐘內的 CPU 使用率（會看到 1:4 的比例）
+top -p $(pgrep -f 'while :' | tr '\n' ',' | sed 's/,$//')
+
+# 預期：worker-heavy 約占 80% CPU、worker-light 約占 20%
+# 比例 = 400 : 100 = 4 : 1
+
+# 清理
+sudo systemctl stop worker-light worker-heavy
+</code></pre>
+      <p>觀察點：weight 是<em>比例</em>，不是百分比。weight=100 與 weight=400 在競爭時是 1:4，但如果 worker-light 自己沒事做（idle），worker-heavy 可以吃滿全部 CPU。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · Limits 體驗：memory.max 觸發 OOM</div>
+      <p>限制一個 process 最多用 50MB 記憶體，跑一個會吃 100MB 的程式：</p>
+<pre><code># 用 systemd-run 限制 memory
+sudo systemd-run --slice=user.slice --unit=mem-test \
+    -p MemoryMax=50M \
+    --pty \
+    python3 -c '
+data = bytearray(100 * 1024 * 1024)  # 嘗試吃 100MB
+print("allocated 100MB")
+input("press enter...")
+'
+
+# 預期：process 在分配到約 50MB 時被 OOM kill
+# 看 journal 確認被 OOM 殺
+sudo journalctl -u mem-test --no-pager | tail -20
+
+# 應該看到類似訊息：
+# Memory cgroup out of memory: Killed process ...
+
+# 看 cgroup events 統計
+cat /sys/fs/cgroup/user.slice/mem-test.service/memory.events
+# oom 1
+# oom_kill 1
+</code></pre>
+      <p>觀察點：<code>memory.events</code> 是觀察 OOM 行為的權威來源。每次觸發都會增加計數，可以用來建告警。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · 軟限 high vs 硬限 max 的差別</div>
+      <p>用同一個吃記憶體程式，比較 MemoryHigh 與 MemoryMax 的行為：</p>
+<pre><code># 場景 A：只設 high（軟限）
+sudo systemd-run --slice=user.slice --unit=mem-soft \
+    -p MemoryHigh=50M \
+    --pty \
+    python3 -c '
+import time
+data = bytearray(0)
+for i in range(20):
+    data.extend(bytearray(10 * 1024 * 1024))  # 每次 +10MB
+    print(f"allocated {(i+1)*10}MB")
+    time.sleep(0.5)
+'
+# 預期行為：超過 50MB 後 process 被嚴重 throttle（變慢），但不會被殺
+# 可在另一個 terminal 觀察 memory.pressure
+cat /sys/fs/cgroup/user.slice/mem-soft.service/memory.pressure
+
+# 場景 B：設 max（硬限）
+sudo systemd-run --slice=user.slice --unit=mem-hard \
+    -p MemoryMax=50M \
+    --pty \
+    python3 -c '同上'
+# 預期行為：超過 50MB 立即 OOM kill
+
+# 清理
+sudo systemctl stop mem-soft mem-hard 2>/dev/null
+</code></pre>
+      <p>觀察點：軟限會讓程式「<em>痛苦地慢下來</em>」，硬限會直接「<em>送它去死</em>」。軟限適合給有彈性的服務，硬限給絕對不能超的場景（共享主機、多租戶）。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 4 · 觀察 Protection 在系統壓力下的效果</div>
+      <p>建立兩個 cgroup，A 設 memory.min，B 不設，然後刻意製造記憶體壓力，看 kernel 怎麼選擇 reclaim：</p>
+<pre><code># 啟動 A：吃 100MB，受保護 80MB
+sudo systemd-run --slice=user.slice --unit=protected-app \
+    -p MemoryMin=80M \
+    --pty \
+    python3 -c '
+data = bytearray(100 * 1024 * 1024)
+import time; time.sleep(60)
+'
+
+# 啟動 B：吃 100MB，無保護
+sudo systemd-run --slice=user.slice --unit=normal-app \
+    --pty \
+    python3 -c '同上'
+
+# 製造系統 memory pressure（吃 80% 記憶體）
+sudo stress-ng --vm 1 --vm-bytes 80% --timeout 30s
+
+# 觀察兩個 cgroup 的 memory.current 變化
+watch -n 0.5 '
+  echo === protected ===
+  cat /sys/fs/cgroup/user.slice/protected-app.service/memory.current
+  echo === normal ===
+  cat /sys/fs/cgroup/user.slice/normal-app.service/memory.current
+'
+# 預期：normal-app 的 memory.current 會明顯下降（被 reclaim）
+#       protected-app 的 memory.current 維持不變（受 min 保護）
+</code></pre>
+      <p>這個 lab 直觀展示 Protection 的價值——<em>在系統壓力下，被保護的 cgroup 是真的「免疫」於 reclaim</em>。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 5: 常見陷阱 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · 把 weight 當成百分比</div>
+      <p>
+        最常見的誤解：<em>「我設 cpu.weight=50，這個 service 就只能用 50% CPU」</em>。
+        錯。weight 是<strong>比例</strong>，且<strong>只在競爭時生效</strong>。weight=50 的 service 在沒人搶 CPU 時可以吃滿所有核。
+        要硬上限請用 <code>cpu.max</code>。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · 只設 max 不設 min，遇到系統壓力被踢爆</div>
+      <p>
+        很多人配 Kubernetes 時只設 <code>limits</code> 不設 <code>requests</code>（變成 BestEffort），或讓 request &lt;&lt; limit。
+        遇到系統 memory pressure 時，這類 Pod 因為沒有 <code>memory.min</code> 保護，會被優先 reclaim 甚至 evict。
+        正確做法：<strong>關鍵服務一定要設 request</strong>（對應 memory.min），給它至少一個保護下限。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · memory.high 設太低，服務在 OOM 之前就先死於 throttle</div>
+      <p>
+        <code>memory.high</code> 設定的位置很關鍵。設太低，服務會持續被 reclaim throttle，<em>變得極度緩慢</em>，使用者看到的是「<em>service 還活著但完全沒回應</em>」——比直接 OOM 還難 debug。
+        Kubernetes Memory QoS 把 high 設在 0.9 × (limit − request)，是經過調校的合理位置，不要隨意縮小。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · 忘記設 memory_recursiveprot，min/low 在子樹失效</div>
+      <p>
+        在沒啟用 <code>memory_recursiveprot</code> 的舊系統（kernel &lt; 5.7 或舊 distro），<code>memory.min</code> 在 parent 設定後<em>不會自動傳到 child</em>。
+        如果你在 <code>kubepods.slice</code> 設 min=8G，但 <code>kubepods.slice/foo-pod</code> 沒設，foo-pod 不會受保護。
+        檢查方式：<code>mount | grep cgroup2</code> 看是否有 <code>memory_recursiveprot</code> mount option。沒有的話，需要 remount。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 5 · cpu.max 與 cpu.weight 混用結果出乎意料</div>
+      <p>
+        cpu.max 與 cpu.weight 可以同時設，但要理解互動：<strong>cpu.max 是絕對天花板，cpu.weight 在天花板下決定比例</strong>。
+        例如 cpu.max=50000 100000（50% 一核）、cpu.weight=400，當沒有競爭時 service 也只能用到 50%——weight 大到飛上天也救不了你。
+        混用時記住：<em>cpu.max 是 Plan B（防爆），cpu.weight 是 Plan A（日常分配）</em>。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 6: 動手練習 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · 用 cpu.weight 模擬 4 個 service 的優先級（10 分鐘）</div>
+      <p>啟動 4 個 CPU 滿載的 service，weight 分別設 100, 200, 400, 800，觀察 CPU 分配比例：</p>
+<pre><code>for i in 1 2 4 8; do
+  sudo systemd-run --slice=user.slice --unit=worker-w${i}00 \
+    -p CPUWeight=${i}00 \
+    bash -c 'while :; do :; done'
+done
+
+# 5 秒後觀察
+sleep 5
+sudo systemd-cgtop --order=cpu --iterations=2 user.slice
+</code></pre>
+      <p>回答：</p>
+      <ol>
+        <li>看到的 CPU 比例是不是接近 1:2:4:8？</li>
+        <li>所有 weight 加起來是 1500，但實際 CPU 怎麼分？</li>
+        <li>如果你停掉 weight=800 的那個，剩下三個的比例會變嗎？</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · 設計一個 Burstable Pod 的 cgroup 配置（10 分鐘）</div>
+      <p>假設一個 Burstable Pod 設定如下：</p>
+<pre><code>resources:
+  requests:
+    memory: 256Mi
+  limits:
+    memory: 1Gi
+</code></pre>
+      <p>請計算它的 cgroup 應該如何設置 memory.min、memory.high、memory.max（依 Kubernetes Memory QoS 公式）：</p>
+      <ol>
+        <li>memory.min = ?</li>
+        <li>memory.high = ? （提示：request + 0.9 × (limit − request)）</li>
+        <li>memory.max = ?</li>
+        <li>用 systemd-run 模擬一個這樣的 cgroup：<code>sudo systemd-run -p MemoryMin=... -p MemoryHigh=... -p MemoryMax=... ...</code></li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 觀察自己系統上的實際配置（5 分鐘）</div>
+<pre><code># 找一個 systemd service（例如 nginx 或 sshd）
+SERVICE=sshd.service
+
+# 看它的資源分配設定
+systemctl show -p MemoryMin,MemoryHigh,MemoryMax,CPUWeight,IOWeight $SERVICE
+
+# 看實際 cgroup 中的值
+CGROUP_PATH=$(systemctl show -p ControlGroup --value $SERVICE)
+ls /sys/fs/cgroup$CGROUP_PATH | grep -E '^(memory|cpu|io)\.'
+cat /sys/fs/cgroup$CGROUP_PATH/memory.max
+cat /sys/fs/cgroup$CGROUP_PATH/cpu.weight
+</code></pre>
+      <p>回答：你的系統服務有設 limits 嗎？大多數預設是 <code>infinity</code> 還是 <code>max</code>？這代表什麼？</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 用 stress-ng 驗證 Protection 真的有效（15 分鐘）</div>
+      <p>本章 Lab 4 的延伸版：建立一個有 memory.min 保護的 cgroup，用 stress-ng 製造系統壓力，量化保護效果：</p>
+<pre><code># 啟動 protected
+sudo systemd-run --slice=user.slice --unit=p-app \
+    -p MemoryMin=200M \
+    --pty \
+    python3 -c '
+data = bytearray(300 * 1024 * 1024)  # 吃 300MB
+for i in range(60):
+    # 持續 touch 記憶體避免被 swap out
+    for j in range(0, len(data), 4096):
+        data[j] = 1
+    import time; time.sleep(1)
+'
+
+# 記錄初始 memory.current
+cat /sys/fs/cgroup/user.slice/p-app.service/memory.current
+
+# 在另一 terminal 製造壓力
+sudo stress-ng --vm 4 --vm-bytes 90% --timeout 30s
+
+# 30 秒後看 p-app 的 memory.current 變化
+watch -n 1 'cat /sys/fs/cgroup/user.slice/p-app.service/memory.current'
+
+# 清理
+sudo systemctl stop p-app
+</code></pre>
+      <p>回答：</p>
+      <ol>
+        <li>p-app 的 memory.current 在壓力下有沒有下降？</li>
+        <li>如果有，下降到約多少就停住了？這對應 memory.min 嗎？</li>
+        <li>如果你把 MemoryMin 拿掉重做，行為會怎樣？</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 7: 自我檢查題 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>cgroup v2 的四種資源分配模型是哪四種？簡述各自的核心概念。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>Weights（比例分配）</strong>：父 cgroup 的資源依 child 的 weight 比例分配，只在競爭時生效。介面 <code>{controller}.weight</code>，範圍 1–10000，預設 100。<br>
+        <strong>Limits（硬上限）</strong>：cgroup 最多能用多少。<code>max</code> 超過直接 OOM/throttle 到 0；<code>high</code> 超過盡力拉回（軟剎車）。<br>
+        <strong>Protections（保護下限）</strong>：當系統壓力大時，<em>盡量不要</em>從這個 cgroup 拿資源。<code>min</code> 是硬保證，<code>low</code> 是 best-effort。<br>
+        <strong>Allocations（exclusive 配額）</strong>：固定配給某個 cgroup，其他人不能用。少數場景（如 realtime CPU bandwidth）使用。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>cpu.weight 預設值是多少？範圍是多少？為什麼設計成這個範圍？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>預設 100，範圍 1–10000</strong>。
+        kernel 文件解釋：「<em>chosen to allow enough and symmetric bias in both directions while keeping it intuitive</em>」——以 100 為中心向上向下都有 100 倍的調整空間（1 是 100 的 1/100，10000 是 100 倍），對稱且足夠涵蓋各種優先級需求。
+        100 作為預設讓「未設定」與「設成 100」沒有差異，符合直覺。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span><code>memory.high</code> 與 <code>memory.max</code> 的本質差別是什麼？什麼場景應該用哪一個？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>memory.max 是硬上限</strong>：超過會觸發 OOM killer 在這個 cgroup 內挑 process 殺掉。<br>
+        <strong>memory.high 是軟剎車</strong>：超過會 throttle process，kernel 努力 reclaim 把使用量壓回 high 以下，但<em>不會殺 process</em>。<br>
+        <strong>場景</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>需要絕對防爆（多租戶、共享主機、預算控制）→ memory.max</li>
+          <li>有彈性、優先保活（latency-sensitive 服務）→ memory.high（搭配 memory.max 當最後防線）</li>
+        </ul>
+        Kubernetes Memory QoS 對 Burstable Pod 兩個都設，high 在 0.9×(limit−request)、max 在 limit，是教科書級的搭配。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span>Weights 與 Protections 都「只在有競爭時生效」嗎？這句話怎麼正確理解？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>是，但意義不同</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>Weights</strong>：沒競爭時，weight 不影響任何事——cgroup 想吃多少就吃多少；有競爭時 weight 決定按比例怎麼分。</li>
+          <li><strong>Protections</strong>：沒競爭時，protection 也不影響任何事——所有 cgroup 都拿到自己想要的；有壓力（如 memory pressure 觸發 reclaim）時，min/low 決定誰<em>免於</em>被 reclaim。</li>
+        </ul>
+        關鍵差別：weight 在<em>分配</em>競爭資源，protection 在<em>保護</em>已有資源不被搶走。所以實務上常一起用：weight 處理日常分配、protection 處理意外壓力。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span>什麼是 over-commit？哪些模型可以 over-commit？為什麼這是合理設計？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>over-commit</strong>：children 的設定值加總超過 parent 能提供的資源量。
+        <strong>Limits 與 Protections 都可以 over-commit</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>Limits over-commit 合理，因為不一定所有 child 同時跑滿。例如 parent 有 4GB 記憶體，10 個 child 各設 max=2GB，總和 20GB，但實際同時頂多有 2-3 個吃滿，整體可控。</li>
+          <li>Protections over-commit 也合理：<em>parent 能提供多少就保護多少</em>。例如 parent 有 4GB，3 個 child 各設 min=2GB（總和 6GB），實際只有 4GB 會被分給三者保護。</li>
+        </ul>
+        <strong>Weights 不需要 over-commit 概念</strong>，因為 weight 是純比例，加總大小無意義。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>為什麼 Kubernetes 對 Guaranteed Pod 不設 memory.high，但 Burstable Pod 設？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>Guaranteed Pod</strong>：request = limit，意思是「<em>我說多少就要多少</em>」。設 memory.high 會在到達 limit 之前就 throttle，等於違背 Guaranteed 的承諾——把高優先級服務搞慢。所以只設 max 當最後防線、設 min = request 給保護。
+        <strong>Burstable Pod</strong>：request &lt; limit，意思是「<em>我會用 request，但需要時可以 burst 到 limit</em>」。memory.high 設在 0.9×(limit−request) 處，給服務一個「快到 limit 了，慢一點」的軟剎車，避免直接撞到 limit 觸發 OOM。Burstable 設計上接受 throttle，所以這合理。
+        <strong>BestEffort Pod</strong>：request 與 limit 都不設，沒有任何承諾，不需要 cgroup 介入；遇到壓力直接被踢。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span><code>memory_recursiveprot</code> mount option 解決什麼問題？怎麼確認是否啟用？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>解決什麼</strong>：原始設計中，<code>memory.min</code> / <code>memory.low</code> <em>不會自動傳到子樹</em>。如果你在 parent 設 min=8G，但 child 沒設，child 不受保護。
+        這在 Kubernetes 之類的多層 cgroup（kubepods.slice → pod → container）中非常麻煩——要在每一層手動傳遞值。
+        <strong>解決方式</strong>：<code>memory_recursiveprot</code>（kernel 5.7+）讓 min/low 自動沿子樹遞迴生效。
+        <strong>確認啟用</strong>：<code>mount | grep cgroup2</code>，看 mount options 列表是否包含 <code>memory_recursiveprot</code>。多數現代 distro（Ubuntu 22.04+、RHEL 9+、Fedora 31+）預設啟用。
+        <strong>kernel 文件原文</strong>：「<em>this should have been the default behavior but is a mount-option to avoid regressing setups relying on the original semantics</em>」——是設計缺憾的補救，但為了相容性沒設成預設。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>實作思考題：你要為一個有狀態的資料庫 service 設計 cgroup 配置，避免它影響同主機的其他服務。請組合三種模型給出完整方案。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>典型方案</strong>（假設 32GB RAM、8 核機器，要給 DB 預留 16GB / 4 核）：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>memory.min = 16G</strong>（Protection）：DB 至少有 16GB 不被 reclaim，避免 page cache 被踢爆而磁碟 I/O 暴增。</li>
+          <li><strong>memory.high = 24G</strong>（軟限）：超過 24G 就 throttle，給其他服務留 8GB 緩衝。</li>
+          <li><strong>memory.max = 28G</strong>（硬限）：絕不超過 28G，留 4GB 給 OS。</li>
+          <li><strong>cpu.weight = 800</strong>（Weight）：競爭時拿到 80% CPU 比例（其他服務 weight=100）。</li>
+          <li><strong>cpu.max = 600000 100000</strong>（Limit）：絕對天花板 6 核（保留 2 核給 OS+其他）。</li>
+          <li><strong>io.weight = 500</strong>（Weight）：磁碟 I/O 拿較高優先級，畢竟 DB 是 I/O 密集。</li>
+        </ul>
+        <strong>對應的 systemd 設定</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[Service]
+MemoryMin=16G
+MemoryHigh=24G
+MemoryMax=28G
+CPUWeight=800
+CPUQuota=600%
+IOWeight=500</pre>
+        關鍵思路：<strong>三模型互補</strong>，protection 保活、limit 防爆、weight 處理日常競爭。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 8: 延伸閱讀 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+
+    <div class="refs">
+      <ol>
+        <li>
+          <a href="https://docs.kernel.org/admin-guide/cgroup-v2.html#resource-distribution-models" target="_blank" rel="noopener">Linux Kernel 官方文件 · §3 Resource Distribution Models</a>
+          <span class="ref-source">docs.kernel.org · 四種模型的權威定義</span>
+        </li>
+        <li>
+          <a href="https://kubernetes.io/docs/concepts/workloads/pods/pod-qos/" target="_blank" rel="noopener">Pod Quality of Service Classes · Kubernetes</a>
+          <span class="ref-source">kubernetes.io · QoS class 與 cgroup 三模型對應的官方說明</span>
+        </li>
+        <li>
+          <a href="https://kubernetes.io/blog/2023/05/05/qos-memory-resources/" target="_blank" rel="noopener">Memory QoS with cgroups v2 · Kubernetes Blog</a>
+          <span class="ref-source">kubernetes.io · Memory QoS 的設計動機與實作</span>
+        </li>
+        <li>
+          <a href="https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/8/html/managing_monitoring_and_updating_the_kernel/assembly_configuring-resource-management-using-systemd_managing-monitoring-and-updating-the-kernel" target="_blank" rel="noopener">RHEL 8 · Configuring resource management with cgroups-v2 and systemd</a>
+          <span class="ref-source">docs.redhat.com · 從系統管理員視角介紹四種模型與 systemd 對應設定</span>
+        </li>
+        <li>
+          <a href="https://facebookmicrosites.github.io/cgroup2/docs/memory-controller.html" target="_blank" rel="noopener">Memory Controller · Meta cgroup2 guide</a>
+          <span class="ref-source">facebookmicrosites.github.io · 從 Meta 大規模生產經驗角度看 memory min/low/high/max 實戰</span>
+        </li>
+        <li>
+          <a href="https://lwn.net/Articles/761118/" target="_blank" rel="noopener">Memory protection keys · LWN.net</a>
+          <span class="ref-source">LWN.net · memory.min / memory.low 設計與 reclaim 策略的歷史討論</span>
+        </li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Chapter nav ====================== -->
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn" href="ch02-architecture.html">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">Ch.2 架構與核心概念</span>
+    </a>
+    <a class="nav-btn next disabled">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">Ch.4 掛載與基礎操作</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,1317 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.20 Python 整合與容器化開發 — cgroup v2 完整教學</title>
+<meta name="description" content="Python 與 cgroup v2 整合的痛點與解法：os.cpu_count() 陷阱、psutil 沒 cgroup awareness、Dask/multiprocessing 案例、Java JVM 對比、Python 3.14 forkserver。">
+
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626; --color-danger-soft: #fee2e2;
+  --color-info: #0891b2; --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px;
+  --container-narrow: 720px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px;
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.topbar { position: sticky; top: 0; z-index: 50; background: color-mix(in oklch, var(--bg-canvas) 88%, transparent); backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--border-soft); }
+.topbar-inner { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.brand { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-secondary); }
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 999px; padding: 6px 14px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all .2s; }
+[data-theme-toggle]:hover { background: var(--bg-muted); border-color: var(--border-mid); color: var(--text-primary); }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: 0 var(--space-5); }
+.chapter-head { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); }
+.chapter-tag { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary-text); background: var(--color-primary-soft); padding: 4px 12px; border-radius: 999px; margin-bottom: var(--space-4); }
+.chapter-title { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; margin-bottom: var(--space-3); }
+.chapter-subtitle { font-family: var(--font-serif-body); font-size: var(--text-md); color: var(--text-secondary); line-height: 1.65; font-style: italic; }
+.chapter-meta { margin-top: var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.chapter-meta-item:first-child::before { display: none; }
+.section { padding: var(--space-7) 0; border-bottom: 1px solid var(--border-soft); }
+.section:last-of-type { border-bottom: none; }
+.section-label { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2); }
+.section-label::before { content: ""; width: 24px; height: 1px; background: var(--color-primary); }
+.section-title { font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600; margin-bottom: var(--space-5); letter-spacing: -0.01em; line-height: 1.2; }
+.prose p { font-family: var(--font-serif-body); font-size: var(--text-base); line-height: 1.85; margin-bottom: var(--space-4); }
+.prose h3 { font-family: var(--font-sans); font-size: var(--text-lg); font-weight: 600; margin: var(--space-6) 0 var(--space-3); letter-spacing: -0.01em; }
+.prose h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 500; margin: var(--space-5) 0 var(--space-2); }
+.prose ul, .prose ol { font-family: var(--font-serif-body); margin-bottom: var(--space-4); padding-left: var(--space-5); line-height: 1.8; }
+.prose ul li, .prose ol li { margin-bottom: var(--space-2); }
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong { font-weight: 600; }
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 1px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+.prose a { color: var(--color-primary); text-decoration: underline; text-underline-offset: 3px; }
+.highlights { background: var(--color-primary-soft); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.highlights ol { font-family: var(--font-sans); padding-left: var(--space-5); margin: 0; }
+.highlights li { font-size: var(--text-sm); color: var(--color-primary-text); margin-bottom: var(--space-2); line-height: 1.65; }
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+.news-box { background: var(--color-info-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.news-item { font-family: var(--font-sans); font-size: var(--text-sm); line-height: 1.7; padding: var(--space-2) 0; border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent); }
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-info); margin-right: var(--space-2); }
+pre { font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.7; background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; margin-bottom: var(--space-4); }
+pre code { background: transparent; border: none; padding: 0; font-size: inherit; color: inherit; }
+.cmp-table { width: 100%; border-collapse: collapse; margin-bottom: var(--space-4); font-size: var(--text-sm); font-family: var(--font-sans); }
+.cmp-table th, .cmp-table td { padding: var(--space-3); text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.cmp-table th { font-weight: 600; background: var(--bg-muted); font-size: var(--text-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 1px 5px; border-radius: var(--radius-sm); color: var(--color-primary-text); }
+.lab { background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.lab-title { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--color-primary); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px dashed var(--border-soft); }
+.lab-title::before { content: "▶ "; }
+.lab p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-3); color: var(--text-secondary); line-height: 1.7; }
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+.lab ol, .lab ul { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); color: var(--text-secondary); line-height: 1.7; }
+.pitfall { background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.pitfall-title { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 600; color: var(--color-warning); margin-bottom: var(--space-2); }
+.pitfall p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-2); line-height: 1.7; }
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code { background: color-mix(in oklch, var(--color-warning) 15%, transparent); border-color: color-mix(in oklch, var(--color-warning) 30%, transparent); }
+.quiz-item { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-3); }
+.quiz-q { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; margin-bottom: var(--space-2); display: flex; gap: var(--space-2); }
+.quiz-q-num { font-family: var(--font-mono); color: var(--color-primary); flex-shrink: 0; }
+.quiz-toggle { background: transparent; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 4px 10px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; margin-top: var(--space-2); transition: all .2s; }
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a { display: none; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px dashed var(--border-soft); font-family: var(--font-serif-body); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.75; }
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+.diagram { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); margin-bottom: var(--space-4); text-align: center; }
+.diagram svg { max-width: 100%; height: auto; }
+.diagram-caption { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-3); }
+.refs ol { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); line-height: 1.8; }
+.refs li { margin-bottom: var(--space-2); color: var(--text-secondary); }
+.refs li::marker { color: var(--color-primary); }
+.refs a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dashed var(--color-primary); }
+.refs .ref-source { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); display: block; margin-top: 2px; }
+.chapter-nav { margin-top: var(--space-6); padding: var(--space-5) 0; display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.nav-btn { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; padding: var(--space-3) var(--space-4); background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); text-decoration: none; color: var(--text-primary); transition: all .2s; }
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.04em; }
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.20</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part VI · 生態系 · Chapter 20</span>
+    <h1 class="chapter-title">Python 整合與容器化開發</h1>
+    <p class="chapter-subtitle">
+      Python 是資料科學、ML、自動化的主流語言——但在容器化部署上，比 Go 與 Java 落後一代。
+      Go 1.25 內建 cgroup-aware GOMAXPROCS、Java 自 8u191/JDK 10 起就有 <code>UseContainerSupport</code>，
+      <strong>Python 至今 2026 年仍沒有 runtime-level 的 cgroup awareness</strong>——
+      <code>os.cpu_count()</code>、<code>multiprocessing.cpu_count()</code>、甚至 <code>psutil.cpu_count()</code> 通通看 host CPU。
+      結果：Dask、autogluon、duckdb 全部踩雷，多 worker 在 limit=2 CPU 容器搶資源被 throttle。
+      本章拆解 Python 為何特殊、實務 work-around、社群 library 與 Dask 等實際案例、Java JVM 對比，最後指引怎麼<em>正確</em> 部署 Python 到 K8s。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~6,500 字</span>
+      <span class="chapter-meta-item">閱讀時間 25 分鐘</span>
+      <span class="chapter-meta-item">難度：應用</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+    <div class="highlights">
+      <ol>
+        <li><strong>Python 至今 2026 年沒有 runtime-level cgroup awareness</strong>。<code>os.cpu_count()</code>、<code>multiprocessing.cpu_count()</code>、<code>psutil.cpu_count()</code> 全部看 host。CPython issue 80235 從 2019 提案至今 stale，沒有<em>內建</em> 解法在路上。</li>
+        <li><strong><code>os.sched_getaffinity(0)</code> 是部分解法</strong>（cpuset 場景準確）。但對 cpu.max（CFS quota）場景無感——只看 affinity mask，不看 quota。最完整的 work-around 是直接讀 cgroup 介面檔案。</li>
+        <li><strong>Dask、autogluon、duckdb、scikit-learn 全部踩雷</strong>。Dask 在 v2.0+ 加了部分 cgroup 支援（PR #5499 之後），但仍依賴 psutil。其他多數 ML library 預設 <code>n_jobs=os.cpu_count()</code>——容器內錯。</li>
+        <li><strong>對比 Java JVM</strong>：JDK 8u191/JDK 10+ 自動 <code>UseContainerSupport</code>，<code>-XX:MaxRAMPercentage</code> 可從 cgroup 算 heap。<code>java -XshowSettings:system</code> 顯示完整 cgroup 偵測結果，是業界典範。</li>
+        <li><strong>Python 3.14（2025-10）改進但不解決核心問題</strong>。Linux 預設 <code>forkserver</code>（更安全）、free-threaded build（PEP 703）開放 GIL-free——但 cgroup awareness 還是要靠應用自己處理。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+    <div class="news-box">
+      <div class="news-item"><span class="news-date">2025-10</span><strong>Python 3.14 發布</strong>。Linux multiprocessing 預設改 <code>forkserver</code>（多 thread 主程式更安全）；free-threaded build 進入 stable（PEP 703）。但<em>沒有</em> 加 cgroup awareness 到 stdlib。</div>
+      <div class="news-item"><span class="news-date">2025</span><strong>Python issue 80235 仍 open 但 stale</strong>。「<em>os.cpu_count() should respect cgroup limits</em>」從 2019 年至今未解，PEP 提案多次卡在向後相容問題。</div>
+      <div class="news-item"><span class="news-date">2025</span><strong>Dask 2024.5.0+ 改進 cgroup 偵測</strong>。<code>dask.system.CPU_COUNT</code> 嘗試讀 cgroup（透過 psutil），但 fallback 仍是 cpu_count。要正確配置仍建議顯式設 <code>n_workers</code>。</div>
+      <div class="news-item"><span class="news-date">2025</span><strong>cgroupspy / cgroup-mem-limited 等 helper library 維護中</strong>。社群有多個小 library 提供 cgroup limit 偵測，但<em>沒有</em> 像 uber-go/automaxprocs 那樣的事實標準。</div>
+      <div class="news-item"><span class="news-date">2025</span><strong>JVM cgroup v2 完全成熟</strong>。OpenJDK 17、11.0.16+、8u372+ 完整支援 v2 並修了 swap bug（JDK-8253727）。<code>-XshowSettings:system</code> 是 Python 沒有的 introspection 工具。</div>
+    </div>
+    <div class="prose">
+      <p>
+        2026 年的時點，<strong>Python 仍是主流語言中對 cgroup 「<em>最遲鈍</em>」的</strong>——但 Python 是 ML/AI 主流語言，這個問題只會更嚴重。本章把痛點、現有 work-around、實務最佳實踐整合起來——讓你知道：升 Python 版本不會解決問題，只能靠應用層的紀律。
+      </p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+
+    <div class="prose">
+      <h3>3.1 Python 的「<em>三層 CPU count</em>」陷阱</h3>
+      <p>
+        Python 提供至少四個查 CPU 數量的 API，<strong>全部都不看 cgroup</strong>：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>API</th><th>看的是</th><th>容器內結果</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>os.cpu_count()</code></td><td>host 邏輯 CPU 數（透過 sysconf）</td><td>host CPU 數（<em>錯</em>）</td></tr>
+        <tr><td><code>multiprocessing.cpu_count()</code></td><td>包裝 <code>os.cpu_count()</code></td><td>同上（<em>錯</em>）</td></tr>
+        <tr><td><code>psutil.cpu_count(logical=True)</code></td><td>讀 <code>/proc/cpuinfo</code></td><td>host CPU 數（<em>錯</em>）</td></tr>
+        <tr><td><code>psutil.cpu_count(logical=False)</code></td><td>physical CPU 數</td><td>host physical CPU（<em>錯</em>）</td></tr>
+        <tr><td><code>os.sched_getaffinity(0)</code></td><td>process CPU affinity mask</td><td>cpuset.cpus（部分對）</td></tr>
+        <tr><td><strong>讀 <code>/sys/fs/cgroup/cpu.max</code></strong></td><td>cgroup CPU quota</td><td><em>正確</em>（v2）</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        <strong>關鍵差別</strong>：
+      </p>
+      <ul>
+        <li><code>os.sched_getaffinity</code> 看 <strong>cpuset.cpus</strong>——若用 K8s CPU Manager static policy 把 Pod pin 到特定 CPU，這個會準確。</li>
+        <li>但<em>不</em> 看 <code>cpu.max</code>（CFS quota）——Pod 設 cpu limit=2 但沒 affinity 時，<code>sched_getaffinity</code> 仍回 host CPU 數量。</li>
+        <li>大多 K8s Pod 是後一種情境——所以 <code>sched_getaffinity</code> 也<em>不夠</em>。</li>
+      </ul>
+      <p>
+        <strong>psutil 文件原話</strong>：「<em>cpu_count() may not necessarily be equivalent to the actual number of CPUs the current process can use. That can vary in case process CPU affinity has been changed, Linux cgroups are being used...</em>」——但 psutil 本身仍沒提供「<em>計入 cgroup</em>」的 API。
+      </p>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 680 320" role="img" aria-label="Python CPU count 陷阱">
+        <text x="340" y="22" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="600" fill="var(--text-primary)">Python 容器內 CPU count 全部錯</text>
+
+        <!-- Container box -->
+        <rect x="60" y="50" width="560" height="220" rx="8" fill="var(--bg-muted)" stroke="var(--border-mid)" stroke-width="1"/>
+        <text x="340" y="72" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--text-primary)">K8s Pod / Docker container</text>
+        <text x="340" y="88" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">Host: 32 邏輯 CPU ｜ cgroup cpu.max: "200000 100000" (= 2 CPU)</text>
+
+        <!-- Python APIs -->
+        <rect x="80" y="105" width="260" height="30" rx="4" fill="var(--color-danger-soft)" stroke="var(--color-danger)" stroke-width="0.5"/>
+        <text x="90" y="125" font-family="var(--font-mono)" font-size="10" fill="var(--text-primary)">os.cpu_count() = 32 ❌</text>
+
+        <rect x="80" y="140" width="260" height="30" rx="4" fill="var(--color-danger-soft)" stroke="var(--color-danger)" stroke-width="0.5"/>
+        <text x="90" y="160" font-family="var(--font-mono)" font-size="10" fill="var(--text-primary)">multiprocessing.cpu_count() = 32 ❌</text>
+
+        <rect x="80" y="175" width="260" height="30" rx="4" fill="var(--color-danger-soft)" stroke="var(--color-danger)" stroke-width="0.5"/>
+        <text x="90" y="195" font-family="var(--font-mono)" font-size="10" fill="var(--text-primary)">psutil.cpu_count() = 32 ❌</text>
+
+        <rect x="80" y="210" width="260" height="30" rx="4" fill="var(--color-warning-soft)" stroke="var(--color-warning)" stroke-width="0.5"/>
+        <text x="90" y="230" font-family="var(--font-mono)" font-size="10" fill="var(--text-primary)">os.sched_getaffinity(0) ⚠️</text>
+
+        <rect x="80" y="245" width="260" height="20" rx="4" fill="transparent"/>
+        <text x="90" y="259" font-family="var(--font-sans)" font-size="9" fill="var(--text-muted)">  → 看 cpuset，但不看 cpu.max 配額</text>
+
+        <!-- 正確方法 -->
+        <rect x="360" y="105" width="240" height="30" rx="4" fill="var(--color-success-soft)" stroke="var(--color-success)" stroke-width="0.5"/>
+        <text x="370" y="125" font-family="var(--font-mono)" font-size="10" fill="var(--text-primary)">read /sys/fs/cgroup/cpu.max ✓</text>
+
+        <rect x="360" y="140" width="240" height="30" rx="4" fill="var(--color-success-soft)" stroke="var(--color-success)" stroke-width="0.5"/>
+        <text x="370" y="160" font-family="var(--font-mono)" font-size="10" fill="var(--text-primary)">解析: "200000 100000" → 2.0</text>
+
+        <rect x="360" y="175" width="240" height="30" rx="4" fill="var(--color-info-soft)" stroke="var(--color-info)" stroke-width="0.5"/>
+        <text x="370" y="195" font-family="var(--font-mono)" font-size="10" fill="var(--text-primary)">env CPU_LIMIT=2 (downward API)</text>
+
+        <rect x="360" y="210" width="240" height="55" rx="4" fill="transparent"/>
+        <text x="370" y="225" font-family="var(--font-sans)" font-size="9" fill="var(--text-muted)">建議：寫 helper 同時嘗試</text>
+        <text x="370" y="240" font-family="var(--font-sans)" font-size="9" fill="var(--text-muted">env → cpu.max → sched_getaffinity</text>
+        <text x="370" y="255" font-family="var(--font-sans)" font-size="9" fill="var(--text-muted)">→ 最後 fallback cpu_count</text>
+      </svg>
+      <div class="diagram-caption">圖 20.1 · Python 容器 CPU count 全部錯，需要應用層 work-around</div>
+    </div>
+
+    <div class="prose">
+      <h3>3.2 完整的 Python helper</h3>
+      <p>
+        實務上需要寫 helper，按優先順序嘗試多個來源。這是<strong>事實標準寫法</strong>：
+      </p>
+<pre><code>import os
+import math
+
+
+def get_effective_cpu_count() -&gt; int:
+    """
+    取得當前 process 真正可用的 CPU 數，按優先順序：
+    1. 環境變數 CPU_LIMIT 或 OMP_NUM_THREADS（顯式覆寫）
+    2. cgroup v2 cpu.max
+    3. cgroup v1 cpu.cfs_quota_us / cpu.cfs_period_us
+    4. os.sched_getaffinity（cpuset / affinity）
+    5. os.cpu_count（最後 fallback）
+    """
+    # 1. 顯式環境變數
+    for var in ("CPU_LIMIT", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+        if val := os.environ.get(var):
+            try:
+                n = int(val)
+                if n &gt; 0:
+                    return n
+            except ValueError:
+                pass
+
+    # 2. cgroup v2
+    try:
+        with open("/sys/fs/cgroup/cpu.max") as f:
+            content = f.read().strip()
+        # "max 100000" = 沒 limit；"200000 100000" = 2 CPU
+        parts = content.split()
+        if len(parts) == 2 and parts[0] != "max":
+            quota, period = int(parts[0]), int(parts[1])
+            if quota &gt; 0 and period &gt; 0:
+                return max(1, math.ceil(quota / period))
+    except (IOError, OSError, ValueError):
+        pass
+
+    # 3. cgroup v1
+    try:
+        with open("/sys/fs/cgroup/cpu/cpu.cfs_quota_us") as f:
+            quota = int(f.read().strip())
+        with open("/sys/fs/cgroup/cpu/cpu.cfs_period_us") as f:
+            period = int(f.read().strip())
+        if quota &gt; 0 and period &gt; 0:
+            return max(1, math.ceil(quota / period))
+    except (IOError, OSError, ValueError):
+        pass
+
+    # 4. CPU affinity（cpuset 場景）
+    try:
+        return len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        pass
+
+    # 5. 最後 fallback
+    return os.cpu_count() or 1
+
+
+# 在 main 開頭呼叫
+if __name__ == "__main__":
+    n = get_effective_cpu_count()
+    print(f"Effective CPUs: {n}")
+    
+    # 用這個數字配置 worker pool
+    from multiprocessing import Pool
+    with Pool(n) as pool:
+        results = pool.map(work, data)
+</code></pre>
+
+      <h3>3.3 Dask、scikit-learn、autogluon 的踩雷</h3>
+      <p>
+        資料 / ML library 多數預設 <code>n_jobs=cpu_count()</code> 或類似。容器內全部錯：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>Library</th><th>預設行為</th><th>建議解法</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Dask 2024.5+</strong></td>
+          <td><code>dask.system.CPU_COUNT</code> 嘗試讀 cgroup（透過 psutil），不可靠</td>
+          <td>顯式 <code>n_workers=N</code>、<code>threads_per_worker=M</code></td>
+        </tr>
+        <tr>
+          <td><strong>scikit-learn</strong></td>
+          <td><code>n_jobs=-1</code> 對應 <code>cpu_count()</code></td>
+          <td>顯式 <code>n_jobs=N</code> 或設 <code>OMP_NUM_THREADS</code></td>
+        </tr>
+        <tr>
+          <td><strong>NumPy / OpenBLAS</strong></td>
+          <td>透過 OpenMP 用 host CPU 數</td>
+          <td>環境變數 <code>OMP_NUM_THREADS</code>、<code>OPENBLAS_NUM_THREADS</code></td>
+        </tr>
+        <tr>
+          <td><strong>autogluon</strong></td>
+          <td>auto-detect，常算錯</td>
+          <td>明確 <code>num_cpus=N</code> 在 fit() 參數</td>
+        </tr>
+        <tr>
+          <td><strong>DuckDB</strong></td>
+          <td>auto 用 host CPU</td>
+          <td>SQL <code>PRAGMA threads=N;</code></td>
+        </tr>
+        <tr>
+          <td><strong>PyTorch</strong></td>
+          <td><code>torch.get_num_threads()</code> 看 host</td>
+          <td><code>torch.set_num_threads(N)</code> 顯式設</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h4>常見災難案例</h4>
+      <p>
+        K8s Pod limit=2 CPU、Python 應用啟動：
+      </p>
+      <ol>
+        <li><strong>scikit-learn</strong> RandomForest <code>n_jobs=-1</code> → 起 32 個 worker（host CPU 數）</li>
+        <li>OpenBLAS 看到 32 → 每個 worker 又 spawn 32 thread</li>
+        <li>結果：32 × 32 = 1024 thread 搶 2 CPU 配額</li>
+        <li>CFS throttle 嚴重，整個應用 hang</li>
+        <li>monitoring：Pod 看似 100% CPU 但實際在 throttle 中睡</li>
+      </ol>
+
+      <h3>3.4 環境變數防線</h3>
+      <p>
+        不能改應用 code 時，用環境變數設 thread / worker 數量。<strong>四個關鍵環境變數</strong>：
+      </p>
+<pre><code># Dockerfile / K8s yaml
+env:
+- name: OMP_NUM_THREADS
+  value: "2"      # OpenMP（NumPy、OpenBLAS、scikit-learn）
+- name: OPENBLAS_NUM_THREADS
+  value: "2"      # OpenBLAS（顯式）
+- name: MKL_NUM_THREADS
+  value: "2"      # Intel MKL
+- name: NUMEXPR_NUM_THREADS
+  value: "2"      # numexpr
+
+# K8s downward API：自動 inject pod CPU limit
+env:
+- name: OMP_NUM_THREADS
+  valueFrom:
+    resourceFieldRef:
+      containerName: app
+      resource: limits.cpu
+</code></pre>
+      <p>
+        <strong>downward API 的限制</strong>：只能取整數值，分數 CPU（如 1500m）會 round down 或失敗。
+      </p>
+
+      <h3>3.5 Python memory 與 cgroup</h3>
+      <p>
+        Python 沒有像 Go GOMEMLIMIT 那樣的記憶體軟限。Python 進程記憶體達到 cgroup memory.max → 直接 OOM。但有幾個工具：
+      </p>
+      <ul>
+        <li><strong><code>resource.setrlimit(resource.RLIMIT_AS)</code></strong>：應用自己設記憶體上限，超過 raise <code>MemoryError</code>。Python-level 但不能取代 cgroup。</li>
+        <li><strong>Python GC 沒 GOMEMLIMIT 那種「<em>接近上限自動 GC</em>」</strong>：reference counting 即時釋放，但循環引用要等 GC 跑。可手動 <code>gc.collect()</code>。</li>
+        <li><strong>第三方：<code>resource_monitor</code>、<code>memory_profiler</code></strong>：可寫 daemon thread 監控、超過閾值主動 GC 或 raise。</li>
+      </ul>
+      <p>
+        <strong>建議</strong>：對 memory-heavy Python（DataFrame、ML training）用<em>容器外</em> 監控（K8s VPA、Prometheus alert）而非靠 Python 自己。
+      </p>
+
+      <h3>3.6 對比 Java JVM 的成熟整合</h3>
+      <p>
+        Java 是<em>對比典範</em>——展示什麼是「<em>應該怎麼做</em>」：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>面向</th><th>Java JVM</th><th>Python</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Runtime cgroup awareness</td><td>JDK 8u191+ / 10+ 預設</td><td><em>沒有</em>，需應用層</td></tr>
+        <tr><td>cgroup v2 完整支援</td><td>8u372+、11.0.16+、17+</td><td>需自己讀檔案</td></tr>
+        <tr><td>關閉 cgroup awareness</td><td><code>-XX:-UseContainerSupport</code></td><td>不適用</td></tr>
+        <tr><td>Heap 預設大小</td><td>cgroup memory × MaxRAMPercentage</td><td>無概念</td></tr>
+        <tr><td>看 cgroup 偵測結果</td><td><code>java -XshowSettings:system</code></td><td><em>沒有</em> 工具</td></tr>
+        <tr><td>thread pool 大小</td><td>ForkJoinPool 用 cgroup CPU</td><td>需手動設</td></tr>
+        <tr><td>已知 bug</td><td>JDK-8253727 swap 計算（已修）</td><td>持續性問題</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h4><code>java -XshowSettings:system</code> 範例</h4>
+<pre><code>$ java -XshowSettings:system -version
+Operating System Metrics:
+    Provider: cgroupv2                    ← cgroup version 偵測
+    Effective CPU Count: 2                ← 用於 thread pool 預設
+    CPU Period: 100000us
+    CPU Quota: 200000us
+    CPU Shares: 1024us
+    List of Effective Processors, 4 total: 0 1 2 3
+    Memory Limit: 1.00G                   ← 用於 heap 預設
+    Memory Soft Limit: 800.00M
+    Memory & Swap Limit: 1.00G
+
+openjdk version "17.0.2"
+</code></pre>
+      <p>
+        <strong>Python 沒有等價工具</strong>。<code>python -c 'import os; print(os.cpu_count())'</code> 在容器內回 host CPU 數，沒 cgroup 偵測。
+      </p>
+
+      <h3>3.7 Python 3.14 新 default：forkserver</h3>
+      <p>
+        Python 3.14（2025-10）改了 multiprocessing 預設啟動方式：<strong>Linux 從 <code>fork</code> → <code>forkserver</code></strong>（macOS 已是 spawn）。
+      </p>
+      <p>
+        <strong>fork 的問題</strong>：
+      </p>
+      <ul>
+        <li>主程式有多 thread 時 fork 容易 deadlock（child 繼承 lock 但沒 thread 釋放）</li>
+        <li>fork 完整複製記憶體（COW 緩解但仍有 overhead）</li>
+        <li>對 cgroup memory 不友善——大型主程式 fork 出多 worker 時，初期 memory 暴增（COW 緩解，但 metrics 看起來嚇人）</li>
+      </ul>
+      <p>
+        <strong>forkserver 的優勢</strong>：
+      </p>
+      <ul>
+        <li>從乾淨 server process fork，記憶體 footprint 小</li>
+        <li>避免 thread + fork 的死鎖問題</li>
+        <li>對 cgroup memory accounting 更可預測</li>
+      </ul>
+<pre><code>import multiprocessing as mp
+
+if __name__ == '__main__':
+    # 顯式選擇（推薦）
+    ctx = mp.get_context('forkserver')  # Python 3.14 預設
+    # 或 'spawn' / 'fork'
+
+    with ctx.Pool(processes=N) as pool:
+        results = pool.map(worker, data)
+</code></pre>
+      <p>
+        <strong>對 cgroup 的影響</strong>：forkserver child 進入<em>同一個 cgroup</em>（fork、forkserver 都是）——所以 limit 仍適用整個 worker pool。但 forkserver 的記憶體 baseline 小，<code>memory.current</code> 看起來較合理。
+      </p>
+
+      <h3>3.8 Python 3.14 free-threaded build</h3>
+      <p>
+        Python 3.14（PEP 703 stable）支援<strong>無 GIL build</strong>——thread 真正 parallel。對 cgroup 影響：
+      </p>
+      <ul>
+        <li><strong>可用 thread 取代 process</strong>：sklearn n_jobs / Dask 可用 threading 而非 multiprocessing。記憶體共享，cgroup 計量單純。</li>
+        <li><strong>thread 數量仍要看 cgroup</strong>：os.cpu_count() 還是錯。沒 GIL 不代表自動知道 limit。</li>
+        <li><strong>OpenBLAS、NumPy 等仍走 OpenMP thread</strong>：OMP_NUM_THREADS 仍是關鍵環境變數。</li>
+      </ul>
+
+      <h3>3.9 Web framework 的 worker 數量</h3>
+      <p>
+        Gunicorn / uWSGI / Hypercorn 跑 Python web app，worker 數量直接影響 CPU 使用：
+      </p>
+<pre><code># Gunicorn 推薦公式
+# workers = (2 × CPU) + 1
+# 但「CPU」要是 cgroup CPU，不是 host CPU
+
+# 錯誤做法
+gunicorn -w $(nproc) app:app
+# nproc 看 host，容器內錯
+
+# 正確做法 1：環境變數
+gunicorn -w $WEB_CONCURRENCY app:app  # K8s 設 WEB_CONCURRENCY
+
+# 正確做法 2：自己讀 cgroup
+gunicorn -w "$(python3 -c '
+import math, os
+try:
+    with open("/sys/fs/cgroup/cpu.max") as f:
+        q, p = f.read().split()
+    if q != "max":
+        cpus = math.ceil(int(q) / int(p))
+    else:
+        cpus = os.cpu_count() or 1
+except:
+    cpus = os.cpu_count() or 1
+print(2 * cpus + 1)
+')" app:app
+</code></pre>
+
+      <h3>3.10 best practices 總結</h3>
+      <ul>
+        <li><strong>不要假設 Python runtime 知道 cgroup</strong>：永遠手動設或用 helper。</li>
+        <li><strong>關鍵環境變數一律設</strong>：<code>OMP_NUM_THREADS</code>、<code>MKL_NUM_THREADS</code>、<code>OPENBLAS_NUM_THREADS</code> 都設成 cgroup CPU 數。</li>
+        <li><strong>避免 <code>n_jobs=-1</code></strong>：scikit-learn、joblib 等明確設整數。</li>
+        <li><strong>K8s downward API inject CPU limit</strong>：Pod yaml 直接從 limit 推算環境變數。</li>
+        <li><strong>顯式選 forkserver 啟動方式</strong>：避免 fork 的 thread 問題。</li>
+        <li><strong>記憶體保護靠 K8s VPA + alert</strong>：Python 沒 GOMEMLIMIT 等價物。</li>
+        <li><strong>升 Python 3.14 享受 free-threaded build</strong>：但仍要正確設 thread 數。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例</h2>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · 觀察 Python 各 API 在容器內的差異</div>
+<pre><code># show_cpu.py
+import os
+
+print("=== Python CPU APIs ===")
+print(f"os.cpu_count(): {os.cpu_count()}")
+
+import multiprocessing
+print(f"multiprocessing.cpu_count(): {multiprocessing.cpu_count()}")
+
+try:
+    import psutil
+    print(f"psutil.cpu_count(logical=True): {psutil.cpu_count(logical=True)}")
+    print(f"psutil.cpu_count(logical=False): {psutil.cpu_count(logical=False)}")
+except ImportError:
+    pass
+
+try:
+    affinity = os.sched_getaffinity(0)
+    print(f"os.sched_getaffinity(0): {sorted(affinity)} (count={len(affinity)})")
+except (AttributeError, OSError):
+    pass
+
+print("\n=== cgroup files ===")
+for path in ['/sys/fs/cgroup/cpu.max',
+             '/sys/fs/cgroup/cpu/cpu.cfs_quota_us',
+             '/sys/fs/cgroup/cpu/cpu.cfs_period_us']:
+    try:
+        with open(path) as f:
+            print(f"{path}: {f.read().strip()}")
+    except:
+        pass
+
+# 跑在限制 1 CPU 容器
+docker run --rm --cpus=1.0 -v $PWD:/app python:3.14 \
+    python /app/show_cpu.py
+# 輸出：os.cpu_count() = host CPU 數（錯）
+#       sched_getaffinity = 看 cpuset
+#       cpu.max = "100000 100000"（正確）
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · 製造 scikit-learn n_jobs=-1 的災難</div>
+<pre><code># sklearn-disaster.py
+import os
+import time
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.datasets import make_classification
+
+# 故意不設 OMP_NUM_THREADS
+print(f"os.cpu_count() reports: {os.cpu_count()}")
+
+X, y = make_classification(n_samples=10000, n_features=50)
+
+# n_jobs=-1 就是 cpu_count()——容器內錯！
+clf = RandomForestClassifier(n_estimators=200, n_jobs=-1)
+
+start = time.time()
+clf.fit(X, y)
+print(f"Took {time.time() - start:.2f}s")
+
+# 跑兩次比較
+docker run --rm --cpus=2.0 -v $PWD:/app python:3.14 \
+    sh -c 'pip install -q scikit-learn && python /app/sklearn-disaster.py'
+
+docker run --rm --cpus=2.0 \
+    -e OMP_NUM_THREADS=2 \
+    -e OPENBLAS_NUM_THREADS=2 \
+    -e MKL_NUM_THREADS=2 \
+    -v $PWD:/app python:3.14 \
+    sh -c 'pip install -q scikit-learn && python /app/sklearn-disaster.py'
+
+# 後者通常顯著更快——前者大量 throttle 浪費 CPU
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · 寫 production 級 helper 並驗證</div>
+<pre><code># cpu_helper.py
+import os
+import math
+
+
+def get_effective_cpu_count() -&gt; int:
+    """按優先順序嘗試多個來源取得真實 CPU 限制"""
+    # 1. 顯式環境變數（最高優先）
+    for var in ("CPU_LIMIT", "OMP_NUM_THREADS"):
+        if val := os.environ.get(var):
+            try:
+                if (n := int(val)) &gt; 0:
+                    return n
+            except ValueError:
+                pass
+
+    # 2. cgroup v2
+    try:
+        with open("/sys/fs/cgroup/cpu.max") as f:
+            parts = f.read().split()
+        if parts[0] != "max":
+            quota, period = int(parts[0]), int(parts[1])
+            return max(1, math.ceil(quota / period))
+    except (IOError, ValueError):
+        pass
+
+    # 3. cgroup v1
+    try:
+        with open("/sys/fs/cgroup/cpu/cpu.cfs_quota_us") as f:
+            quota = int(f.read())
+        if quota &gt; 0:
+            with open("/sys/fs/cgroup/cpu/cpu.cfs_period_us") as f:
+                period = int(f.read())
+            return max(1, math.ceil(quota / period))
+    except (IOError, ValueError):
+        pass
+
+    # 4. CPU affinity
+    try:
+        return len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        pass
+
+    # 5. fallback
+    return os.cpu_count() or 1
+
+
+if __name__ == "__main__":
+    print(f"Effective CPUs: {get_effective_cpu_count()}")
+
+
+# 測試
+docker run --rm --cpus=1.0 -v $PWD:/app python:3.14 python /app/cpu_helper.py
+# 預期：Effective CPUs: 1
+
+docker run --rm --cpus=2.5 -v $PWD:/app python:3.14 python /app/cpu_helper.py
+# 預期：Effective CPUs: 3（math.ceil(2.5)）
+
+docker run --rm -e CPU_LIMIT=4 --cpus=2.0 \
+    -v $PWD:/app python:3.14 python /app/cpu_helper.py
+# 預期：Effective CPUs: 4（環境變數覆寫）
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 4 · K8s downward API 自動 inject CPU limit</div>
+<pre><code>cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: python-cgroup-demo
+spec:
+  containers:
+  - name: app
+    image: python:3.14
+    env:
+    - name: OMP_NUM_THREADS
+      valueFrom:
+        resourceFieldRef:
+          containerName: app
+          resource: limits.cpu
+    - name: OPENBLAS_NUM_THREADS
+      valueFrom:
+        resourceFieldRef:
+          containerName: app
+          resource: limits.cpu
+    - name: MKL_NUM_THREADS
+      valueFrom:
+        resourceFieldRef:
+          containerName: app
+          resource: limits.cpu
+    resources:
+      requests: { cpu: "2", memory: "1Gi" }
+      limits:   { cpu: "2", memory: "1Gi" }
+    command: ["python", "-c"]
+    args:
+    - |
+      import os
+      print(f"OMP_NUM_THREADS={os.environ.get('OMP_NUM_THREADS')}")
+      # 預期：OMP_NUM_THREADS=2
+EOF
+
+kubectl logs python-cgroup-demo
+# OMP_NUM_THREADS=2
+
+kubectl delete pod python-cgroup-demo
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 5 · 比較 Java JVM 的 introspection 能力</div>
+<pre><code># Java 容器 cgroup 偵測自動且可看
+docker run --rm --cpus=2.0 -m 1g openjdk:21 \
+    java -XshowSettings:system -version
+
+# 輸出：
+# Operating System Metrics:
+#     Provider: cgroupv2
+#     Effective CPU Count: 2
+#     CPU Quota: 200000us
+#     Memory Limit: 1.00G
+# 完整偵測，無需任何 flag
+
+# 對比 Python 沒有這個工具
+docker run --rm --cpus=2.0 -m 1g python:3.14 \
+    python -c '
+import os
+print(f"cpu_count: {os.cpu_count()}")  # 看 host
+import resource
+print(f"address_space: {resource.getrlimit(resource.RLIMIT_AS)}")
+'
+# 沒有 cgroup-aware introspection
+</code></pre>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · 假設 psutil 會看 cgroup limit</div>
+      <p><code>psutil.cpu_count()</code> 看 host CPU——文件明確說「<em>not necessarily equivalent to the actual number of CPUs the current process can use</em>」。修法：別用 psutil 取「<em>可用 CPU</em>」，自己讀 cgroup 介面或寫 helper。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · scikit-learn / joblib n_jobs=-1 在容器</div>
+      <p>K8s Pod limit=2，<code>n_jobs=-1</code>（cpu_count）spawn 32 worker 加 OpenMP nested thread——實際 1024 個 thread 搶 2 CPU。整個應用 hang。修法：明確 <code>n_jobs=2</code>、設 <code>OMP_NUM_THREADS=2</code>、避免任何 <code>-1</code> auto-detect。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · OpenMP 與 multiprocessing 重複起 thread</div>
+      <p>用 multiprocessing 開 N 個 worker，每個 worker 跑 NumPy 又 OpenMP nested 起 N thread——總 thread = N × N。修法：用 multiprocessing 時設 <code>OMP_NUM_THREADS=1</code>（避免 nested）；或用 <code>threadpoolctl</code> 在 worker 內 limit thread。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · downward API 取 limits.cpu 遇分數失敗</div>
+      <p>Pod 設 <code>limits.cpu: "1500m"</code>——downward API 取的是「<em>1500m</em>」字串，不是「<em>2</em>」整數。直接當 OMP_NUM_THREADS 會 parse error。修法：用 init container 把 <code>1500m</code> 轉成 <code>2</code> 寫入 shared volume；或設 limit 為整數值。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 5 · Python 沒設 GOMEMLIMIT 等價物，記憶體達上限直接 OOM</div>
+      <p>Python 應用接近 cgroup memory.max 沒有「<em>提前 GC</em>」機制——直接被 OOM kill。對比 Go GOMEMLIMIT 自動 aggressive GC。修法：靠 K8s VPA + memory.events.high alert（Memory QoS 提供 throttle 緩衝）；或應用內手動 <code>gc.collect()</code> 在記憶體高位時呼叫。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 6 · fork-based multiprocessing 在多 thread 主程式 deadlock</div>
+      <p>主程式有 background thread（如 logger、metrics exporter），fork 出 worker——child 繼承 lock 但沒對應 thread，直接 deadlock。Python 3.14 改 forkserver 預設就是為此。修法：顯式 <code>mp.get_context('forkserver')</code> 或 <code>'spawn'</code>；3.14+ 自動，舊版手動。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 7 · DuckDB / Polars 內建 thread pool 不知 cgroup</div>
+      <p>DuckDB <code>SELECT</code> 預設用 host CPU 數開 worker。Pod limit=2 時嚴重 throttle。修法：DuckDB <code>PRAGMA threads=2;</code>、Polars <code>POLARS_MAX_THREADS=2</code>。每個 lib 環境變數不同，部署前查文件。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 8 · Gunicorn 用 nproc 算 worker 數</div>
+      <p><code>gunicorn -w $(nproc) app:app</code>——nproc 看 host，容器內錯。Pod limit=2 但 worker=32，記憶體爆掉。修法：<code>WEB_CONCURRENCY</code> 環境變數明確設、或 inline Python 讀 cgroup 算。</p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · 寫 cgroup-aware library helper（15 分鐘）</div>
+      <p>寫一個 module <code>cgroup_aware.py</code>，提供：</p>
+      <ol>
+        <li><code>get_effective_cpu_count()</code> → int：按優先順序回傳真實 CPU</li>
+        <li><code>get_memory_limit_bytes()</code> → int：讀 memory.max，沒限制時回傳 -1</li>
+        <li><code>setup_environment()</code>：把 <code>OMP_NUM_THREADS</code> 等環境變數自動設好</li>
+        <li>單元測試：mock /sys/fs/cgroup 模擬不同情境</li>
+      </ol>
+      <p>實作後在 Docker 多種 limit 下測試。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · K8s yaml audit 找 Python Pod 缺環境變數（15 分鐘）</div>
+<pre><code>#!/bin/bash
+# python-pod-audit.sh
+# 找 Python Pod 沒設 OMP_NUM_THREADS 等環境變數的問題
+
+KEY_VARS="OMP_NUM_THREADS OPENBLAS_NUM_THREADS MKL_NUM_THREADS"
+
+kubectl get pods --all-namespaces -o json | \
+    jq -r --arg vars "$KEY_VARS" '
+    .items[] |
+    select(.spec.containers[].image | test("python|jupyter")) |
+    select(.status.qosClass != "BestEffort") |
+    .metadata.namespace + "/" + .metadata.name as $name |
+    .spec.containers[] |
+    [.env[]?.name] as $envs |
+    ($vars | split(" ")) as $required |
+    ($required | map(select(. as $v | $envs | contains([$v]) | not))) as $missing |
+    if ($missing | length) &gt; 0 then
+        $name + " missing: " + ($missing | join(","))
+    else empty end
+    '</code></pre>
+      <p>跑在你的 cluster，列出有問題的 Python Pod。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 比較 Python vs Go vs Java 容器化策略（思考題，15 分鐘）</div>
+      <p>同一個任務（HTTP API 處理 JSON、做一些 NumPy 計算），分別用三個語言實作部署到 K8s（Pod limit=2 CPU、1Gi memory）。回答：</p>
+      <ol>
+        <li>各自需要設哪些環境變數 / 旗標？</li>
+        <li>哪個 runtime 對 cgroup 最友善、哪個最差？</li>
+        <li>哪個語言適合「<em>動態 resize</em>」（K8s In-Place Resize）？</li>
+        <li>memory pressure 下哪個語言處理最優雅？</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 設計 ML training Pod 的最佳實踐（思考題，20 分鐘）</div>
+      <p>你要部署 PyTorch + scikit-learn + Dask 的 ML training pipeline 到 K8s，每個 Pod limit=8 CPU、64GB memory、1 GPU。設計：</p>
+      <ol>
+        <li>應該設哪些環境變數？</li>
+        <li>scikit-learn n_jobs 怎麼設？</li>
+        <li>Dask Cluster 怎麼配置（n_workers、threads_per_worker）？</li>
+        <li>PyTorch DataLoader num_workers 怎麼設？</li>
+        <li>記憶體保護策略？（沒 GOMEMLIMIT 怎麼辦）</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>Python 各個 CPU count API 在容器內各自看到什麼？哪個最接近正確？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>各 API 行為</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><code>os.cpu_count()</code> → host 邏輯 CPU 數（透過 sysconf）。容器內<em>錯</em>。</li>
+          <li><code>multiprocessing.cpu_count()</code> → 包裝 <code>os.cpu_count()</code>，同上。</li>
+          <li><code>psutil.cpu_count(logical=True)</code> → 讀 <code>/proc/cpuinfo</code>，看 host。同上錯。</li>
+          <li><code>os.sched_getaffinity(0)</code> → process CPU affinity mask。如果用 cpuset 綁 CPU 會準（如 K8s CPU Manager static policy）；但對 cpu.max 配額場景無感。</li>
+          <li><strong>讀 <code>/sys/fs/cgroup/cpu.max</code></strong> → cgroup CPU 配額。<em>正確</em>。需自己 parse。</li>
+        </ul>
+        <strong>哪個最接近正確</strong>：<code>os.sched_getaffinity</code> 在「<em>K8s CPU Manager static policy + Guaranteed Pod + 整數 CPU</em>」場景準確（因為實際 cpuset 綁定）。<em>大多數</em> Pod 是後者場景，所以 <code>sched_getaffinity</code> 也<em>不夠</em>——必須讀 <code>/sys/fs/cgroup/cpu.max</code>。
+        <strong>結論</strong>：寫 helper 按優先順序試多個來源（環境變數 → cgroup 介面 → sched_getaffinity → cpu_count fallback）。<em>絕對不要</em> 假設 Python runtime 會自動處理。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>為什麼 Python 至今沒有像 Go 1.25 那樣的 runtime cgroup awareness？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>原因（多重）</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>向後相容</strong>：Python 用了 30 年，<code>os.cpu_count()</code> 改變行為會 break 大量現有 code。CPython issue 80235 從 2019 卡住至今主因。</li>
+          <li><strong>Python 沒有等價的「<em>scheduler 預設並發數</em>」概念</strong>：Go GOMAXPROCS 是 runtime 內建概念，Python 沒有——<code>cpu_count</code> 只是查詢函式，不是 scheduler 設定。</li>
+          <li><strong>應用多樣性</strong>：Web server、ML、scientific computing 各自並發模型不同——通用 runtime 難以一刀切。</li>
+          <li><strong>core dev 認為這是「<em>應用層問題</em>」</strong>：CPython 哲學偏向 explicit。</li>
+          <li><strong>沒有 Uber-level driver</strong>：Go 的 automaxprocs 是 Uber 主導變成事實標準後 Go 1.25 才整合。Python 沒有等價的 driver。</li>
+        </ol>
+        <strong>實際影響</strong>：Python 應用<em>必須</em> 應用層處理。社群 library（cgroupspy 等）不是事實標準，每家自己寫。
+        <strong>近期變化</strong>：Python 3.14（2025-10）改進 multiprocessing 預設啟動方式（fork → forkserver）對 cgroup memory accounting 友善，但<em>不</em> 觸及核心問題。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span>OMP_NUM_THREADS、OPENBLAS_NUM_THREADS、MKL_NUM_THREADS 各自影響什麼？為什麼都要設？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>三個環境變數的差別</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><code>OMP_NUM_THREADS</code> → OpenMP thread 數量。控制 NumPy（部分）、scikit-learn、scipy、xgboost 等。</li>
+          <li><code>OPENBLAS_NUM_THREADS</code> → OpenBLAS（線性代數 backend）thread 數。NumPy 大部分操作走這。</li>
+          <li><code>MKL_NUM_THREADS</code> → Intel MKL（如果安裝）thread 數。Anaconda 預裝 MKL；conda-forge 的 NumPy 走 OpenBLAS。</li>
+          <li>其他類似：<code>NUMEXPR_NUM_THREADS</code>、<code>VECLIB_MAXIMUM_THREADS</code>（macOS）、<code>BLIS_NUM_THREADS</code>。</li>
+        </ul>
+        <strong>為什麼都要設</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>應用可能用多個 backend——同時走 OpenBLAS、MKL、自己的 OpenMP code。</li>
+          <li>每個 library 看自己的環境變數，沒設就用 host CPU。</li>
+          <li>「<em>thread 風暴</em>」最容易發生在多 nested thread——multiprocessing × OpenMP × OpenBLAS 三層 nested，1024 thread 不誇張。</li>
+        </ol>
+        <strong>建議實務</strong>：在 K8s yaml 一次都設好，值都等於 cgroup CPU limit。container image entrypoint 可加一層保護。
+        <strong>注意</strong>：如果在 multiprocessing 內，每個 worker 仍會起 OMP_NUM_THREADS 個 thread。<em>nested 場景</em> 設 <code>OMP_NUM_THREADS=1</code>（worker 之間不再 thread parallel，避免風暴）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span>Java JVM 在容器化整合上比 Python 強多少？哪些設計值得 Python 學？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>Java 強在哪</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>Runtime 自動偵測</strong>：JDK 8u191+ / JDK 10+ <code>UseContainerSupport</code> 預設啟用，自動讀 cgroup CPU / memory。</li>
+          <li><strong>Heap 大小自動算</strong>：<code>-XX:MaxRAMPercentage=75</code> 從 cgroup memory limit 算 heap（沒 -Xmx 時）。</li>
+          <li><strong>v2 完整支援</strong>：8u372+、11.0.16+、17+ 完整支援 cgroup v2，含 swap 計算（修了 JDK-8253727）。</li>
+          <li><strong>Introspection 工具</strong>：<code>java -XshowSettings:system</code> 顯示完整 cgroup 偵測結果——是 Python 完全沒有的能力。</li>
+          <li><strong>Thread pool 自動匹配</strong>：ForkJoinPool common pool 大小自動用 cgroup CPU。</li>
+          <li><strong>明確 opt-out</strong>：<code>-XX:-UseContainerSupport</code> 可關，不像 Python 沒有開關因為根本沒有。</li>
+        </ol>
+        <strong>Python 該學</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>內建 cgroup 偵測</strong>：CPython 應該加 <code>os.cgroup_cpu_quota()</code> 之類 API（不破壞 cpu_count）。</li>
+          <li><strong>introspection</strong>：<code>python -X showsettings</code> 之類顯示 cgroup 偵測。</li>
+          <li><strong>事實標準 library</strong>：類似 Uber 之於 automaxprocs 的角色。</li>
+          <li><strong>環境感知預設</strong>：multiprocessing.Pool() 不傳 processes 時應該看 cgroup。</li>
+        </ol>
+        <strong>但有差別</strong>：Java 是 JIT，啟動時偵測就用一輩子；Python 啟動快但 import 多、混合 native lib，每個 lib 自己處理 thread——Python 即使加了 runtime awareness 也只解一部分問題（NumPy/OpenBLAS 仍要環境變數）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span>Python 3.14 改 multiprocessing 預設為 forkserver，對 cgroup 有什麼影響？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>fork vs forkserver vs spawn</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>fork</strong>（Linux 舊預設）：直接 <code>os.fork()</code> 複製當前 process。</li>
+          <li><strong>forkserver</strong>（Linux 3.14+ 預設）：先 fork 一個乾淨 server process，之後從 server fork worker。</li>
+          <li><strong>spawn</strong>（Windows / macOS 預設）：<code>execve</code> 啟動新 Python 直譯器。</li>
+        </ul>
+        <strong>對 cgroup 的具體影響</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>memory accounting</strong>：fork COW 短期記憶體看起來爆，但物理頁共享；forkserver baseline 小、worker 啟動更可預測。對 cgroup memory.current 監控更乾淨。</li>
+          <li><strong>cgroup membership</strong>：<em>三種啟動方式 child 都進入同一 cgroup</em>。limit 仍適用整 worker pool。</li>
+          <li><strong>thread + fork bug</strong>：fork 在多 thread 主程式（如 Flask + background thread）會 deadlock；forkserver 從乾淨 process 出發避免這個。</li>
+          <li><strong>啟動速度</strong>：forkserver 比 fork 慢、比 spawn 快。對 short-lived Pool 影響可感知。</li>
+        </ol>
+        <strong>建議</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>Python 3.14+：享受 forkserver 預設。</li>
+          <li>Python 3.13-：手動 <code>mp.get_context('forkserver')</code>，特別在容器內 production code。</li>
+          <li>仍要正確設 worker 數量——啟動方式不解決 cpu_count() 看 host 的問題。</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>K8s downward API 怎麼把 Pod CPU limit 自動 inject 到 Python 環境變數？有什麼坑？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>基本用法</strong>：
+        <pre style="margin-top:8px;font-size:11px;">env:
+- name: OMP_NUM_THREADS
+  valueFrom:
+    resourceFieldRef:
+      containerName: app
+      resource: limits.cpu</pre>
+        <strong>坑 1：分數 CPU 表示法</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>Pod 設 <code>limits.cpu: "2"</code> → downward API 給 "2"（OK）</li>
+          <li>Pod 設 <code>limits.cpu: "1500m"</code> → 給 "1500m"（<em>字串</em>，不是 1.5 也不是 2）</li>
+          <li>Python 直接用會 parse error</li>
+        </ul>
+        <strong>解法 1</strong>：用整數 CPU limit（推薦）。
+        <strong>解法 2</strong>：用 <code>divisor: "1"</code>，"1500m" 變 "2"（K8s 會 round up 到 divisor 倍數）。
+        <pre style="margin-top:8px;font-size:11px;">env:
+- name: OMP_NUM_THREADS
+  valueFrom:
+    resourceFieldRef:
+      containerName: app
+      resource: limits.cpu
+      divisor: "1"   # round up 到整數</pre>
+        <strong>坑 2：沒設 limits 時 inject 失敗</strong>：only-request 的 Pod 沒 limits.cpu，downward API 會 fail——Pod 啟動失敗。修法：要嘛強制有 limits（建議），要嘛 try/except 在 init 時讀。
+        <strong>坑 3：requests 與 limits 差很大時</strong>：env 取 limits 但實際排程是 requests，可能不匹配 capacity。應用要意識到「<em>能用最多 limits.cpu，但常態 requests.cpu</em>」。
+        <strong>坑 4：limits 後續改變不會更新環境變數</strong>：In-Place Resize 改了 limit，環境變數仍是舊值。Python 應用需要重啟（雖然 CPU cgroup 已更新）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span>Dask、autogluon、DuckDB 各自怎麼正確配置容器 worker 數？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>Dask（local cluster）</strong>：
+        <pre style="margin-top:8px;font-size:11px;">from dask.distributed import Client, LocalCluster
+n = get_effective_cpu_count()  # 自寫 helper
+cluster = LocalCluster(
+    n_workers=n,           # 顯式設
+    threads_per_worker=1,  # 每 worker 單 thread 避免 nested
+    memory_limit='auto'    # Dask 2024.5+ 試讀 cgroup
+)
+client = Client(cluster)</pre>
+        <strong>scikit-learn / joblib</strong>：
+        <pre style="margin-top:8px;font-size:11px;">from joblib import parallel_backend
+n = get_effective_cpu_count()
+with parallel_backend('loky', n_jobs=n):
+    clf.fit(X, y)
+# 或在 estimator 直接設
+RandomForestClassifier(n_estimators=100, n_jobs=n)
+# 不要用 n_jobs=-1</pre>
+        <strong>autogluon</strong>：
+        <pre style="margin-top:8px;font-size:11px;">from autogluon.tabular import TabularPredictor
+n = get_effective_cpu_count()
+predictor.fit(
+    train_data,
+    num_cpus=n,        # 明確設
+    num_gpus=1,
+    presets='medium_quality',
+)</pre>
+        <strong>DuckDB</strong>：
+        <pre style="margin-top:8px;font-size:11px;">import duckdb
+n = get_effective_cpu_count()
+conn = duckdb.connect()
+conn.execute(f"PRAGMA threads={n};")
+# 或環境變數
+# DUCKDB_NUM_THREADS=2</pre>
+        <strong>PyTorch</strong>：
+        <pre style="margin-top:8px;font-size:11px;">import torch
+n = get_effective_cpu_count()
+torch.set_num_threads(n)         # 計算 thread
+torch.set_num_interop_threads(1) # interop 避免 nested
+# DataLoader
+loader = DataLoader(dataset, num_workers=n, ...)</pre>
+        <strong>Polars</strong>：環境變數 <code>POLARS_MAX_THREADS</code>。
+        <strong>核心原則</strong>：每個 lib 都有自己的 thread pool，<em>每個都要明確設</em>。寫一個共用 init module 一次設好。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>實作思考題：你管理 30 個 Python 服務（Web、ML、ETL）跑在 K8s，現有「<em>沒人設 OMP_NUM_THREADS</em>」「<em>容器 throttle 嚴重</em>」「<em>記憶體偶發 OOM</em>」三大問題。設計完整改造計劃。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>完整改造計劃（5 階段）</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[Phase 1: 盤點與量化（1-2 週）]
+1. 列出所有 Python service 並分類：
+   - Web service（Gunicorn / FastAPI）
+   - ML training / batch
+   - ETL / data pipeline
+   - 通用 worker
+
+2. 採集 baseline metric：
+   - throttle rate: container_cpu_cfs_throttled_periods_total /
+                    container_cpu_cfs_periods_total
+   - OOM 頻率: kube_pod_container_status_last_terminated_reason="OOMKilled"
+   - p99 latency
+
+3. Audit 環境變數（python-pod-audit.sh）：
+   找出沒設 OMP_NUM_THREADS / MKL_NUM_THREADS 的 Pod
+
+[Phase 2: 共用 helper 與 image（2-3 週）]
+4. 寫內部 Python module: corp_cgroup
+   - get_effective_cpu_count()
+   - get_memory_limit_bytes()  
+   - setup_threading_env()  # 自動設環境變數
+   
+5. 建 base image: corp/python:3.14-cgroup-aware
+   - 預裝 corp_cgroup
+   - entrypoint script 呼叫 setup_threading_env() 之前
+
+[Phase 3: K8s yaml 標準化（3-4 週）]
+6. 用 Kustomize / Helm template 強制：
+   - 必須設 limits.cpu 與 limits.memory
+   - 預設 inject OMP / MKL / OPENBLAS via downward API
+   
+   範例 patch:
+   env:
+   - name: OMP_NUM_THREADS
+     valueFrom:
+       resourceFieldRef:
+         resource: limits.cpu
+         divisor: "1"
+   - name: OPENBLAS_NUM_THREADS
+     valueFrom:
+       resourceFieldRef:
+         resource: limits.cpu
+         divisor: "1"
+
+7. CI 加 OPA / Kyverno 規則：
+   reject Pod yaml 沒設這些環境變數的（對 python image）
+
+[Phase 4: 服務逐個遷移（4-6 週）]
+8. 從低風險開始：
+   - 先 ETL pipeline（可重跑）
+   - 再 ML training（可重啟）
+   - 最後 Web service（critical）
+
+9. 每個服務遷移 checklist：
+   - 升 base image 到 corp/python:3.14-cgroup-aware
+   - 改用 corp_cgroup helper 在所有 multiprocessing.Pool() / Dask
+   - 移除 n_jobs=-1，明確設整數
+   - 升 K8s yaml 套用 Kustomize patch
+   - 觀察 1 週 metric
+
+[Phase 5: 防護與監控]
+10. Prometheus alert：
+    - CFSThrottle &gt; 5% for 5min
+    - PodMemoryAt90Percent for 5min
+    - PodOOMKilled rate &gt; 0
+
+11. Memory QoS（K8s 1.34+）：
+    啟用後 Burstable Pod 享受 throttle 而非 OOM
+
+12. K8s VPA 監控：
+    把所有 Python service 加入 VPA recommend mode，
+    定期 review 是否 over/under-provisioned
+
+13. 文件 + training：
+    - 內部 wiki: "Python 容器化檢查清單"
+    - 對工程師 training session</pre>
+        <strong>關鍵原則</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>不能依賴每個 dev 自己處理</strong>：靠 base image + Kustomize 強制。</li>
+          <li><strong>多層防護</strong>：應用 helper + 環境變數 + K8s Memory QoS + alert。</li>
+          <li><strong>分階段</strong>：低風險 → 高風險，每階段量化效果。</li>
+          <li><strong>長期防退化</strong>：CI 規則防止新 Pod 違規。</li>
+        </ol>
+        <strong>預期效果</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>throttle rate 從 20% 降到 &lt; 5%</li>
+          <li>OOM rate 顯著降低（Memory QoS 提供 throttle 緩衝）</li>
+          <li>p99 latency 改善 30%+（不再 nested thread 風暴）</li>
+          <li>Cluster utilization 提升（不需 over-provision）</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+    <div class="refs">
+      <ol>
+        <li><a href="https://github.com/python/cpython/issues/80235" target="_blank" rel="noopener">cpython#80235 · os.cpu_count() should respect cgroup limits</a><span class="ref-source">github.com · Python issue 自 2019 stale 至今</span></li>
+        <li><a href="https://docs.python.org/3/library/os.html#os.sched_getaffinity" target="_blank" rel="noopener">os.sched_getaffinity · Python docs</a><span class="ref-source">python.org · 部分解法的官方說明</span></li>
+        <li><a href="https://psutil.readthedocs.io/en/latest/#psutil.cpu_count" target="_blank" rel="noopener">psutil.cpu_count · Documentation</a><span class="ref-source">psutil.readthedocs.io · 明確說「<em>可能不等於可用 CPU</em>」</span></li>
+        <li><a href="https://github.com/dask/dask/pull/5499" target="_blank" rel="noopener">Dask PR #5499 · Support cgroups limits in scheduler</a><span class="ref-source">github.com · Dask 加入 cgroup 偵測的 PR</span></li>
+        <li><a href="https://developers.redhat.com/articles/2022/04/19/java-17-whats-new-openjdks-container-awareness" target="_blank" rel="noopener">Java 17: OpenJDK's container awareness · Red Hat</a><span class="ref-source">developers.redhat.com · JVM 容器整合的業界典範</span></li>
+        <li><a href="https://bugs.openjdk.org/browse/JDK-8230305" target="_blank" rel="noopener">JDK-8230305 · cgroups v2 container awareness</a><span class="ref-source">bugs.openjdk.org · OpenJDK v2 支援的 RFE</span></li>
+        <li><a href="https://docs.python.org/3.14/whatsnew/3.14.html" target="_blank" rel="noopener">Python 3.14 What's New</a><span class="ref-source">python.org · forkserver 改變、free-threaded build</span></li>
+        <li><a href="https://peps.python.org/pep-0703/" target="_blank" rel="noopener">PEP 703 · Making the GIL optional</a><span class="ref-source">peps.python.org · free-threaded Python 設計</span></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn" href="ch19-go-integration.html">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">Ch.19 Go 整合</span>
+    </a>
+    <a class="nav-btn next disabled">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">Ch.21 v1 → v2 遷移</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.title = `Theme: ${LABELS[mode]}`;
+      btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+</body>
+</html>

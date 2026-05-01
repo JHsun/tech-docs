@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.11 其他 controllers — cgroup v2 完整教學</title>
+<meta name="description" content="cgroup v2 niche controllers 一次講完：hugetlb、rdma、misc、device（BPF）、perf_event、freezer。">
+
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626; --color-danger-soft: #fee2e2;
+  --color-info: #0891b2; --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px; --text-4xl: 64px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+</style>
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.topbar { position: sticky; top: 0; z-index: 50; background: color-mix(in oklch, var(--bg-canvas) 88%, transparent); backdrop-filter: saturate(180%) blur(12px); -webkit-backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--border-soft); }
+.topbar-inner { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.brand { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-secondary); }
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 999px; padding: 6px 14px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background .2s, border-color .2s, color .2s; }
+[data-theme-toggle]:hover { background: var(--bg-muted); border-color: var(--border-mid); color: var(--text-primary); }
+[data-theme-toggle] .theme-icon { font-size: 14px; line-height: 1; }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: 0 var(--space-5); }
+
+.chapter-head { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); }
+.chapter-tag { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary-text); background: var(--color-primary-soft); padding: 4px 12px; border-radius: 999px; margin-bottom: var(--space-4); }
+.chapter-title { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; margin-bottom: var(--space-3); }
+.chapter-subtitle { font-family: var(--font-serif-body); font-size: var(--text-md); color: var(--text-secondary); line-height: 1.65; font-style: italic; }
+.chapter-meta { margin-top: var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.chapter-meta-item:first-child::before { display: none; }
+
+.section { padding: var(--space-7) 0; border-bottom: 1px solid var(--border-soft); }
+.section:last-of-type { border-bottom: none; }
+.section-label { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2); }
+.section-label::before { content: ""; width: 24px; height: 1px; background: var(--color-primary); }
+.section-title { font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600; margin-bottom: var(--space-5); letter-spacing: -0.01em; line-height: 1.2; }
+
+.prose p { font-family: var(--font-serif-body); font-size: var(--text-base); color: var(--text-primary); line-height: 1.85; margin-bottom: var(--space-4); }
+.prose h3 { font-family: var(--font-sans); font-size: var(--text-lg); font-weight: 600; color: var(--text-primary); margin: var(--space-6) 0 var(--space-3); letter-spacing: -0.01em; }
+.prose h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 500; color: var(--text-primary); margin: var(--space-5) 0 var(--space-2); }
+.prose ul, .prose ol { font-family: var(--font-serif-body); margin-bottom: var(--space-4); padding-left: var(--space-5); line-height: 1.8; }
+.prose ul li, .prose ol li { margin-bottom: var(--space-2); color: var(--text-primary); }
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong { font-weight: 600; color: var(--text-primary); }
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 1px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+.prose a { color: var(--color-primary); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.prose a:hover { color: var(--color-primary-hover); }
+
+.highlights { background: var(--color-primary-soft); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.highlights ol { font-family: var(--font-sans); padding-left: var(--space-5); margin: 0; }
+.highlights li { font-size: var(--text-sm); color: var(--color-primary-text); margin-bottom: var(--space-2); line-height: 1.65; }
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+
+.news-box { background: var(--color-info-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.news-item { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); line-height: 1.7; padding: var(--space-2) 0; border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent); }
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-info); margin-right: var(--space-2); }
+
+pre { font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.7; background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; margin-bottom: var(--space-4); color: var(--text-primary); }
+pre code { background: transparent; border: none; padding: 0; font-size: inherit; color: inherit; }
+
+.cmp-table { width: 100%; border-collapse: collapse; margin-bottom: var(--space-4); font-size: var(--text-sm); font-family: var(--font-sans); }
+.cmp-table th, .cmp-table td { padding: var(--space-3); text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.cmp-table th { font-weight: 600; color: var(--text-primary); background: var(--bg-muted); font-size: var(--text-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 1px 5px; border-radius: var(--radius-sm); color: var(--color-primary-text); }
+
+.lab { background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.lab-title { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--color-primary); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px dashed var(--border-soft); }
+.lab-title::before { content: "▶ "; color: var(--color-primary); }
+.lab p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-3); color: var(--text-secondary); line-height: 1.7; }
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+.lab ol, .lab ul { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); color: var(--text-secondary); line-height: 1.7; }
+
+.pitfall { background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.pitfall-title { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 600; color: var(--color-warning); margin-bottom: var(--space-2); }
+.pitfall p { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); margin-bottom: var(--space-2); line-height: 1.7; }
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code { background: color-mix(in oklch, var(--color-warning) 15%, transparent); border-color: color-mix(in oklch, var(--color-warning) 30%, transparent); color: var(--text-primary); }
+
+.quiz-item { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-3); }
+.quiz-q { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; color: var(--text-primary); margin-bottom: var(--space-2); display: flex; gap: var(--space-2); }
+.quiz-q-num { font-family: var(--font-mono); color: var(--color-primary); flex-shrink: 0; }
+.quiz-toggle { background: transparent; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 4px 10px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; margin-top: var(--space-2); transition: background .2s, color .2s; }
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a { display: none; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px dashed var(--border-soft); font-family: var(--font-serif-body); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.75; }
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+
+.refs ol { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); line-height: 1.8; }
+.refs li { margin-bottom: var(--space-2); color: var(--text-secondary); }
+.refs li::marker { color: var(--color-primary); }
+.refs a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dashed var(--color-primary); }
+.refs a:hover { color: var(--color-primary-hover); }
+.refs .ref-source { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); display: block; margin-top: 2px; }
+
+.chapter-nav { margin-top: var(--space-6); padding: var(--space-5) 0; display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.nav-btn { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; padding: var(--space-3) var(--space-4); background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); text-decoration: none; color: var(--text-primary); transition: border-color .2s, transform .15s; }
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.04em; }
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.11</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part IV · Controllers 下 · Chapter 11</span>
+    <h1 class="chapter-title">其他 controllers</h1>
+    <p class="chapter-subtitle">
+      除了 cpu、memory、io、cpuset、pid 五大主流 controllers，cgroup v2 還提供 hugetlb、rdma、misc、device、perf_event 五個 niche controllers，
+      加上 freezer 介面（cgroup.freeze）。本章把它們一次講完——多數人不會每天用到，但<em>遇到對應場景時不知道有這個工具</em>是大忌。
+      device controller 在 v2 完全改用 BPF，是最大架構變化；hugetlb 對 DB 與 ML 重要；misc 給特殊資源（GPU、加速卡）用。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~6,000 字</span>
+      <span class="chapter-meta-item">閱讀時間 22 分鐘</span>
+      <span class="chapter-meta-item">難度：選讀</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ====================== Section 1: 本章重點 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+
+    <div class="highlights">
+      <ol>
+        <li><strong>device controller 完全改用 BPF</strong>：v2 沒有 device.allow / device.deny 介面檔案，改用 <code>BPF_CGROUP_DEVICE</code> program 控制 device access。架構變化最大。</li>
+        <li><strong>hugetlb 與 memory 是<em>分開計量</em></strong>：HugeTLB pages 預設不算進 memory.current。kernel 6.6+ 提供 <code>memory_hugetlb_accounting</code> mount option 可選擇加進來。</li>
+        <li><strong>rdma 控制兩種資源</strong>：<code>hca_handle</code>（HCA 句柄）與 <code>hca_object</code>（QP/CQ/MR 等 verb 物件）。v2 介面與 v1 幾乎相同。</li>
+        <li><strong>misc controller 是 GPU/TPU/加速卡的標準介面</strong>：kernel 維護 <code>misc.capacity</code>，每個資源有名稱與 capacity；v2 透過 <code>misc.max</code> 設限。NVIDIA、Intel 等廠商陸續加入支援。</li>
+        <li><strong>cgroup.freeze 是<em>core 介面</em>不是 controller</strong>：寫 1 凍結整個 cgroup，所有 process 進入 D 狀態（uninterruptible sleep）。可作為 checkpoint/restore 與安全 debug 工具。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 2: 最新動態 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+
+    <div class="news-box">
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>misc controller 在 GPU multi-tenancy 普及</strong>。NVIDIA 透過 NVIDIA Container Toolkit 利用 misc controller 實現 fine-grained GPU 資源分配；Intel oneAPI 與 AMD ROCm 跟進類似機制。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2024–2025</span>
+        <strong>device controller v2 BPF 模式成熟</strong>。runc、crun、podman 都已完整實作 BPF_CGROUP_DEVICE 程式編譯，從 v1 device.allow / device.deny 自動轉換。容器使用者通常感受不到差別。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2024</span>
+        <strong>kernel 6.6+ 引入 memory_hugetlb_accounting mount option</strong>，把 HugeTLB pages 算進 memory.current，整合 OOM、reclaim、protection 邏輯。對 DB（PG、MySQL、Oracle）的容量規劃影響較大。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>DMEM controller 引入</strong>（kernel 6.x），用於 device-attached memory（如 GPU VRAM、CXL memory）。仍在演進，主要場景是 AI/ML 訓練 GPU memory 配額。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>cgroup.freeze 整合到 systemd-run</strong>。<code>systemd-run --freeze</code>、<code>systemctl freeze</code> / <code>systemctl thaw</code> 已成標準操作，常用於 checkpoint 與安全 debug。
+      </div>
+    </div>
+
+    <div class="prose">
+      <p>
+        2026 年的時點，<strong>本章的「其他」controllers 多數已成熟穩定</strong>。
+        device 改 BPF 是最大架構變化，但對使用者透明（runtime 處理）；
+        misc controller 因 GPU 普及成為新熱點；
+        hugetlb 在 DB 與 HPC 場景仍是必備。本章把它們一次講完，每個都帶實戰場景。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 3: 核心內容 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+
+    <div class="prose">
+      <h3>3.1 controllers 全景</h3>
+      <p>
+        v2 截至 kernel 6.x 的<strong>所有可用 controllers</strong>：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>Controller</th><th>引入版本</th><th>本書章節</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>cpu</code></td><td>4.15</td><td>Ch.7</td></tr>
+        <tr><td><code>memory</code></td><td>4.5</td><td>Ch.8</td></tr>
+        <tr><td><code>io</code></td><td>4.5</td><td>Ch.10</td></tr>
+        <tr><td><code>cpuset</code></td><td>5.0</td><td>Ch.9</td></tr>
+        <tr><td><code>pids</code></td><td>4.5</td><td>Ch.9</td></tr>
+        <tr><td><code>hugetlb</code></td><td>5.6</td><td>Ch.11（本章）</td></tr>
+        <tr><td><code>rdma</code></td><td>4.11</td><td>Ch.11（本章）</td></tr>
+        <tr><td><code>misc</code></td><td>5.13</td><td>Ch.11（本章）</td></tr>
+        <tr><td><code>perf_event</code></td><td>4.11（自動）</td><td>Ch.11（本章）</td></tr>
+        <tr><td><code>device</code>（BPF）</td><td>4.15</td><td>Ch.11（本章）</td></tr>
+        <tr><td><code>freezer</code>（core 介面）</td><td>5.2</td><td>Ch.11（本章）</td></tr>
+        <tr><td><code>dmem</code></td><td>6.x（演進中）</td><td>Ch.11（本章）</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h3>3.2 hugetlb controller</h3>
+      <p>
+        Linux 提供「<em>HugeTLB pages</em>」——大尺寸記憶體頁（2MB 或 1GB），減少 TLB miss、提升 DB 與 HPC 性能。
+        但 HugeTLB 是<em>預先分配的固定資源</em>，使用前要先在 kernel 配置 pool（<code>echo N &gt; /proc/sys/vm/nr_hugepages</code>）。
+      </p>
+      <p>
+        <strong>hugetlb controller 的角色</strong>：限制每個 cgroup 能用多少 HugeTLB pages。對 multi-tenant 共享 HugeTLB pool 的場景必要。
+      </p>
+      <p>
+        <strong>介面</strong>：每個頁面大小都有獨立介面（<code>2MB</code>、<code>1GB</code> 等）：
+      </p>
+<pre><code># 列出可用頁面大小
+ls /sys/kernel/mm/hugepages/
+# hugepages-2048kB  hugepages-1048576kB
+
+# 配置 pool（root cgroup 操作）
+echo "100" > /proc/sys/vm/nr_hugepages       # 100 個 2MB pages = 200MB
+
+# 在 cgroup 限制 HugeTLB 用量
+echo "+hugetlb" > /sys/fs/cgroup/cgroup.subtree_control
+mkdir /sys/fs/cgroup/db
+echo "100M" > /sys/fs/cgroup/db/hugetlb.2MB.max     # 最多 100MB
+cat /sys/fs/cgroup/db/hugetlb.2MB.current             # 當前用量
+cat /sys/fs/cgroup/db/hugetlb.2MB.events              # max 事件
+cat /sys/fs/cgroup/db/hugetlb.2MB.rsvd.max            # 預訂保留
+</code></pre>
+      <p>
+        <strong>HugeTLB 與 memory controller 是<em>分開計量</em></strong>。kernel 6.6+ 才有 <code>memory_hugetlb_accounting</code> mount option 整合進 memory.current：
+      </p>
+<pre><code># 啟用 hugetlb 計入 memory（mount 時加 option）
+sudo mount -o remount,memory_hugetlb_accounting /sys/fs/cgroup
+</code></pre>
+      <p>
+        <strong>典型應用場景</strong>：
+      </p>
+      <ul>
+        <li><strong>PostgreSQL</strong>：<code>huge_pages=on</code> 用 HugeTLB 給 shared_buffers，減少 TLB miss</li>
+        <li><strong>MySQL InnoDB</strong>：<code>large-pages</code> 啟用，buffer pool 用 HugeTLB</li>
+        <li><strong>Oracle DB</strong>：SGA 用 HugeTLB 是傳統做法</li>
+        <li><strong>DPDK</strong>：必須用 HugeTLB（為了 zero-copy 與 polling 效能）</li>
+        <li><strong>JVM</strong>：<code>-XX:+UseLargePages</code> 啟用</li>
+      </ul>
+
+      <h3>3.3 rdma controller</h3>
+      <p>
+        RDMA（Remote Direct Memory Access）是高效能網路技術——InfiniBand、RoCE、iWARP 等。
+        應用透過 verbs API 申請 HCA（Host Channel Adapter）資源（QP、CQ、MR 等）。
+      </p>
+      <p>
+        <strong>問題</strong>：HCA 資源有限。一個應用可以輕易把所有 QP（Queue Pair）耗盡，<em>讓其他應用完全無法用 RDMA</em>——這就是 rdma controller 要解決的。
+      </p>
+      <p>
+        <strong>介面</strong>：<code>rdma.max</code>（per-device-keyed），限制每個裝置的兩種資源：
+      </p>
+<pre><code># 啟用 rdma controller
+echo "+rdma" > /sys/fs/cgroup/cgroup.subtree_control
+mkdir /sys/fs/cgroup/myapp
+
+# 設定 mlx5_0 裝置的限制
+echo "mlx5_0 hca_handle=2 hca_object=2000" > /sys/fs/cgroup/myapp/rdma.max
+
+# 看當前用量
+cat /sys/fs/cgroup/myapp/rdma.current
+# mlx5_0 hca_handle=1 hca_object=523
+</code></pre>
+      <p>
+        <strong>兩種資源</strong>：
+      </p>
+      <ul>
+        <li><code>hca_handle</code>：HCA 句柄數量（典型應用每個只開幾個）</li>
+        <li><code>hca_object</code>：所有 verb 物件總數（QP、CQ、MR、PD、AH 等）</li>
+      </ul>
+      <p>
+        <strong>RDMA 資源歸屬</strong>：由<em>創建者 cgroup</em> 擁有（不是當前 cgroup）。process 搬 cgroup 不會搬 RDMA 資源——和 Memory Ownership 規則類似。
+      </p>
+      <p>
+        <strong>典型應用場景</strong>：HPC（MPI 應用）、分散式儲存（Ceph、GPFS）、AI 訓練（NCCL）、超低延遲交易系統。
+      </p>
+
+      <h3>3.4 misc controller</h3>
+      <p>
+        <code>misc</code> controller 是 v2 引入的<strong>通用資源限制機制</strong>（kernel 5.13+）。
+        kernel 不預設知道這些資源是什麼——由<strong>裝置驅動或 module</strong> 動態註冊資源類型與容量。
+      </p>
+      <p>
+        <strong>介面</strong>：
+      </p>
+<pre><code># 看系統有哪些 misc 資源
+cat /sys/fs/cgroup/misc.capacity
+# 範例輸出：
+# sev 15
+# sev_es 15
+
+# 查看當前 cgroup 的 misc 用量
+cat /sys/fs/cgroup/myapp/misc.current
+
+# 設定限制
+echo "sev 5" > /sys/fs/cgroup/myapp/misc.max
+echo "sev_es max" > /sys/fs/cgroup/myapp/misc.max
+
+# 看事件
+cat /sys/fs/cgroup/myapp/misc.events
+# sev.max 0
+</code></pre>
+      <p>
+        <strong>已註冊的 misc 資源範例</strong>：
+      </p>
+      <ul>
+        <li><strong>SEV / SEV-ES</strong>：AMD 加密虛擬機 ASID（kernel 5.13+ 支援）</li>
+        <li><strong>NVIDIA GPU</strong>：透過 NVIDIA Container Toolkit 註冊「<em>compute / video / 3D</em>」等 GPU 資源</li>
+        <li><strong>Intel TDX</strong>：Intel 機密運算 enclave 數量</li>
+        <li><strong>FPGA / 加速卡</strong>：自訂註冊任意資源名稱</li>
+      </ul>
+      <p>
+        <strong>misc 的設計優勢</strong>：<em>不需要每加一種新資源就改 kernel</em>。drivers 註冊資源名稱與容量，kernel 通用機制處理 accounting 與 limit。
+      </p>
+
+      <h3>3.5 device controller：v2 的 BPF 革命</h3>
+      <p>
+        device controller 是 v2 最大架構變化——<strong>沒有任何介面檔案</strong>。kernel 文件原話：「<em>The v2 devices controller provides no interface files; instead, device control is gated by attaching an eBPF (BPF_CGROUP_DEVICE) program to a v2 cgroup.</em>」
+      </p>
+      <p>
+        v1 的 device controller 用 <code>devices.allow</code>、<code>devices.deny</code>、<code>devices.list</code> 三個檔案靜態白名單／黑名單。v2 砍掉這個，改用 BPF program——更靈活、可編程，但<strong>使用者不再直接寫介面檔案</strong>。
+      </p>
+      <p>
+        <strong>BPF_CGROUP_DEVICE program 簽章</strong>：
+      </p>
+<pre><code>// 來自 kernel: tools/testing/selftests/bpf/dev_cgroup.c
+SEC("cgroup/dev")
+int bpf_prog1(struct bpf_cgroup_dev_ctx *ctx) {
+    short type = ctx->access_type & 0xFFFF;
+    short access = ctx->access_type >> 16;
+    
+    // 例：禁止 mknod 設備
+    if (type == BPF_DEVCG_DEV_BLOCK)
+        return 0;  // deny
+    
+    // 例：允許 read 但禁 write 某 device
+    if (ctx->major == 1 && ctx->minor == 3) {
+        if (access & BPF_DEVCG_ACC_WRITE)
+            return 0;
+    }
+    
+    return 1;  // allow
+}
+</code></pre>
+      <p>
+        <strong>實際使用</strong>：使用者通常不直接寫 BPF program。容器 runtime（runc、crun）內部把 OCI spec 的 device rules 編譯成 BPF program 自動 attach。
+      </p>
+<pre><code># 看 cgroup 上 attach 了哪些 BPF program
+sudo bpftool cgroup show /sys/fs/cgroup/system.slice/docker-XXX.scope
+# 會看到 device cgroup BPF program
+
+# 手動 attach（高階用法）
+sudo bpftool cgroup attach /sys/fs/cgroup/myapp/ device pinned /sys/fs/bpf/my_device_filter
+</code></pre>
+      <p>
+        <strong>v1 → v2 比較</strong>：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>面向</th><th>v1 device controller</th><th>v2 device controller</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>介面</td><td><code>devices.allow / deny / list</code></td><td>無介面檔案，用 BPF</td></tr>
+        <tr><td>規則</td><td>靜態白名單/黑名單</td><td>程式邏輯（任意條件）</td></tr>
+        <tr><td>使用者</td><td>直接寫 cgroup 檔案</td><td>透過 runtime 或 bpftool</td></tr>
+        <tr><td>表達能力</td><td>有限</td><td>完整 BPF（含 helpers）</td></tr>
+        <tr><td>效能</td><td>O(規則數)</td><td>編譯後 JIT，極快</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h3>3.6 perf_event controller</h3>
+      <p>
+        最特殊的 controller——<strong>不需要明確啟用、自動可用</strong>。kernel 文件：「<em>perf_event controller, if not mounted on a legacy hierarchy, is automatically enabled on the v2 hierarchy so that perf events can always be filtered by cgroup v2 path.</em>」
+      </p>
+      <p>
+        <strong>用途</strong>：限制 <code>perf record</code> / <code>perf stat</code> 等工具只 profile 特定 cgroup 的 process：
+      </p>
+<pre><code># profile 特定 cgroup 的 CPU events
+sudo perf stat -e cycles,instructions \
+    -G /sys/fs/cgroup/myapp \
+    -- sleep 10
+
+# 範例輸出：
+#   1234567 cycles      myapp
+#    987654 instructions myapp
+</code></pre>
+      <p>
+        <strong>沒有介面檔案</strong>。perf_event 不像其他 controller 提供 interface files，它純粹是讓 perf 工具「<em>知道</em>」cgroup 邊界，從 perf syscall (<code>perf_event_open</code>) 用 cgroup fd 過濾。
+      </p>
+      <p>
+        <strong>典型用途</strong>：debug 容器內應用性能、生產環境 profile 不影響其他 service、HPC 統計特定 task 的 cache miss。
+      </p>
+
+      <h3>3.7 cgroup.freeze：core 介面，不是 controller</h3>
+      <p>
+        嚴格說 freezer 不是 controller——它是 cgroup core 提供的<strong>核心介面</strong>。寫 1 進 <code>cgroup.freeze</code>，整個 cgroup 的所有 process 進入 D 狀態（uninterruptible sleep），全部停止執行。
+      </p>
+<pre><code># 凍結整個 cgroup
+echo 1 > /sys/fs/cgroup/myapp/cgroup.freeze
+
+# 看狀態
+cat /sys/fs/cgroup/myapp/cgroup.events
+# populated 1
+# frozen 1
+
+# 解凍
+echo 0 > /sys/fs/cgroup/myapp/cgroup.freeze
+</code></pre>
+      <p>
+        <strong>應用場景</strong>：
+      </p>
+      <ul>
+        <li><strong>checkpoint / restore</strong>（CRIU）：先 freeze 才能可靠 dump 記憶體狀態</li>
+        <li><strong>安全 debug</strong>：凍結容器後用 gdb 連入分析，不會被 process 自身狀態變化干擾</li>
+        <li><strong>暫停 batch job</strong>：暫時釋放資源給其他 workload，之後解凍繼續</li>
+        <li><strong>容器 pause</strong>：<code>docker pause</code>、<code>podman pause</code> 內部就是用 cgroup.freeze</li>
+        <li><strong>systemd-managed</strong>：<code>systemctl freeze unit</code> / <code>systemctl thaw unit</code>（systemd 246+）</li>
+      </ul>
+      <p>
+        <strong>注意</strong>：freeze 不影響 process 的 RAM / file descriptor / connection 狀態——只是停止執行。連線可能因 timeout 斷開（看對端應用），但 process 的 state 完整保留。解凍後 process 繼續執行，<em>就像時間暫停一樣</em>。
+      </p>
+
+      <h3>3.8 DMEM controller（演進中）</h3>
+      <p>
+        kernel 6.x 引入的新 controller，用於 <strong>device-attached memory</strong>——GPU VRAM、CXL memory、加速卡上的 memory。
+      </p>
+      <p>
+        現代 AI/ML 場景，GPU memory 是稀缺資源。傳統 cgroup memory controller 只管 system RAM，<em>管不到 GPU VRAM</em>。
+        DMEM controller 補上這塊。
+      </p>
+      <p>
+        <strong>狀態</strong>：仍在演進，介面與行為可能變化。使用 NVIDIA / AMD GPU 的人建議追 kernel docs 最新章節。
+      </p>
+
+      <h3>3.9 systemd 介面對應</h3>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>systemd directive</th><th>cgroup 介面</th><th>備註</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>(無)</td><td><code>hugetlb.*.max</code></td><td>需 ExecStartPost 寫入</td></tr>
+        <tr><td>(無)</td><td><code>rdma.max</code></td><td>需 ExecStartPost 寫入</td></tr>
+        <tr><td><code>DeviceAllow=</code></td><td>device BPF program</td><td>systemd 編譯成 BPF</td></tr>
+        <tr><td><code>DevicePolicy=</code></td><td>device BPF program</td><td>strict / closed / auto</td></tr>
+        <tr><td>(無)</td><td><code>misc.max</code></td><td>需 ExecStartPost 寫入</td></tr>
+        <tr><td><code>systemctl freeze unit</code></td><td><code>cgroup.freeze=1</code></td><td>systemd 246+</td></tr>
+        <tr><td><code>systemctl thaw unit</code></td><td><code>cgroup.freeze=0</code></td><td>systemd 246+</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        <strong>注意</strong>：多數「其他 controllers」沒有直接 systemd directive。需要透過 ExecStartPost 寫入 cgroup 介面。
+        device 是例外——systemd 已經完整整合 BPF mode。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 4: 實戰範例 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例</h2>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · 配置 HugeTLB 給 PostgreSQL</div>
+<pre><code># 1. 配置 host HugeTLB pool（需要 reboot 或 sysctl）
+sudo sysctl -w vm.nr_hugepages=512   # 512 * 2MB = 1GB pool
+
+# 2. 確認 pool 配置成功
+cat /proc/meminfo | grep -i huge
+# HugePages_Total:     512
+# HugePages_Free:      512
+# Hugepagesize:       2048 kB
+
+# 3. 在 cgroup 啟用 hugetlb
+echo "+hugetlb" | sudo tee /sys/fs/cgroup/cgroup.subtree_control
+
+# 4. 啟動 PostgreSQL service，限制 HugeTLB 為 800MB
+sudo systemd-run --slice=user.slice --unit=pg-test \
+    --pty \
+    bash
+
+# 在 service 內：
+CG=$(systemctl show -p ControlGroup --value pg-test.service)
+echo "800M" | sudo tee /sys/fs/cgroup$CG/hugetlb.2MB.max
+
+# 5. 看當前 HugeTLB 用量
+cat /sys/fs/cgroup$CG/hugetlb.2MB.current
+
+# 6. 檢查事件
+cat /sys/fs/cgroup$CG/hugetlb.2MB.events
+
+# 7. 清理
+exit
+sudo systemctl stop pg-test
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · 觀察 misc.capacity 與限制 SEV ASID</div>
+<pre><code># 1. 看系統有哪些 misc 資源
+cat /sys/fs/cgroup/misc.capacity
+# 範例：sev 15  sev_es 15  （AMD SEV）
+
+# 如果系統沒這些資源，輸出可能空白——表示 driver 沒註冊任何 misc 資源
+
+# 2. 啟用 misc controller
+echo "+misc" | sudo tee /sys/fs/cgroup/cgroup.subtree_control
+sudo mkdir /sys/fs/cgroup/vm-tenant
+
+# 3. 限制這個 cgroup 最多用 5 個 SEV ASID
+echo "sev 5" | sudo tee /sys/fs/cgroup/vm-tenant/misc.max
+
+# 4. 看當前用量
+cat /sys/fs/cgroup/vm-tenant/misc.current
+
+# 5. 看事件
+cat /sys/fs/cgroup/vm-tenant/misc.events
+# sev.max 0   ← 還沒撞到上限
+
+# 清理
+sudo rmdir /sys/fs/cgroup/vm-tenant
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · 體驗 cgroup.freeze</div>
+<pre><code># 1. 啟動一個會打印計數的 service
+sudo systemd-run --slice=user.slice --unit=counter \
+    --pty \
+    bash -c 'i=0; while :; do echo "count=$i"; i=$((i+1)); sleep 1; done'
+
+# 2. 看到它在打印 count=1, count=2, ...
+
+# 3. 在另一 terminal 凍結
+CG=$(systemctl show -p ControlGroup --value counter.service)
+echo 1 | sudo tee /sys/fs/cgroup$CG/cgroup.freeze
+
+# 4. 看 events
+cat /sys/fs/cgroup$CG/cgroup.events
+# populated 1
+# frozen 1
+
+# 5. 觀察：原 terminal 應該停止打印（process 進入 D 狀態）
+
+# 6. 解凍
+echo 0 | sudo tee /sys/fs/cgroup$CG/cgroup.freeze
+
+# 7. 觀察：原 terminal 又開始打印——而且<em>計數從停止的地方繼續</em>
+
+# 等同於 systemctl freeze / thaw（systemd 246+）
+# sudo systemctl freeze counter.service
+# sudo systemctl thaw counter.service
+
+# 清理
+sudo systemctl stop counter
+</code></pre>
+      <p>觀察點：freeze 是「<em>時間暫停</em>」——process 完全停止但 state 完整保留。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 4 · 用 perf 配合 cgroup 過濾 profiling</div>
+<pre><code># 1. 啟動兩個 service
+sudo systemd-run --slice=user.slice --unit=cpu-app1 \
+    bash -c 'while :; do :; done'
+sudo systemd-run --slice=user.slice --unit=cpu-app2 \
+    bash -c 'while :; do :; done'
+
+sleep 3
+
+# 2. 用 perf 只 profile cpu-app1
+CG1=$(systemctl show -p ControlGroup --value cpu-app1.service)
+sudo perf stat -e cycles,instructions \
+    -G $CG1 \
+    -- sleep 5
+
+# 預期：只看到 cpu-app1 的 events，cpu-app2 的不算進來
+
+# 3. 對比：global profile 看到所有
+sudo perf stat -e cycles,instructions \
+    -a \
+    -- sleep 5
+
+# 清理
+sudo systemctl stop cpu-app1 cpu-app2
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 5 · 看 device controller 的 BPF program</div>
+<pre><code># 1. 啟動一個 docker / podman 容器
+sudo docker run -d --name=devtest --rm alpine sleep 60
+
+# 2. 找出容器 cgroup
+CONTAINER_ID=$(docker inspect devtest --format '{{.Id}}')
+CG="/sys/fs/cgroup/system.slice/docker-${CONTAINER_ID}.scope"
+
+# 3. 看這個 cgroup 上 attach 了哪些 BPF program
+sudo bpftool cgroup show $CG
+
+# 範例輸出：
+# ID       AttachType      AttachFlags     Name
+# 234      device                          (none)
+
+# 4. dump BPF program 內容（高階）
+sudo bpftool prog dump xlated id 234
+
+# 清理
+sudo docker stop devtest
+</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 5: 常見陷阱 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · 沒先配 HugeTLB pool 就設 hugetlb 限制</div>
+      <p>
+        <code>hugetlb.2MB.max=100M</code> 設好了，但應用申請 HugeTLB 失敗（SIGBUS）？
+        原因：host 的 HugeTLB pool 還沒配置（<code>cat /proc/sys/vm/nr_hugepages</code> 是 0）。
+        cgroup 限制只是「<em>我能用多少</em>」，pool 配置才是「<em>系統有多少</em>」。
+        修法：先 <code>sysctl -w vm.nr_hugepages=N</code>（boot time 配最穩），<em>再</em>設 cgroup 限制。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · HugeTLB 預設不算進 memory.current</div>
+      <p>
+        以為 <code>memory.max=2G</code> 已經包含 HugeTLB 用量？錯。
+        kernel 6.6+ 預設 HugeTLB 與 memory<em>分開計量</em>。應用用了 1G HugeTLB + 1.5G 一般 memory，cgroup 看起來才用 1.5G（不爆 max），但實際吃了 2.5G 系統記憶體。
+        修法：mount cgroup 時加 <code>memory_hugetlb_accounting</code> option，整合計量。或<em>分別設</em> memory.max 與 hugetlb.max。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · v2 device controller 期望 device.allow 介面</div>
+      <p>
+        從 v1 過來的 sysadmin 想找 <code>devices.allow</code>、<code>devices.deny</code>——v2 沒有！
+        v2 device controller 純 BPF，沒有任何 cgroup 檔案介面。
+        修法：用 systemd 的 <code>DeviceAllow=</code> / <code>DevicePolicy=</code> directive，systemd 會自動編譯成 BPF program 並 attach。或直接寫 BPF（runc / crun 內部做的事）。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · misc.capacity 是空的</div>
+      <p>
+        <code>cat /sys/fs/cgroup/misc.capacity</code> 完全沒輸出？這是<em>正常的</em>——表示沒有任何 driver 註冊 misc 資源。
+        misc.capacity 只列出已註冊的資源（SEV、TDX、NVIDIA GPU 等）。沒有對應硬體或 driver，misc controller 不會自動產生 entry。
+        要用 GPU 配額？需要 NVIDIA Container Toolkit 或對應廠商 driver 註冊。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 5 · cgroup.freeze 對 RT process 失效</div>
+      <p>
+        對含有 RT process（SCHED_FIFO / SCHED_RR）的 cgroup 寫 cgroup.freeze=1，<em>RT process 仍在跑</em>。
+        原因：cgroup freezer 用 D 狀態實現「凍結」，但 RT priority 高過 freezer 機制，無法可靠地暫停 RT task。
+        修法：對 RT 應用使用 SIGSTOP / SIGCONT 而非 cgroup.freeze。或先把 RT process 降為普通 priority 再 freeze。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 6 · perf_event 找不到 -G option（舊 kernel）</div>
+      <p>
+        老 kernel（4.x 以前）的 perf 沒有 -G（cgroup filter）option。
+        <code>perf stat -G /path</code> 會回 unknown option 錯誤。
+        修法：升 perf 版本（與 kernel 對齊）。perf 4.11+ 才支援 cgroup v2 path。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 7 · RDMA controller 在容器中沒效果</div>
+      <p>
+        在容器內設 rdma.max，發現完全沒擋住 RDMA 申請？
+        原因：RDMA 資源歸屬於<em>創建者 cgroup</em>，不是當前 cgroup。如果應用是在 host process（如 daemon）創建 RDMA resource 後給容器用，這些 resource 屬於 host 的 cgroup，container 的 rdma.max 對它無效。
+        修法：確認 RDMA resource 由 container 內 process 創建（不要從 host 傳遞 fd 進去）。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 8 · DMEM controller 介面變動</div>
+      <p>
+        DMEM controller 仍在演進，介面與行為可能在 kernel 版本間變化。
+        一個版本上的 dmem.max 設定，在另一版本上可能格式不同或介面位置不同。
+        修法：對 GPU memory 限制需求，目前以 NVIDIA / AMD container toolkit 為主——它們抽象了底層介面。
+        直接用 DMEM controller 屬於前沿，需要持續追 kernel docs。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 6: 動手練習 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · 探索系統 misc 資源（5 分鐘）</div>
+<pre><code># 看你的系統有哪些 misc 資源
+cat /sys/fs/cgroup/misc.capacity
+
+# 看有沒有對應硬體：
+# AMD SEV: lscpu | grep -i sev
+# Intel TDX: lscpu | grep -i tdx
+# NVIDIA GPU: nvidia-smi -L
+</code></pre>
+      <p>回答：你的系統列出哪些 misc 資源？對應到什麼硬體？</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · 寫一個 freeze/thaw 自動化腳本（10 分鐘）</div>
+<pre><code>#!/bin/bash
+# auto-freeze.sh
+# 在 backup 跑時凍結指定 service，跑完解凍
+
+UNITS_TO_FREEZE="redis.service postgresql.service"
+
+# Freeze
+for unit in $UNITS_TO_FREEZE; do
+    echo "Freezing $unit..."
+    sudo systemctl freeze "$unit"
+done
+
+# 跑 backup（這時 service 完全停止）
+sudo /usr/local/bin/backup.sh
+
+# Thaw
+for unit in $UNITS_TO_FREEZE; do
+    echo "Thawing $unit..."
+    sudo systemctl thaw "$unit"
+done
+
+echo "Backup complete, services resumed"</code></pre>
+      <p>使用情境：跑 LVM snapshot 之前先 freeze DB，避免 partial commit。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 觀察 device controller BPF（思考題，10 分鐘）</div>
+      <p>不需執行，回答以下設計問題：</p>
+      <ol>
+        <li>為什麼 v2 把 device controller 改成 BPF 設計？v1 的靜態白名單不夠用嗎？</li>
+        <li>BPF 設計帶來什麼好處？舉一個 v1 做不到、v2 BPF 做得到的場景。</li>
+        <li>使用者該怎麼從這個變化中得到好處？預期 runtime（runc / podman）做了什麼？</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 為 PG + DPDK 設計完整 HugeTLB 配置（10 分鐘）</div>
+      <p>機器有 32GB RAM，要跑：</p>
+      <ol>
+        <li>PostgreSQL：希望用 4GB HugeTLB 給 shared_buffers</li>
+        <li>DPDK 應用：必須用 8GB HugeTLB</li>
+        <li>其他：給 OS / file cache</li>
+      </ol>
+      <p>請寫出：（1）host 配置（vm.nr_hugepages）；（2）每個 service 的 cgroup hugetlb.max 設定；（3）各 service 的 MemoryMax。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 7: 自我檢查題 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>v2 device controller 為什麼沒有任何介面檔案？怎麼控制 device access？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>沒有介面檔案的原因</strong>：v2 把 device 控制完全改用 BPF，這是架構性決定。
+        v1 用 <code>devices.allow / deny / list</code> 三檔案做靜態白名單／黑名單，但表達能力有限——例如「<em>read 允許但 write 拒絕同一個 device</em>」、「<em>根據檔案屬性動態決定</em>」這類複雜邏輯做不到。
+        <strong>v2 的方式</strong>：attach <code>BPF_CGROUP_DEVICE</code> program 到 cgroup。program 收到 <code>bpf_cgroup_dev_ctx</code> struct（含 major、minor、access_type），return 1 = allow、0 = deny。
+        <strong>使用者層</strong>：通常不直接寫 BPF，透過 systemd <code>DeviceAllow=</code>、<code>DevicePolicy=</code> 或 OCI runtime（runc、crun）內部編譯。對使用者透明。
+        <strong>檢查方法</strong>：<code>bpftool cgroup show /sys/fs/cgroup/PATH</code> 看 attach 了哪些 BPF program。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>HugeTLB 與 memory controller 是什麼關係？memory.max 包含 HugeTLB 嗎？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>預設關係</strong>：兩者<em>分開計量</em>。HugeTLB pages 不算進 memory.current 與 memory.max。
+        <strong>原因</strong>：HugeTLB 是<em>預先分配的固定 pool</em>，與一般 page allocator 走不同路徑。歷史上分開計量，避免雙重計算。
+        <strong>kernel 6.6+ 的選擇</strong>：mount cgroup 時加 <code>memory_hugetlb_accounting</code> option，HugeTLB 才會算進 memory.current。
+        <strong>實務影響</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>應用用了 1G HugeTLB + 1.5G 一般 RAM，沒啟用 mount option 時，memory.current 顯示 1.5G（不含 HugeTLB）。</li>
+          <li>容量規劃要<em>分別計算</em>：memory.max = 一般 RAM 上限；hugetlb.NM.max = HugeTLB 上限；總實體記憶體 = memory.max + hugetlb 用量。</li>
+          <li>啟用 <code>memory_hugetlb_accounting</code> 後，memory.max 變成「<em>所有記憶體類型總和</em>」，更直覺但與舊行為不相容。</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span>misc controller 是什麼？kernel 怎麼決定有哪些 misc 資源？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>misc controller</strong>：v2 引入的<em>通用</em>資源限制機制（kernel 5.13+）。kernel 不預設知道有什麼資源——由<strong>裝置驅動或 module 動態註冊</strong>。
+        <strong>註冊機制</strong>：driver 呼叫 kernel API 註冊「<em>資源名稱 + 系統容量</em>」。例如 AMD SEV driver 啟動時註冊「<em>sev: 15</em>」（15 個 ASID 可用）。
+        <strong>cat misc.capacity 看什麼</strong>：所有<em>已註冊</em>的資源。如果你看到空白，表示 driver 沒註冊。
+        <strong>已知會註冊 misc 資源的 driver / 場景</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>AMD SEV / SEV-ES：<code>sev</code>、<code>sev_es</code></li>
+          <li>Intel TDX：<code>tdx</code></li>
+          <li>NVIDIA Container Toolkit：<code>compute</code>、<code>video</code> 等 GPU 資源</li>
+          <li>FPGA / 自訂加速卡：driver 自己註冊</li>
+        </ul>
+        <strong>設計優勢</strong>：<em>kernel 不需要為每種新資源加 controller</em>。driver 自己註冊，misc 通用 accounting 與 limit 機制處理。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span>cgroup.freeze 的行為是什麼？為什麼是「core 介面」而不是 controller？什麼場景會用？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>行為</strong>：寫 1 進 <code>cgroup.freeze</code>，整個 cgroup 的所有 process 進入 D 狀態（uninterruptible sleep）。process 完全停止執行，但 state（記憶體、fd、connection）完整保留。寫 0 解凍。
+        <strong>為什麼是 core 介面</strong>：freezer 不分配資源，只控制 process 執行狀態——這是 cgroup core 的能力，不需要獨立 controller。<code>cgroup.freeze</code> 在所有 cgroup（即使沒啟用任何 controller）都可用。
+        <strong>典型應用場景</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>checkpoint / restore</strong>：CRIU 先 freeze 才能可靠 dump 記憶體</li>
+          <li><strong>安全 debug</strong>：凍結容器後用 gdb 分析，process 不會跑掉</li>
+          <li><strong>backup</strong>：對 DB freeze 一秒鐘，做 LVM snapshot，再 thaw（避免 partial commit）</li>
+          <li><strong>容器 pause</strong>：docker pause / podman pause 內部用這個</li>
+          <li><strong>暫時讓位</strong>：batch job freeze 給 latency-critical workload 用，後再 thaw</li>
+        </ul>
+        <strong>限制</strong>：對 RT process 不可靠（RT priority 高過 freezer）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span>perf_event controller 為什麼自動啟用？沒有介面檔案怎麼用？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>自動啟用原因</strong>：perf_event 不是「<em>分配資源</em>」的 controller，是「<em>讓 perf 工具知道 cgroup 邊界</em>」的機制。
+        kernel 認為這個能力是 cgroup v2 體系的一部分，所以<em>自動啟用</em>，使用者不需要寫 cgroup.subtree_control。
+        <strong>為什麼沒介面檔案</strong>：perf_event 不需要使用者寫設定。它的功能是<em>讓 perf syscall (perf_event_open) 能用 cgroup fd 過濾</em>——使用者透過 perf 工具間接用，不直接寫 cgroup 檔案。
+        <strong>使用方式</strong>：
+        <pre style="margin-top:8px;font-size:11px;"># profile 特定 cgroup 的 events
+perf stat -e cycles,instructions \
+    -G /sys/fs/cgroup/PATH \
+    -- COMMAND</pre>
+        <strong>典型場景</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>容器化應用 profiling：只看容器內，不被 host 干擾</li>
+          <li>多租戶環境：對特定租戶的 service 做性能分析</li>
+          <li>HPC：統計 worker thread 的 cache miss、IPC、branch prediction</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>RDMA controller 控制哪兩種資源？資源 ownership 怎麼決定？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>兩種資源</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><code>hca_handle</code>：HCA（Host Channel Adapter）句柄數量。每個應用打開 RDMA device 時申請一個。一般應用只開幾個。</li>
+          <li><code>hca_object</code>：所有 verb 物件總數，包含 QP（Queue Pair）、CQ（Completion Queue）、MR（Memory Region）、PD（Protection Domain）、AH（Address Handle）等。一般應用會申請大量（通常上千）。</li>
+        </ul>
+        <strong>Ownership 規則</strong>：RDMA 資源屬於<em>創建者 cgroup</em>，<strong>不是當前 cgroup</strong>。
+        process 搬 cgroup 時，已創建的 RDMA 資源仍歸原 cgroup。
+        <strong>實務影響</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>容器化應用要在容器內創建 RDMA resource，才會歸容器 cgroup。</li>
+          <li>如果 host process 創建 RDMA resource 後傳 fd 給容器用，這些 resource 算在 host cgroup，container 的 rdma.max 對它無效。</li>
+          <li>規劃 HPC / NCCL / Ceph 等應用時，要確認 RDMA resource 創建路徑。</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span>本章 6 個 controllers/介面（hugetlb、rdma、misc、device、perf_event、cgroup.freeze）誰是 niche 誰是常用？對一般 Kubernetes 環境哪些值得學？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>常用程度排序（一般 K8s 環境）</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>device（BPF）</strong>：最常用。所有容器都隱含使用——但通常透過 OCI runtime 透明處理，使用者不直接操作。</li>
+          <li><strong>cgroup.freeze</strong>：常用。docker pause、systemctl freeze 等都用。debug 與 backup 常見。</li>
+          <li><strong>hugetlb</strong>：跑 DB（PostgreSQL、MySQL、Oracle）、DPDK、JVM 重度使用者必學。多數 web 服務用不到。</li>
+          <li><strong>perf_event</strong>：性能 debug 必備工具，但不是日常配置。</li>
+          <li><strong>misc</strong>：GPU / FPGA / 加速卡才會用到。對一般 K8s 環境較少，但 AI workload 越來越重要。</li>
+          <li><strong>rdma</strong>：HPC / 高效能網路才用。一般雲環境少見。</li>
+        </ol>
+        <strong>K8s 環境學習優先級</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>必學</strong>：device（理解 BPF 模式）、cgroup.freeze（pause 機制）</li>
+          <li><strong>看場景</strong>：跑 DB / DPDK 學 hugetlb；跑 GPU workload 學 misc</li>
+          <li><strong>選學</strong>：perf_event（debug 才用）、rdma（HPC 才用）</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>實作思考題：你管理一台機器跑：（A）3 個 PostgreSQL（要 HugeTLB）、（B）DPDK 網路應用（要 HugeTLB + isolated CPU）、（C）每天用 LVM snapshot 做 backup。設計用到本章的所有相關工具的配置。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>方案</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[host setup]
+# 1. 配置 HugeTLB pool
+echo "vm.nr_hugepages = 4096" >> /etc/sysctl.conf  # 4096 * 2MB = 8GB
+sysctl -p
+
+# 2. 啟用 cgroup hugetlb（在 cgroup.subtree_control）
+echo "+hugetlb" > /sys/fs/cgroup/cgroup.subtree_control
+
+[A: postgresql-1/2/3.service]
+# HugeTLB 各 1.5GB（總 4.5GB）
+ExecStartPost=/bin/sh -c 'echo "1.5G" > $cgroup/hugetlb.2MB.max'
+MemoryMax=4G          # 一般 RAM 限制（HugeTLB 不算進來）
+MemoryHigh=3.5G
+
+[B: dpdk-app.service]
+# HugeTLB 3GB
+ExecStartPost=/bin/sh -c 'echo "3G" > $cgroup/hugetlb.2MB.max'
+# CPU isolated partition（Ch.9）
+AllowedCPUs=8-11
+ExecStartPost=/bin/sh -c 'echo isolated > $cgroup/cpuset.cpus.partition'
+
+[C: backup-script]
+#!/bin/bash
+# Step 1: freeze PG（避免 partial commit）
+for i in 1 2 3; do
+    systemctl freeze postgresql-$i.service
+done
+
+# Step 2: LVM snapshot
+lvcreate -L 10G -s -n pg_snap /dev/vg/data
+
+# Step 3: thaw PG（snapshot 已建好，db 可繼續）
+for i in 1 2 3; do
+    systemctl thaw postgresql-$i.service
+done
+
+# Step 4: 從 snapshot 慢慢複製（不影響 PG）
+mount /dev/vg/pg_snap /mnt/snap
+rsync -a /mnt/snap/data /backup/
+umount /mnt/snap
+lvremove /dev/vg/pg_snap</pre>
+        <strong>用到本章的工具</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>hugetlb controller</strong>：分配 HugeTLB pool 給 PG 與 DPDK，每個 service 獨立 limit。</li>
+          <li><strong>cpuset isolated partition</strong>（Ch.9）：DPDK 獨佔 CPU，無 scheduler 干擾。</li>
+          <li><strong>cgroup.freeze</strong>：backup 時凍結 PG 一秒鐘，做 LVM snapshot 不會 partial commit。</li>
+          <li><strong>device controller（BPF）</strong>：透明使用——systemd 自動編譯 DeviceAllow rules 成 BPF。</li>
+        </ol>
+        <strong>監控配套</strong>：對 PG 監控 hugetlb.events.max（hit limit 次數）、對 DPDK 監控 cpu.pressure 確認沒被打斷、對 backup 監控 freeze 時間（不應超過 1 秒）。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 8: 延伸閱讀 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+
+    <div class="refs">
+      <ol>
+        <li>
+          <a href="https://docs.kernel.org/admin-guide/cgroup-v2.html#hugetlb" target="_blank" rel="noopener">Linux Kernel 官方文件 · HugeTLB controller</a>
+          <span class="ref-source">docs.kernel.org · HugeTLB 介面與計量規則</span>
+        </li>
+        <li>
+          <a href="https://docs.kernel.org/admin-guide/cgroup-v2.html#rdma" target="_blank" rel="noopener">Linux Kernel 官方文件 · RDMA controller</a>
+          <span class="ref-source">docs.kernel.org · rdma.max / rdma.current 介面</span>
+        </li>
+        <li>
+          <a href="https://docs.kernel.org/admin-guide/cgroup-v2.html#misc" target="_blank" rel="noopener">Linux Kernel 官方文件 · Misc controller</a>
+          <span class="ref-source">docs.kernel.org · misc.capacity / misc.max 與 driver 註冊機制</span>
+        </li>
+        <li>
+          <a href="https://docs.kernel.org/admin-guide/cgroup-v2.html#device-controller" target="_blank" rel="noopener">Linux Kernel 官方文件 · Device controller</a>
+          <span class="ref-source">docs.kernel.org · v2 BPF mode 設計</span>
+        </li>
+        <li>
+          <a href="https://github.com/torvalds/linux/blob/master/tools/testing/selftests/bpf/dev_cgroup.c" target="_blank" rel="noopener">BPF_CGROUP_DEVICE example · kernel source</a>
+          <span class="ref-source">github.com · device controller BPF program 範例</span>
+        </li>
+        <li>
+          <a href="https://lwn.net/Articles/852681/" target="_blank" rel="noopener">The misc controller · LWN.net</a>
+          <span class="ref-source">lwn.net · misc controller 引入動機與設計</span>
+        </li>
+        <li>
+          <a href="https://criu.org/Cgroup_v2" target="_blank" rel="noopener">CRIU · Cgroup v2 support</a>
+          <span class="ref-source">criu.org · cgroup.freeze 在 checkpoint/restore 的實際使用</span>
+        </li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Chapter nav ====================== -->
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn" href="ch10-io-controller.html">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">Ch.10 IO controller</span>
+    </a>
+    <a class="nav-btn next disabled">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">Ch.12 PSI 與事件</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window.JHsunTheme = { get: getCurrentMode, set: (m) => { setStored(m); applyTheme(m); }, toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); }, };
+})();
+</script>
+
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,1265 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.19 Go 語言整合與容器化開發 — cgroup v2 完整教學</title>
+<meta name="description" content="Go 與 cgroup v2 深度整合：Go 1.25 內建 container-aware GOMAXPROCS、uber-go/automaxprocs、GOMEMLIMIT、GMP scheduler、CPU throttle 影響。">
+
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626; --color-danger-soft: #fee2e2;
+  --color-info: #0891b2; --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px;
+  --container-narrow: 720px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px;
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.topbar { position: sticky; top: 0; z-index: 50; background: color-mix(in oklch, var(--bg-canvas) 88%, transparent); backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--border-soft); }
+.topbar-inner { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.brand { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-secondary); }
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 999px; padding: 6px 14px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all .2s; }
+[data-theme-toggle]:hover { background: var(--bg-muted); border-color: var(--border-mid); color: var(--text-primary); }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: 0 var(--space-5); }
+.chapter-head { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); }
+.chapter-tag { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary-text); background: var(--color-primary-soft); padding: 4px 12px; border-radius: 999px; margin-bottom: var(--space-4); }
+.chapter-title { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; margin-bottom: var(--space-3); }
+.chapter-subtitle { font-family: var(--font-serif-body); font-size: var(--text-md); color: var(--text-secondary); line-height: 1.65; font-style: italic; }
+.chapter-meta { margin-top: var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.chapter-meta-item:first-child::before { display: none; }
+.section { padding: var(--space-7) 0; border-bottom: 1px solid var(--border-soft); }
+.section:last-of-type { border-bottom: none; }
+.section-label { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2); }
+.section-label::before { content: ""; width: 24px; height: 1px; background: var(--color-primary); }
+.section-title { font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600; margin-bottom: var(--space-5); letter-spacing: -0.01em; line-height: 1.2; }
+.prose p { font-family: var(--font-serif-body); font-size: var(--text-base); line-height: 1.85; margin-bottom: var(--space-4); }
+.prose h3 { font-family: var(--font-sans); font-size: var(--text-lg); font-weight: 600; margin: var(--space-6) 0 var(--space-3); letter-spacing: -0.01em; }
+.prose h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 500; margin: var(--space-5) 0 var(--space-2); }
+.prose ul, .prose ol { font-family: var(--font-serif-body); margin-bottom: var(--space-4); padding-left: var(--space-5); line-height: 1.8; }
+.prose ul li, .prose ol li { margin-bottom: var(--space-2); }
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong { font-weight: 600; }
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 1px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+.prose a { color: var(--color-primary); text-decoration: underline; text-underline-offset: 3px; }
+.highlights { background: var(--color-primary-soft); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.highlights ol { font-family: var(--font-sans); padding-left: var(--space-5); margin: 0; }
+.highlights li { font-size: var(--text-sm); color: var(--color-primary-text); margin-bottom: var(--space-2); line-height: 1.65; }
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+.news-box { background: var(--color-info-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.news-item { font-family: var(--font-sans); font-size: var(--text-sm); line-height: 1.7; padding: var(--space-2) 0; border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent); }
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-info); margin-right: var(--space-2); }
+pre { font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.7; background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; margin-bottom: var(--space-4); }
+pre code { background: transparent; border: none; padding: 0; font-size: inherit; color: inherit; }
+.cmp-table { width: 100%; border-collapse: collapse; margin-bottom: var(--space-4); font-size: var(--text-sm); font-family: var(--font-sans); }
+.cmp-table th, .cmp-table td { padding: var(--space-3); text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.cmp-table th { font-weight: 600; background: var(--bg-muted); font-size: var(--text-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 1px 5px; border-radius: var(--radius-sm); color: var(--color-primary-text); }
+.lab { background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.lab-title { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--color-primary); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px dashed var(--border-soft); }
+.lab-title::before { content: "▶ "; }
+.lab p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-3); color: var(--text-secondary); line-height: 1.7; }
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+.lab ol, .lab ul { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); color: var(--text-secondary); line-height: 1.7; }
+.pitfall { background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.pitfall-title { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 600; color: var(--color-warning); margin-bottom: var(--space-2); }
+.pitfall p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-2); line-height: 1.7; }
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code { background: color-mix(in oklch, var(--color-warning) 15%, transparent); border-color: color-mix(in oklch, var(--color-warning) 30%, transparent); }
+.quiz-item { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-3); }
+.quiz-q { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; margin-bottom: var(--space-2); display: flex; gap: var(--space-2); }
+.quiz-q-num { font-family: var(--font-mono); color: var(--color-primary); flex-shrink: 0; }
+.quiz-toggle { background: transparent; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 4px 10px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; margin-top: var(--space-2); transition: all .2s; }
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a { display: none; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px dashed var(--border-soft); font-family: var(--font-serif-body); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.75; }
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+.diagram { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); margin-bottom: var(--space-4); text-align: center; }
+.diagram svg { max-width: 100%; height: auto; }
+.diagram-caption { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-3); }
+.refs ol { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); line-height: 1.8; }
+.refs li { margin-bottom: var(--space-2); color: var(--text-secondary); }
+.refs li::marker { color: var(--color-primary); }
+.refs a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dashed var(--color-primary); }
+.refs .ref-source { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); display: block; margin-top: 2px; }
+.chapter-nav { margin-top: var(--space-6); padding: var(--space-5) 0; display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.nav-btn { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; padding: var(--space-3) var(--space-4); background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); text-decoration: none; color: var(--text-primary); transition: all .2s; }
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.04em; }
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.19</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part VI · 生態系 · Chapter 19</span>
+    <h1 class="chapter-title">Go 語言整合與容器化開發</h1>
+    <p class="chapter-subtitle">
+      Go 是雲原生時代最主流的語言之一——Kubernetes、Docker、containerd、Prometheus、etcd 都用 Go 寫。
+      但 Go runtime <em>長期忽略 cgroup 限制</em>，把 host CPU 數誤認為自己的——導致 Kubernetes Pod 內 GOMAXPROCS 過高、
+      goroutine 大量爭搶被 CFS throttle、tail latency 飆漲。10 年來解法靠社群 library（uber-go/automaxprocs）。
+      <strong>2025 年 8 月 Go 1.25 發布</strong>，container-aware GOMAXPROCS 終於進入官方 runtime——「<em>Just upgrade go.mod 就好</em>」。
+      本章拆解 Go GMP scheduler 與 cgroup 互動、Go 1.25 內建機制、automaxprocs 仍存在的價值、GOMEMLIMIT 怎麼配合 memory.high。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~6,500 字</span>
+      <span class="chapter-meta-item">閱讀時間 25 分鐘</span>
+      <span class="chapter-meta-item">難度：應用</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+    <div class="highlights">
+      <ol>
+        <li><strong>Go 1.25 內建 container-aware GOMAXPROCS</strong>（2025-08）：runtime 自動讀 cgroup CPU quota，動態調整 GOMAXPROCS。<em>Just bump go.mod to 1.25</em>，不需 import library。</li>
+        <li><strong>uber-go/automaxprocs 仍有價值</strong>：Go 1.24- 仍是必備；Go 1.25+ 在「<em>需要對 cpu.weight（request）而非 cpu.max（limit）反應</em>」、「<em>需要 log 變化</em>」、「<em>需要 round-down 而非 round-up</em>」場景仍勝出。</li>
+        <li><strong>Go 1.19+ 的 GOMEMLIMIT 與 cgroup memory.max 配合</strong>：GC 提前介入避免 OOM。配合 cgroup memory.high 形成「<em>三層保護</em>」（GC trigger → kernel throttle → kernel OOM）。</li>
+        <li><strong>GMP scheduler 對 CFS throttle 極敏感</strong>：Go runtime 大量 goroutine context switch，被 CFS throttle 100ms 整個應用停擺——比一般語言更怕 throttle。</li>
+        <li><strong>Round up vs round down 是設計選擇</strong>：Go 1.25 round up（更積極用 CPU），automaxprocs round down（保守、避免 throttle）。沒有絕對對錯，取決 workload。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+    <div class="news-box">
+      <div class="news-item"><span class="news-date">2025-08-12</span><strong>Go 1.25 發布</strong>，container-aware GOMAXPROCS 內建。Linux 上 runtime 自動讀 cgroup v2 cpu.max，動態調整。「<em>Production-ready out-of-the-box</em>」（Go team 官方說法）。</div>
+      <div class="news-item"><span class="news-date">2025</span><strong>實測效果顯著</strong>：開發者報告 K8s deployment 在 Go 1.25 後 CPU 使用率下降 35%、p99 latency 改善（DEV community / Medium 多篇）。</div>
+      <div class="news-item"><span class="news-date">2025</span><strong>Go 1.25 vs automaxprocs 設計差異</strong>：Go 1.25 round up（避免 throttle 為次要、更積極用 CPU）、automaxprocs round down（保守）；Go 1.25 不 log（cleaner output）、automaxprocs 預設 log。</div>
+      <div class="news-item"><span class="news-date">2025</span><strong>Go 1.25 動態追蹤 cgroup 變化</strong>：~30 秒重新檢查一次 cpu.max。配合 K8s 1.36 In-Place Pod Resize 形成「<em>K8s 改 limit → 30 秒後 Go 自動跟上</em>」的閉環。</div>
+      <div class="news-item"><span class="news-date">2025</span><strong>Go 1.25 沒解決 cpu.weight（request）問題</strong>：Go runtime 只看 cpu.max（limit），對 only-request、no-limit 的 Pod 仍誤判。VictoriaMetrics 社群已有自製 library 讀 cpu.weight 反推。</div>
+    </div>
+    <div class="prose">
+      <p>
+        2026 年的時點，<strong>Go 是<em>第一個</em> mainstream 語言把 cgroup-aware 內建到 runtime</strong>——是雲原生時代的成熟訊號。但理解原理仍重要：什麼時候 Go 1.25 內建夠用、什麼時候要自己處理（如 only-request 場景），這章把這些講透。
+      </p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+
+    <div class="prose">
+      <h3>3.1 Go 的 GMP scheduler 與 GOMAXPROCS</h3>
+      <p>
+        Go runtime 的核心是 <strong>GMP scheduler</strong>：
+      </p>
+      <ul>
+        <li><strong>G</strong>：goroutine（輕量 user-space coroutine）</li>
+        <li><strong>M</strong>：OS thread（kernel-level）</li>
+        <li><strong>P</strong>：processor（goroutine 排程的虛擬 CPU）</li>
+      </ul>
+      <p>
+        <code>GOMAXPROCS</code> 決定<em>P 的數量</em>——也就是同時能跑 Go code 的 OS thread 上限。
+        Go 1.5+ 預設 <code>GOMAXPROCS = runtime.NumCPU()</code>（host 邏輯 CPU 數）。
+      </p>
+      <p>
+        <strong>核心問題</strong>：在容器環境，<code>runtime.NumCPU()</code> 看的是<em>host CPU 數</em>而非 cgroup quota——導致：
+      </p>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 680 360" role="img" aria-label="Go GOMAXPROCS 與 CFS throttle 衝突">
+        <text x="340" y="22" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="600" fill="var(--text-primary)">GOMAXPROCS &gt; cgroup 限制 → CFS throttle 災難</text>
+
+        <!-- Host -->
+        <rect x="40" y="50" width="280" height="130" rx="8" fill="var(--bg-muted)" stroke="var(--border-mid)" stroke-width="1"/>
+        <text x="180" y="70" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--text-primary)">Host: 32 邏輯 CPU</text>
+
+        <!-- Container 在 host 內 -->
+        <rect x="60" y="85" width="240" height="80" rx="6" fill="var(--color-warning-soft)" stroke="var(--color-warning)" stroke-width="1"/>
+        <text x="180" y="105" text-anchor="middle" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="var(--color-warning)">Container（cgroup limit = 2 CPU）</text>
+        <text x="180" y="125" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">Go app: GOMAXPROCS = 32（看 host）</text>
+        <text x="180" y="142" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">→ 起 32 個 worker thread 搶 2 CPU</text>
+        <text x="180" y="158" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--color-danger)">→ 每 100ms throttle 一次</text>
+
+        <!-- 箭頭 -->
+        <path d="M 320 115 L 360 115" stroke="var(--text-muted)" stroke-width="1.5" marker-end="url(#arr19)"/>
+
+        <!-- 後果 -->
+        <rect x="370" y="50" width="280" height="130" rx="8" fill="var(--color-danger-soft)" stroke="var(--color-danger)" stroke-width="1"/>
+        <text x="510" y="70" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-danger)">後果</text>
+        <text x="380" y="92" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">• 過度 context switch（4× 倍增）</text>
+        <text x="380" y="110" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">• CFS quota 用完 100ms 全停</text>
+        <text x="380" y="128" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">• tail latency 飆升（&gt; 30 sec spike）</text>
+        <text x="380" y="146" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">• GC 也被 throttle（pause 暴增）</text>
+        <text x="380" y="164" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">• 連帶吃掉 cluster 整體效能</text>
+
+        <!-- 解決方案 -->
+        <rect x="40" y="200" width="610" height="55" rx="8" fill="var(--color-success-soft)" stroke="var(--color-success)" stroke-width="1"/>
+        <text x="345" y="220" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-success)">解法：GOMAXPROCS = cgroup CPU 限制</text>
+        <text x="345" y="240" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">Go 1.25 內建 / uber-go/automaxprocs / 手動設 GOMAXPROCS=2</text>
+
+        <!-- 比較 -->
+        <text x="60" y="285" font-family="var(--font-sans)" font-size="10" font-weight="600" fill="var(--text-primary)">效益（社群實測）：</text>
+        <text x="60" y="305" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">• CPU 使用率下降 35%（DEV community 報告）</text>
+        <text x="60" y="322" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">• tail latency 從 30 秒級降到毫秒級</text>
+        <text x="60" y="339" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">• context switch 從 4 倍降回正常</text>
+
+        <defs>
+          <marker id="arr19" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--text-muted)"/>
+          </marker>
+        </defs>
+      </svg>
+      <div class="diagram-caption">圖 19.1 · GOMAXPROCS 與 cgroup 不匹配的災難</div>
+    </div>
+
+    <div class="prose">
+      <h3>3.2 Go 1.25 container-aware GOMAXPROCS</h3>
+      <p>
+        2025 年 8 月 Go 1.25 發布，<strong>把 container-aware 內建到 runtime</strong>：
+      </p>
+      <ul>
+        <li><strong>啟動時</strong>：runtime 讀 <code>/sys/fs/cgroup/cpu.max</code>（v2）或 <code>cpu.cfs_quota_us</code> + <code>cpu.cfs_period_us</code>（v1）</li>
+        <li>計算 effective CPU = quota / period</li>
+        <li><code>GOMAXPROCS = min(NumCPU, ceil(effective CPU))</code>（注意是 round up）</li>
+        <li>最低 GOMAXPROCS = 2（保留基本平行度，除非 host 只有 1 CPU）</li>
+        <li><strong>執行中</strong>：每 ~30 秒重新檢查一次，cpu.max 變化時自動更新</li>
+      </ul>
+      <p>
+        <strong>啟用方式</strong>：升 <code>go.mod</code> 到 1.25.0 或更高即可，<em>不需 import library</em>、<em>不需設環境變數</em>。
+      </p>
+<pre><code>// go.mod
+module myapp
+go 1.25
+
+// main.go
+package main
+
+import (
+    "fmt"
+    "runtime"
+)
+
+func main() {
+    fmt.Printf("GOMAXPROCS = %d\n", runtime.GOMAXPROCS(0))
+    // 容器 limit = 2 CPU 時，輸出 "GOMAXPROCS = 2"
+    // host 64 CPU 但容器無限制時，輸出 "GOMAXPROCS = 64"
+    fmt.Printf("NumCPU = %d\n", runtime.NumCPU())
+    // 永遠是 host 邏輯 CPU 數（這個沒變）
+}
+</code></pre>
+      <p>
+        <strong>關掉自動行為</strong>：手動呼叫 <code>runtime.GOMAXPROCS(n)</code>（n &gt; 0）就會 disable 自動。
+      </p>
+
+      <h3>3.3 uber-go/automaxprocs 仍有價值</h3>
+      <p>
+        Uber 的 <code>automaxprocs</code> 是 Go 1.25 之前的事實標準，許多 production 仍在用。<strong>Go 1.25 之後 automaxprocs 仍有特定優勢</strong>：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>差異點</th><th>Go 1.25 內建</th><th>uber-go/automaxprocs</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>觸發方式</td><td>升級 go.mod 即可</td><td>需 import 並 init</td></tr>
+        <tr><td>最小 GOMAXPROCS</td><td>2</td><td>1（預設可調）</td></tr>
+        <tr><td>分數 CPU 處理</td><td>round up（積極）</td><td>round down（保守）</td></tr>
+        <tr><td>動態追蹤</td><td>是（30 秒重檢）</td><td>否（只 init 時）</td></tr>
+        <tr><td>Log 行為</td><td>不 log</td><td>預設 log（可調）</td></tr>
+        <tr><td>支援 cgroup v1</td><td>是</td><td>是</td></tr>
+        <tr><td>支援 cgroup v2</td><td>是</td><td>1.5+（早期版本只支援 v1）</td></tr>
+        <tr><td>對 cpu.weight 反應</td><td>否（只看 cpu.max）</td><td>否（也只看 limit）</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h4>什麼時候該用 automaxprocs（Go 1.25 之後）</h4>
+      <ul>
+        <li><strong>需要 round down</strong>：保守策略避免 throttle。Go 1.25 round up 在<em>分數 CPU + 高並發</em> 場景仍可能 throttle。</li>
+        <li><strong>需要 log GOMAXPROCS 變化</strong>：debug 用。Go 1.25 不 log（cleaner production output 但 debug 不便）。</li>
+        <li><strong>應用是 Go 1.24 或更早</strong>：等不及升級時的最佳折衷。</li>
+        <li><strong>需要 GOMAXPROCS=1</strong>：低資源 sidecar、極限制環境。Go 1.25 最低 2。</li>
+      </ul>
+
+      <h4>什麼時候直接用 Go 1.25</h4>
+      <ul>
+        <li><strong>新 service</strong>：升 go.mod 即可，少一個依賴。</li>
+        <li><strong>K8s 動態 resize 場景</strong>：In-Place Resize 改 limit 時 Go 1.25 自動跟上。</li>
+        <li><strong>不在意 round up vs down</strong>：多數 service 在意的是「<em>不要過度 throttle</em>」，Go 1.25 已避免最糟情況。</li>
+      </ul>
+
+      <h3>3.4 GOMEMLIMIT 與 cgroup memory 配合</h3>
+      <p>
+        Go 1.19 引入 <code>GOMEMLIMIT</code>——讓 Go 主動<strong>提前 GC</strong> 而非等 OOM。在 cgroup 限制場景特別重要。
+      </p>
+      <p>
+        <strong>傳統 Go GC 行為</strong>：
+      </p>
+      <ul>
+        <li>GC 觸發看 <code>GOGC</code>（預設 100，意思是「<em>記憶體使用達上次 GC 後 2 倍時 GC</em>」）。</li>
+        <li>沒考慮絕對記憶體上限——可能 GC 還沒跑就觸到 cgroup memory.max → OOM。</li>
+      </ul>
+      <p>
+        <strong>GOMEMLIMIT 行為</strong>：
+      </p>
+      <ul>
+        <li>設定一個絕對軟上限。</li>
+        <li>當記憶體接近這個值時，runtime 大幅<em>提高 GC 頻率與強度</em>。</li>
+        <li>能避免（不能保證）OOM，犧牲部分 CPU 換記憶體穩定。</li>
+      </ul>
+<pre><code>// 在 K8s 容器設定（建議）
+spec:
+  containers:
+  - name: app
+    env:
+    - name: GOMEMLIMIT
+      value: "900MiB"   # 比 memory.limit 小 10%
+    resources:
+      limits:
+        memory: "1Gi"
+</code></pre>
+      <p>
+        <strong>三層保護機制</strong>（搭配 K8s Memory QoS）：
+      </p>
+      <ol>
+        <li><strong>GOMEMLIMIT 達 900MB</strong>：Go runtime 提高 GC，嘗試降低用量</li>
+        <li><strong>memory.high 達 950MB</strong>（Memory QoS 設）：kernel throttle，給 monitoring 介入時間</li>
+        <li><strong>memory.max 達 1024MB</strong>：kernel OOM kill</li>
+      </ol>
+      <p>
+        三層保護給應用提早警告與緩衝——不是直接從「<em>沒事</em>」跳到「<em>OOM</em>」。
+      </p>
+
+      <h3>3.5 自動讀 cgroup memory limit 設 GOMEMLIMIT</h3>
+      <p>
+        像 GOMAXPROCS 一樣自動，但 Go runtime <em>還沒</em> 內建 GOMEMLIMIT 自動偵測。社群方案：
+      </p>
+<pre><code>// KimMachineGun/automemlimit
+// go get github.com/KimMachineGun/automemlimit
+
+package main
+
+import (
+    _ "github.com/KimMachineGun/automemlimit"
+)
+
+func main() {
+    // GOMEMLIMIT 自動設為 cgroup memory.max 的 90%
+}
+</code></pre>
+      <p>
+        或自己讀 cgroup 介面：
+      </p>
+<pre><code>// 自己讀 memory.max 設 GOMEMLIMIT
+package main
+
+import (
+    "fmt"
+    "os"
+    "runtime/debug"
+    "strconv"
+    "strings"
+)
+
+func init() {
+    // 讀 cgroup v2 memory.max
+    data, err := os.ReadFile("/sys/fs/cgroup/memory.max")
+    if err != nil {
+        return
+    }
+    s := strings.TrimSpace(string(data))
+    if s == "max" {
+        return  // 沒設限
+    }
+    
+    limit, err := strconv.ParseInt(s, 10, 64)
+    if err != nil {
+        return
+    }
+    
+    // 設 GOMEMLIMIT 為 90%
+    target := int64(float64(limit) * 0.9)
+    debug.SetMemoryLimit(target)
+    fmt.Printf("GOMEMLIMIT set to %d MiB\n", target / 1024 / 1024)
+}
+</code></pre>
+
+      <h3>3.6 觀察 Go runtime 與 cgroup 的互動</h3>
+      <p>
+        生產 debug 必備技能：
+      </p>
+<pre><code>// 看 Go runtime 與 cgroup 的關係
+import (
+    "runtime"
+    "runtime/metrics"
+    "fmt"
+    "os"
+    "time"
+)
+
+func reportRuntime() {
+    fmt.Printf("=== Go runtime ===\n")
+    fmt.Printf("GOMAXPROCS: %d\n", runtime.GOMAXPROCS(0))
+    fmt.Printf("NumCPU: %d\n", runtime.NumCPU())
+    
+    // GOMEMLIMIT
+    var memlimit int64
+    fmt.Printf("GOMEMLIMIT: %d\n", memlimit)  // -1 = unlimited
+    
+    // 看 GC 統計
+    samples := make([]metrics.Sample, 1)
+    samples[0].Name = "/gc/heap/live:bytes"
+    metrics.Read(samples)
+    fmt.Printf("Heap live: %d bytes\n", samples[0].Value.Uint64())
+    
+    fmt.Printf("\n=== Cgroup ===\n")
+    if data, err := os.ReadFile("/sys/fs/cgroup/cpu.max"); err == nil {
+        fmt.Printf("cpu.max: %s", string(data))
+    }
+    if data, err := os.ReadFile("/sys/fs/cgroup/memory.max"); err == nil {
+        fmt.Printf("memory.max: %s", string(data))
+    }
+    if data, err := os.ReadFile("/sys/fs/cgroup/cpu.stat"); err == nil {
+        fmt.Printf("cpu.stat:\n%s", string(data))
+        // throttled_usec 高就有 CFS throttle 問題
+    }
+}
+
+// 在 main 跑、定期跑、或暴露成 metric endpoint
+</code></pre>
+
+      <h3>3.7 throttle 觀察與 alert</h3>
+      <p>
+        判斷 Go app 是否被 CFS throttle：
+      </p>
+<pre><code># 看 cpu.stat 的 throttle 累計
+cat /sys/fs/cgroup/cpu.stat | grep -E 'nr_throttled|throttled_usec'
+# nr_throttled 持續增加 = throttle 嚴重
+
+# 計算 throttle 百分比
+nr_periods=$(awk '/nr_periods/{print $2}' /sys/fs/cgroup/cpu.stat)
+nr_throttled=$(awk '/nr_throttled/{print $2}' /sys/fs/cgroup/cpu.stat)
+throttle_pct=$(echo "scale=2; $nr_throttled * 100 / $nr_periods" | bc)
+echo "Throttle: $throttle_pct%"
+
+# > 5% 表示嚴重，需要：
+# 1. 確認 GOMAXPROCS 設對
+# 2. 升 cpu.max
+# 3. 啟用 cpu.max.burst（kernel 5.14+）
+</code></pre>
+      <p>
+        <strong>Prometheus 採集 cAdvisor metrics</strong>：
+      </p>
+<pre><code># 從 cAdvisor 取
+container_cpu_cfs_throttled_seconds_total{pod="my-go-app"}
+container_cpu_cfs_throttled_periods_total{pod="my-go-app"}
+
+# 計算 throttle ratio
+rate(container_cpu_cfs_throttled_periods_total[5m]) /
+rate(container_cpu_cfs_periods_total[5m])
+
+# Alert
+- alert: GoAppThrottling
+  expr: |
+    rate(container_cpu_cfs_throttled_periods_total{pod=~".*-go-.*"}[5m])
+    / rate(container_cpu_cfs_periods_total{pod=~".*-go-.*"}[5m]) > 0.05
+  for: 5m
+  annotations:
+    summary: "Go app {{ $labels.pod }} CFS throttle > 5%"
+</code></pre>
+
+      <h3>3.8 GOGC 與 cgroup 的互動</h3>
+      <p>
+        <code>GOGC</code>（預設 100）控制 GC 觸發頻率。在 cgroup 限制場景的選擇：
+      </p>
+      <ul>
+        <li><strong>記憶體緊（&lt; 1GB）</strong>：GOGC=50（更頻繁 GC、CPU 消耗高、記憶體用量低）</li>
+        <li><strong>記憶體寬（&gt; 4GB）</strong>：GOGC=200（少 GC、CPU 省、記憶體用更滿）</li>
+        <li><strong>CPU 緊（cpu.max=1）</strong>：GOGC 高一點減少 GC 開銷</li>
+      </ul>
+      <p>
+        <strong>但更推薦用 GOMEMLIMIT</strong>——不需要手動 tune GOGC，runtime 自動在接近 limit 時調整。
+      </p>
+
+      <h3>3.9 best practices</h3>
+      <ul>
+        <li><strong>升級到 Go 1.25</strong>：container-aware GOMAXPROCS 是 production must。</li>
+        <li><strong>設 GOMEMLIMIT</strong>：手動或用 automemlimit。建議 cgroup memory.max 的 90%。</li>
+        <li><strong>監控 CFS throttle 與 GC pause</strong>：兩個常見性能殺手。</li>
+        <li><strong>K8s Pod 設 cpu/memory limit</strong>：Go 1.25 才有可讀資料。only-request 場景 Go runtime 仍會誤判。</li>
+        <li><strong>K8s 1.36 In-Place Resize 配合 Go 1.25</strong>：閉環自動調節。</li>
+        <li><strong>profiling 在 production 開啟</strong>：pprof endpoint 永遠開——cgroup throttle 時看得到 trace。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例</h2>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · 對比 Go 1.24 vs 1.25 在容器內的 GOMAXPROCS</div>
+<pre><code># Go 應用：showme.go
+package main
+
+import (
+    "fmt"
+    "runtime"
+)
+
+func main() {
+    fmt.Printf("GOMAXPROCS: %d\n", runtime.GOMAXPROCS(0))
+    fmt.Printf("NumCPU: %d\n", runtime.NumCPU())
+}
+
+# 編譯為 Go 1.24
+go1.24 build -o showme-124 showme.go
+# 編譯為 Go 1.25
+go1.25 build -o showme-125 showme.go
+
+# 跑在限制 1 CPU 的容器內
+docker run --rm --cpus=1.0 -v $PWD:/app alpine /app/showme-124
+# Go 1.24 輸出：GOMAXPROCS: 8（host CPU 數，<em>錯</em>）
+
+docker run --rm --cpus=1.0 -v $PWD:/app alpine /app/showme-125
+# Go 1.25 輸出：GOMAXPROCS: 1（cgroup limit，<em>正確</em>）
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · 模擬 CFS throttle 災難</div>
+<pre><code>// throttle-demo.go
+package main
+
+import (
+    "fmt"
+    "runtime"
+    "sync"
+    "time"
+)
+
+func main() {
+    // 故意設過高 GOMAXPROCS（模擬 Go 1.24 行為）
+    runtime.GOMAXPROCS(32)
+    fmt.Printf("GOMAXPROCS: %d\n", runtime.GOMAXPROCS(0))
+    
+    var wg sync.WaitGroup
+    for i := 0; i < 100; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            // CPU intensive
+            x := 0
+            for j := 0; j < 1_000_000_000; j++ {
+                x += j
+            }
+            _ = x
+        }()
+    }
+    
+    start := time.Now()
+    wg.Wait()
+    fmt.Printf("Took %v\n", time.Since(start))
+}
+
+# 跑在限 1 CPU 容器：嚴重 throttle
+docker run --rm --cpus=1.0 -v $PWD:/app golang:1.25 \
+    sh -c 'cd /app && go run throttle-demo.go'
+
+# 觀察 cpu.stat（從另一 terminal）
+CG=$(docker inspect $(docker ps -lq) --format '{{.HostConfig.CgroupParent}}{{.Id}}')
+watch -n 1 cat /sys/fs/cgroup/system.slice/docker-*.scope/cpu.stat
+# nr_throttled 暴漲
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · 設定 GOMEMLIMIT 避免 OOM</div>
+<pre><code>// memlimit-demo.go
+package main
+
+import (
+    "fmt"
+    "runtime"
+    "runtime/debug"
+)
+
+func main() {
+    // 自動讀 cgroup memory.max 設 90%
+    if data, err := readCgroupMemoryMax(); err == nil && data > 0 {
+        target := int64(float64(data) * 0.9)
+        debug.SetMemoryLimit(target)
+        fmt.Printf("GOMEMLIMIT: %d MB\n", target/1024/1024)
+    }
+    
+    // 模擬記憶體分配
+    var data [][]byte
+    for i := 0; i < 100; i++ {
+        data = append(data, make([]byte, 10*1024*1024)) // 10MB each
+        var stats runtime.MemStats
+        runtime.ReadMemStats(&stats)
+        fmt.Printf("Alloc: %d MB, Sys: %d MB, GC count: %d\n",
+            stats.Alloc/1024/1024,
+            stats.Sys/1024/1024,
+            stats.NumGC)
+    }
+}
+
+func readCgroupMemoryMax() (int64, error) {
+    // 簡化版，省略 error handling
+    // 實際讀 /sys/fs/cgroup/memory.max
+    return 500 * 1024 * 1024, nil  // 假設 500MB
+}
+
+# 在 limit=500M 容器跑
+docker run --rm --memory=500M -v $PWD:/app golang:1.25 \
+    sh -c 'cd /app && go run memlimit-demo.go'
+# 預期：接近 limit 時 GC 頻率提高，避免直接 OOM
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 4 · 用 pprof 看 Go runtime 與 cgroup 的關係</div>
+<pre><code>// pprof-cgroup.go
+package main
+
+import (
+    "log"
+    "net/http"
+    _ "net/http/pprof"
+    "runtime"
+)
+
+func main() {
+    log.Printf("GOMAXPROCS: %d", runtime.GOMAXPROCS(0))
+    log.Printf("NumCPU: %d", runtime.NumCPU())
+    
+    // 開 pprof endpoint
+    go http.ListenAndServe(":6060", nil)
+    
+    // 應用本體...
+    select {}
+}
+
+# 跑 + 從另一 terminal 看 pprof
+go tool pprof http://localhost:6060/debug/pprof/profile?seconds=30
+# 用 'top' 看 CPU heavy goroutine
+# 用 'web' 看 callgraph
+
+# 看 throttle 對 profile 影響：
+# CFS throttle 時 process clock 仍跑、wall clock 大量 sleep
+# pprof 預設 wall clock，throttle 顯著
+go tool pprof -wall http://localhost:6060/debug/pprof/profile
+
+# 同時看 cgroup
+watch -n 1 'cat /sys/fs/cgroup$(awk -F: "{print \$3}" /proc/$(pgrep pprof-cgroup)/cgroup)/cpu.stat'
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 5 · 配合 K8s In-Place Resize 動態 GOMAXPROCS</div>
+<pre><code># 1. 部署 Go 1.25 app
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: go-resize-demo
+spec:
+  containers:
+  - name: app
+    image: my-go-app:1.25
+    resizePolicy:
+    - resourceName: cpu
+      restartPolicy: NotRequired
+    resources:
+      limits: { cpu: "1", memory: "256Mi" }
+      requests: { cpu: "1", memory: "256Mi" }
+EOF
+
+# 2. 看初始 GOMAXPROCS
+kubectl logs go-resize-demo | grep GOMAXPROCS
+# GOMAXPROCS: 1
+
+# 3. In-Place resize 到 4 CPU
+kubectl patch pod go-resize-demo --subresource resize --patch \
+  '{"spec":{"containers":[{"name":"app","resources":{"requests":{"cpu":"4"},"limits":{"cpu":"4"}}}]}}'
+
+# 4. 等 30+ 秒（Go 1.25 重檢間隔）
+sleep 35
+
+# 5. 在 app 內讀取 GOMAXPROCS（如果有 endpoint 可查）
+# 或重啟 print：應該看到 GOMAXPROCS = 4
+# 完整自動化閉環：K8s 改 cgroup → 30 秒 → Go runtime 跟上
+</code></pre>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · 容器內 Go 1.24- 沒設 GOMAXPROCS 直接 production</div>
+      <p>Go 1.24- 容器內 GOMAXPROCS 預設等於 host CPU 數——Pod limit=2 但 host=64 時 GOMAXPROCS=64，嚴重 CFS throttle。修法：升 Go 1.25、import uber-go/automaxprocs、或手動設 <code>GOMAXPROCS</code> 環境變數。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · K8s Pod 只設 request 沒設 limit，Go 1.25 仍誤判</div>
+      <p>Pod 設 cpu request=2 但沒 limit——cgroup 只有 cpu.weight 沒 cpu.max。Go 1.25 看不到絕對限制，仍按 host 設 GOMAXPROCS。修法：production 一律設 cpu limits（不是只 requests）。或用社群 library 讀 cpu.weight 反推。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · 同時用 Go 1.25 + automaxprocs 衝突</div>
+      <p>Go 1.25 已內建，又 import automaxprocs——automaxprocs init 時呼叫 <code>runtime.GOMAXPROCS(n)</code> 會關掉 Go 1.25 動態追蹤。結果是 fixed GOMAXPROCS，K8s resize 後不會跟上。修法：升 Go 1.25 後移除 automaxprocs，或保留 automaxprocs（如需 round down 行為）但接受 dynamic 失效。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · GOMEMLIMIT 設太緊導致 GC 風暴</div>
+      <p>GOMEMLIMIT 設成 cgroup memory.max 的 50%——應用接近 50% 時 runtime 瘋狂 GC，CPU 直接吃滿，吞吐崩潰。修法：GOMEMLIMIT 建議設 cgroup memory.max 的 85-95%。太緊不如放寬。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 5 · pprof CPU profile 看不到 throttle 影響</div>
+      <p>用 <code>go tool pprof /debug/pprof/profile</code> 看 CPU heavy 函式——但 throttle 期間 process 在睡覺 pprof 採不到，不知道 throttle 才是元兇。修法：用 wall-clock profiling（<code>go tool pprof -wall ...</code>）看實際時間流逝；同時看 cpu.stat 的 throttled_usec。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 6 · 用 NumCPU() 設並發數而非 GOMAXPROCS</div>
+      <p>worker pool 程式碼 <code>numWorkers := runtime.NumCPU()</code>——NumCPU 永遠是 host CPU 數，不會跟 cgroup limit 走。即使 Go 1.25，這個值不變。修法：用 <code>runtime.GOMAXPROCS(0)</code> 取當前值。或硬編設定值。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 7 · GOMAXPROCS &lt; 2 導致 GC 瓶頸</div>
+      <p>容器只給 <code>--cpus=0.5</code>，automaxprocs round down 到 1——Go GC 是 concurrent 但需要至少一個 thread 給 mutator，GOMAXPROCS=1 時 GC 期間應用幾乎停擺。Go 1.25 強制最低 2 就是這原因。修法：給容器至少 1 整 CPU；如不可避，用 Go 1.25 內建（強制 2）。</p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 8 · Go runtime metrics 沒對 cgroup 做標籤</div>
+      <p>Prometheus 採 Go runtime metrics（go_goroutines、go_gc_duration_seconds），但沒 cgroup 上下文——多 Pod 時看不出哪個出問題。修法：metric 加 pod / namespace label（kube-prometheus-stack 自動處理）。並結合 cAdvisor cgroup metrics 看 throttle。</p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · 計算 GOMAXPROCS（10 分鐘）</div>
+      <p>對下面情境算 Go 1.25 預設 GOMAXPROCS 與 automaxprocs 結果：</p>
+      <ol>
+        <li>Host 64 CPU，容器無 cgroup 限制</li>
+        <li>Host 32 CPU，cgroup cpu.max="500000 100000"（5 CPU）</li>
+        <li>Host 16 CPU，cgroup cpu.max="50000 100000"（0.5 CPU）</li>
+        <li>Host 8 CPU，cgroup cpu.max="250000 100000"（2.5 CPU）</li>
+      </ol>
+      <p>每個情境寫 Go 1.25 vs automaxprocs vs 手寫 <code>GOMAXPROCS=1</code> 各自結果。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · 寫腳本檢查 Go service GOMAXPROCS 健康度（15 分鐘）</div>
+<pre><code>#!/bin/bash
+# go-gomaxprocs-audit.sh
+# 對所有 K8s Pod 內 Go process 檢查 GOMAXPROCS 是否合理
+
+for pod in $(kubectl get pods -o jsonpath='{.items[*].metadata.name}'); do
+    # 跳過非 Go 應用（粗略）
+    
+    # 取 Pod CPU limit
+    cpu_limit=$(kubectl get pod $pod -o jsonpath='{.spec.containers[0].resources.limits.cpu}')
+    
+    # 取 GOMAXPROCS（如果應用 expose metric）
+    if kubectl exec $pod -- wget -qO- http://localhost:6060/debug/vars 2>/dev/null | grep -q GOMAXPROCS; then
+        gomaxprocs=$(kubectl exec $pod -- wget -qO- http://localhost:6060/debug/vars | jq -r .GOMAXPROCS)
+        echo "$pod: limit=$cpu_limit, GOMAXPROCS=$gomaxprocs"
+        # 判斷：GOMAXPROCS 比 cpu_limit 大很多 → 警告
+    fi
+done</code></pre>
+      <p>跑在你的 cluster，列出 GOMAXPROCS 不合理的 Go service。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 設計 Go service production-ready 配置（思考題，15 分鐘）</div>
+      <p>你開發新 Go API service，要 deploy 到 K8s。設計：</p>
+      <ol>
+        <li>應該用 Go 哪個版本？理由？</li>
+        <li>K8s Pod yaml 該設哪些 resources？</li>
+        <li>需要設 GOMEMLIMIT 嗎？怎麼設？</li>
+        <li>需要 import automaxprocs 嗎？什麼情況下需要？</li>
+        <li>哪些 metric 該採集？哪些 alert 該設？</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 從 Go 1.21 升級到 1.25 的 migration 計劃（思考題，15 分鐘）</div>
+      <p>有 50 個 Go service 跑在 Go 1.21，全 import 了 automaxprocs。設計升級 1.25 的計劃：</p>
+      <ol>
+        <li>哪些 service 該保留 automaxprocs？哪些可移除？</li>
+        <li>升 1.25 後可能出現的 regression？怎麼測試？</li>
+        <li>動態 GOMAXPROCS 對哪些 workload 有風險（如 worker pool 大小固定）？</li>
+        <li>怎麼 phase rollout 把風險降低？</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>Go 的 GMP scheduler 是什麼？GOMAXPROCS 控制什麼？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>GMP scheduler</strong> 是 Go runtime 的核心：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>G（goroutine）</strong>：Go 的輕量 user-space coroutine。比 OS thread 便宜（KB 級 stack）。</li>
+          <li><strong>M（machine / OS thread）</strong>：kernel-level thread，跑 Go code 的實際 worker。</li>
+          <li><strong>P（processor）</strong>：虛擬 CPU 概念，掛載 G queue，分配給 M 跑。</li>
+        </ul>
+        <strong>GOMAXPROCS 控制 P 的數量</strong>——也就是同時能跑 Go code 的 OS thread 上限。
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>Go 1.5+ 預設 = <code>runtime.NumCPU()</code>（host 邏輯 CPU 數）</li>
+          <li>Go 1.25+ 預設 = <code>min(NumCPU, ceil(cgroup CPU 限制))</code></li>
+        </ul>
+        <strong>為什麼這個值關鍵</strong>：太小（1）→ 並發吞吐低；太大（&gt; cgroup 限制）→ 大量 thread 爭搶被 CFS throttle、context switch 暴增、tail latency 飛漲。
+        <strong>NumCPU vs GOMAXPROCS</strong>：NumCPU 永遠是 host 邏輯 CPU 數（不會變），GOMAXPROCS 是 P 數量（可動態調整）。<em>不要</em>用 NumCPU 設 worker pool 大小！
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>Go 1.24- 在容器中為什麼會 throttle？解法是什麼？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>throttle 根源</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>Go 1.24- 預設 <code>GOMAXPROCS = runtime.NumCPU()</code>。</li>
+          <li>NumCPU 看 host 邏輯 CPU 數（如 32），不看 cgroup 限制（如 2）。</li>
+          <li>Go runtime 起 32 個 worker thread 處理 goroutine。</li>
+          <li>32 個 thread 同時搶 cgroup 給的 2 CPU 配額。</li>
+          <li>每 100ms 配額用完，<em>所有 thread 全停</em>（CFS throttle）。</li>
+          <li>後果：context switch 4× 倍增；tail latency 從毫秒爆到 30+ 秒；GC 也被 throttle pause 暴漲。</li>
+        </ol>
+        <strong>解法</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>升 Go 1.25</strong>（最簡單）：runtime 自動讀 cgroup cpu.max 設 GOMAXPROCS。</li>
+          <li><strong>uber-go/automaxprocs</strong>：Go 1.24- 的標準解法。<code>import _ "go.uber.org/automaxprocs"</code> 即可。</li>
+          <li><strong>手動設環境變數</strong>：<code>env: [{name: GOMAXPROCS, value: "2"}]</code> 寫死成 cgroup 限制值。</li>
+          <li><strong>K8s downward API</strong>：用 <code>resourceFieldRef</code> 把 cpu limit 自動 inject 為環境變數。</li>
+        </ol>
+        <strong>實測效果</strong>：DEV community 報告「<em>CPU 使用率下降 35%</em>」、p99 latency 大幅改善（DEV community 文章）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span>Go 1.25 內建 GOMAXPROCS 與 uber-go/automaxprocs 主要差別？什麼時候用哪個？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>主要差別</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>觸發方式</strong>：Go 1.25 升 go.mod 即可；automaxprocs 需 import + init</li>
+          <li><strong>最小 GOMAXPROCS</strong>：Go 1.25 是 2；automaxprocs 是 1</li>
+          <li><strong>分數 CPU 處理</strong>：Go 1.25 round up（積極）；automaxprocs round down（保守）</li>
+          <li><strong>動態追蹤</strong>：Go 1.25 是（30 秒重檢）；automaxprocs 否（只 init 時）</li>
+          <li><strong>Log</strong>：Go 1.25 不 log；automaxprocs 預設 log</li>
+          <li><strong>cgroup v2 支援</strong>：Go 1.25 是；automaxprocs 1.5+</li>
+        </ul>
+        <strong>選 Go 1.25 內建</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>新 service，少一個依賴</li>
+          <li>K8s 動態 resize 場景（In-Place Resize）需要 dynamic GOMAXPROCS</li>
+          <li>不在意 round up vs down</li>
+          <li>需要 cleaner production output（不想 log）</li>
+        </ul>
+        <strong>選 automaxprocs</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>仍跑 Go 1.24 或更早</li>
+          <li>需要 round down（保守策略避免 throttle）</li>
+          <li>需要 log GOMAXPROCS 變化（debug）</li>
+          <li>需要 GOMAXPROCS=1（極限制環境）</li>
+        </ul>
+        <strong>不建議</strong>：Go 1.25 + automaxprocs 同時用。automaxprocs 設 GOMAXPROCS 後 Go 1.25 動態追蹤就 disable 了。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span>round up 與 round down 的選擇邏輯？哪個比較好？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>背景</strong>：cgroup CPU 限制可以是分數（如 2.5 CPU），但 GOMAXPROCS 必須整數。
+        <strong>Round up（Go 1.25）</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>2.5 → 3</li>
+          <li><strong>優</strong>：充分用 CPU 配額；高吞吐場景受益。</li>
+          <li><strong>缺</strong>：理論上更容易 throttle（partial second 內 thread 多於可用 CPU）。</li>
+          <li><strong>論點</strong>：throttle 是 200ms-level，多用 CPU 通常更好。</li>
+        </ul>
+        <strong>Round down（automaxprocs）</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>2.5 → 2</li>
+          <li><strong>優</strong>：保守、絕不 throttle；tail latency 穩定。</li>
+          <li><strong>缺</strong>：浪費部分 CPU 配額。</li>
+          <li><strong>論點</strong>：「<em>分數 CPU 表示用戶刻意保留 burst</em>」（automaxprocs 文件）。</li>
+        </ul>
+        <strong>哪個比較好</strong>？取決 workload：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>latency-critical</strong>（API、DB）→ round down 更保險</li>
+          <li><strong>throughput-critical</strong>（batch、ML）→ round up 更快</li>
+          <li><strong>多 Pod 同節點</strong>→ round down 公平避免抖動</li>
+          <li><strong>單 Pod 獨佔節點</strong>→ round up 用滿資源</li>
+        </ul>
+        <strong>實務</strong>：多數 service 兩者表現差不多。如果你不確定就用預設（Go 1.25 = round up）。發現嚴重 throttle 再考慮換 automaxprocs。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span>GOMEMLIMIT 是什麼？跟 cgroup memory limits 怎麼配合？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>GOMEMLIMIT（Go 1.19+）</strong>：Go runtime 的<em>軟記憶體上限</em>。當記憶體接近這個值時，runtime 大幅<em>提高 GC 頻率與強度</em>，嘗試降低用量避免 OOM。
+        <strong>傳統 Go GC 行為（沒 GOMEMLIMIT）</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>GC 觸發看 GOGC（預設 100，「<em>記憶體成上次 GC 後 2 倍時 GC</em>」）。</li>
+          <li>沒考慮絕對上限——可能 GC 還沒跑就觸到 cgroup memory.max → OOM。</li>
+        </ul>
+        <strong>跟 cgroup 配合：三層保護</strong>：
+        <pre style="margin-top:8px;font-size:11px;">GOMEMLIMIT 達 900MB → Go runtime 提高 GC（嘗試降量）
+              ↓（無效時）
+memory.high 達 950MB（K8s Memory QoS）→ kernel throttle
+              ↓（無效時）
+memory.max 達 1024MB → kernel OOM kill</pre>
+        <strong>建議設定</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>絕對值</strong>：cgroup memory.max 的 85-95%</li>
+          <li><strong>K8s 設法</strong>：環境變數 <code>GOMEMLIMIT</code>，或自動讀 cgroup（自寫或用 KimMachineGun/automemlimit）</li>
+        </ul>
+        <strong>注意</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>GOMEMLIMIT 設太緊（如 50%）→ GC 風暴 CPU 吃滿</li>
+          <li>不能保證避免 OOM，只是降低機率</li>
+          <li>設 GOMEMLIMIT 後 GOGC 仍生效，兩者協作</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>怎麼判斷 Go service 在 K8s 內被 CFS throttle？怎麼處理？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>判斷方式</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>看 cpu.stat</strong>：
+            <pre style="margin-top:4px;font-size:11px;">cat /sys/fs/cgroup/cpu.stat
+# nr_throttled 持續增加 → throttle 在發生
+# throttled_usec 顯示累計 throttle 時間</pre>
+          </li>
+          <li><strong>從 Prometheus（cAdvisor）</strong>：
+            <pre style="margin-top:4px;font-size:11px;">rate(container_cpu_cfs_throttled_periods_total[5m]) /
+rate(container_cpu_cfs_periods_total[5m]) &gt; 0.05</pre>
+          </li>
+          <li><strong>從 Go pprof</strong>：用 wall-clock profile 看 process 是不是在睡覺：
+            <pre style="margin-top:4px;font-size:11px;">go tool pprof -wall http://...:6060/debug/pprof/profile</pre>
+          </li>
+          <li><strong>看 cpu.pressure</strong>：
+            <pre style="margin-top:4px;font-size:11px;">cat /sys/fs/cgroup/cpu.pressure
+# some avg10 持續 &gt; 5 = 有 task 等 CPU</pre>
+          </li>
+        </ol>
+        <strong>處理方式（按優先級）</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>升 Go 1.25</strong>：根本解法，runtime 自動匹配 cgroup。</li>
+          <li><strong>確認 GOMAXPROCS = cgroup limit</strong>：可能應用手動 override 過高。</li>
+          <li><strong>升 cpu.max</strong>：簡單粗暴但有效。</li>
+          <li><strong>啟用 cpu.max.burst</strong>（kernel 5.14+）：允許短期 burst 不被 throttle。</li>
+          <li><strong>K8s 1.36+ In-Place Resize</strong>：動態擴容，配合 PSI HPA。</li>
+        </ol>
+        <strong>常見誤區</strong>：throttle &gt; 0 不代表一定有問題——關鍵是 throttle <em>百分比</em>（&gt; 5%）與對應的 latency 影響。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span>Go 1.25 為什麼最低 GOMAXPROCS 設成 2？為什麼不是 1？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>背景</strong>：Go runtime 的 GC 是 concurrent——GC 跟 mutator（應用 code）並行跑，但需要至少一個 thread 給 mutator。
+        <strong>GOMAXPROCS=1 的問題</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>只有 1 個 P。</li>
+          <li>GC 開始時 P 用來跑 GC worker。</li>
+          <li>應用 goroutine（mutator）要等 GC 釋放 P 才能跑。</li>
+          <li>結果：GC 期間應用幾乎停擺（不再是 concurrent）。</li>
+        </ol>
+        <strong>GOMAXPROCS=2 的好處</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>GC worker 跑在一個 P，mutator 在另一個 P。</li>
+          <li>真正的 concurrent GC，pause 時間大幅降低。</li>
+          <li>cgroup CPU burst（quota 突發）才能用上。</li>
+        </ul>
+        <strong>為什麼 automaxprocs 預設 1</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>歷史包袱（早期 GC 設計不同）。</li>
+          <li>「<em>用戶顯式設小 limit 應該尊重</em>」的哲學。</li>
+        </ul>
+        <strong>例外</strong>：Go 1.25 在 host 只有 1 邏輯 CPU 時仍允許 GOMAXPROCS=1（如極限制 IoT）。
+        <strong>實務建議</strong>：給容器至少 1 整 CPU（cgroup --cpus=1.0），讓 Go 1.25 能用 GOMAXPROCS=1（host 1 CPU 場景）或 2（一般場景）。<em>不要</em>給 0.3、0.5 的分數 CPU——會大幅影響 GC 行為。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>實作思考題：你管理 50 個 Go service 在 K8s 上跑，要全面升級到「<em>cgroup-aware production-ready</em>」。請設計完整方案。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>完整方案（5 階段）</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[Phase 1: 現況盤點（1 週）]
+1. 列出所有 Go service 的版本：
+   for s in $(list-services); do
+       grep '^go ' $s/go.mod
+   done
+
+2. 分類：
+   - Go &lt; 1.19：沒 GOMEMLIMIT 支援，最舊
+   - Go 1.19-1.24：要 automaxprocs
+   - Go 1.25+：可不用 automaxprocs
+
+3. 跑 audit：哪些 Pod 有 throttle？
+   PromQL：rate(container_cpu_cfs_throttled_periods_total[1h]) /
+          rate(container_cpu_cfs_periods_total[1h]) &gt; 0.05
+
+[Phase 2: K8s yaml 標準化（2 週）]
+4. 對所有 Go Pod 確保：
+   - 設 cpu limits（不只 requests）
+   - 設 memory limits
+   - GOMAXPROCS / GOMEMLIMIT 環境變數（暫時手動設）
+   
+5. 範例 yaml：
+spec:
+  containers:
+  - name: app
+    env:
+    - name: GOMEMLIMIT
+      valueFrom:
+        resourceFieldRef:
+          containerName: app
+          resource: limits.memory
+          divisor: "1"
+      # 注意 K8s 沒辦法直接 inject 90% 值
+      # 通常硬寫或 init container 算
+    resources:
+      limits: { cpu: "2", memory: "2Gi" }
+      requests: { cpu: "2", memory: "2Gi" }
+
+[Phase 3: 升級 Go 版本（4-6 週）]
+6. 從 dev/staging 開始升 Go 1.25
+7. CI 加 lint：禁止 Go &lt; 1.21（GOMEMLIMIT 需要）
+8. 對 critical service：phased rollout，1 個 instance 試 → 10% → 100%
+9. 觀察指標：
+   - GC pause time（go_gc_duration_seconds）
+   - throttle rate（cAdvisor）
+   - p99 latency
+   - CPU 使用率（應該下降）
+
+[Phase 4: 標準化中間件（4 週）]
+10. 建立內部 Go template：
+    - go.mod 強制 1.25+
+    - import KimMachineGun/automemlimit（自動 GOMEMLIMIT）
+    - 預設 expose pprof endpoint
+    - 預設 expose /metrics 含 GOMAXPROCS、GOMEMLIMIT
+
+11. 對 Go 1.24 service：保留 automaxprocs，標 TODO
+
+[Phase 5: 持續優化]
+12. 建立 dashboard：
+    - 每 service throttle rate
+    - GOMAXPROCS / cgroup CPU 對比
+    - GC pause time
+    - GOMEMLIMIT vs memory.max 比例
+
+13. Alert：
+    - throttle rate &gt; 5%
+    - GC pause &gt; 100ms
+    - GOMAXPROCS != cgroup CPU（不同步）
+
+14. 定期 review：season change 時 traffic pattern 變化，
+    重新算 limit 與 GOMEMLIMIT</pre>
+        <strong>關鍵原則</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>升級分階段</strong>：critical service 最後，先驗證再 rollout。</li>
+          <li><strong>K8s yaml 與 Go runtime 雙管</strong>：兩邊都要設對才有效。</li>
+          <li><strong>監控優先</strong>：升級前後 baseline 對比，否則看不到效果。</li>
+          <li><strong>內部 template</strong>：避免新 service 重蹈覆轍。</li>
+        </ol>
+        <strong>陷阱</strong>：Go 1.25 升級可能暴露之前隱藏的 bug（dynamic GOMAXPROCS 變化導致 worker pool 行為改變）。CI 加 stress test 與 long-running test 可發現。
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+    <div class="refs">
+      <ol>
+        <li><a href="https://go.dev/blog/container-aware-gomaxprocs" target="_blank" rel="noopener">Container-aware GOMAXPROCS · The Go Blog</a><span class="ref-source">go.dev · Go team 官方說明 1.25 內建 cgroup awareness</span></li>
+        <li><a href="https://github.com/golang/go/issues/73193" target="_blank" rel="noopener">runtime: CPU limit-aware GOMAXPROCS default · Issue 73193</a><span class="ref-source">github.com · 完整 proposal 與設計討論</span></li>
+        <li><a href="https://github.com/uber-go/automaxprocs" target="_blank" rel="noopener">uber-go/automaxprocs</a><span class="ref-source">github.com · Go 1.24- 的標準解法</span></li>
+        <li><a href="https://github.com/KimMachineGun/automemlimit" target="_blank" rel="noopener">KimMachineGun/automemlimit</a><span class="ref-source">github.com · 自動 GOMEMLIMIT 從 cgroup memory 推算</span></li>
+        <li><a href="https://victoriametrics.com/blog/kubernetes-cpu-go-gomaxprocs/" target="_blank" rel="noopener">Container CPU Requests &amp; Limits Explained with GOMAXPROCS Tuning · VictoriaMetrics</a><span class="ref-source">victoriametrics.com · K8s + Go 完整 deep dive 含 cAdvisor metrics</span></li>
+        <li><a href="https://medium.com/@barankibarr/go-runtimes-container-awareness-a-deep-dive-into-how-it-works-4e7bdfad2335" target="_blank" rel="noopener">Go Runtime's Container Awareness · Medium</a><span class="ref-source">medium.com · Go 1.25 內部機制 deep dive</span></li>
+        <li><a href="https://appliedgo.net/spotlight/go-1.25-container-aware-gomaxprocs/" target="_blank" rel="noopener">Container-Aware GOMAXPROCS · Applied Go</a><span class="ref-source">appliedgo.net · 易讀的 1.25 行為說明</span></li>
+        <li><a href="https://tip.golang.org/doc/gc-guide" target="_blank" rel="noopener">A Guide to the Go Garbage Collector · Go docs</a><span class="ref-source">go.dev · GOMEMLIMIT 與 GC 行為完整官方文件</span></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn" href="ch18-onprem-hpc.html">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">Ch.18 地端與特殊場景</span>
+    </a>
+    <a class="nav-btn next disabled">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">Ch.20 Python 整合</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.title = `Theme: ${LABELS[mode]}`;
+      btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+</body>
+</html>

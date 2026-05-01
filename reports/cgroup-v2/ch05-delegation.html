@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.5 Delegation 與權限模型 — cgroup v2 完整教學</title>
+<meta name="description" content="深入理解 cgroup v2 的委派模型：nsdelegate、非 root 使用者委派、cgroup namespace 隔離、containment 機制、rootless container 為什麼需要 v2。">
+
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626; --color-danger-soft: #fee2e2;
+  --color-info: #0891b2; --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px; --text-4xl: 64px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+</style>
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.topbar { position: sticky; top: 0; z-index: 50; background: color-mix(in oklch, var(--bg-canvas) 88%, transparent); backdrop-filter: saturate(180%) blur(12px); -webkit-backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--border-soft); }
+.topbar-inner { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.brand { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-secondary); }
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 999px; padding: 6px 14px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background .2s, border-color .2s, color .2s; }
+[data-theme-toggle]:hover { background: var(--bg-muted); border-color: var(--border-mid); color: var(--text-primary); }
+[data-theme-toggle] .theme-icon { font-size: 14px; line-height: 1; }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: 0 var(--space-5); }
+
+.chapter-head { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); }
+.chapter-tag { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary-text); background: var(--color-primary-soft); padding: 4px 12px; border-radius: 999px; margin-bottom: var(--space-4); }
+.chapter-title { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; margin-bottom: var(--space-3); }
+.chapter-subtitle { font-family: var(--font-serif-body); font-size: var(--text-md); color: var(--text-secondary); line-height: 1.65; font-style: italic; }
+.chapter-meta { margin-top: var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.chapter-meta-item:first-child::before { display: none; }
+
+.section { padding: var(--space-7) 0; border-bottom: 1px solid var(--border-soft); }
+.section:last-of-type { border-bottom: none; }
+.section-label { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2); }
+.section-label::before { content: ""; width: 24px; height: 1px; background: var(--color-primary); }
+.section-title { font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600; margin-bottom: var(--space-5); letter-spacing: -0.01em; line-height: 1.2; }
+
+.prose p { font-family: var(--font-serif-body); font-size: var(--text-base); color: var(--text-primary); line-height: 1.85; margin-bottom: var(--space-4); }
+.prose h3 { font-family: var(--font-sans); font-size: var(--text-lg); font-weight: 600; color: var(--text-primary); margin: var(--space-6) 0 var(--space-3); letter-spacing: -0.01em; }
+.prose h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 500; color: var(--text-primary); margin: var(--space-5) 0 var(--space-2); }
+.prose ul, .prose ol { font-family: var(--font-serif-body); margin-bottom: var(--space-4); padding-left: var(--space-5); line-height: 1.8; }
+.prose ul li, .prose ol li { margin-bottom: var(--space-2); color: var(--text-primary); }
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong { font-weight: 600; color: var(--text-primary); }
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 1px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+.prose a { color: var(--color-primary); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.prose a:hover { color: var(--color-primary-hover); }
+
+.highlights { background: var(--color-primary-soft); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.highlights ol { font-family: var(--font-sans); padding-left: var(--space-5); margin: 0; }
+.highlights li { font-size: var(--text-sm); color: var(--color-primary-text); margin-bottom: var(--space-2); line-height: 1.65; }
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+
+.news-box { background: var(--color-info-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.news-item { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); line-height: 1.7; padding: var(--space-2) 0; border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent); }
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-info); margin-right: var(--space-2); }
+
+pre { font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.7; background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; margin-bottom: var(--space-4); color: var(--text-primary); }
+pre code { background: transparent; border: none; padding: 0; font-size: inherit; color: inherit; }
+
+.cmp-table { width: 100%; border-collapse: collapse; margin-bottom: var(--space-4); font-size: var(--text-sm); font-family: var(--font-sans); }
+.cmp-table th, .cmp-table td { padding: var(--space-3); text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.cmp-table th { font-weight: 600; color: var(--text-primary); background: var(--bg-muted); font-size: var(--text-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 1px 5px; border-radius: var(--radius-sm); color: var(--color-primary-text); }
+
+.lab { background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.lab-title { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--color-primary); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px dashed var(--border-soft); }
+.lab-title::before { content: "▶ "; color: var(--color-primary); }
+.lab p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-3); color: var(--text-secondary); line-height: 1.7; }
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+.lab ol, .lab ul { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); color: var(--text-secondary); line-height: 1.7; }
+
+.pitfall { background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.pitfall-title { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 600; color: var(--color-warning); margin-bottom: var(--space-2); }
+.pitfall p { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); margin-bottom: var(--space-2); line-height: 1.7; }
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code { background: color-mix(in oklch, var(--color-warning) 15%, transparent); border-color: color-mix(in oklch, var(--color-warning) 30%, transparent); color: var(--text-primary); }
+
+.quiz-item { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-3); }
+.quiz-q { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; color: var(--text-primary); margin-bottom: var(--space-2); display: flex; gap: var(--space-2); }
+.quiz-q-num { font-family: var(--font-mono); color: var(--color-primary); flex-shrink: 0; }
+.quiz-toggle { background: transparent; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 4px 10px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; margin-top: var(--space-2); transition: background .2s, color .2s; }
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a { display: none; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px dashed var(--border-soft); font-family: var(--font-serif-body); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.75; }
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+
+.diagram { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); margin-bottom: var(--space-4); text-align: center; }
+.diagram svg { max-width: 100%; height: auto; }
+.diagram-caption { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-3); text-align: center; }
+
+.refs ol { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); line-height: 1.8; }
+.refs li { margin-bottom: var(--space-2); color: var(--text-secondary); }
+.refs li::marker { color: var(--color-primary); }
+.refs a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dashed var(--color-primary); }
+.refs a:hover { color: var(--color-primary-hover); }
+.refs .ref-source { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); display: block; margin-top: 2px; }
+
+.chapter-nav { margin-top: var(--space-6); padding: var(--space-5) 0; display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.nav-btn { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; padding: var(--space-3) var(--space-4); background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); text-decoration: none; color: var(--text-primary); transition: border-color .2s, transform .15s; }
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.04em; }
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.05</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part II · 操作篇 · Chapter 05</span>
+    <h1 class="chapter-title">Delegation 與權限模型</h1>
+    <p class="chapter-subtitle">
+      cgroup v2 把 v1 「<em>含糊不清的委派</em>」徹底重做，讓非 root 使用者也能安全地管理自己的子樹。
+      本章解開「<em>為什麼 systemd 是 root cgroup 的 single writer</em>」的謎題，
+      並深入 nsdelegate、cgroup namespace、containment——這是 rootless container 與 Kubernetes Pod 安全模型的根基。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~5,800 字</span>
+      <span class="chapter-meta-item">閱讀時間 22 分鐘</span>
+      <span class="chapter-meta-item">難度：安全</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ====================== Section 1: 本章重點 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+
+    <div class="highlights">
+      <ol>
+        <li><strong>兩種委派方式</strong>：（1）權限委派——透過 chown 把目錄與部分檔案交給非 root 使用者；（2）namespace 委派——配合 <code>nsdelegate</code> mount option，讓 cgroup namespace 自動成為委派邊界。</li>
+        <li><strong>delegation containment</strong>：委派出去的子樹是「<em>真正的封閉沙箱</em>」——委派者改不了 parent 的設定，也無法把外部 process 拉進來、把內部 process 推出去。</li>
+        <li><strong>可委派的檔案清單</strong>：<code>/sys/kernel/cgroup/delegate</code> 列出哪些檔案可以交給委派者。typical 包含 <code>cgroup.procs</code>、<code>cgroup.threads</code>、<code>cgroup.subtree_control</code>，但<em>不包含</em> resource control interface files（如 <code>memory.max</code>）。</li>
+        <li><strong>systemd Delegate=yes</strong>：應用想自己管理子樹，必須在 systemd unit 加 <code>Delegate=yes</code> 申請。systemd 不會 touch 委派出去的子樹，從而符合 single-writer rule。</li>
+        <li><strong>rootless container 的鑰匙</strong>：v1 沒有 rootless cgroup 概念；v2 + nsdelegate + systemd user@.service Delegate 才讓 podman、rootless docker 真正可用。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 2: 最新動態 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+
+    <div class="news-box">
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>rootless Podman 在多數 distro 為標配</strong>，user@.service 預設 delegate <code>memory pids</code>；要 cpu / cpuset / io 仍需手動加 drop-in。常見 issue 是「<em>容器啟動時警告 cgroup not exist</em>」，多半是 delegation 配置不完整。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025-04</span>
+        <strong>runc 1.2+ 改善 rootless cgroup 警告訊息</strong>，能更準確判斷 delegation 是否真的啟用。詳見 GitHub issue #4732。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025-09</span>
+        <strong>Kubernetes user namespace 進入穩定測試</strong>，搭配 cgroup v2 nsdelegate 提供更強的 Pod 隔離。Pod 中的 root（uid 0）對應到 host 上的 unprivileged user。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2026-01</span>
+        <strong>systemd v258 移除強制 v1</strong>，意味著「rootless container 必須要 v2」這個結論變成不可繞過——所有人都得學委派模型。
+      </div>
+    </div>
+
+    <div class="prose">
+      <p>
+        2026 年的時點，<strong>delegation 不再是進階主題，而是日常基礎</strong>。
+        任何在 Linux 上跑容器、開發 systemd service、或想理解 Kubernetes Pod 為什麼這樣設計的人，
+        都需要懂本章內容。下面從最基本的權限委派開始講起。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 3: 核心內容 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+
+    <div class="prose">
+      <h3>3.1 為什麼 cgroup 要委派</h3>
+      <p>
+        想像一個場景：你是系統管理員，配給某個使用者 <code>alice</code> 一塊 cgroup（限定她最多用 8GB 記憶體、4 核 CPU）。
+        在這塊配額內，alice 想自己決定資源怎麼分配——例如她跑了 3 個專案，希望「<em>專案 A 拿 4GB、B 拿 2GB、C 拿 2GB</em>」。
+      </p>
+      <p>
+        最簡單的做法：<strong>把這塊 cgroup 交給 alice 自己管</strong>。
+        alice 在裡面建子 cgroup、移動 process、設子配額，但她<em>絕對不能</em>：
+      </p>
+      <ul>
+        <li>把 8GB 上限改大（突破你給的配額）</li>
+        <li>把外面的 process 抓進她的 cgroup（影響別人）</li>
+        <li>把自己的 process 推到外面（逃逸到 host）</li>
+      </ul>
+      <p>
+        這就是<strong>委派（delegation）</strong>——授權使用者管理子樹，但用結構性規則保證她跑不出沙箱。
+        v1 對這個需求的支援很差，導致 rootless container 在 v1 時代基本上做不到。v2 從零設計了完整的 delegation model。
+      </p>
+
+      <h3>3.2 v1 的委派為什麼失敗</h3>
+      <p>
+        kernel 文件 §R-3 "Issues with v1 and Rationales for v2" 直接點出 v1 委派的根本問題：
+      </p>
+      <p style="font-style: italic; color: var(--text-secondary); padding-left: var(--space-4); border-left: 2px solid var(--color-primary);">
+        cgroup v1 had an ambiguously defined delegation model which got abused in combination with thread granularity. cgroups were delegated to individual applications so that they can create and manage their own sub-hierarchies and control resource distributions along them. This effectively raised cgroup to the status of a syscall-like API exposed to lay programs.
+      </p>
+      <p>
+        翻譯：v1 的委派把 cgroup 提升到「<em>syscall 等級的 API</em>」，但 cgroup filesystem 的介面根本不適合給應用直接用——
+        要修改自己的設定，process 必須讀 <code>/proc/self/cgroup</code> 找到路徑、組合檔案路徑、open + read/write，<em>整個流程笨重且容易出 race condition</em>。
+        加上 v1 的 thread granularity，process 還會用各種 hack 手法管理自己的 thread，造成介面被嚴重濫用。
+      </p>
+      <p>
+        v2 的回答是：<strong>cgroup 是給<em>外部管理者</em>用的工具，不是給 app 自我管理的 syscall</strong>。
+        要讓非 root 安全地管子樹，需要重新設計一套含結構性保證的委派機制。
+      </p>
+
+      <h3>3.3 委派方式 1：權限委派</h3>
+      <p>
+        最直接的做法：把目錄與部分檔案的擁有權交給非 root 使用者。kernel 文件 §2.5.1 "Model of Delegation" 規定：
+      </p>
+      <ul>
+        <li><strong>給予寫權限的檔案</strong>：cgroup directory 本身、<code>cgroup.procs</code>、<code>cgroup.threads</code>、<code>cgroup.subtree_control</code>。</li>
+        <li><strong>不給寫權限的檔案</strong>：<code>memory.max</code>、<code>cpu.max</code> 等所有 controller interface files。</li>
+      </ul>
+      <p>
+        為什麼這樣切？因為<strong>controller interface files 是給 parent 用的，控制 parent 如何分配資源給 children</strong>（Ch.2 學過）。
+        把 <code>memory.max</code> 給 alice，等於讓 alice 可以改動 parent 給她的配額——這當然不行。
+      </p>
+
+<pre><code># 系統管理員執行：建立委派的子樹
+sudo mkdir /sys/fs/cgroup/alice-workspace
+
+# 設限：alice 最多用 8GB 記憶體（注意：這是在 parent 設的）
+echo "8G" | sudo tee /sys/fs/cgroup/alice-workspace/memory.max
+
+# 啟用 controllers 給 alice 的 child 用
+echo "+memory +cpu +pids" | sudo tee /sys/fs/cgroup/alice-workspace/cgroup.subtree_control
+
+# 把目錄 chown 給 alice
+sudo chown -R alice:alice /sys/fs/cgroup/alice-workspace
+
+# 但要把 controller interface files 改回 root 擁有
+# （否則 alice 可以改自己的上限）
+sudo chown root:root /sys/fs/cgroup/alice-workspace/{memory.max,cpu.max}
+
+# 從現在起，alice 可以：
+# - mkdir 在 alice-workspace/ 下建子 cgroup
+# - 寫 cgroup.procs 移動自己的 process
+# - 寫 cgroup.subtree_control 對她的 child 啟用 controllers
+# - 設子 cgroup 的 memory.max（但加總不能超過她拿到的 8GB）
+</code></pre>
+
+      <h3>3.4 委派方式 2：namespace 委派（nsdelegate）</h3>
+      <p>
+        權限委派要管理目錄擁有權與檔案 chmod，比較繁瑣。v2 提供更乾淨的方式：<strong>cgroup namespace</strong>。
+      </p>
+      <p>
+        cgroup namespace（Linux 4.6+）讓 process「<em>看不到自己 cgroup 上層</em>」——對它而言，自己所在的 cgroup 就是 root，看不到 host 的全貌。
+        這天然形成隔離，但<strong>單獨 cgroup namespace 還不夠安全</strong>——namespace 內的 process 仍可以寫 namespace root 的 controller files、影響到 namespace 外的設定。
+      </p>
+      <p>
+        kernel 4.13 加入 <code>nsdelegate</code> mount option 補上這個漏洞。啟用後：
+      </p>
+      <ul>
+        <li>cgroup namespace 自動成為<strong>委派邊界</strong></li>
+        <li>namespace 內的 process 寫 namespace root 的 controller files <em>會收到 EPERM</em></li>
+        <li>跨 namespace 邊界遷移 process <em>會收到 ENOENT</em>（看不到目的地）</li>
+      </ul>
+      <p>
+        這個設計的妙處：<strong>不需要手動 chown，安全屬性由 namespace 結構自動保證</strong>。容器運行時建立 cgroup namespace，子 cgroup 自動變成委派子樹。
+      </p>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 680 360" role="img" aria-label="namespace 委派的安全邊界">
+        <text x="340" y="22" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="600" fill="var(--text-primary)">nsdelegate：cgroup namespace 作為安全邊界</text>
+
+        <!-- Host view (上半) -->
+        <text x="40" y="55" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-primary-text)">Host 視角（init namespace）</text>
+        <rect x="40" y="65" width="600" height="100" rx="6" fill="var(--bg-muted)" stroke="var(--border-mid)" stroke-width="0.5" stroke-dasharray="3 3"/>
+
+        <rect x="60" y="80" width="120" height="32" rx="4" fill="var(--color-info-soft)" stroke="var(--color-info)" stroke-width="0.5"/>
+        <text x="120" y="100" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--color-info)">/sys/fs/cgroup/</text>
+
+        <line x1="120" y1="112" x2="120" y2="125" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="120" y1="125" x2="380" y2="125" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="120" y1="125" x2="120" y2="135" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="380" y1="125" x2="380" y2="135" stroke="var(--text-muted)" stroke-width="0.5"/>
+
+        <rect x="60" y="135" width="120" height="22" rx="4" fill="var(--bg-surface)" stroke="var(--border-mid)" stroke-width="0.5"/>
+        <text x="120" y="150" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--text-primary)">system.slice/</text>
+
+        <rect x="320" y="135" width="120" height="22" rx="4" fill="var(--color-primary-soft)" stroke="var(--color-primary)" stroke-width="2"/>
+        <text x="380" y="150" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--color-primary-text)">container-A/</text>
+
+        <text x="450" y="148" font-family="var(--font-sans)" font-size="10" font-style="italic" fill="var(--text-muted)">← 這是 namespace 邊界</text>
+
+        <!-- Container view (下半) -->
+        <text x="40" y="195" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-warning)">容器視角（在 cgroup namespace 內）</text>
+        <rect x="40" y="205" width="600" height="120" rx="6" fill="var(--color-warning-soft)" stroke="var(--color-warning)" stroke-width="0.5"/>
+
+        <rect x="260" y="220" width="120" height="32" rx="4" fill="var(--color-primary-soft)" stroke="var(--color-primary)" stroke-width="0.5"/>
+        <text x="320" y="240" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--color-primary-text)">/sys/fs/cgroup/</text>
+        <text x="320" y="252" text-anchor="middle" font-family="var(--font-sans)" font-size="9" fill="var(--text-muted)">(對應 host 的 container-A/)</text>
+
+        <line x1="320" y1="252" x2="320" y2="270" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="240" y1="270" x2="400" y2="270" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="240" y1="270" x2="240" y2="280" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="400" y1="270" x2="400" y2="280" stroke="var(--text-muted)" stroke-width="0.5"/>
+
+        <rect x="180" y="280" width="120" height="22" rx="4" fill="var(--bg-surface)" stroke="var(--border-mid)" stroke-width="0.5"/>
+        <text x="240" y="295" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--text-primary)">app1/</text>
+
+        <rect x="340" y="280" width="120" height="22" rx="4" fill="var(--bg-surface)" stroke="var(--border-mid)" stroke-width="0.5"/>
+        <text x="400" y="295" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--text-primary)">app2/</text>
+
+        <!-- 規則框 -->
+        <rect x="40" y="335" width="600" height="20" rx="4" fill="var(--color-success-soft)" stroke="var(--color-success)" stroke-width="0.5"/>
+        <text x="340" y="349" text-anchor="middle" font-family="var(--font-sans)" font-size="11" fill="var(--color-success)">容器內可建 app1/app2 子目錄、移動自己的 process；但寫 root 的 controller files 會 EPERM</text>
+      </svg>
+      <div class="diagram-caption">圖 5.1 · nsdelegate 機制：cgroup namespace 自動成為委派邊界</div>
+    </div>
+
+    <div class="prose">
+      <h3>3.5 Delegation Containment（封閉性保證）</h3>
+      <p>
+        這是本章最重要的概念——<strong>委派出去的子樹是真正封閉的沙箱</strong>，委派者跑不出去、外部抓不進來。
+      </p>
+      <p>
+        kernel 文件 §2.5.2 "Delegation Containment" 給出兩種封閉方式：
+      </p>
+
+      <h4>權限委派的 containment</h4>
+      <p>
+        對非 root 使用者寫 PID 進 <code>cgroup.procs</code> 移動 process，kernel 強制要求<strong>兩個條件同時滿足</strong>：
+      </p>
+      <ol>
+        <li>writer 對<em>目標</em> cgroup 的 <code>cgroup.procs</code> 有寫權限</li>
+        <li>writer 對<em>來源與目標的共同祖先</em>的 <code>cgroup.procs</code> 也有寫權限</li>
+      </ol>
+      <p>
+        舉例：alice 拿到 <code>C0</code> 與 <code>C1</code> 兩個 cgroup 的權限，分別建了 <code>C0/sub</code> 與 <code>C1/sub</code>。
+        她想把 <code>C1/sub</code> 內的 process 移到 <code>C0/sub</code>。kernel 會檢查：alice 對共同祖先（<code>C0/C1 的 parent</code>）有寫權限嗎？
+        沒有——委派只給到 C0、C1 自己，<em>parent 不在 alice 控制範圍</em>，所以遷移失敗（EACCES）。
+      </p>
+      <p>
+        這條規則保證 alice 不能藉著「<em>移到我管的另一棵樹</em>」這種手法把 process 帶出她原本的 sandbox 邊界。
+      </p>
+
+      <h4>namespace 委派的 containment</h4>
+      <p>
+        對 namespace 委派：<strong>遷移時要求來源與目標都在 namespace 視野內</strong>。看不到的 cgroup 路徑會回 ENOENT。
+        因為 cgroup namespace 內的 process 看不到 namespace 外的 path，這條規則自動阻止跨 namespace 遷移。
+      </p>
+
+      <h3>3.6 /sys/kernel/cgroup/delegate 檔案</h3>
+      <p>
+        這個唯讀檔案列出哪些 core interface files 可以「<em>合理地</em>」委派給非 root：
+      </p>
+<pre><code>$ cat /sys/kernel/cgroup/delegate
+cgroup.procs
+cgroup.threads
+cgroup.subtree_control
+memory.oom.group
+</code></pre>
+      <p>
+        這個清單由 kernel 維護——<em>新增 core interface files 時，kernel 開發者會評估是否該加入此清單</em>。
+        不在清單上的檔案（特別是 controller interface files）<strong>絕不該交給委派者</strong>，會破壞封閉性。
+      </p>
+      <p>
+        nsdelegate 模式下，kernel 讀這個檔案來決定哪些寫入要拒絕——對非 listed file 從 namespace root 寫入會直接 EPERM。
+      </p>
+
+      <h3>3.7 systemd Delegate=yes 的真實意義</h3>
+      <p>
+        Ch.2 提過 systemd 是 root cgroup 的 single writer。但應用怎麼合作？答案是 systemd 提供 <code>Delegate=</code> 屬性。
+      </p>
+<pre><code># 在 service unit 裡加 Delegate=yes
+[Service]
+Delegate=yes
+ExecStart=/usr/bin/myapp
+
+# 或限定哪些 controllers
+[Service]
+Delegate=cpu memory pids
+</code></pre>
+      <p>
+        這背後發生什麼事？
+      </p>
+      <ul>
+        <li>systemd 為這個 service 建立 cgroup 後，<strong>把該 cgroup 標記為「<em>delegated</em>」</strong>，不再 touch 子樹內部。</li>
+        <li>systemd 啟用指定的 controllers 對這個 cgroup 的 child 生效。</li>
+        <li>service 內的 process（容器 runtime、自管理的應用）可以自由建立子 cgroup、設子配額。</li>
+      </ul>
+      <p>
+        這就是 single-writer rule 的具體實踐——透過明確的「<em>申請與授權</em>」機制讓多個 writer 共存：systemd 寫委派之外、應用寫委派之內，互不干擾。
+      </p>
+
+      <h3>3.8 rootless container 為什麼必須 v2</h3>
+      <p>
+        v1 沒有 rootless cgroup 的概念——所有 cgroup 操作都要 root 權限。Podman、rootless docker 在 v1 時代根本無法限制資源（只能跑，限不了）。
+      </p>
+      <p>
+        v2 + nsdelegate + systemd <code>user@.service</code> 的 Delegate 配置，組合成 rootless container 的完整方案：
+      </p>
+<pre><code># Step 1: 系統管理員設定 user@.service 委派 controllers
+sudo mkdir -p /etc/systemd/system/[email protected]
+cat <<EOF | sudo tee /etc/systemd/system/[email protected]/delegate.conf
+[Service]
+Delegate=cpu cpuset io memory pids
+EOF
+
+sudo systemctl daemon-reload
+
+# Step 2: 重新登入，確認自己的 user.slice 收到了 controllers
+cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers
+# 預期看到: cpu cpuset io memory pids
+
+# Step 3: 跑 rootless podman，自動可以限制資源
+podman run --rm --memory=512m --cpus=2 alpine sleep 100
+</code></pre>
+      <p>
+        kernel 文件強調：<strong>delegate cpuset 需要 systemd 244+</strong>。所以 RHEL 7、Ubuntu 18.04 這類舊系統即使升到 v2 也只能 delegate <code>memory pids</code>。
+      </p>
+
+      <h3>3.9 委派的限制與資源逃逸</h3>
+      <p>
+        最後一個關鍵概念：<strong>委派子樹內的所有設定，都只能在 parent 給的範圍內生效</strong>。
+        kernel 文件原話：「<em>Once delegated, the user can build sub-hierarchy under the directory, organize processes inside it as it sees fit and further distribute the resources it received from the parent. The limits and other settings of all resource controllers are hierarchical and regardless of what happens in the delegated sub-hierarchy, nothing can escape the resource restrictions imposed by the parent.</em>」
+      </p>
+      <p>
+        翻譯：alice 可以在自己的 8GB 配額內愛怎麼分就怎麼分（child 1 配 4GB，child 2 配 4GB），
+        但<strong>所有 child 的設定不論怎麼設，加總都不會突破 parent 給的 8GB</strong>。這是 hierarchical 設計的天然保證。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 4: 實戰範例 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例：完整委派流程</h2>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · 啟用 user@.service 的 cgroup 委派</div>
+      <p>讓非 root 使用者可以管理自己的 cgroup（rootless container 的前置步驟）：</p>
+<pre><code># 1. 確認 cgroup v2
+stat -fc %T /sys/fs/cgroup/
+
+# 2. 確認 nsdelegate 啟用
+mount | grep cgroup2 | grep -o nsdelegate
+
+# 3. 看當前使用者拿到哪些 controllers
+USER_CG=/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service
+cat $USER_CG/cgroup.controllers
+# 多半預設只有: memory pids
+
+# 4. 加 drop-in 委派更多 controllers
+sudo mkdir -p /etc/systemd/system/[email protected]
+cat <<EOF | sudo tee /etc/systemd/system/[email protected]/delegate.conf
+[Service]
+Delegate=cpu cpuset io memory pids
+EOF
+
+sudo systemctl daemon-reload
+
+# 5. 重新登入後，再次確認
+exit  # 然後重新 ssh 或 logout/login
+cat $USER_CG/cgroup.controllers
+# 預期看到: cpu cpuset io memory pids
+
+# 6. 試著建立非 root 自己的 cgroup
+mkdir $USER_CG/myapp
+echo $$ > $USER_CG/myapp/cgroup.procs
+echo "100M" > $USER_CG/myapp/memory.max  # 注意：這需要 user@.service 啟用 memory
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · 體驗 delegation containment</div>
+      <p>驗證委派出去的子樹真的封閉：</p>
+<pre><code># 1. 系統管理員建立兩個獨立委派子樹
+sudo mkdir /sys/fs/cgroup/sandbox-A
+sudo mkdir /sys/fs/cgroup/sandbox-B
+
+sudo chown -R $(id -u):$(id -u) /sys/fs/cgroup/sandbox-A
+sudo chown -R $(id -u):$(id -u) /sys/fs/cgroup/sandbox-B
+
+# 2. 在 sandbox-A 內建立子 cgroup 並放一個 process
+mkdir /sys/fs/cgroup/sandbox-A/leaf
+sleep 999 &
+PID=$!
+echo $PID > /sys/fs/cgroup/sandbox-A/leaf/cgroup.procs
+
+# 3. 嘗試把 sandbox-A 的 process 搬到 sandbox-B
+echo $PID > /sys/fs/cgroup/sandbox-B/cgroup.procs
+# 預期失敗：Permission denied
+# 原因：你對共同祖先 / 沒有寫權限
+
+# 4. 試試在 sandbox-A 子樹內移動（被允許）
+mkdir /sys/fs/cgroup/sandbox-A/another
+echo $PID > /sys/fs/cgroup/sandbox-A/another/cgroup.procs
+# 成功：因為共同祖先 sandbox-A 你有權限
+
+# 清理
+kill $PID
+sudo rmdir /sys/fs/cgroup/sandbox-A/* /sys/fs/cgroup/sandbox-B
+sudo rmdir /sys/fs/cgroup/sandbox-A
+</code></pre>
+      <p>觀察點：第 3 步失敗證實了「<em>不能跨委派邊界遷移</em>」。沒有這條規則，整個委派模型就破功。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · 用 nsdelegate 體驗 namespace 委派</div>
+<pre><code># 1. 確認系統有啟用 nsdelegate
+mount | grep cgroup2 | grep nsdelegate
+
+# 2. 用 unshare 建立一個有自己 cgroup namespace 的 shell
+sudo systemd-run --slice=user.slice --unit=ns-test \
+    --pty \
+    -p Delegate=yes \
+    bash -c 'unshare -C bash'
+
+# 3. 在 namespace 內看 cgroup
+cat /proc/self/cgroup
+# 應該看到 0::/  (namespace 內看到自己是 root)
+
+# 4. 嘗試寫 namespace root 的 controller files
+echo "1G" > /sys/fs/cgroup/memory.max
+# 預期：Permission denied  (nsdelegate 阻止)
+
+# 5. 但可以建子 cgroup 並設它
+mkdir /sys/fs/cgroup/test
+echo "100M" > /sys/fs/cgroup/test/memory.max
+# 成功
+
+# 6. 退出後清理
+exit
+sudo systemctl stop ns-test
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 4 · rootless Podman 的完整資源限制</div>
+<pre><code># 前提：完成 Lab 1 的 user@.service delegate 設定
+
+# 1. 跑 rootless podman 容器，限 memory + cpu
+podman run --rm --memory=256m --cpus=1 alpine \
+    sh -c 'cat /sys/fs/cgroup/memory.max; cat /sys/fs/cgroup/cpu.max'
+
+# 預期輸出：
+#   268435456
+#   100000 100000
+
+# 2. 看容器 cgroup 對應到 host 的位置
+podman run -d --name=test --memory=256m alpine sleep 999
+podman inspect test --format '{{.State.CgroupPath}}'
+# 範例: /user.slice/user-1000.slice/user@1000.service/user.slice/libpod-XXX.scope
+
+# 3. 在 host 端確認資源限制真的有套用
+HOST_CG=$(podman inspect test --format '{{.State.CgroupPath}}')
+cat /sys/fs/cgroup$HOST_CG/memory.max
+
+# 清理
+podman stop test
+podman rm test
+</code></pre>
+      <p>
+        這個 lab 整合了本章所有概念：v2 + nsdelegate + systemd Delegate + rootless container。
+        前面六章內容到這裡有了完整的應用閉環。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 5: 常見陷阱 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · 把 controller interface files 也 chown 給使用者</div>
+      <p>
+        最常見的設定錯誤：<code>sudo chown -R alice /sys/fs/cgroup/alice-workspace</code>，把所有檔案都交出去。
+        這讓 alice 可以改 <code>memory.max</code> 突破自己的配額，<strong>整個沙箱形同虛設</strong>。
+        正確做法：用 <code>-R</code> 後再把 controller interface files chown 回 root（如本章 §3.3 範例）。
+        或更乾淨：用 systemd Delegate=yes 讓 systemd 自己處理。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · 沒設 nsdelegate 就用 cgroup namespace</div>
+      <p>
+        Linux 4.6 加入 cgroup namespace，但 4.13 才加入 nsdelegate。<em>沒有 nsdelegate 的 cgroup namespace 不安全</em>——
+        namespace 內的 process 仍可以寫 namespace root 的 controller files，破壞 parent 的配額。
+        現代 distro 預設啟用 nsdelegate，但<strong>跑舊 kernel 或自己 mount 時要記得加</strong>。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · user@.service 沒設 Delegate，rootless container 沒有資源限制</div>
+      <p>
+        在 RHEL/CentOS/Fedora 預設配置上，<code>user@.service</code> 通常只 delegate <code>memory pids</code>。
+        rootless podman 看似能跑，但 <code>--cpus</code>、<code>--memory</code>（部分情況）、<code>--device-read-bps</code> 全部默默無效——容器跑著，但限制完全沒套用。
+        檢查方式：跑容器後到 host 看 <code>cpu.max</code> 是否真的有設。
+        修法：本章 Lab 1 的 drop-in 配置。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · 委派出去後手動干涉子樹</div>
+      <p>
+        典型錯誤：管理員委派了 <code>alice-workspace</code> 給 alice，後來想說「<em>幫她調整 alice-workspace/foo 的設定</em>」直接動手改。
+        這違反 single-writer rule——alice 可能已經有自己的管理邏輯（例如她的容器 runtime），雙方會打架。
+        正確做法：<strong>委派出去後就完全不碰</strong>，要調整就修改 parent 的整體配額。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 5 · cpuset 委派需要新版 systemd</div>
+      <p>
+        kernel 5.4+ 才支援 cpuset 在 v2 委派、systemd 244+ 才能正確 delegate cpuset。
+        在舊系統上即使你寫 <code>Delegate=cpu cpuset io memory pids</code>，cpuset 也不會生效，沒有錯誤訊息。
+        檢查方式：登入後看自己的 cgroup.controllers 是否包含 cpuset。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 6 · 期望從 namespace 內看到 host cgroup tree</div>
+      <p>
+        在容器內跑 <code>ls /sys/fs/cgroup</code>，看到的是 namespace 視角下「<em>容器自己的 cgroup 子樹</em>」，<strong>不是 host 的全貌</strong>。
+        這是設計，不是 bug——namespace 隔離的目的就是讓容器看不到 host。
+        要在 host 端看真實 cgroup path，從 host 的 <code>podman inspect</code>、<code>docker inspect</code> 或 <code>/proc/$PID/cgroup</code> 取得。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 6: 動手練習 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · 列出所有可委派檔案並比較（5 分鐘）</div>
+<pre><code># 列出 kernel 認可的可委派檔案
+cat /sys/kernel/cgroup/delegate
+
+# 對照你某個 user@.service 內的實際檔案 ownership
+USER_CG=/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service
+ls -l $USER_CG/cgroup.* | head
+</code></pre>
+      <p>回答：</p>
+      <ol>
+        <li>delegate 檔案列了哪些？對照你之前學的 core interface files，少了哪些？</li>
+        <li><code>cgroup.subtree_control</code> 在 delegate 清單上嗎？為什麼？</li>
+        <li><code>cgroup.kill</code> 在 delegate 清單上嗎？想想為什麼</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · 證明非 root 改不了 controller interface files（10 分鐘）</div>
+<pre><code># 1. 系統管理員：建立委派子樹給自己
+sudo mkdir /sys/fs/cgroup/exercise2
+sudo bash -c '
+    echo "+memory" > /sys/fs/cgroup/cgroup.subtree_control
+    echo "1G" > /sys/fs/cgroup/exercise2/memory.max
+    chown -R $(id -u $SUDO_USER):$(id -u $SUDO_USER) /sys/fs/cgroup/exercise2
+    chown root:root /sys/fs/cgroup/exercise2/memory.max
+'
+
+# 2. 切回普通使用者試圖修改 memory.max
+echo "10G" > /sys/fs/cgroup/exercise2/memory.max
+# 預期：Permission denied
+
+# 3. 但你可以建子 cgroup 並設它的 memory.max
+mkdir /sys/fs/cgroup/exercise2/sub
+echo "500M" > /sys/fs/cgroup/exercise2/sub/memory.max
+# 成功，但加總不會超過 1G
+
+# 清理
+sudo rmdir /sys/fs/cgroup/exercise2/sub
+sudo rmdir /sys/fs/cgroup/exercise2
+</code></pre>
+      <p>回答：第 3 步如果你寫 <code>2G</code>（超過 parent 1G）會發生什麼？實際試試。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 觀察 rootless podman 的 cgroup 路徑（10 分鐘）</div>
+<pre><code># 1. 跑一個 rootless 容器
+podman run -d --name=ex3 --memory=128m alpine sleep 600
+
+# 2. 取得它的 cgroup 路徑
+CG=$(podman inspect ex3 --format '{{.State.CgroupPath}}')
+echo "Container cgroup: $CG"
+
+# 3. 從 host 端讀這個路徑
+cat /sys/fs/cgroup$CG/memory.max
+cat /sys/fs/cgroup$CG/memory.current
+
+# 4. 看你的 user.slice 樹結構
+systemd-cgls /user.slice/user-$(id -u).slice/
+
+# 清理
+podman stop ex3
+podman rm ex3
+</code></pre>
+      <p>回答：</p>
+      <ol>
+        <li>容器 cgroup 路徑長什麼樣？包含哪幾層？</li>
+        <li>從根到容器，每一層的角色分別是什麼（user.slice、user@UID.service、user.slice、libpod-XXX.scope）？</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 寫一個 systemd Delegate audit script（15 分鐘）</div>
+      <p>掃描所有 service unit，找出有 Delegate=yes 的：</p>
+<pre><code>#!/bin/bash
+# delegate-audit.sh
+
+echo "Services with Delegate enabled:"
+echo "================================"
+
+for unit in $(systemctl list-units --type=service --no-legend --plain | awk '{print $1}'); do
+    delegate=$(systemctl show -p Delegate --value "$unit")
+    controllers=$(systemctl show -p DelegateControllers --value "$unit")
+    
+    if [ "$delegate" = "yes" ] || [ -n "$controllers" ]; then
+        echo
+        echo "Unit: $unit"
+        echo "  Delegate: $delegate"
+        echo "  Controllers: $controllers"
+    fi
+done
+</code></pre>
+      <p>回答：你的系統上哪些 service 有 Delegate？多半是 container runtime（containerd、podman 相關）嗎？</p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 7: 自我檢查題 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>cgroup v2 提供哪兩種委派方式？各自的核心機制是什麼？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>方式 1：權限委派</strong>。透過 chown 把 cgroup directory 與部分 core interface files（<code>cgroup.procs</code>、<code>cgroup.threads</code>、<code>cgroup.subtree_control</code>）的擁有權交給非 root 使用者。controller interface files（<code>memory.max</code>、<code>cpu.max</code>）保留 root 擁有，避免使用者突破配額。
+        <strong>方式 2：namespace 委派</strong>。配合 <code>nsdelegate</code> mount option，讓 cgroup namespace 自動成為委派邊界。namespace 內的 process 寫 namespace root 的 controller files 收到 EPERM；跨 namespace 邊界遷移收到 ENOENT。容器運行時建立 namespace，子樹自動委派，不需要手動 chown。
+        <strong>兩者結果等價</strong>，可以單獨用也可以組合用。namespace 方式更乾淨，是現代容器的主流。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>為什麼 controller interface files（如 <code>memory.max</code>）絕對不能交給委派者？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        因為<strong>controller interface files 是給 parent 用的，控制 parent 如何分配資源給 children</strong>（Ch.2 學過）。
+        如果把 <code>alice-workspace/memory.max</code> 給 alice，等於讓她可以改自己的上限——本來限她 8GB，她改成 100GB，整個沙箱破功。
+        正確的設計：<code>memory.max</code> 屬於 parent (root)，由 parent 決定給 alice 多少；alice 在收到的配額內用 <code>alice-workspace/sub/memory.max</code> 設子配額（<em>而 <code>alice-workspace/sub/memory.max</code> 屬於 alice，因為她是 sub 的 parent</em>）。
+        這個「<em>controllers 屬於 parent</em>」的設計就是讓 hierarchical 資源配額能可靠運作的關鍵。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span>delegation containment 是什麼？對權限委派與 namespace 委派如何分別實現？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>delegation containment</strong>：委派出去的子樹是真正封閉的沙箱，委派者跑不出去、外部抓不進來。
+        <strong>權限委派的 containment</strong>：寫 <code>cgroup.procs</code> 移動 process 時，kernel 要求 writer 對「<em>來源與目標的共同祖先</em>」也有寫權限。委派只給到自己的子樹，<em>共同祖先在外面</em>，所以跨子樹遷移失敗（EACCES）。
+        <strong>namespace 委派的 containment</strong>：遷移時要求來源與目標都在 namespace 視野內。namespace 內的 process 看不到外部 path，自動拒絕跨 namespace 遷移（ENOENT）。
+        <strong>共同效果</strong>：alice 不能藉著「<em>移到我管的另一個地方</em>」把 process 帶出原本的 sandbox 邊界。封閉性由結構規則自動保證，不依賴使用者的好意。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span><code>/sys/kernel/cgroup/delegate</code> 是做什麼的？為什麼 <code>memory.max</code> 不在這個清單上？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>用途</strong>：唯讀檔案，列出哪些 core interface files 可以「<em>合理地</em>」委派給非 root。
+        nsdelegate 模式下，kernel 用此清單決定哪些寫入要拒絕——對非 listed file 從 namespace root 寫入會 EPERM。
+        <strong>典型內容</strong>：<code>cgroup.procs</code>、<code>cgroup.threads</code>、<code>cgroup.subtree_control</code>、<code>memory.oom.group</code>。
+        <strong>為什麼 <code>memory.max</code> 不在</strong>：因為它是 controller interface file，<em>屬於 parent</em>，不該交給委派者。委派者改它就是破壞 containment。
+        kernel 開發者新增 core interface files 時會評估是否該加入此清單；controller interface files <strong>絕不加入</strong>。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span>systemd <code>Delegate=yes</code> 在背後做了哪三件事？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>標記委派</strong>：systemd 為這個 service 建立 cgroup 後，把它標記為「<em>delegated</em>」，systemd 自己不再 touch 子樹內部。從這一刻起，service 內的 process 是這個子樹的 single writer。</li>
+          <li><strong>啟用 controllers</strong>：根據 <code>Delegate=cpu memory io</code> 之類的設定，啟用對應的 controllers 對這個 cgroup 的 child 生效。</li>
+          <li><strong>授予寫權限</strong>：把可委派的 core interface files chown 給 service 執行的使用者（如果 <code>User=</code> 有設）；對 root 跑的 service 不需要 chown。</li>
+        </ol>
+        這三件事讓「<em>單一系統有多個 writer</em>」變成可能：systemd 寫委派之外（包含這個 service 的 cgroup 本身），service 寫委派之內。各管各的，不互相干擾，符合 single-writer rule。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>為什麼 rootless container 必須要 cgroup v2？v1 的問題是什麼？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>v1 的根本問題</strong>：v1 沒有「rootless cgroup」的概念，所有 cgroup 操作都需要 root 權限。即使非 root 透過 user namespace 在容器內成為「<em>fake root</em>」，host 上他還是 unprivileged user，無法寫 cgroup 介面。
+        所以 v1 時代的 rootless docker / podman 跑得起來，但<em>完全限不了資源</em>——<code>--memory</code>、<code>--cpus</code> 全部默默無效。
+        <strong>v2 的解決方式</strong>：v2 設計了完整的非 root 委派模型。透過 <code>nsdelegate</code> + systemd <code>user@.service</code> Delegate 配置，非 root 使用者可以在自己的子樹內安全地建立子 cgroup、設子配額。
+        所以 podman 4+、rootless docker 全面要求 v2 才能正確工作。<em>2026 年新建的 container 系統如果還在 v1，請優先升級</em>。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span>典型 distro 上 user@.service 預設 delegate 哪些 controllers？要 delegate cpuset 需要什麼條件？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>預設委派</strong>：多數 distro 預設只 delegate <code>memory pids</code>。這是個保守的選擇，因為 cpu / cpuset / io 在早期 v2 實作不夠成熟。
+        <strong>要 delegate cpuset 的條件</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>kernel 5.4+ （cpuset 在 v2 委派的支援）</li>
+          <li>systemd 244+ （正確 delegate cpuset 的能力）</li>
+        </ul>
+        在舊系統上即使你寫 <code>Delegate=cpu cpuset io memory pids</code>，cpuset 也不會生效，<em>沒有錯誤訊息</em>。
+        <strong>檢查方式</strong>：登入後看 <code>/sys/fs/cgroup/user.slice/user-$UID.slice/user@$UID.service/cgroup.controllers</code>，列出來的就是你實際拿到的。
+        <strong>修法</strong>：drop-in <code>/etc/systemd/system/[email protected]/delegate.conf</code> 加上 <code>[Service] Delegate=cpu cpuset io memory pids</code>，重啟 user 服務或重新登入生效。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>實作場景題：你管理一個 multi-tenant 機器，要讓三個團隊（A、B、C）各自管自己的 workload，但彼此不能干涉、且加總不超過 host 容量。請設計 cgroup 結構與委派策略。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>結構設計</strong>：
+        <pre style="margin-top:8px;font-size:11px;">/sys/fs/cgroup/
+├── system.slice/        # 系統服務（root 管）
+├── tenants.slice/       # 自建 slice，root 管理 limits
+│   ├── teamA/           # 委派給 A，內部她們自己管
+│   ├── teamB/           # 委派給 B
+│   └── teamC/           # 委派給 C
+└── user.slice/          # 一般使用者</pre>
+        <strong>委派策略</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>tenants.slice 由 root 管理</strong>，設定全域 limits（如 80% memory、90% CPU），啟用 <code>+cpu +memory +io</code> 對 child。</li>
+          <li><strong>三個 team slice 由 root 設 limits</strong>：teamA/memory.max=4G、teamA/cpu.max=4 cores 等。</li>
+          <li><strong>chown 權限</strong>：把 teamA 目錄與 <code>cgroup.procs</code> / <code>cgroup.subtree_control</code> chown 給 team A 的 group；保留 controller files 為 root。</li>
+          <li><strong>啟用 nsdelegate</strong>：確保 namespace-based isolation 也能配合，給 team A 跑容器用。</li>
+          <li><strong>用 systemd unit 包裝</strong>：建立 <code>teamA.service</code> 帶 <code>Delegate=yes</code>，避免手動 chown 維護成本。</li>
+        </ol>
+        <strong>結果</strong>：三個團隊各自在 4G/4-core 配額內愛怎麼分就怎麼分，但<em>絕對不能突破自己的配額</em>，也不能干涉其他團隊。host 整體被 tenants.slice 的全域 limits 保護。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 8: 延伸閱讀 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+
+    <div class="refs">
+      <ol>
+        <li>
+          <a href="https://docs.kernel.org/admin-guide/cgroup-v2.html#delegation" target="_blank" rel="noopener">Linux Kernel 官方文件 · §2.5 Delegation</a>
+          <span class="ref-source">docs.kernel.org · 委派模型與 containment 的權威定義</span>
+        </li>
+        <li>
+          <a href="https://systemd.io/CGROUP_DELEGATION/" target="_blank" rel="noopener">systemd · Control Group APIs and Delegation</a>
+          <span class="ref-source">systemd.io · systemd Delegate= 機制的權威說明，含整合 container runtime 的細節</span>
+        </li>
+        <li>
+          <a href="https://rootlesscontaine.rs/getting-started/common/cgroup2/" target="_blank" rel="noopener">cgroup v2 · Rootless Containers</a>
+          <span class="ref-source">rootlesscontaine.rs · rootless container 配置 cgroup v2 的權威指南</span>
+        </li>
+        <li>
+          <a href="https://man7.org/linux/man-pages/man7/cgroup_namespaces.7.html" target="_blank" rel="noopener">cgroup_namespaces(7) · Linux man-pages</a>
+          <span class="ref-source">man7.org · cgroup namespace 的完整 syscall 介面說明</span>
+        </li>
+        <li>
+          <a href="https://github.com/opencontainers/runc/blob/main/docs/cgroup-v2.md" target="_blank" rel="noopener">runc · cgroup v2 documentation</a>
+          <span class="ref-source">github.com · OCI runtime 視角的 cgroup v2 + rootless 整合</span>
+        </li>
+        <li>
+          <a href="https://github.com/systemd/systemd/pull/6294" target="_blank" rel="noopener">systemd PR #6294 · support nsdelegate cgroup v2 mount option</a>
+          <span class="ref-source">github.com · Tejun Heo 撰寫的 nsdelegate 設計動機說明</span>
+        </li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Chapter nav ====================== -->
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn" href="ch04-mount-and-basics.html">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">Ch.4 掛載與基礎操作</span>
+    </a>
+    <a class="nav-btn next disabled">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">Ch.6 Thread-level 控制</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+
+</body>
+</html>

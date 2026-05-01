@@ -1,0 +1,1228 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.13 eBPF 與 cgroup 整合 — cgroup v2 完整教學</title>
+<meta name="description" content="cgroup v2 與 eBPF 整合：BPF cgroup program 類型、bpftrace one-liner、bpftool 操作、container debugging 實戰。">
+
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626; --color-danger-soft: #fee2e2;
+  --color-info: #0891b2; --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px; --text-4xl: 64px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+</style>
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.topbar { position: sticky; top: 0; z-index: 50; background: color-mix(in oklch, var(--bg-canvas) 88%, transparent); backdrop-filter: saturate(180%) blur(12px); -webkit-backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--border-soft); }
+.topbar-inner { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.brand { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-secondary); }
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 999px; padding: 6px 14px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background .2s, border-color .2s, color .2s; }
+[data-theme-toggle]:hover { background: var(--bg-muted); border-color: var(--border-mid); color: var(--text-primary); }
+[data-theme-toggle] .theme-icon { font-size: 14px; line-height: 1; }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: 0 var(--space-5); }
+
+.chapter-head { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); }
+.chapter-tag { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary-text); background: var(--color-primary-soft); padding: 4px 12px; border-radius: 999px; margin-bottom: var(--space-4); }
+.chapter-title { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; margin-bottom: var(--space-3); }
+.chapter-subtitle { font-family: var(--font-serif-body); font-size: var(--text-md); color: var(--text-secondary); line-height: 1.65; font-style: italic; }
+.chapter-meta { margin-top: var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.chapter-meta-item:first-child::before { display: none; }
+
+.section { padding: var(--space-7) 0; border-bottom: 1px solid var(--border-soft); }
+.section:last-of-type { border-bottom: none; }
+.section-label { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2); }
+.section-label::before { content: ""; width: 24px; height: 1px; background: var(--color-primary); }
+.section-title { font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600; margin-bottom: var(--space-5); letter-spacing: -0.01em; line-height: 1.2; }
+
+.prose p { font-family: var(--font-serif-body); font-size: var(--text-base); color: var(--text-primary); line-height: 1.85; margin-bottom: var(--space-4); }
+.prose h3 { font-family: var(--font-sans); font-size: var(--text-lg); font-weight: 600; color: var(--text-primary); margin: var(--space-6) 0 var(--space-3); letter-spacing: -0.01em; }
+.prose h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 500; color: var(--text-primary); margin: var(--space-5) 0 var(--space-2); }
+.prose ul, .prose ol { font-family: var(--font-serif-body); margin-bottom: var(--space-4); padding-left: var(--space-5); line-height: 1.8; }
+.prose ul li, .prose ol li { margin-bottom: var(--space-2); color: var(--text-primary); }
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong { font-weight: 600; color: var(--text-primary); }
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 1px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+.prose a { color: var(--color-primary); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.prose a:hover { color: var(--color-primary-hover); }
+
+.highlights { background: var(--color-primary-soft); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.highlights ol { font-family: var(--font-sans); padding-left: var(--space-5); margin: 0; }
+.highlights li { font-size: var(--text-sm); color: var(--color-primary-text); margin-bottom: var(--space-2); line-height: 1.65; }
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+
+.news-box { background: var(--color-info-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.news-item { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); line-height: 1.7; padding: var(--space-2) 0; border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent); }
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-info); margin-right: var(--space-2); }
+
+pre { font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.7; background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; margin-bottom: var(--space-4); color: var(--text-primary); }
+pre code { background: transparent; border: none; padding: 0; font-size: inherit; color: inherit; }
+
+.cmp-table { width: 100%; border-collapse: collapse; margin-bottom: var(--space-4); font-size: var(--text-sm); font-family: var(--font-sans); }
+.cmp-table th, .cmp-table td { padding: var(--space-3); text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.cmp-table th { font-weight: 600; color: var(--text-primary); background: var(--bg-muted); font-size: var(--text-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 1px 5px; border-radius: var(--radius-sm); color: var(--color-primary-text); }
+
+.lab { background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.lab-title { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--color-primary); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px dashed var(--border-soft); }
+.lab-title::before { content: "▶ "; color: var(--color-primary); }
+.lab p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-3); color: var(--text-secondary); line-height: 1.7; }
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+.lab ol, .lab ul { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); color: var(--text-secondary); line-height: 1.7; }
+
+.pitfall { background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.pitfall-title { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 600; color: var(--color-warning); margin-bottom: var(--space-2); }
+.pitfall p { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); margin-bottom: var(--space-2); line-height: 1.7; }
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code { background: color-mix(in oklch, var(--color-warning) 15%, transparent); border-color: color-mix(in oklch, var(--color-warning) 30%, transparent); color: var(--text-primary); }
+
+.quiz-item { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-3); }
+.quiz-q { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; color: var(--text-primary); margin-bottom: var(--space-2); display: flex; gap: var(--space-2); }
+.quiz-q-num { font-family: var(--font-mono); color: var(--color-primary); flex-shrink: 0; }
+.quiz-toggle { background: transparent; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 4px 10px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; margin-top: var(--space-2); transition: background .2s, color .2s; }
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a { display: none; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px dashed var(--border-soft); font-family: var(--font-serif-body); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.75; }
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+
+.refs ol { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); line-height: 1.8; }
+.refs li { margin-bottom: var(--space-2); color: var(--text-secondary); }
+.refs li::marker { color: var(--color-primary); }
+.refs a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dashed var(--color-primary); }
+.refs a:hover { color: var(--color-primary-hover); }
+.refs .ref-source { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); display: block; margin-top: 2px; }
+
+.chapter-nav { margin-top: var(--space-6); padding: var(--space-5) 0; display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.nav-btn { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; padding: var(--space-3) var(--space-4); background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); text-decoration: none; color: var(--text-primary); transition: border-color .2s, transform .15s; }
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.04em; }
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.13</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part V · 可觀測性 · Chapter 13</span>
+    <h1 class="chapter-title">eBPF 與 cgroup 整合</h1>
+    <p class="chapter-subtitle">
+      eBPF 與 cgroup 是 Linux 雲原生的兩大支柱。前者讓你在 kernel 跑安全沙盒程式收集資料，
+      後者把資源管理組織成樹狀結構——兩者結合<em>解鎖</em>了傳統工具做不到的觀測與控制能力。
+      本章拆解 BPF cgroup program 9 種類型、用 bpftrace 寫 per-cgroup 的 one-liner、
+      用 bpftool 操作 cgroup BPF programs，最後實戰找出 noisy neighbor、debug latency 異常。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~6,800 字</span>
+      <span class="chapter-meta-item">閱讀時間 26 分鐘</span>
+      <span class="chapter-meta-item">難度：進階</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ====================== Section 1: 本章重點 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+
+    <div class="highlights">
+      <ol>
+        <li><strong>eBPF 與 cgroup 是互補的</strong>：cgroup 把 process 組織成樹、定義資源邊界；eBPF 提供 kernel 內可程式化的觀測與控制。<em>per-cgroup 過濾</em>是 eBPF 在 multi-tenant 環境最強的能力。</li>
+        <li><strong>BPF cgroup program 9 種類型</strong>：device、skb、sock_create、sock_addr（4/6 個 hook 點）、sock_ops、sysctl、sockopt 等。每種對應不同 hook，附加到 cgroup 後對該 cgroup 內所有 process 生效。</li>
+        <li><strong>bpftrace 是 cgroup-aware 觀測首選</strong>：用 <code>cgroup</code> 內建變數 + <code>cgroupid()</code> helper，可以對特定 cgroup 過濾任何 tracepoint / kprobe，<em>不需要自己寫 BPF C code</em>。</li>
+        <li><strong>bpftool 是 cgroup BPF 的瑞士刀</strong>：<code>bpftool cgroup show</code> 看 attached programs、<code>bpftool prog dump</code> 看 BPF 程式內容、<code>bpftool prog tracelog</code> 看 BPF 印出的 log。</li>
+        <li><strong>低 overhead</strong>：純 cgroup-filtered eBPF 觀測通常 1–3% CPU，遠低於 sidecar agent（10–40%）。Pixie、Cilium、Parca 等都基於這個架構。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 2: 最新動態 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+
+    <div class="news-box">
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>BCC 加入 BTF（BPF Type Format）支援</strong>，提供 CO-RE 風格能力——同一個 BCC script 可在不同 kernel 版本跑，不用重編譯。對 cgroup 觀測工具的可移植性大幅改善。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2024–2025</span>
+        <strong>Cilium、Pixie、Parca 全面採用 cgroup-aware eBPF</strong>。kernel-level 觀測的 overhead 普遍降到 1-3%，比 DataDog Agent / OpenTelemetry sidecar（10-40%）有顯著優勢。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>sched_ext（kernel 6.12+）成熟</strong>。BPF scheduler 可以實作監控-only policy——profile scheduling events 不改變排程行為，是 cgroup 內 task scheduling 觀測的新工具。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>per-cgroup struct_ops 與 page cache policy 自訂</strong>（SOSP'25 paper）。研究界開始把 BPF hook 用到 cgroup 內部記憶體管理 policy，未來可能成為 production feature。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>bpftrace 新增更多 cgroup helper</strong>：<code>cgroup</code> 內建變數、<code>cgroupid()</code> 函數、<code>cgroup_path()</code>。寫 cgroup-aware one-liner 變得極簡單。
+      </div>
+    </div>
+
+    <div class="prose">
+      <p>
+        2026 年的時點，<strong>eBPF 已是 cgroup v2 觀測性的事實標準</strong>。
+        從個人 debug（bpftrace one-liner）到大規模生產（Pixie、Cilium）都依賴這個組合。
+        本章除了介面說明，會把<em>怎麼從 bpftrace 起步</em>、<em>怎麼找出真實的 noisy neighbor</em>、
+        <em>怎麼用 bpftool debug</em> 講清楚——這些是文檔上找不到的實戰技巧。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 3: 核心內容 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+
+    <div class="prose">
+      <h3>3.1 eBPF 與 cgroup 為什麼互補</h3>
+      <p>
+        前面 Ch.11 講過 v2 device controller 完全改用 BPF。但這只是開始——eBPF 在 cgroup 領域有更廣的應用：
+      </p>
+      <ul>
+        <li><strong>觀測（observability）</strong>：tracepoint / kprobe / uprobe 配合 cgroup 過濾，<em>只</em>觀察特定容器或 service。</li>
+        <li><strong>控制（control）</strong>：device、network packet、socket 等多種 hook 點上 attach BPF program，做 cgroup 範圍的存取控制。</li>
+        <li><strong>策略（policy）</strong>：K8s NetworkPolicy 用 cgroup BPF 實作 per-Pod 網路策略；Cilium 全面 BPF-based。</li>
+      </ul>
+      <p>
+        <strong>關鍵優勢</strong>：cgroup BPF program 一旦 attach，<strong>cgroup 內所有 process 自動受影響</strong>——新 fork 出來的也算。process 移出 cgroup，policy 也自動失效。<em>不需要 per-process attach，也不需要清理</em>。
+      </p>
+
+      <h3>3.2 BPF cgroup program 完整類型表</h3>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>BPF program type</th><th>Hook 時機</th><th>主要用途</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>BPF_PROG_TYPE_CGROUP_DEVICE</code></td>
+          <td>device access（mknod / read / write）</td>
+          <td>v2 device controller（Ch.11）</td>
+        </tr>
+        <tr>
+          <td><code>BPF_PROG_TYPE_CGROUP_SKB</code></td>
+          <td>network packet（ingress / egress）</td>
+          <td>網路流量過濾、計量</td>
+        </tr>
+        <tr>
+          <td><code>BPF_PROG_TYPE_CGROUP_SOCK</code></td>
+          <td>socket create</td>
+          <td>限制 socket 類型、設 socket 屬性</td>
+        </tr>
+        <tr>
+          <td><code>BPF_PROG_TYPE_CGROUP_SOCK_ADDR</code></td>
+          <td>connect / bind / sendmsg / recvmsg</td>
+          <td>透明 redirect、限制連線目的</td>
+        </tr>
+        <tr>
+          <td><code>BPF_PROG_TYPE_SOCK_OPS</code></td>
+          <td>TCP 狀態變化（connect、accept、retransmit）</td>
+          <td>TCP 調優、congestion control</td>
+        </tr>
+        <tr>
+          <td><code>BPF_PROG_TYPE_CGROUP_SYSCTL</code></td>
+          <td>sysctl read / write</td>
+          <td>限制容器修改 sysctl</td>
+        </tr>
+        <tr>
+          <td><code>BPF_PROG_TYPE_CGROUP_SOCKOPT</code></td>
+          <td>setsockopt / getsockopt</td>
+          <td>修改 socket option（如 TCP_NOTSENT_LOWAT）</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        <strong>共同特性</strong>：每個 program type 接收特定 context（如 <code>bpf_cgroup_dev_ctx</code>、<code>bpf_sock_addr</code>），return 1 = allow、return 0 = deny（操作回 EPERM）。
+      </p>
+
+      <h3>3.3 attach BPF program 到 cgroup</h3>
+      <p>
+        典型流程：
+      </p>
+<pre><code># 1. 編譯 BPF program（C → bytecode）
+clang -O2 -target bpf -c my_filter.c -o my_filter.o
+
+# 2. attach 到 cgroup
+sudo bpftool cgroup attach /sys/fs/cgroup/myapp \
+    device pinned /sys/fs/bpf/my_filter
+
+# 3. 看 attached
+sudo bpftool cgroup show /sys/fs/cgroup/myapp
+# ID       AttachType      AttachFlags     Name
+# 234      device                          (none)
+
+# 4. detach
+sudo bpftool cgroup detach /sys/fs/cgroup/myapp \
+    device id 234
+</code></pre>
+      <p>
+        <strong>實務上</strong>：使用者通常不直接 attach。容器 runtime（runc、crun）、Cilium、systemd 等內部處理。
+        但理解這個機制對 debug 與深度自訂很重要。
+      </p>
+
+      <h3>3.4 bpftrace：cgroup 觀測的瑞士刀</h3>
+      <p>
+        bpftrace 是 awk-like 的 BPF 高階語言，<em>一行</em> 就能寫複雜觀測邏輯。對 cgroup 觀測特別有用——內建變數與 helper 直接支援。
+      </p>
+      <p>
+        <strong>關鍵內建</strong>：
+      </p>
+      <ul>
+        <li><code>cgroup</code>：當前 task 的 cgroup ID（uint64）</li>
+        <li><code>cgroupid("/sys/fs/cgroup/myapp")</code>：把路徑轉成 cgroup ID</li>
+        <li><code>pid</code>、<code>tid</code>、<code>comm</code>、<code>kstack</code>、<code>ustack</code>：標準 bpftrace 變數</li>
+      </ul>
+
+      <h4>10 個 cgroup-aware 實戰 one-liner</h4>
+<pre><code># 1. 計算特定 cgroup 內每個 process 的 syscall 次數
+bpftrace -e '
+tracepoint:raw_syscalls:sys_enter
+/cgroup == cgroupid("/sys/fs/cgroup/system.slice/myapp.service")/
+{ @[comm] = count(); }
+'
+
+# 2. 看特定 cgroup 內哪些檔案被開啟
+bpftrace -e '
+tracepoint:syscalls:sys_enter_openat
+/cgroup == cgroupid("/sys/fs/cgroup/myapp")/
+{ printf("%s opened %s\n", comm, str(args->filename)); }
+'
+
+# 3. 統計特定 cgroup 內 TCP connect 目的 port
+bpftrace -e '
+kprobe:tcp_v4_connect
+/cgroup == cgroupid("/sys/fs/cgroup/myapp")/
+{ @[comm, ntop(((struct sock *)arg0)->__sk_common.skc_daddr)] = count(); }
+'
+
+# 4. 量測特定 cgroup 內 read syscall 的 latency 分布
+bpftrace -e '
+tracepoint:syscalls:sys_enter_read
+/cgroup == cgroupid("/sys/fs/cgroup/myapp")/
+{ @start[tid] = nsecs; }
+
+tracepoint:syscalls:sys_exit_read
+/@start[tid]/
+{ @us = hist((nsecs - @start[tid]) / 1000); delete(@start[tid]); }
+'
+
+# 5. 找出特定 cgroup 內的 page fault 次數
+bpftrace -e '
+software:page-faults:1
+/cgroup == cgroupid("/sys/fs/cgroup/myapp")/
+{ @[comm] = count(); }
+'
+
+# 6. 看特定 cgroup 內 disk IO 的 size 分布
+bpftrace -e '
+kprobe:vfs_read,kprobe:vfs_write
+/cgroup == cgroupid("/sys/fs/cgroup/myapp")/
+{ @[func] = hist(arg2); }
+'
+
+# 7. 找特定 cgroup 內 kill signal 的發送
+bpftrace -e '
+tracepoint:signal:signal_generate
+/cgroup == cgroupid("/sys/fs/cgroup/myapp")/
+{ printf("%s killed pid=%d sig=%d\n", comm, args->pid, args->sig); }
+'
+
+# 8. 監控特定 cgroup 內 fork 速率
+bpftrace -e '
+tracepoint:sched:sched_process_fork
+/cgroup == cgroupid("/sys/fs/cgroup/myapp")/
+{ @forks = count(); }
+interval:s:1
+{ printf("forks/sec: %d\n", @forks); clear(@forks); }
+'
+
+# 9. 看特定 cgroup 內哪些 process 正在 schedule
+bpftrace -e '
+tracepoint:sched:sched_switch
+/cgroup == cgroupid("/sys/fs/cgroup/myapp")/
+{ @[comm] = count(); }
+interval:s:5
+{ exit(); }
+'
+
+# 10. 統計特定 cgroup 內 TCP retransmit
+bpftrace -e '
+kprobe:tcp_retransmit_skb
+/cgroup == cgroupid("/sys/fs/cgroup/myapp")/
+{ @retransmits = count(); }
+interval:s:5
+{ printf("retransmits in last 5s: %d\n", @retransmits); clear(@retransmits); }
+'
+</code></pre>
+
+      <h3>3.5 BCC 工具與 cgroup</h3>
+      <p>
+        BCC（BPF Compiler Collection）提供大量現成 tools。多數支援 <code>--cgroupmap</code> 或類似參數做 cgroup 過濾：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>BCC 工具</th><th>用途</th><th>cgroup 過濾範例</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>opensnoop</code></td>
+          <td>追蹤檔案開啟</td>
+          <td><code>opensnoop --cgroupmap=/sys/fs/cgroup/myapp</code></td>
+        </tr>
+        <tr>
+          <td><code>execsnoop</code></td>
+          <td>追蹤 exec syscall</td>
+          <td><code>execsnoop --cgroupmap=/sys/fs/cgroup/myapp</code></td>
+        </tr>
+        <tr>
+          <td><code>tcpconnect</code></td>
+          <td>追蹤 TCP connect</td>
+          <td><code>tcpconnect --cgroupmap=/sys/fs/cgroup/myapp</code></td>
+        </tr>
+        <tr>
+          <td><code>biolatency</code></td>
+          <td>block IO 延遲分布</td>
+          <td>本身不直接支援，用 bpftrace 自寫</td>
+        </tr>
+        <tr>
+          <td><code>profile</code></td>
+          <td>CPU profiler（flamegraph 用）</td>
+          <td>支援 cgroup 過濾</td>
+        </tr>
+        <tr>
+          <td><code>memleak</code></td>
+          <td>記憶體 leak 偵測</td>
+          <td>per-pid，搭配 cgroup.procs 過濾 PID</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        <strong>使用建議</strong>：先用 bpftrace 探索（一行寫完），確認方向後用 BCC 寫成 production tool（Python wrapper、CO-RE 支援），最後可以用 libbpf C 寫長期跑的 daemon。
+      </p>
+
+      <h3>3.6 bpftool：cgroup BPF 的 debug 工具</h3>
+      <p>
+        bpftool 是 kernel-shipped 工具，操作 cgroup BPF programs 的 swiss army knife：
+      </p>
+<pre><code># 看所有 cgroup 與 attached programs
+sudo bpftool cgroup tree
+
+# 看特定 cgroup 上的 programs
+sudo bpftool cgroup show /sys/fs/cgroup/system.slice/docker-XXX.scope
+
+# 看所有 loaded BPF programs
+sudo bpftool prog list
+
+# dump 某個 BPF program 的 bytecode（人類可讀）
+sudo bpftool prog dump xlated id 234
+
+# dump JIT 編譯後的 native code
+sudo bpftool prog dump jited id 234
+
+# 看 BPF map 內容
+sudo bpftool map dump id 567
+
+# 看 BPF program 印的 log（透過 bpf_trace_printk）
+sudo bpftool prog tracelog
+# 同等於：cat /sys/kernel/debug/tracing/trace_pipe
+</code></pre>
+      <p>
+        <strong>典型 debug 流程</strong>：
+      </p>
+      <ol>
+        <li><code>bpftool cgroup tree</code> 看整個系統的 cgroup BPF 概況</li>
+        <li>聚焦到問題 cgroup：<code>bpftool cgroup show /path/to/cgroup</code></li>
+        <li>查特定 program：<code>bpftool prog show id N</code></li>
+        <li>必要時 dump 看內容：<code>bpftool prog dump xlated id N</code></li>
+        <li>看 BPF program 是否有印 log：<code>bpftool prog tracelog</code></li>
+      </ol>
+
+      <h3>3.7 性能與 overhead</h3>
+      <p>
+        eBPF 觀測<em>看似</em>該很慢——對每個 syscall 跑一段 BPF code，怎麼會快？實際上 overhead 多半 1-3%，原因：
+      </p>
+      <ul>
+        <li><strong>JIT 編譯</strong>：BPF bytecode 在 attach 時 JIT 成 native code，執行接近 C 速度。</li>
+        <li><strong>Verifier 強制 bounded loops</strong>：BPF program 不能有無限迴圈，最大 instruction 數限制。每次執行時間有上界。</li>
+        <li><strong>Per-CPU maps</strong>：不需要 lock，無 cacheline contention。</li>
+        <li><strong>Early filtering</strong>：cgroup filter 在 kernel 內就過濾掉不感興趣的事件，不送到 userspace。</li>
+        <li><strong>In-kernel aggregation</strong>：用 BPF map 在 kernel 內聚合，userspace 只讀最終結果。</li>
+      </ul>
+      <p>
+        <strong>對比真實 production 數字</strong>（來自 michaeleakins.com 2025 年文章）：
+      </p>
+      <ul>
+        <li>DataDog APM agent：~28% CPU overhead</li>
+        <li>OpenTelemetry SDK（manual instrumentation）：~15% CPU overhead</li>
+        <li>libbpf-based eBPF observer：~1.8% CPU overhead</li>
+      </ul>
+      <p>
+        差距巨大。對 latency-critical workload，eBPF 是<em>唯一</em>能在 production 全量採集 metrics 不影響應用的方案。
+      </p>
+
+      <h3>3.8 實戰：找出 noisy neighbor</h3>
+      <p>
+        典型場景：multi-tenant 機器上某個 service 變慢，但不知道是被誰拖慢的。
+        傳統工具（top、iostat、perf）只能看「<em>機器整體誰在做什麼</em>」，不容易精確找出受害者與肇事者的關係。
+      </p>
+      <p>
+        eBPF 流程：
+      </p>
+<pre><code># Step 1: 確認受害者的 cgroup
+systemctl status myapp.service
+# 找出 ControlGroup: /system.slice/myapp.service
+
+# Step 2: 量化 noisy neighbor 的影響——在不同維度比較
+# CPU off-CPU time（被搶走的時間）
+sudo bpftrace -e '
+kprobe:finish_task_switch
+{
+    $prev = (struct task_struct *)arg0;
+    $cgid = $prev->sched_task_group->css.cgroup->kn->id;
+    @off_cpu[$cgid] = count();
+}
+interval:s:5 { print(@off_cpu); clear(@off_cpu); exit(); }
+'
+
+# Step 3: 找出搶走 CPU 的肇事者——schedule 次數最多的 cgroup
+sudo bpftrace -e '
+tracepoint:sched:sched_switch
+{
+    @switches[cgroup] = count();
+}
+interval:s:5
+{
+    print(@switches);
+    clear(@switches);
+    exit();
+}
+'
+
+# Step 4: 確認對應 cgroup ID 是哪個 service
+# cgroup ID 對應 inode number，可以用：
+sudo find /sys/fs/cgroup -inum &lt;ID&gt;
+</code></pre>
+      <p>
+        <strong>真實案例</strong>：某 production 環境 Redis 偶發 spike。用 bpftrace 看到一個 cron job cgroup 在 spike 時做大量 page fault——它跑大型 batch 報表時誘發 page reclaim，連帶讓 Redis 的 page 被 evict，造成 latency。
+        修法：對 cron cgroup 設 <code>memory.high</code> + <code>io.weight</code> 較低，避免它影響其他 service。
+      </p>
+
+      <h3>3.9 觀測架構整合</h3>
+      <p>
+        實戰建議的觀測架構：
+      </p>
+      <ol>
+        <li><strong>Layer 1（per-incident）</strong>：bpftrace one-liner——快速 debug，現場確認假設。</li>
+        <li><strong>Layer 2（per-host metrics）</strong>：BCC 工具或自寫 libbpf agent，export 到 Prometheus。整合 PSI、cgroup events 等。</li>
+        <li><strong>Layer 3（cluster-wide）</strong>：Pixie、Parca、Cilium Hubble 等成熟工具——自動化 service map、flame graph、network flow。</li>
+      </ol>
+      <p>
+        三層職責清楚：bpftrace 是「<em>探查</em>」工具、libbpf agent 是「<em>採集</em>」工具、Pixie 是「<em>視覺化分析</em>」工具。
+        理解 BPF cgroup program 機制讓你在三層都能 debug——出問題時不用等廠商工具。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 4: 實戰範例 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例</h2>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · 安裝 bpftrace 與 BCC tools</div>
+<pre><code># Ubuntu / Debian
+sudo apt install bpftrace linux-headers-$(uname -r)
+
+# Fedora / RHEL
+sudo dnf install bpftrace bcc-tools
+
+# 驗證
+bpftrace --version
+sudo bpftrace -l 'tracepoint:sched:*' | head
+
+# BCC tools（典型路徑）
+ls /usr/share/bcc/tools/  # Ubuntu
+# 或 /usr/share/bcc/tools/  # Fedora
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · 用 bpftrace 觀察特定 cgroup 的 syscall 統計</div>
+<pre><code># 1. 啟動一個 service 做為觀察對象
+sudo systemd-run --slice=user.slice --unit=lab13-target \
+    --pty \
+    bash -c 'while :; do
+        ls / > /dev/null
+        cat /etc/passwd > /dev/null
+        sleep 0.1
+    done'
+
+# 2. 找出對應的 cgroup ID
+CG_PATH=$(systemctl show -p ControlGroup --value lab13-target.service)
+echo "cgroup path: /sys/fs/cgroup$CG_PATH"
+
+# 3. 跑 bpftrace 統計這個 cgroup 內 5 秒內的 syscall
+sudo bpftrace -e '
+tracepoint:raw_syscalls:sys_enter
+/cgroup == cgroupid("/sys/fs/cgroup'$CG_PATH'")/
+{ @[comm, args->id] = count(); }
+
+interval:s:5
+{ exit(); }
+'
+# 預期看到 ls、cat 的 syscall 統計
+
+# 清理
+sudo systemctl stop lab13-target
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · 用 bpftrace 量測 cgroup 內 read latency 分布</div>
+<pre><code># 啟動有 IO 的 service
+sudo systemd-run --slice=user.slice --unit=io-bench \
+    --pty \
+    bash -c 'while :; do
+        cat /proc/cpuinfo > /dev/null
+        cat /etc/services > /dev/null
+        sleep 0.05
+    done'
+
+CG_PATH=$(systemctl show -p ControlGroup --value io-bench.service)
+
+# 量測 read syscall latency 分布
+sudo bpftrace -e '
+tracepoint:syscalls:sys_enter_read
+/cgroup == cgroupid("/sys/fs/cgroup'$CG_PATH'")/
+{ @start[tid] = nsecs; }
+
+tracepoint:syscalls:sys_exit_read
+/@start[tid]/
+{
+    @latency_us = hist((nsecs - @start[tid]) / 1000);
+    delete(@start[tid]);
+}
+
+interval:s:10 { exit(); }
+'
+# 預期看到 latency histogram，多數在 1-10us（cached）
+
+# 清理
+sudo systemctl stop io-bench
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 4 · 用 bpftool debug docker container 的 device BPF</div>
+<pre><code># 啟動 container
+sudo docker run -d --name=lab13 --rm alpine sleep 300
+
+# 找出 container 的 cgroup
+CONTAINER_ID=$(docker inspect lab13 --format '{{.Id}}')
+CG_PATH="/sys/fs/cgroup/system.slice/docker-${CONTAINER_ID}.scope"
+
+# 看 attached BPF programs
+sudo bpftool cgroup show $CG_PATH
+# 範例輸出（可能有 device program）：
+# ID       AttachType      AttachFlags     Name
+# 234      device                          (none)
+
+# 看 program 細節
+sudo bpftool prog show id 234
+
+# Dump bytecode
+sudo bpftool prog dump xlated id 234 2>&1 | head -30
+
+# 清理
+sudo docker stop lab13
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 5 · 找出系統內最 fork-heavy 的 cgroup</div>
+<pre><code># 一行 bpftrace 找 fork-heavy cgroup（前 10 名）
+sudo bpftrace -e '
+tracepoint:sched:sched_process_fork
+{
+    @[cgroup] = count();
+}
+
+interval:s:30
+{
+    print(@, 10);
+    exit();
+}
+'
+
+# 用 cgroup ID 找對應路徑
+# 假設輸出 @[1234] 56
+sudo find /sys/fs/cgroup -inum 1234
+
+# 替代：用 systemd-cgls 看 cgroup 樹
+systemd-cgls --no-pager
+</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 5: 常見陷阱 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · cgroup 內建變數在某些 hook 點不可用</div>
+      <p>
+        bpftrace 的 <code>cgroup</code> 變數對 <em>當前 task</em> 有效。但有些 hook（如 BPF_PROG_TYPE_XDP）發生在還沒進入 task context 時，cgroup 變數會回 0 或失敗。
+        修法：不確定時用 <code>tracepoint</code> 或 <code>kprobe</code>（兩者都有 task context），不要用太底層的 hook。如果一定要用，需要從 socket / sk_buff 自己取 cgroup ID。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · cgroupid() 找不到路徑</div>
+      <p>
+        <code>cgroupid("/sys/fs/cgroup/myapp")</code> 在 service 還沒啟動或路徑寫錯時回 0——所有 task 都會被當成 cgroup ID 0，filter 失效（看起來是「<em>所有 task 都 match</em>」）。
+        修法：先<code>ls</code> 確認路徑存在。或在 bpftrace BEGIN 印出 cgroupid() 結果驗證。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · BPF program load 失敗看不到原因</div>
+      <p>
+        <code>bpftool prog load my.o /sys/fs/bpf/my</code> 失敗，只回 "Operation not permitted"——其實是 verifier reject。
+        修法：加 <code>--debug</code> 參數，或<code>dmesg | tail -50</code> 看 verifier 詳細訊息（哪行 instruction 失敗、為什麼）。也可以用 <code>libbpf_set_print()</code> 把 libbpf log 印出來。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · bpftrace 跑久了 OOM</div>
+      <p>
+        <code>@latency[tid] = nsecs</code> 這類 map 沒清理，跑久了 map 會持續變大直到 BPF map size 上限。
+        修法：用 <code>delete(@latency[tid])</code> 在 exit handler 清掉、或用 LRU map（<code>BPF_MAP_TYPE_LRU_HASH</code>）。
+        bpftrace 預設 max_map_keys 是 4096，超過就會 silent drop——也是常見 debug 點。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 5 · cgroup ID 對 systemd transient unit 變動</div>
+      <p>
+        systemd-run 啟動的 transient unit 每次 PID 與 cgroup ID 都不同。寫死 cgroupid("/path/to/transient") 在 unit 重啟後失效。
+        修法：debug 用 transient unit 時即時取 cgroup ID（每次重新跑 bpftrace 命令）。production 用<em>persistent</em> unit（systemctl edit）寫穩定路徑。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 6 · BCC 與 kernel headers 版本不匹配</div>
+      <p>
+        BCC tools 報 "Unable to find kernel headers" 或 "kernel struct definition mismatch"——多半是 kernel headers 沒裝、或裝了但版本與 running kernel 不符。
+        修法：<code>sudo apt install linux-headers-$(uname -r)</code>。BTF + CO-RE 機制成熟後此問題減少（kernel 5.4+ + 新 BCC + libbpf 不需要 headers）。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 7 · perf event 與 cgroup BPF 互動</div>
+      <p>
+        想用 <code>perf record -G /sys/fs/cgroup/myapp</code> 配合 BPF 一起用——遇到 perf 採不到 sample 或 sample 不準的問題。
+        原因：perf 與 BPF 都用 perf event 子系統，某些情況下會搶 fd 或 buffer。
+        修法：跑 perf 時先停 BPF observer。或改用 BCC 的 <code>profile</code> 工具（也是 perf-based 但內建 cgroup filter）。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 8 · 容器內跑 bpftrace 失敗</div>
+      <p>
+        在容器內 <code>bpftrace -e ...</code> 直接 fail——多半是 container 沒給 BPF 相關 capability。
+        修法：跑 container 時加 <code>--privileged</code> 或<code>--cap-add SYS_ADMIN --cap-add BPF --cap-add PERFMON</code>。
+        production 不建議在 container 內跑 bpftrace；該在 host 跑（本來就是 system-wide 觀測工具）。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 6: 動手練習 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · 寫 bpftrace one-liner 找出 fork bomb（10 分鐘）</div>
+      <p>跑一個會 fork 的 service：</p>
+<pre><code>sudo systemd-run --slice=user.slice --unit=fork-test \
+    bash -c 'for i in $(seq 1 200); do (sleep 5 &) ; done ; wait'</code></pre>
+      <p>寫 bpftrace 統計 5 秒內哪個 cgroup fork 最多。回答：</p>
+      <ol>
+        <li>該怎麼用 cgroup 變數過濾？</li>
+        <li>怎麼把 cgroup ID 反查回 path？</li>
+        <li>fork rate 多少算 abnormal？</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · 量測 docker container 啟動延遲（15 分鐘）</div>
+      <p>用 bpftrace 量測一個 container 從 docker run 到 application 第一次 syscall 的時間：</p>
+<pre><code># 提示：需要結合 sched_process_exec tracepoint + cgroup filter</code></pre>
+      <p>回答：</p>
+      <ol>
+        <li>怎麼識別「<em>application 第一次 syscall</em>」？</li>
+        <li>容器 start latency 通常多少？哪些因素影響？</li>
+        <li>container runtime（runc/crun）對這個 latency 影響有多大？</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 寫 BPF program 限制 cgroup 內的 sysctl 寫入（思考題，15 分鐘）</div>
+      <p>不需要實作（需要編譯環境），只回答設計問題：</p>
+      <ol>
+        <li>用哪個 BPF program type？</li>
+        <li>怎麼判斷被寫入的 sysctl 名稱？</li>
+        <li>怎麼在 BPF 中存「<em>白名單</em>」？</li>
+        <li>失敗時 userspace 看到什麼錯誤？</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 比較 eBPF 與傳統 monitoring overhead（10 分鐘）</div>
+      <p>跑一個 CPU-bound 應用測 baseline：</p>
+<pre><code># Baseline
+time stress-ng --cpu 4 --cpu-ops 1000000
+
+# 加上 bpftrace 觀測
+time (
+    sudo bpftrace -e 'tracepoint:syscalls:sys_enter_*{ @[probe] = count(); }' &
+    BT_PID=$!
+    stress-ng --cpu 4 --cpu-ops 1000000
+    sudo kill $BT_PID
+)</code></pre>
+      <p>回答：bpftrace overhead 多少？對 syscall-heavy vs CPU-heavy 應用影響有何差別？</p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 7: 自我檢查題 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>eBPF 與 cgroup 怎麼互補？per-cgroup 過濾為什麼是 multi-tenant 環境的關鍵能力？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>互補關係</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>cgroup</strong>：把 process 組織成樹、定義資源邊界——是<em>結構</em>。</li>
+          <li><strong>eBPF</strong>：在 kernel 跑可程式化的觀測與控制——是<em>工具</em>。</li>
+        </ul>
+        兩者結合：用 eBPF 對 cgroup 邊界做精確觀測與控制。
+        <strong>per-cgroup 過濾的價值（multi-tenant 環境）</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>隔離</strong>：A 容器的 debug 不影響 B 容器的觀測。</li>
+          <li><strong>精準</strong>：「<em>看 myapp 容器的 syscall</em>」、不是「<em>看整機 syscall 然後 grep</em>」。</li>
+          <li><strong>低 overhead</strong>：在 kernel 早期就 filter 掉不感興趣的事件——overhead 多半 1-3%（vs sidecar agent 10-40%）。</li>
+          <li><strong>自動跟隨 process 生命週期</strong>：新 fork 自動納入、process 移出 cgroup 自動移除。</li>
+        </ol>
+        <strong>傳統工具做不到</strong>：strace 只 attach 單 PID、tcpdump 是 system-wide、perf record 雖然有 -G 但不能對 syscall 過濾。eBPF 是唯一能做到的。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>BPF cgroup program 的 9 種類型分別 attach 在什麼 hook？哪個是 v2 device controller 用的？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>主要類型與 hook</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>CGROUP_DEVICE</strong>：device access（mknod / read / write）— v2 device controller 用這個</li>
+          <li><strong>CGROUP_SKB</strong>：network packet（ingress / egress）</li>
+          <li><strong>CGROUP_SOCK</strong>：socket create</li>
+          <li><strong>CGROUP_SOCK_ADDR</strong>：connect / bind / sendmsg / recvmsg（IPv4/IPv6 各有版本）</li>
+          <li><strong>SOCK_OPS</strong>：TCP 狀態變化（connect / accept / retransmit）</li>
+          <li><strong>CGROUP_SYSCTL</strong>：sysctl read / write</li>
+          <li><strong>CGROUP_SOCKOPT</strong>：setsockopt / getsockopt</li>
+        </ul>
+        <strong>v2 device controller</strong>：用 <code>BPF_PROG_TYPE_CGROUP_DEVICE</code>。Ch.11 講過 v2 完全沒有 device.allow / deny 介面，純 BPF。
+        <strong>共同特性</strong>：每個 program type 接收特定 context struct，return 1 = allow、0 = deny（操作回 EPERM）。一旦 attach 到 cgroup，cgroup 內所有 process 自動受影響——包括之後 fork 的。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span>bpftrace 怎麼對特定 cgroup 過濾？cgroup 變數與 cgroupid() 函數差別是什麼？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>過濾語法</strong>：
+        <pre style="margin-top:8px;font-size:11px;">tracepoint:xxx:yyy
+/cgroup == cgroupid("/sys/fs/cgroup/myapp")/
+{ ... }</pre>
+        <strong>cgroup 內建變數</strong>：當前 task 的 cgroup ID（uint64）。在<em>有 task context</em> 的 hook 內可用（tracepoint、kprobe、uprobe）。
+        <strong>cgroupid() helper 函數</strong>：把<em>路徑</em>轉成 cgroup ID。讀的是 cgroup 目錄的 inode number。
+        <strong>用法</strong>：兩者結合做 filter——<code>cgroup（task 的 ID）== cgroupid("/path"，路徑的 ID)</code>。如果 task 在這個 cgroup 內，兩個值相等。
+        <strong>注意</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><code>cgroup</code> 變數在無 task context 的 hook（如 XDP）會回 0 或失敗</li>
+          <li><code>cgroupid()</code> 對不存在路徑回 0——所有 task 都會 match（因為 cgroup ID 也可能是 0），filter 失效</li>
+          <li>systemd transient unit 每次 ID 不同，要即時取</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span>bpftool 是做什麼的？典型 debug cgroup BPF 流程怎麼走？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>bpftool</strong>：kernel-shipped 工具，操作 BPF objects（programs / maps / cgroup attachments / links）。是 cgroup BPF debug 的瑞士刀。
+        <strong>典型 debug 流程</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><code>bpftool cgroup tree</code>：看整個系統的 cgroup BPF 概況（哪些 cgroup 有 attached programs）</li>
+          <li>聚焦問題 cgroup：<code>bpftool cgroup show /sys/fs/cgroup/PATH</code> 看 attach 的 program ID 與 attach type</li>
+          <li>查特定 program：<code>bpftool prog show id N</code> 看 type、name、loaded by 等元資料</li>
+          <li>必要時 dump bytecode：<code>bpftool prog dump xlated id N</code>（人類可讀的 BPF 指令）</li>
+          <li>看 BPF program 印的 log：<code>bpftool prog tracelog</code>（等同 cat /sys/kernel/debug/tracing/trace_pipe）</li>
+          <li>查 BPF map：<code>bpftool map dump id M</code>（看程式內部累積的資料）</li>
+        </ol>
+        <strong>實戰場景</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>「<em>為什麼 docker 容器突然不能 mknod？</em>」→ 看 container cgroup 上的 device program 內容</li>
+          <li>「<em>哪個 BPF program 在跑？</em>」→ bpftool cgroup tree</li>
+          <li>「<em>BPF program 有印錯誤訊息嗎？</em>」→ bpftool prog tracelog</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span>為什麼 eBPF 觀測 overhead 這麼低？跟 sidecar agent 比有何優勢？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>為什麼低 overhead（1-3%）</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>JIT 編譯</strong>：BPF bytecode 在 attach 時 JIT 成 native code，執行接近 C 速度（不是 interpret）。</li>
+          <li><strong>Verifier 強制 bounded</strong>：BPF program 不能有無限迴圈，最大 instruction 數限制。每次執行時間有上界。</li>
+          <li><strong>Per-CPU maps</strong>：不需要 lock，無 cacheline contention。</li>
+          <li><strong>Early filtering</strong>：cgroup filter 在 kernel 內就過濾掉不感興趣的事件——不感興趣的事件只多了一個 if 判斷。</li>
+          <li><strong>In-kernel aggregation</strong>：用 BPF map 聚合（histogram、count），userspace 只 export 結果而非每事件。</li>
+        </ol>
+        <strong>跟 sidecar agent 比</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>sidecar</strong>：應用每次系統呼叫都被 trace、所有資料拷到 userspace、序列化成網路訊息送出去。每個 step 都有 overhead，加總可達 10-40%。</li>
+          <li><strong>eBPF</strong>：trace 在 kernel 內跑 BPF；早期 filter 大幅減少資料量；只 export 聚合後的指標。production 數字 1-3% 是常態。</li>
+        </ul>
+        <strong>具體數字（Michael Eakins 2025）</strong>：DataDog APM agent ~28%、OpenTelemetry SDK ~15%、libbpf-based eBPF observer ~1.8%。差距巨大。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>實戰問題：multi-tenant 機器某 service 偶發 latency spike。怎麼用 eBPF 找到 noisy neighbor？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>診斷流程</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>確認受害者 cgroup</strong>：<code>systemctl status myapp.service</code> 找 ControlGroup path</li>
+          <li><strong>確認受害類型</strong>：先看 PSI——是 CPU、memory、IO 哪個 pressure 高？</li>
+          <li><strong>找肇事者 cgroup</strong>：用 bpftrace 統計事件類型最多的 cgroup
+            <ul>
+              <li>CPU 競爭：tracepoint:sched:sched_switch + cgroup count</li>
+              <li>memory 競爭：software:page-faults + cgroup count</li>
+              <li>IO 競爭：kprobe:vfs_read,vfs_write + cgroup count</li>
+            </ul>
+          </li>
+          <li><strong>反查 cgroup ID 對應 path</strong>：<code>find /sys/fs/cgroup -inum &lt;ID&gt;</code></li>
+          <li><strong>確認假設</strong>：把肇事者 cgroup 暫時降權（io.weight 設低、memory.high 設緊）後看受害者是否恢復</li>
+        </ol>
+        <strong>真實案例</strong>：某 production Redis 偶發 spike。bpftrace 看到 cron cgroup 在 spike 時做大量 page fault——它跑大型 batch 報表時誘發 page reclaim，連帶讓 Redis 的 page 被 evict。
+        <strong>修法</strong>：對 cron cgroup 設 memory.high + io.weight 較低，避免影響其他 service。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span>bpftrace one-liner、BCC tool、libbpf agent 三者該怎麼選？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>選擇邏輯</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>bpftrace one-liner</strong>：探查、debug 場景。「<em>不知道是不是這個問題、先看一下</em>」。一行寫完，5 秒看到結果。<em>不適合</em> production 長期跑（無法 export 到 Prometheus、無 alerting）。</li>
+          <li><strong>BCC tool</strong>：semi-production。Python wrapper 包 BPF program，有完整 CLI 介面。適合 debug team 共用、寫成可重複使用的 tool。CO-RE 支援後可移植性好。</li>
+          <li><strong>libbpf agent</strong>：production 長期跑。C/Go/Rust 寫的 daemon，integrate Prometheus exporter，運維友好。常見於 service mesh、APM 工具。</li>
+        </ul>
+        <strong>典型工作流程</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>用 bpftrace 探查問題、確認假設（「<em>真的有這個問題嗎？</em>」）</li>
+          <li>確認方向後寫 BCC script，team 共用 tool</li>
+          <li>需要長期 monitor 時改寫成 libbpf agent，整合到 Prometheus / Alertmanager</li>
+        </ol>
+        <strong>業界產品</strong>：Pixie、Cilium Hubble、Parca 都是 libbpf-based。bpftrace 適合個人 debug。BCC 介於兩者之間，適合 team 級工具。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>實作思考題：你要為公司設計一套 cgroup-aware eBPF 觀測架構，從個人 debug 到 cluster-wide。請描述完整三層設計與工具選擇。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>三層觀測架構</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[Layer 1: 個人 debug（per-incident）]
+工具：bpftrace、BCC tools
+場景：「為什麼這個 service 突然慢？」
+- bpftrace one-liner 即時 debug
+- BCC tools (opensnoop, execsnoop, biolatency) 標準工具
+- 訓練 team 寫 cgroup-aware bpftrace
+- 安裝：每台 host 都裝 bpftrace + BCC
+
+[Layer 2: 主機級監控（per-host metrics）]
+工具：libbpf-based agent
+場景：「節點上每個 cgroup 健康度」
+- 自寫 libbpf agent，CO-RE 確保跨 kernel 版本
+- export per-cgroup metrics 到 Prometheus
+  * syscall rate per service
+  * IO latency histogram per service  
+  * page fault rate per service
+- DaemonSet 部署，每 node 一個
+
+[Layer 3: cluster-wide 視覺化]
+工具：Pixie / Parca / Cilium Hubble
+場景：「整個 cluster 服務拓撲、性能熱點」
+- Pixie：service map、HTTP request tracing
+- Parca：continuous profiling，所有 service flame graph
+- Cilium Hubble：network flow visibility
+- 整合 Grafana 統一 dashboard
+
+[供應商選擇考量]
+- 開源 vs 商業：Pixie 開源、DataDog/Dynatrace 商業
+- 自建 vs SaaS：自建省成本但要團隊投入
+- kernel 要求：多數工具需 kernel 5.4+（CO-RE）
+
+[Runbook 整合]
+alert 觸發 (Layer 2 Prometheus) 
+  → SRE 用 bpftrace (Layer 1) 確認
+  → 看 Pixie service map (Layer 3) 找關聯
+  → 修復後 Layer 2 metrics 驗證</pre>
+        <strong>關鍵設計決策</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>三層分工清楚</strong>：debug / metrics / visualization 各有專責工具。</li>
+          <li><strong>CO-RE 是基礎</strong>：跨 kernel 版本可移植，省維護成本。</li>
+          <li><strong>cgroup-aware 是核心</strong>：multi-tenant 環境必須能 per-service 觀測。</li>
+          <li><strong>低 overhead 一致性</strong>：三層都基於 eBPF，total overhead &lt; 5% CPU。比傳統 sidecar 大幅優於。</li>
+          <li><strong>逐步推行</strong>：先 Layer 1 訓練團隊、再 Layer 2 部署 metrics、最後 Layer 3 視覺化。</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 8: 延伸閱讀 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+
+    <div class="refs">
+      <ol>
+        <li>
+          <a href="https://docs.ebpf.io/" target="_blank" rel="noopener">eBPF Documentation</a>
+          <span class="ref-source">docs.ebpf.io · 完整 BPF program type 與 helper 參考</span>
+        </li>
+        <li>
+          <a href="https://github.com/iovisor/bpftrace/blob/master/docs/reference_guide.md" target="_blank" rel="noopener">bpftrace Reference Guide</a>
+          <span class="ref-source">github.com · bpftrace 完整語法與內建變數</span>
+        </li>
+        <li>
+          <a href="https://github.com/iovisor/bcc/tree/master/tools" target="_blank" rel="noopener">BCC Tools</a>
+          <span class="ref-source">github.com · 100+ 個 production-ready BPF 工具</span>
+        </li>
+        <li>
+          <a href="https://eunomia.dev/tutorials/cgroup/" target="_blank" rel="noopener">eBPF cgroup-based Policy Control · eunomia 2026</a>
+          <span class="ref-source">eunomia.dev · cgroup BPF program 完整教程含 connect/dev/sysctl 範例</span>
+        </li>
+        <li>
+          <a href="https://www.brendangregg.com/ebpf.html" target="_blank" rel="noopener">eBPF · Brendan Gregg</a>
+          <span class="ref-source">brendangregg.com · eBPF 觀測權威資源</span>
+        </li>
+        <li>
+          <a href="https://thinhdanggroup.github.io/ebpf-observability/" target="_blank" rel="noopener">Tracing the Future · ThinhDA 2025</a>
+          <span class="ref-source">thinhdanggroup.github.io · cloud-native eBPF 觀測架構</span>
+        </li>
+        <li>
+          <a href="https://eunomia.dev/blog/2025/02/12/ebpf-ecosystem-progress-in-20242025-a-technical-deep-dive/" target="_blank" rel="noopener">eBPF Ecosystem 2024-2025 · eunomia</a>
+          <span class="ref-source">eunomia.dev · 2024-2025 eBPF 生態完整 review</span>
+        </li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Chapter nav ====================== -->
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn" href="ch12-psi-events.html">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">Ch.12 PSI 與事件</span>
+    </a>
+    <a class="nav-btn next disabled">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">Ch.14 Tuning 與 Benchmark</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window.JHsunTheme = { get: getCurrentMode, set: (m) => { setStored(m); applyTheme(m); }, toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); }, };
+})();
+</script>
+
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+
+</body>
+</html>

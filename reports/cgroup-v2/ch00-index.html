@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>cgroup v2 完整教學文件 — 從原理到生產實戰</title>
+<meta name="description" content="cgroup v2 完整教學：unified hierarchy、controllers、PSI、systemd、Kubernetes、Go 與 Python 整合、v1 → v2 遷移實戰">
+
+<style>
+/* ============================================================
+   Inline tokens.css (v1.0 · Calm Teal)
+   依使用者指定，從 GitHub 內聯複製，僅供本檔案使用
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+
+  --color-success:        #16a34a;
+  --color-success-soft:   #dcfce7;
+  --color-warning:        #d97706;
+  --color-warning-soft:   #fef3c7;
+  --color-danger:         #dc2626;
+  --color-danger-soft:    #fee2e2;
+  --color-info:           #0891b2;
+  --color-info-soft:      #cffafe;
+  --color-neutral-accent: #7c3aed;
+
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+
+  --font-mono:       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:       "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif:      "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  32px;
+  --text-3xl:  44px;
+  --text-4xl:  64px;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+
+  --container-narrow: 720px;
+  --container-wide:   1280px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+
+:root[data-theme="dark"] {
+  --color-success:        #4ade80;
+  --color-success-soft:   oklch(0.30 0.08 145);
+  --color-warning:        #fbbf24;
+  --color-warning-soft:   oklch(0.32 0.10 70);
+  --color-danger:         #f87171;
+  --color-danger-soft:    oklch(0.32 0.10 27);
+  --color-info:           #22d3ee;
+  --color-info-soft:      oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.16 0.008 50);
+  --bg-surface:     oklch(0.20 0.009 50);
+  --bg-muted:       oklch(0.23 0.010 50);
+  --bg-code:        oklch(0.18 0.009 50);
+  --border-soft:    oklch(0.28 0.010 50);
+  --border-mid:     oklch(0.36 0.012 50);
+  --text-primary:   oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted:     oklch(0.58 0.007 60);
+
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+</style>
+
+<style>
+/* ============================================================
+   Page-specific styles
+   ============================================================ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---- Top bar with theme toggle ---- */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: color-mix(in oklch, var(--bg-canvas) 88%, transparent);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.topbar-inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+.brand-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--color-primary);
+}
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+
+[data-theme-toggle] {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background .2s, border-color .2s, color .2s;
+}
+[data-theme-toggle]:hover {
+  background: var(--bg-muted);
+  border-color: var(--border-mid);
+  color: var(--text-primary);
+}
+[data-theme-toggle] .theme-icon { font-size: 14px; line-height: 1; }
+
+/* Reset progress button */
+.reset-btn {
+  background: transparent;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color .2s, border-color .2s;
+}
+.reset-btn:hover { color: var(--color-danger); border-color: var(--color-danger); }
+
+/* ---- Hero ---- */
+.hero {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-9) var(--space-5) var(--space-7);
+}
+.hero-tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-primary-text);
+  background: var(--color-primary-soft);
+  padding: 4px 12px;
+  border-radius: 999px;
+  margin-bottom: var(--space-4);
+}
+.hero-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-3xl);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin-bottom: var(--space-4);
+  max-width: 900px;
+}
+.hero-title em {
+  font-style: italic;
+  color: var(--color-primary);
+}
+.hero-subtitle {
+  font-family: var(--font-serif-body);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  max-width: 720px;
+  line-height: 1.65;
+}
+.hero-meta {
+  margin-top: var(--space-5);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.hero-meta-item { display: flex; align-items: center; gap: 6px; }
+.hero-meta-item::before {
+  content: "";
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.hero-meta-item:first-child::before { display: none; }
+
+/* ---- Stats ---- */
+.stats {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 0 var(--space-5) var(--space-7);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+}
+.stat-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
+}
+.stat-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
+  font-weight: 500;
+  color: var(--color-primary);
+  display: block;
+  line-height: 1.2;
+  margin-bottom: 2px;
+}
+.stat-label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ---- Progress overview ---- */
+.progress-section {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 0 var(--space-5) var(--space-6);
+}
+.progress-bar-outer {
+  background: var(--bg-muted);
+  border-radius: 999px;
+  height: 10px;
+  overflow: hidden;
+  margin-top: var(--space-3);
+}
+.progress-bar-inner {
+  background: var(--color-primary);
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s ease;
+  width: 0;
+}
+.progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.progress-row strong { color: var(--text-primary); font-weight: 500; }
+
+/* ---- Sections ---- */
+.parts-wrap {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 0 var(--space-5) var(--space-9);
+}
+
+.part-block { margin-bottom: var(--space-7); }
+
+.part-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+}
+.part-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-primary);
+  letter-spacing: 0.05em;
+}
+.part-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.part-desc {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.chapters-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--space-3);
+}
+
+.chapter-card {
+  position: relative;
+  display: block;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color .2s, transform .15s, box-shadow .2s;
+  overflow: hidden;
+}
+.chapter-card:hover {
+  border-color: var(--color-primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+.chapter-card.pending { opacity: 0.6; cursor: not-allowed; }
+.chapter-card.pending:hover {
+  border-color: var(--border-soft);
+  transform: none;
+  box-shadow: none;
+}
+
+.chapter-card.completed::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0;
+  width: 3px;
+  height: 100%;
+  background: var(--color-success);
+}
+
+.ch-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+.ch-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+.ch-status {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+}
+.ch-status.s-ready {
+  background: var(--color-info-soft);
+  color: var(--color-info);
+}
+.ch-status.s-done {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+.ch-status.s-pending {
+  background: var(--bg-muted);
+  color: var(--text-muted);
+}
+
+.ch-title {
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
+  line-height: 1.4;
+}
+.ch-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: var(--space-3);
+}
+.ch-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ch-tag {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+  color: var(--text-muted);
+}
+.ch-tag.t-core    { background: var(--color-primary-soft); color: var(--color-primary-text); }
+.ch-tag.t-cloud   { background: var(--color-info-soft);    color: var(--color-info); }
+.ch-tag.t-lang    { background: var(--color-warning-soft); color: var(--color-warning); }
+.ch-tag.t-migrate { background: var(--color-danger-soft);  color: var(--color-danger); }
+
+/* Special highlight for Go / Python */
+.chapter-card.featured {
+  border-color: var(--color-warning);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--color-warning-soft) 30%, var(--bg-surface)),
+    var(--bg-surface) 60%
+  );
+}
+
+/* ---- Reading guide ---- */
+.guide-section {
+  max-width: var(--container-narrow);
+  margin: 0 auto;
+  padding: var(--space-7) var(--space-5);
+  border-top: 1px solid var(--border-soft);
+}
+.guide-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  margin-bottom: var(--space-4);
+}
+.guide-text {
+  font-family: var(--font-serif-body);
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  line-height: 1.8;
+  margin-bottom: var(--space-3);
+}
+.guide-text code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--bg-code);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+}
+
+.guide-paths {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+.path-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+.path-card-title {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-primary);
+  margin-bottom: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.path-card-title::before {
+  content: "→";
+  font-family: var(--font-mono);
+}
+.path-card-text {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: 1.6;
+  font-family: var(--font-mono);
+}
+
+/* ---- Footer ---- */
+.footer {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.footer-links { display: flex; gap: var(--space-4); flex-wrap: wrap; }
+.footer-links a { color: var(--text-muted); text-decoration: none; }
+.footer-links a:hover { color: var(--color-primary); }
+
+/* ---- Responsive ---- */
+@media (max-width: 720px) {
+  .hero-title { font-size: var(--text-2xl); }
+  .hero-subtitle { font-size: var(--text-base); }
+  .part-header { flex-wrap: wrap; }
+  .part-desc { margin-left: 0; width: 100%; margin-top: 4px; }
+  .chapters-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- ====================== Top bar ====================== -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <span>cgroup-v2 / docs</span>
+    </div>
+    <div class="topbar-actions">
+      <button class="reset-btn" id="resetBtn" title="清除進度">重置進度</button>
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<!-- ====================== Hero ====================== -->
+<section class="hero">
+  <span class="hero-tag">Linux Kernel · Resource Management</span>
+  <h1 class="hero-title">cgroup v2 完整教學<br><em>從原理到生產實戰</em></h1>
+  <p class="hero-subtitle">
+    完整涵蓋 Linux control group v2 的設計哲學、controllers 深度解析、可觀測性、systemd 與 Kubernetes 整合，並深入討論 Go 與 Python 兩大應用語言的容器化開發實務。
+    每章皆基於最新資訊（2025/2026）撰寫，包含可執行的 lab 練習與自我檢查題。
+  </p>
+  <div class="hero-meta">
+    <span class="hero-meta-item">21 章 + 2 附錄</span>
+    <span class="hero-meta-item">繁體中文 / 保留英文術語</span>
+    <span class="hero-meta-item">Light / Dark / System</span>
+    <span class="hero-meta-item">最後更新 <span id="lastUpdate">—</span></span>
+  </div>
+</section>
+
+<!-- ====================== Stats ====================== -->
+<section class="stats">
+  <div class="stat-card"><span class="stat-num" id="statTotal">21</span><span class="stat-label">教學章節</span></div>
+  <div class="stat-card"><span class="stat-num" id="statDone">0</span><span class="stat-label">已完成</span></div>
+  <div class="stat-card"><span class="stat-num" id="statRemaining">21</span><span class="stat-label">剩餘章節</span></div>
+  <div class="stat-card"><span class="stat-num" id="statPercent">0%</span><span class="stat-label">完成率</span></div>
+</section>
+
+<!-- ====================== Progress bar ====================== -->
+<section class="progress-section">
+  <div class="progress-row">
+    <span>學習進度</span>
+    <span><strong id="progressText">0 / 21</strong> 章</span>
+  </div>
+  <div class="progress-bar-outer">
+    <div class="progress-bar-inner" id="progressBar"></div>
+  </div>
+</section>
+
+<!-- ====================== Parts & Chapters ====================== -->
+<main class="parts-wrap" id="partsWrap">
+  <!-- 動態渲染 -->
+</main>
+
+<!-- ====================== Reading guide ====================== -->
+<section class="guide-section">
+  <h2 class="guide-title">怎麼讀這份文件</h2>
+  <p class="guide-text">
+    本系列依「<strong>原理 → 操作 → 深度 → 觀測 → 整合 → 遷移</strong>」六階段組織，每章為獨立 HTML 檔，可以線性閱讀，也可以從關注的主題跳入。
+    每章固定包含八個區塊：本章重點、最新動態、核心內容、實戰範例、常見陷阱、動手練習、自我檢查題、延伸閱讀。
+  </p>
+  <p class="guide-text">
+    使用上方右側的主題切換按鈕，可在 light / dark / system 三模式間循環。學習進度會儲存在 <code>localStorage</code>，下次開啟自動還原。
+  </p>
+
+  <div class="guide-paths">
+    <div class="path-card">
+      <div class="path-card-title">完整路徑</div>
+      <div class="path-card-text">Ch.1 → Ch.21<br>建議 4–6 週讀完</div>
+    </div>
+    <div class="path-card">
+      <div class="path-card-title">Kubernetes 工程師</div>
+      <div class="path-card-text">Ch.1 → Ch.3 → Ch.7 → Ch.8 → Ch.10 → Ch.12 → Ch.17</div>
+    </div>
+    <div class="path-card">
+      <div class="path-card-title">Go 開發者</div>
+      <div class="path-card-text">Ch.1 → Ch.7 → Ch.8 → Ch.12 → Ch.19</div>
+    </div>
+    <div class="path-card">
+      <div class="path-card-title">Python 開發者</div>
+      <div class="path-card-text">Ch.1 → Ch.7 → Ch.8 → Ch.12 → Ch.20</div>
+    </div>
+    <div class="path-card">
+      <div class="path-card-title">v1 → v2 遷移</div>
+      <div class="path-card-text">Ch.1 → Ch.4 → Ch.21 → 對應 controllers</div>
+    </div>
+    <div class="path-card">
+      <div class="path-card-title">SRE 故障排除</div>
+      <div class="path-card-text">Ch.8 → Ch.10 → Ch.12 → Ch.13 → Ch.14</div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Footer ====================== -->
+<footer class="footer">
+  <div>
+    cgroup v2 教學文件 · 基於 Linux Kernel <span style="font-family:var(--font-mono);">Documentation/admin-guide/cgroup-v2.rst</span>
+  </div>
+  <div class="footer-links">
+    <a href="https://docs.kernel.org/admin-guide/cgroup-v2.html" target="_blank" rel="noopener">Kernel docs</a>
+    <a href="https://facebookmicrosites.github.io/cgroup2/" target="_blank" rel="noopener">Meta cgroup2 guide</a>
+    <a href="https://docs.kernel.org/accounting/psi.html" target="_blank" rel="noopener">PSI docs</a>
+  </div>
+</footer>
+
+<!-- ====================== Inline theme-toggle.js ====================== -->
+<script>
+/* ============================================================
+   Inline theme-toggle.js (v1.0)
+   依使用者指定，從 GitHub 內聯複製
+   ============================================================ */
+(function () {
+  'use strict';
+
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+
+  function getStored() {
+    try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; }
+  }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) { /* ignore */ }
+  }
+
+  function systemPref() {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+
+  function effective(mode) {
+    return mode === 'system' ? systemPref() : mode;
+  }
+
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', {
+      detail: { theme: eff, mode },
+    }));
+  }
+
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+
+  function cycle(current) {
+    return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light';
+  }
+
+  function getCurrentMode() {
+    return getStored() || 'system';
+  }
+
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => {
+      if (getCurrentMode() === 'system') applyTheme('system');
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+
+<!-- ====================== Chapters data & rendering ====================== -->
+<script>
+/* ============================================================
+   章節資料 — 完整 21 章 + 2 附錄
+   status: 'pending' (尚未撰寫) / 'ready' (已就緒可閱讀)
+   完成狀態獨立由 localStorage 追蹤（reader 自行勾選）
+   ============================================================ */
+const PARTS = [
+  {
+    num: 'Part I',
+    title: '基礎篇',
+    desc: '建立心智模型，從 v1 痛點理解 v2 為什麼這樣設計',
+    chapters: [
+      {
+        n: 1, file: 'ch01-why-cgroup-v2.html', title: '為什麼需要 cgroup v2',
+        desc: 'cgroup 的本質、v1 多階層的歷史包袱、unified hierarchy 哲學、與 namespace 的關係',
+        tags: [['核心', 't-core']], status: 'ready'
+      },
+      {
+        n: 2, file: 'ch02-architecture.html', title: '架構與核心概念',
+        desc: 'cgroup tree、core vs controllers、domain vs threaded、single-writer rule',
+        tags: [['核心', 't-core']], status: 'ready'
+      },
+      {
+        n: 3, file: 'ch03-distribution-models.html', title: '資源分配三模型',
+        desc: 'Weights、Limits、Protections — 何時用哪一個的決策準則',
+        tags: [['核心', 't-core']], status: 'ready'
+      }
+    ]
+  },
+  {
+    num: 'Part II',
+    title: '操作篇',
+    desc: '實際動手建立、掛載、操作 cgroup',
+    chapters: [
+      {
+        n: 4, file: 'ch04-mount-and-basics.html', title: '掛載與基礎操作',
+        desc: 'mount cgroup2、mount options、cgroup.procs 程序遷移、interface files',
+        tags: [['實作', '']], status: 'ready'
+      },
+      {
+        n: 5, file: 'ch05-delegation.html', title: 'Delegation 與權限模型',
+        desc: 'nsdelegate、非 root 委派、cgroup namespace、containment 機制',
+        tags: [['安全', '']], status: 'ready'
+      },
+      {
+        n: 6, file: 'ch06-thread-mode.html', title: 'Thread-level 控制',
+        desc: 'threaded mode、threaded domain、cgroup.type 狀態機',
+        tags: [['進階', '']], status: 'ready'
+      }
+    ]
+  },
+  {
+    num: 'Part III',
+    title: 'Controllers 深度（上）',
+    desc: 'Compute 類別 — CPU、Memory、cpuset、PID',
+    chapters: [
+      {
+        n: 7, file: 'ch07-cpu-controller.html', title: 'CPU controller 深度解析',
+        desc: 'cpu.weight / cpu.max / cpu.max.burst / cpu.stat / cpu.idle、CFS 與 EEVDF',
+        tags: [['核心', 't-core']], status: 'ready'
+      },
+      {
+        n: 8, file: 'ch08-memory-controller.html', title: 'Memory controller 深度解析',
+        desc: 'memory.min/low/high/max 四階保護、memory.events、systemd-oomd、OOM 行為',
+        tags: [['核心', 't-core']], status: 'ready'
+      },
+      {
+        n: 9, file: 'ch09-cpuset-pid.html', title: 'cpuset 與 PID controller',
+        desc: 'NUMA 親和性、cpuset.cpus.partition、pids.max',
+        tags: [['進階', '']], status: 'ready'
+      }
+    ]
+  },
+  {
+    num: 'Part IV',
+    title: 'Controllers 深度（下）',
+    desc: 'I/O 與其他資源 — IO、HugeTLB、RDMA、misc',
+    chapters: [
+      {
+        n: 10, file: 'ch10-io-controller.html', title: 'IO controller 深度解析',
+        desc: 'io.weight / io.max / io.cost、writeback 行為、BFQ vs mq-deadline',
+        tags: [['核心', 't-core']], status: 'ready'
+      },
+      {
+        n: 11, file: 'ch11-other-controllers.html', title: '其他 controllers',
+        desc: 'hugetlb、rdma、misc、device controller（v2 改用 BPF）',
+        tags: [['選讀', '']], status: 'ready'
+      }
+    ]
+  },
+  {
+    num: 'Part V',
+    title: '可觀測性與診斷',
+    desc: 'PSI、eBPF、效能調校與故障排除',
+    chapters: [
+      {
+        n: 12, file: 'ch12-psi-events.html', title: 'PSI 與事件通知',
+        desc: 'cpu/memory/io.pressure、some vs full、avg10/60/300、cgroup.events',
+        tags: [['可觀測', '']], status: 'ready'
+      },
+      {
+        n: 13, file: 'ch13-ebpf-cgroup.html', title: 'eBPF 與 cgroup 整合',
+        desc: 'cgroup-aware BPF programs、bpftrace one-liners、cAdvisor / parca',
+        tags: [['可觀測', '']], status: 'ready'
+      },
+      {
+        n: 14, file: 'ch14-tuning-troubleshoot.html', title: '效能調校與診斷實戰',
+        desc: 'OOM 調查、CPU throttling 排查、IO 瓶頸、PSI 告警閾值',
+        tags: [['實戰', '']], status: 'ready'
+      }
+    ]
+  },
+  {
+    num: 'Part VI',
+    title: '生態系整合',
+    desc: '把理論對應到真實工具：systemd、容器、雲端、地端、應用語言',
+    chapters: [
+      {
+        n: 15, file: 'ch15-systemd.html', title: 'systemd 整合實戰',
+        desc: 'slice/scope/service、CPUWeight/MemoryMax/IOWeight、systemd-run',
+        tags: [['生態系', '']], status: 'ready'
+      },
+      {
+        n: 16, file: 'ch16-container-runtime.html', title: '容器引擎整合',
+        desc: 'containerd / Docker / Podman / runc / crun、OCI Linux Resources',
+        tags: [['生態系', '']], status: 'ready'
+      },
+      {
+        n: 17, file: 'ch17-kubernetes.html', title: 'Kubernetes 整合（雲端為主）',
+        desc: 'kubelet / Pod QoS / MemoryQoS / Pod-level resources / In-Place Resize',
+        tags: [['雲端', 't-cloud']], status: 'ready'
+      },
+      {
+        n: 18, file: 'ch18-onprem-hpc.html', title: '地端與特殊場景',
+        desc: 'LXC/LXD、Slurm HPC、Kata / gVisor / Firecracker、Wasm',
+        tags: [['地端', '']], status: 'ready'
+      },
+      {
+        n: 19, file: 'ch19-go-integration.html', title: 'Go 語言整合與容器化開發',
+        desc: 'GMP scheduler、GOMAXPROCS 演進、Go 1.25 container-aware runtime、automaxprocs、GOMEMLIMIT、GC 調校',
+        tags: [['應用語言', 't-lang'], ['擴大', 't-lang']], status: 'ready', featured: true
+      },
+      {
+        n: 20, file: 'ch20-python-integration.html', title: 'Python 語言整合與容器化開發',
+        desc: 'GIL、multiprocessing、psutil 盲點、自製 cgroup-aware utility、Gunicorn worker 計算、ML 訓練',
+        tags: [['應用語言', 't-lang'], ['擴大', 't-lang']], status: 'ready', featured: true
+      }
+    ]
+  },
+  {
+    num: 'Part VII',
+    title: '遷移與附錄',
+    desc: 'v1 → v2 遷移專章 + 工具速查',
+    chapters: [
+      {
+        n: 21, file: 'ch21-migration.html', title: 'v1 → v2 完整遷移指南',
+        desc: '相容性檢查、kernel/runtime 需求、監控相依、rollback、canary 部署',
+        tags: [['遷移', 't-migrate']], status: 'ready'
+      },
+      {
+        n: 'A', file: 'appendix-a-interface-files.html', title: '附錄 A · Interface files 速查表',
+        desc: '所有 cgroup.* / cpu.* / memory.* / io.* / pids.* / cpuset.* 檔案',
+        tags: [['附錄', '']], status: 'ready'
+      },
+      {
+        n: 'B', file: 'appendix-b-tools.html', title: '附錄 B · 工具與參考資料',
+        desc: 'cgroup-tools / systemd-cgls / cAdvisor / oomd / iocost、kernel docs / LWN',
+        tags: [['附錄', '']], status: 'ready'
+      }
+    ]
+  }
+];
+
+/* ============================================================
+   Render & progress tracking
+   ============================================================ */
+const PROGRESS_KEY = 'cgroup-v2-progress';
+
+function getProgress() {
+  try {
+    return JSON.parse(localStorage.getItem(PROGRESS_KEY) || '{}');
+  } catch (_) { return {}; }
+}
+function setProgress(p) {
+  try { localStorage.setItem(PROGRESS_KEY, JSON.stringify(p)); } catch (_) {}
+}
+function toggleCompleted(key) {
+  const p = getProgress();
+  if (p[key]) delete p[key]; else p[key] = Date.now();
+  setProgress(p);
+  renderAll();
+}
+
+function totalChapters() {
+  return PARTS.reduce((sum, p) => sum + p.chapters.filter(c => typeof c.n === 'number').length, 0);
+}
+function completedCount(progress) {
+  let cnt = 0;
+  PARTS.forEach(p => p.chapters.forEach(c => {
+    if (typeof c.n === 'number' && progress[`ch-${c.n}`]) cnt++;
+  }));
+  return cnt;
+}
+
+function statusLabel(status) {
+  return status === 'ready' ? ['可閱讀', 's-ready'] : ['尚未撰寫', 's-pending'];
+}
+
+function renderParts() {
+  const progress = getProgress();
+  const wrap = document.getElementById('partsWrap');
+  let html = '';
+
+  PARTS.forEach(part => {
+    html += `
+      <section class="part-block">
+        <div class="part-header">
+          <span class="part-num">${part.num}</span>
+          <h2 class="part-title">${part.title}</h2>
+          <span class="part-desc">${part.desc}</span>
+        </div>
+        <div class="chapters-grid">
+    `;
+
+    part.chapters.forEach(ch => {
+      const key = `ch-${ch.n}`;
+      const completed = !!progress[key];
+      const isPending = ch.status === 'pending';
+      const [statusText, statusClass] = completed
+        ? ['已完成', 's-done']
+        : statusLabel(ch.status);
+      const cardClass = [
+        'chapter-card',
+        isPending ? 'pending' : '',
+        completed ? 'completed' : '',
+        ch.featured ? 'featured' : ''
+      ].filter(Boolean).join(' ');
+      const numLabel = typeof ch.n === 'number' ? `Ch. ${String(ch.n).padStart(2, '0')}` : `附錄 ${ch.n}`;
+      const tagsHtml = ch.tags.map(([txt, cls]) =>
+        `<span class="ch-tag ${cls || ''}">${txt}</span>`).join('');
+
+      const action = isPending
+        ? `onclick="event.preventDefault(); return false;" href="#"`
+        : `href="${ch.file}"`;
+
+      html += `
+        <a class="${cardClass}" ${action}
+           ${typeof ch.n === 'number' ? `oncontextmenu="event.preventDefault(); toggleCompleted('${key}'); return false;"` : ''}
+           title="${typeof ch.n === 'number' ? '右鍵點擊標記為已完成 / 取消完成' : ''}">
+          <div class="ch-head">
+            <span class="ch-num">${numLabel}</span>
+            <span class="ch-status ${statusClass}">${statusText}</span>
+          </div>
+          <h3 class="ch-title">${ch.title}</h3>
+          <p class="ch-desc">${ch.desc}</p>
+          <div class="ch-tags">${tagsHtml}</div>
+        </a>
+      `;
+    });
+
+    html += '</div></section>';
+  });
+
+  wrap.innerHTML = html;
+}
+
+function renderStats() {
+  const progress = getProgress();
+  const total = totalChapters();
+  const done = completedCount(progress);
+  const remaining = total - done;
+  const percent = total ? Math.round(done / total * 100) : 0;
+
+  document.getElementById('statTotal').textContent = total;
+  document.getElementById('statDone').textContent = done;
+  document.getElementById('statRemaining').textContent = remaining;
+  document.getElementById('statPercent').textContent = percent + '%';
+  document.getElementById('progressBar').style.width = percent + '%';
+  document.getElementById('progressText').textContent = `${done} / ${total}`;
+}
+
+function renderAll() {
+  renderParts();
+  renderStats();
+}
+
+// 重置按鈕
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (confirm('確定要清除所有學習進度嗎？')) {
+    setProgress({});
+    renderAll();
+  }
+});
+
+// 顯示最後更新日期（取自當前頁面建立時間）
+document.getElementById('lastUpdate').textContent = '2026-04-28';
+
+// 初次渲染
+renderAll();
+
+// 暴露給卡片右鍵點擊
+window.toggleCompleted = toggleCompleted;
+</script>
+
+</body>
+</html>

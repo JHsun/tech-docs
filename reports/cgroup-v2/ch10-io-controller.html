@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.10 IO controller 深度解析 — cgroup v2 完整教學</title>
+<meta name="description" content="cgroup v2 IO controller 完整解析：io.weight、io.max、io.cost、io.latency、cgroup writeback、buffer IO 控制、io.prio.class。">
+
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626; --color-danger-soft: #fee2e2;
+  --color-info: #0891b2; --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px; --text-4xl: 64px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+</style>
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.topbar { position: sticky; top: 0; z-index: 50; background: color-mix(in oklch, var(--bg-canvas) 88%, transparent); backdrop-filter: saturate(180%) blur(12px); -webkit-backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--border-soft); }
+.topbar-inner { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.brand { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-secondary); }
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 999px; padding: 6px 14px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background .2s, border-color .2s, color .2s; }
+[data-theme-toggle]:hover { background: var(--bg-muted); border-color: var(--border-mid); color: var(--text-primary); }
+[data-theme-toggle] .theme-icon { font-size: 14px; line-height: 1; }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: 0 var(--space-5); }
+
+.chapter-head { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); }
+.chapter-tag { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary-text); background: var(--color-primary-soft); padding: 4px 12px; border-radius: 999px; margin-bottom: var(--space-4); }
+.chapter-title { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; margin-bottom: var(--space-3); }
+.chapter-subtitle { font-family: var(--font-serif-body); font-size: var(--text-md); color: var(--text-secondary); line-height: 1.65; font-style: italic; }
+.chapter-meta { margin-top: var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.chapter-meta-item:first-child::before { display: none; }
+
+.section { padding: var(--space-7) 0; border-bottom: 1px solid var(--border-soft); }
+.section:last-of-type { border-bottom: none; }
+.section-label { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2); }
+.section-label::before { content: ""; width: 24px; height: 1px; background: var(--color-primary); }
+.section-title { font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600; margin-bottom: var(--space-5); letter-spacing: -0.01em; line-height: 1.2; }
+
+.prose p { font-family: var(--font-serif-body); font-size: var(--text-base); color: var(--text-primary); line-height: 1.85; margin-bottom: var(--space-4); }
+.prose h3 { font-family: var(--font-sans); font-size: var(--text-lg); font-weight: 600; color: var(--text-primary); margin: var(--space-6) 0 var(--space-3); letter-spacing: -0.01em; }
+.prose h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 500; color: var(--text-primary); margin: var(--space-5) 0 var(--space-2); }
+.prose ul, .prose ol { font-family: var(--font-serif-body); margin-bottom: var(--space-4); padding-left: var(--space-5); line-height: 1.8; }
+.prose ul li, .prose ol li { margin-bottom: var(--space-2); color: var(--text-primary); }
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong { font-weight: 600; color: var(--text-primary); }
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 1px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+.prose a { color: var(--color-primary); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.prose a:hover { color: var(--color-primary-hover); }
+
+.highlights { background: var(--color-primary-soft); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.highlights ol { font-family: var(--font-sans); padding-left: var(--space-5); margin: 0; }
+.highlights li { font-size: var(--text-sm); color: var(--color-primary-text); margin-bottom: var(--space-2); line-height: 1.65; }
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+
+.news-box { background: var(--color-info-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.news-item { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); line-height: 1.7; padding: var(--space-2) 0; border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent); }
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-info); margin-right: var(--space-2); }
+
+pre { font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.7; background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; margin-bottom: var(--space-4); color: var(--text-primary); }
+pre code { background: transparent; border: none; padding: 0; font-size: inherit; color: inherit; }
+
+.cmp-table { width: 100%; border-collapse: collapse; margin-bottom: var(--space-4); font-size: var(--text-sm); font-family: var(--font-sans); }
+.cmp-table th, .cmp-table td { padding: var(--space-3); text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.cmp-table th { font-weight: 600; color: var(--text-primary); background: var(--bg-muted); font-size: var(--text-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 1px 5px; border-radius: var(--radius-sm); color: var(--color-primary-text); }
+
+.lab { background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.lab-title { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--color-primary); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px dashed var(--border-soft); }
+.lab-title::before { content: "▶ "; color: var(--color-primary); }
+.lab p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-3); color: var(--text-secondary); line-height: 1.7; }
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+.lab ol, .lab ul { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); color: var(--text-secondary); line-height: 1.7; }
+
+.pitfall { background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.pitfall-title { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 600; color: var(--color-warning); margin-bottom: var(--space-2); }
+.pitfall p { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); margin-bottom: var(--space-2); line-height: 1.7; }
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code { background: color-mix(in oklch, var(--color-warning) 15%, transparent); border-color: color-mix(in oklch, var(--color-warning) 30%, transparent); color: var(--text-primary); }
+
+.quiz-item { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-3); }
+.quiz-q { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; color: var(--text-primary); margin-bottom: var(--space-2); display: flex; gap: var(--space-2); }
+.quiz-q-num { font-family: var(--font-mono); color: var(--color-primary); flex-shrink: 0; }
+.quiz-toggle { background: transparent; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 4px 10px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; margin-top: var(--space-2); transition: background .2s, color .2s; }
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a { display: none; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px dashed var(--border-soft); font-family: var(--font-serif-body); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.75; }
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+
+.diagram { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); margin-bottom: var(--space-4); text-align: center; }
+.diagram svg { max-width: 100%; height: auto; }
+.diagram-caption { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-3); text-align: center; }
+
+.refs ol { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); line-height: 1.8; }
+.refs li { margin-bottom: var(--space-2); color: var(--text-secondary); }
+.refs li::marker { color: var(--color-primary); }
+.refs a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dashed var(--color-primary); }
+.refs a:hover { color: var(--color-primary-hover); }
+.refs .ref-source { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); display: block; margin-top: 2px; }
+
+.chapter-nav { margin-top: var(--space-6); padding: var(--space-5) 0; display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.nav-btn { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; padding: var(--space-3) var(--space-4); background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); text-decoration: none; color: var(--text-primary); transition: border-color .2s, transform .15s; }
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.04em; }
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.10</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part IV · Controllers 下 · Chapter 10</span>
+    <h1 class="chapter-title">IO controller 深度解析</h1>
+    <p class="chapter-subtitle">
+      v1 IO 控制最大的失敗在於「<em>buffered IO 完全管不到</em>」——絕大多數應用是 buffered write，v1 對它們束手無策。
+      v2 透過 memory + io controller 協同工作徹底解決這問題。本章拆解 io.weight、io.max、io.cost、io.latency 四種模型、
+      cgroup writeback 機制、Memory Ownership 與 IO Ownership 的差異，並用 Meta fbtax2 實戰案例把所有概念串起來。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~7,500 字</span>
+      <span class="chapter-meta-item">閱讀時間 28 分鐘</span>
+      <span class="chapter-meta-item">難度：核心</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ====================== Section 1: 本章重點 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+
+    <div class="highlights">
+      <ol>
+        <li><strong>v2 解決 v1 最大缺陷</strong>：v1 只能控制 direct IO（read 與 metadata），<em>buffered write 完全失控</em>。v2 透過 memory + io controller 協同實現完整 IO 控制。</li>
+        <li><strong>四種控制模型</strong>：<code>io.weight</code>（比例分配，需 blk-iocost）、<code>io.max</code>（BPS/IOPS 硬上限）、<code>io.cost</code>（基於成本模型的 QoS 控制）、<code>io.latency</code>（基於延遲的 workload 保護）。</li>
+        <li><strong>cgroup writeback 三要件</strong>：（1）v2 啟用 memory + io controller、（2）filesystem 支援（ext4 / btrfs / xfs / f2fs / ext2）、（3）正確掛載。三者缺一，buffered write 會歸到 root cgroup。</li>
+        <li><strong>IO Ownership 與 Memory Ownership 不同</strong>：memory 按 page 計（first-touch），io 按 inode 計（且會根據主要 dirtier 動態遷移）。理解這個對 debug 多 cgroup 共用檔案場景至關重要。</li>
+        <li><strong>device-keyed 介面</strong>：io.* 介面多數是 nested-keyed，每個裝置（<code>$MAJ:$MIN</code>）獨立配置。<code>lsblk</code> 看 device 編號，systemd 用 <code>IODeviceWeight=</code> 等 directive。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 2: 最新動態 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+
+    <div class="news-box">
+      <div class="news-item">
+        <span class="news-date">2024-08</span>
+        <strong>Red Hat 發布 cgroup v2 IO latency controller 官方指引</strong>，明確建議用 io.latency 取代 io.max 做 workload 保護，特別是 latency-critical 服務。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>blk-iocost 在大型雲端供應商廣泛採用</strong>。Alibaba Cloud、AWS、GCP 都用 io.cost 模型在 multi-tenant 場景做精細 IO QoS。NVMe 高速儲存特別受惠。</em>
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>io.prio.class 介面成熟</strong>（kernel 6.0+）。允許 cgroup 設定 IO 優先級類別（<code>rt</code>/<code>be</code>/<code>idle</code>），與 ionice 對齊但 cgroup 範圍。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2024–2025</span>
+        <strong>Meta 與 Google 持續推廣 io.latency-based protection</strong>。fbtax2 案例已成 cgroup v2 IO 控制的教科書範例：用 io.latency 保護 workload.slice，比 io.max 更精細不浪費頻寬。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025-09</span>
+        <strong>iocost_monitor.py 工具普及</strong>。kernel 自帶的 drgn-based 工具，可即時觀察每個 cgroup 的 IO weight、hweight%、vrate 等內部狀態，是 debug io.cost 的必備。
+      </div>
+    </div>
+
+    <div class="prose">
+      <p>
+        2026 年的時點，<strong>cgroup v2 IO controller 已從「實驗性」演進成「企業級 IO QoS 標準」</strong>。
+        但它也是 cgroup v2 中<em>最複雜</em>的 controller——涉及 block layer、filesystem、memory subsystem 多方協作，
+        實作細節遠多於 CPU 與 Memory。本章除了介面說明，會花較多篇幅在「<em>為什麼這樣設計</em>」與「<em>實際生產怎麼用</em>」上。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 3: 核心內容 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+
+    <div class="prose">
+      <h3>3.1 為什麼 v1 IO 控制失敗</h3>
+      <p>
+        Ch.1 提過 v1 的 blkio 只能控制 direct IO，無法控制 buffered IO。這裡進一步解釋為什麼。
+      </p>
+      <p>
+        當應用呼叫 <code>write(2)</code> 寫檔案時，預設是 <strong>buffered write</strong>——資料先寫到 kernel page cache（記憶體），<em>之後</em>由 kernel 的 writeback worker thread 在背景把 dirty page 寫到磁碟。
+      </p>
+      <p>
+        關鍵問題：<strong>writeback worker 是 kernel thread，不屬於原始應用 cgroup</strong>。當 bio 送到 block layer 時，block layer 看到的是 worker thread 的 cgroup（root）——v1 的 blkio 控制只看 bio 的 cgroup，所以<em>所有 buffered write 都歸到 root cgroup</em>。
+      </p>
+      <p>
+        實際影響：你寫 <code>blkio.throttle.write_bps_device 8:0 10485760</code> 限速 10MB/s，但 <code>dd if=/dev/zero of=/data/file</code> 跑了 800MB/s——因為 dd 寫的是 page cache，根本沒受 blkio 限制。
+      </p>
+      <p>
+        v2 怎麼解決：<strong>memory controller 知道哪個 cgroup 弄髒了 page，writeback worker 把這個資訊帶到 block layer</strong>，bio 的 cgroup 變成「<em>真正寫資料的 cgroup</em>」而非 worker thread 的 cgroup。這需要 <strong>memory + io controller 在同一 hierarchy 協同</strong>——這在 v1 multi-hierarchy 模型下根本做不到，是 v2 unified hierarchy 設計的直接收益。
+      </p>
+
+      <h3>3.2 IO controller 介面總覽</h3>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>介面</th><th>類型</th><th>作用</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>io.stat</code></td><td>R · per-device</td><td>per-device 統計：rbytes、wbytes、rios、wios、dbytes、dios</td></tr>
+        <tr><td><code>io.weight</code></td><td>RW · 全域 + per-device</td><td>比例分配，1–10000，預設 100。需 blk-iocost</td></tr>
+        <tr><td><code>io.max</code></td><td>RW · per-device</td><td>BPS / IOPS 硬上限：rbps、wbps、riops、wiops</td></tr>
+        <tr><td><code>io.cost.qos</code></td><td>RW · per-device · root only</td><td>啟用 blk-iocost、設 latency-based QoS 參數</td></tr>
+        <tr><td><code>io.cost.model</code></td><td>RW · per-device · root only</td><td>裝置成本模型（linear / auto）</td></tr>
+        <tr><td><code>io.latency</code></td><td>RW · per-device</td><td>基於延遲目標的 workload 保護（μs）</td></tr>
+        <tr><td><code>io.pressure</code></td><td>R · PSI</td><td>IO pressure stall information（some / full）</td></tr>
+        <tr><td><code>io.prio.class</code></td><td>RW</td><td>IO 優先級類別：promote-to-rt、restrict-to-be、idle、no-change</td></tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h3>3.3 io.weight：比例分配（blk-iocost）</h3>
+      <p>
+        <code>io.weight</code> 的<strong>預設 backend 是 blk-iocost</strong>——一套基於成本模型的 IO QoS 控制器。要使用，需要先在 root cgroup 啟用 blk-iocost：
+      </p>
+<pre><code># 1. 確認裝置
+lsblk
+# 假設目標是 /dev/sda（major:minor = 8:0）
+
+# 2. 啟用 blk-iocost（root cgroup）
+echo "8:0 enable=1" | sudo tee /sys/fs/cgroup/io.cost.qos
+
+# 3. 自動偵測裝置成本模型
+echo "8:0 ctrl=auto" | sudo tee /sys/fs/cgroup/io.cost.model
+
+# 4. 在 cgroup 設 weight
+echo "200" | sudo tee /sys/fs/cgroup/myapp/io.weight
+# 對特定裝置設 weight
+echo "8:0 200" | sudo tee /sys/fs/cgroup/myapp/io.weight
+</code></pre>
+      <p>
+        <strong>weight 行為</strong>：1–10000，預設 100。和其他 weight 一樣<em>只在競爭時生效</em>。沒競爭時，cgroup 可以吃滿 IO bandwidth，不被 weight 限制。
+      </p>
+
+      <h4>blk-iocost 的成本模型</h4>
+      <p>
+        blk-iocost 用「<em>每個 IO 的成本</em>」（virtual time）來計量，不同裝置成本不同。模型有兩種：
+      </p>
+      <ul>
+        <li><strong>linear（手動）</strong>：管理員提供 <code>rbps/rseqiops/rrandiops/wbps/wseqiops/wrandiops</code> 六個參數，blk-iocost 用這個 baseline 計算每個 IO 的成本。</li>
+        <li><strong>auto（自動）</strong>：kernel 用內建的裝置 profile（如 SSD、NVMe）自動推斷成本。多數情況夠用。</li>
+      </ul>
+
+      <h3>3.4 io.max：硬性 BPS / IOPS 上限</h3>
+      <p>
+        最直觀的 IO 限制——每個方向獨立設 bandwidth 與 IOPS 上限：
+      </p>
+<pre><code># 對 /dev/sda 設限：
+# - 讀 bandwidth 最多 10MB/s
+# - 寫 bandwidth 最多 10MB/s
+# - 讀 IOPS 最多 1000
+echo "8:0 rbps=10485760 wbps=10485760 riops=1000" | \
+    sudo tee /sys/fs/cgroup/myapp/io.max
+
+# 移除特定限制
+echo "8:0 rbps=max wbps=max riops=max" | sudo tee io.max
+
+# 看當前設定
+cat /sys/fs/cgroup/myapp/io.max
+# 8:0 rbps=10485760 wbps=10485760 riops=1000 wiops=max
+</code></pre>
+      <p>
+        <strong>支援的 key</strong>：<code>rbps</code>、<code>wbps</code>（bandwidth）、<code>riops</code>、<code>wiops</code>（IOPS）。每個方向獨立。
+      </p>
+      <p>
+        <strong>行為</strong>：超過 limit 後 IO 會被 delay（不是直接 fail），允許短期 burst。<code>io.max</code> 是<em>硬限</em>，平均不會超過——適合多租戶硬性 SLA 場景。
+      </p>
+
+      <h3>3.5 io.cost：blk-iocost QoS 控制</h3>
+      <p>
+        <code>io.cost.qos</code> 是 root-only 介面，啟用 blk-iocost 並設定 latency 為基礎的 QoS 參數：
+      </p>
+<pre><code># 對 /dev/sda 啟用 blk-iocost，設定 QoS 參數
+echo "8:0 enable=1 ctrl=auto rpct=95.00 rlat=5000 wpct=95.00 wlat=5000 min=50.00 max=150.00" \
+    | sudo tee /sys/fs/cgroup/io.cost.qos
+</code></pre>
+      <p>
+        <strong>關鍵參數</strong>：
+      </p>
+      <ul>
+        <li><code>rpct=95.00</code>：以讀延遲的 95th percentile 作為衡量點</li>
+        <li><code>rlat=5000</code>：讀延遲目標 5000μs (5ms)</li>
+        <li><code>wpct/wlat</code>：寫的對應參數</li>
+        <li><code>min=50.00</code>：當裝置壓力大時，throttle 到正常 vrate 的 50%</li>
+        <li><code>max=150.00</code>：當裝置充裕時，允許跑到正常 vrate 的 150%</li>
+      </ul>
+      <p>
+        <strong>運作原理</strong>：blk-iocost 持續監控裝置 latency，當超過目標就降低整體 throughput（拉低 max-min 範圍上界），裝置壓力下降後再放開。
+        這個機制讓多 cgroup 在共用裝置上能<strong>動態平衡</strong>——比 io.max 的固定 limit 更彈性。
+      </p>
+
+      <h3>3.6 io.latency：基於延遲的 workload 保護</h3>
+      <p>
+        <code>io.latency</code> 是 v2 IO controller 的<strong>殺手鐧</strong>——對「<em>受保護</em>」cgroup 設 latency target，當 latency 超過目標時，<em>throttle 同層的其他 cgroup</em>。
+      </p>
+      <p>
+        kernel 文件原話：「<em>You provide a group with a latency target, and if the average latency exceeds that target the controller will throttle any peers that have a lower latency target than the protected workload.</em>」
+      </p>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 680 320" role="img" aria-label="io.latency peer 影響範圍">
+        <text x="340" y="22" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="600" fill="var(--text-primary)">io.latency 影響範圍：peer level</text>
+
+        <!-- root -->
+        <rect x="290" y="50" width="100" height="36" rx="6" fill="var(--bg-muted)" stroke="var(--border-mid)" stroke-width="0.5"/>
+        <text x="340" y="73" text-anchor="middle" font-family="var(--font-mono)" font-size="11" fill="var(--text-primary)">root</text>
+
+        <line x1="340" y1="86" x2="340" y2="100" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="120" y1="100" x2="560" y2="100" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="120" y1="100" x2="120" y2="120" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="340" y1="100" x2="340" y2="120" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="560" y1="100" x2="560" y2="120" stroke="var(--text-muted)" stroke-width="0.5"/>
+
+        <!-- A, B, C 同層 (peer) -->
+        <rect x="60" y="120" width="120" height="36" rx="6" fill="var(--color-primary-soft)" stroke="var(--color-primary)" stroke-width="2"/>
+        <text x="120" y="143" text-anchor="middle" font-family="var(--font-mono)" font-size="11" fill="var(--color-primary-text)">A (lat=20ms)</text>
+
+        <rect x="280" y="120" width="120" height="36" rx="6" fill="var(--color-primary-soft)" stroke="var(--color-primary)" stroke-width="2"/>
+        <text x="340" y="143" text-anchor="middle" font-family="var(--font-mono)" font-size="11" fill="var(--color-primary-text)">B (lat=50ms)</text>
+
+        <rect x="500" y="120" width="120" height="36" rx="6" fill="var(--color-primary-soft)" stroke="var(--color-primary)" stroke-width="2"/>
+        <text x="560" y="143" text-anchor="middle" font-family="var(--font-mono)" font-size="11" fill="var(--color-primary-text)">C (no target)</text>
+
+        <!-- 影響箭頭 -->
+        <text x="340" y="180" text-anchor="middle" font-family="var(--font-sans)" font-size="11" font-style="italic" fill="var(--color-primary)">A、B、C 互相影響（同層 peer）</text>
+
+        <!-- D, F (B 的 children) -->
+        <line x1="340" y1="156" x2="340" y2="200" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="270" y1="200" x2="410" y2="200" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="270" y1="200" x2="270" y2="220" stroke="var(--text-muted)" stroke-width="0.5"/>
+        <line x1="410" y1="200" x2="410" y2="220" stroke="var(--text-muted)" stroke-width="0.5"/>
+
+        <rect x="220" y="220" width="100" height="36" rx="6" fill="var(--color-warning-soft)" stroke="var(--color-warning)" stroke-width="0.5"/>
+        <text x="270" y="243" text-anchor="middle" font-family="var(--font-mono)" font-size="11" fill="var(--color-warning)">D (lat=10)</text>
+
+        <rect x="360" y="220" width="100" height="36" rx="6" fill="var(--color-warning-soft)" stroke="var(--color-warning)" stroke-width="0.5"/>
+        <text x="410" y="243" text-anchor="middle" font-family="var(--font-mono)" font-size="11" fill="var(--color-warning)">F (lat=80)</text>
+
+        <text x="340" y="285" text-anchor="middle" font-family="var(--font-sans)" font-size="11" font-style="italic" fill="var(--color-warning)">D、F 互相影響（同為 B 的 children）</text>
+        <text x="340" y="302" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-muted)">A 受到 latency 壓力時，只 throttle B、C，不影響 D、F</text>
+      </svg>
+      <div class="diagram-caption">圖 10.1 · io.latency 的 peer-level 影響範圍</div>
+    </div>
+
+    <div class="prose">
+      <h4>io.latency 配置範例（fbtax2 案例）</h4>
+      <p>
+        Meta 的 fbtax2 專案是 io.latency 的經典案例：
+      </p>
+<pre><code># 對 /dev/sda 設定保護
+# workload.slice 是優先工作負載，latency target 50ms
+echo "8:0 target=50" | sudo tee \
+    /sys/fs/cgroup/workload.slice/io.latency
+
+# system.slice 是次要，latency target 75ms
+echo "8:0 target=75" | sudo tee \
+    /sys/fs/cgroup/system.slice/io.latency
+
+# 結果：
+# 當 workload.slice 的 IO latency > 50ms，kernel 會 throttle system.slice
+# 但只在 system.slice (target 75ms) 比 workload.slice 寬鬆時 throttle
+</code></pre>
+      <p>
+        <strong>選擇 target 的訣竅</strong>（kernel 文件建議）：
+      </p>
+      <ol>
+        <li>不要設低於裝置物理 latency（HDD ~5–10ms、SSD ~0.1–1ms、NVMe ~0.05–0.5ms）</li>
+        <li>先觀察 <code>io.stat</code> 的 <code>avg_lat</code> 看正常運作 latency</li>
+        <li>target 設成<em>平常 latency 的 1.2 倍</em>左右——夠寬鬆不會誤觸發，夠嚴格能保護 latency</li>
+      </ol>
+
+      <h3>3.7 cgroup writeback：buffered write 的關鍵</h3>
+      <p>
+        前面講過 v2 的 IO 控制需要 memory + io 協同。具體機制是 <strong>cgroup writeback</strong>。
+      </p>
+      <p>
+        當 process 在 cgroup A 寫 buffered IO：
+      </p>
+      <ol>
+        <li>資料寫進 page cache，page 被標記為「<em>屬於 cgroup A</em>」（memory ownership）。</li>
+        <li>writeback kernel thread 看到 dirty page，<em>用 page 的 cgroup A</em> 來建構 bio。</li>
+        <li>bio 送到 block layer，io controller 看到 bio 屬於 cgroup A，套用 A 的 io 限制。</li>
+      </ol>
+      <p>
+        要這個機制運作，需要：
+      </p>
+      <ul>
+        <li><strong>cgroup v2 + memory + io 都啟用</strong></li>
+        <li><strong>filesystem 支援 cgroup writeback</strong>：ext2、ext4、btrfs、xfs、f2fs。其他 fs 上 buffered write 一律歸 root cgroup（fall back 到 v1 行為）。</li>
+      </ul>
+
+      <h4>memory pressure → IO pressure</h4>
+      <p>
+        cgroup writeback 也讓<strong>記憶體壓力轉化為自身的 IO 壓力</strong>：當 cgroup A 的記憶體 reclaim 觸發 dirty page flush，flush 走的是 A 的 io 限制——<em>不會吵到別的 cgroup 的 IO</em>。
+        這在 v1 是不可能的：v1 的 reclaim writeback 算到 root，會把所有 cgroup 的 IO 都拖慢。
+      </p>
+
+      <h3>3.8 IO Ownership 與 Memory Ownership 的差異</h3>
+      <p>
+        kernel 文件 §5.3 「Writeback」明確指出兩者的關鍵差異：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>面向</th><th>Memory Ownership</th><th>IO Ownership</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>追蹤粒度</td>
+          <td>per-page</td>
+          <td>per-inode</td>
+        </tr>
+        <tr>
+          <td>歸屬時機</td>
+          <td>page 第一次被 touch（first-use）</td>
+          <td>inode 第一次被 dirty</td>
+        </tr>
+        <tr>
+          <td>是否會遷移</td>
+          <td>否（page release 才釋放）</td>
+          <td>會（kernel 偵測「<em>主要 dirtier</em>」變動會切換 inode 歸屬）</td>
+        </tr>
+        <tr>
+          <td>多 cgroup 共用</td>
+          <td>各 page 獨立歸屬</td>
+          <td>整個 inode 只能歸一個 cgroup（會有 foreign pages 問題）</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h4>foreign pages 問題</h4>
+      <p>
+        當 cgroup A 寫了一個檔案，inode 歸 A；但 cgroup B 也開始寫同一個檔案——B 寫的 page 在 memory 視角下歸 B（per-page），但 writeback 仍按 inode 算（歸 A）。這些「<em>歸屬不一致</em>」的 page 稱為 <strong>foreign pages</strong>。
+      </p>
+      <p>
+        kernel 持續監控 foreign pages 數量，<strong>當某個 cgroup 變成主要 dirtier，會切換 inode 歸屬</strong>。但這個切換不是即時的，且<em>多 cgroup 同時寫一個檔案</em>的場景仍然支援不好——這是 cgroup writeback 的已知限制。
+      </p>
+
+      <h3>3.9 io.prio.class：IO 優先級類別</h3>
+      <p>
+        kernel 6.0+ 引入的介面，對應 <code>ionice</code> 的概念但作用於 cgroup：
+      </p>
+<pre><code># 把整個 cgroup 的 IO 設為 idle（最低優先）
+echo "idle" > /sys/fs/cgroup/batch.slice/io.prio.class
+
+# 提升為 realtime（最高優先）
+echo "promote-to-rt" > /sys/fs/cgroup/critical.slice/io.prio.class
+</code></pre>
+      <p>
+        支援的值：
+      </p>
+      <ul>
+        <li><code>no-change</code>：不改變 process 自身的 IO priority（預設）</li>
+        <li><code>promote-to-rt</code>：所有 IO 提升到 RT class</li>
+        <li><code>restrict-to-be</code>：限制在 best-effort class（即使 process 設了 RT 也降級）</li>
+        <li><code>idle</code>：所有 IO 變 idle class（CFQ 排程下只在無人用時跑）</li>
+      </ul>
+
+      <h3>3.10 io.stat 與 io.pressure 監控</h3>
+      <p>
+        <strong>io.stat 範例</strong>：
+      </p>
+<pre><code>$ cat /sys/fs/cgroup/myapp/io.stat
+8:0 rbytes=1459200 wbytes=314773504 rios=192 wios=353 dbytes=0 dios=0
+</code></pre>
+      <p>
+        每個裝置一行，欄位：
+      </p>
+      <ul>
+        <li><code>rbytes / wbytes</code>：讀 / 寫總 bytes</li>
+        <li><code>rios / wios</code>：讀 / 寫總 IO 次數</li>
+        <li><code>dbytes / dios</code>：discard 操作（TRIM）</li>
+      </ul>
+      <p>
+        <strong>io.pressure</strong>（PSI 介面）：與 cpu/memory pressure 相同格式。
+        <code>some</code> 表示「<em>至少一個 task 在等 IO</em>」、<code>full</code> 表示「<em>所有 runnable task 都在等 IO</em>」。
+        實務監控：<code>some avg10 &gt; 10%</code> 是 IO 緊張的訊號，<code>full avg10 &gt; 1%</code> 是嚴重 IO 飽和。
+      </p>
+
+      <h3>3.11 systemd 介面對應</h3>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>systemd directive</th><th>cgroup 介面</th><th>備註</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>IOWeight=</code></td><td><code>io.weight</code></td><td>全域 weight</td></tr>
+        <tr><td><code>IODeviceWeight=</code></td><td><code>io.weight</code> per-device</td><td>格式：<code>/dev/sda 200</code></td></tr>
+        <tr><td><code>IOReadBandwidthMax=</code></td><td><code>io.max rbps</code></td><td>讀 bandwidth 上限</td></tr>
+        <tr><td><code>IOWriteBandwidthMax=</code></td><td><code>io.max wbps</code></td><td>寫 bandwidth 上限</td></tr>
+        <tr><td><code>IOReadIOPSMax=</code></td><td><code>io.max riops</code></td><td>讀 IOPS 上限</td></tr>
+        <tr><td><code>IOWriteIOPSMax=</code></td><td><code>io.max wiops</code></td><td>寫 IOPS 上限</td></tr>
+        <tr><td><code>IODeviceLatencyTargetSec=</code></td><td><code>io.latency target</code></td><td>格式：<code>/dev/sda 50ms</code></td></tr>
+        <tr><td>(無)</td><td><code>io.cost.qos</code></td><td>需手寫 ExecStartPre</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ====================== Section 4: 實戰範例 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例</h2>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · 證明 v2 能控制 buffered write</div>
+<pre><code># 用 dd 跑 buffered write，看 v2 能不能限速
+
+# 1. 建立 cgroup，啟用 memory + io
+sudo mkdir /sys/fs/cgroup/lab10
+echo "+memory +io" | sudo tee /sys/fs/cgroup/cgroup.subtree_control
+
+# 2. 找出 /tmp 所在裝置
+df /tmp
+# 假設是 /dev/nvme0n1，major:minor 通常是 259:0
+
+# 3. 設 write bandwidth 上限 10MB/s
+DEVICE="259:0"  # 用你實際的 major:minor
+echo "$DEVICE wbps=10485760" | sudo tee /sys/fs/cgroup/lab10/io.max
+
+# 4. 啟動 shell 進入 cgroup
+sudo bash -c "echo \$\$ > /sys/fs/cgroup/lab10/cgroup.procs; bash"
+
+# 5. 跑 buffered write 測試
+time dd if=/dev/zero of=/tmp/test bs=1M count=200
+# 預期：~200 / 10 = 20 秒（因為 10MB/s 限速）
+# v1 時代這個測試會在 1 秒內跑完（buffered write 完全不受限）
+
+# 6. 清理
+exit
+rm /tmp/test
+sudo rmdir /sys/fs/cgroup/lab10
+</code></pre>
+      <p>觀察點：v2 真的能限制 buffered write！這是相對 v1 最重要的進步之一。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · 用 systemd 設置 io.weight</div>
+<pre><code># 啟用 blk-iocost（root only，需先做一次）
+DEVICE="8:0"  # 改成你的裝置
+echo "$DEVICE enable=1 ctrl=auto" | sudo tee /sys/fs/cgroup/io.cost.qos
+
+# 啟動兩個 IO 密集的 service，weight 不同
+sudo systemd-run --slice=user.slice --unit=heavy-io \
+    -p IOWeight=400 \
+    --pty \
+    bash -c 'while :; do dd if=/dev/zero of=/tmp/heavy bs=1M count=10 2>/dev/null; rm -f /tmp/heavy; done'
+
+sudo systemd-run --slice=user.slice --unit=light-io \
+    -p IOWeight=100 \
+    --pty \
+    bash -c 'while :; do dd if=/dev/zero of=/tmp/light bs=1M count=10 2>/dev/null; rm -f /tmp/light; done'
+
+# 觀察 IO 比例
+sleep 30
+sudo systemd-cgtop --order=io --iterations=2 user.slice
+
+# 預期：heavy-io 約 400/(400+100) = 80% IO bandwidth
+#       light-io 約 20%
+
+# 清理
+sudo systemctl stop heavy-io light-io
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · io.latency 保護 latency-critical workload</div>
+<pre><code># 場景：保護 db.service 的 IO latency 不被 batch.service 影響
+
+# 啟動 db.service 和 batch.service（在同層 user.slice）
+sudo systemd-run --slice=user.slice --unit=db-app \
+    -p IODeviceLatencyTargetSec="/dev/sda 20ms" \
+    --pty \
+    bash -c 'while :; do
+        dd if=/dev/zero of=/tmp/db.dat bs=4K count=100 oflag=direct 2>/dev/null
+        sleep 0.1
+    done'
+
+sudo systemd-run --slice=user.slice --unit=batch-app \
+    -p IODeviceLatencyTargetSec="/dev/sda 100ms" \
+    --pty \
+    bash -c 'while :; do
+        dd if=/dev/zero of=/tmp/batch.dat bs=1M count=50 oflag=direct 2>/dev/null
+    done'
+
+sleep 30
+
+# 看 db-app 的 io.stat 看 avg_lat
+DB_CG=$(systemctl show -p ControlGroup --value db-app.service)
+cat /sys/fs/cgroup$DB_CG/io.stat
+
+# 預期：db-app 的 avg_lat 接近 20ms 而非 100ms+
+# 因為 io.latency 自動 throttle 了 batch-app
+
+# 清理
+sudo systemctl stop db-app batch-app
+rm /tmp/db.dat /tmp/batch.dat
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 4 · 用 iocost_monitor.py debug blk-iocost</div>
+<pre><code># 安裝 drgn（kernel debugger）
+pip install drgn
+
+# 下載 iocost_monitor 工具
+wget https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/plain/tools/cgroup/iocost_monitor.py
+chmod +x iocost_monitor.py
+
+# 跑一個 IO workload
+sudo systemd-run --slice=user.slice --unit=io-test \
+    -p IOWeight=500 \
+    --pty \
+    bash -c 'while :; do dd if=/dev/zero of=/tmp/x bs=1M count=10 2>/dev/null; rm /tmp/x; done'
+
+# 監控 blk-iocost 內部狀態
+sudo ./iocost_monitor.py /dev/sda 1
+# 範例輸出：
+# sda RUN per=1000.0ms cur_per=1234.567:v45678.901 busy= 0 vrate=100.00% params=ssd
+# active        weight    hweight%   inflt%   debt    delay     usages
+# user.slice/io-test * 500/500   100.00     0.00     0       0*0     010
+
+# 清理
+sudo systemctl stop io-test
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 5 · 觀察 io.pressure 偵測 IO 飽和</div>
+<pre><code># 啟動超量 IO，模擬磁碟飽和
+for i in 1 2 3 4 5; do
+    sudo systemd-run --slice=user.slice --unit=io-stress-$i \
+        bash -c 'while :; do dd if=/dev/zero of=/tmp/s'"$i"' bs=1M count=100 2>/dev/null; rm /tmp/s'"$i"'; done'
+done
+
+sleep 20
+
+# 看 user.slice 的 io.pressure
+cat /sys/fs/cgroup/user.slice/io.pressure
+# 預期看到：
+# some avg10=15-30  ← 有 task 在等 IO
+# full avg10=5-15   ← 整體 IO 飽和
+
+# 對照 host 整體 IO pressure
+cat /proc/pressure/io
+
+# 清理
+for i in 1 2 3 4 5; do
+    sudo systemctl stop io-stress-$i
+done
+rm -f /tmp/s*
+</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 5: 常見陷阱 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · 沒啟用 memory controller，buffered IO 不受限</div>
+      <p>
+        在只啟用 io controller、沒啟用 memory controller 的 cgroup，<strong>buffered write 會繞過 io 限制</strong>——因為沒有 memory ownership 資訊讓 writeback 知道要套哪個 io 限制。
+        修法：cgroup.subtree_control 同時啟用 <code>+memory +io</code>。systemd 預設會啟用兩者，但手動建 cgroup 時要記得。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · filesystem 不支援 cgroup writeback</div>
+      <p>
+        在<em>不支援 cgroup writeback 的 filesystem</em>（NFS、tmpfs、CIFS、overlayfs 等）上，buffered write 全部歸 root cgroup。
+        即使你正確啟用 memory + io，行為跟 v1 一樣壞。
+        檢查：<code>mount | grep YOUR_FS</code>，目前支援的有 ext2、ext4、btrfs、xfs、f2fs。
+        修法：對 NFS / overlayfs 等，用 direct IO 或 sync mount。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · io.weight 設了沒效果——blk-iocost 沒啟用</div>
+      <p>
+        寫 <code>io.weight=400</code> 但沒看到 IO 比例變化？多半是 <code>blk-iocost</code> 沒啟用。
+        檢查：<code>cat /sys/fs/cgroup/io.cost.qos</code>，看裝置欄位是否有 <code>enable=1</code>。
+        修法：在 root cgroup 啟用 <code>echo "8:0 enable=1 ctrl=auto" &gt; io.cost.qos</code>。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · io.max 對 NVMe 沒效果</div>
+      <p>
+        在某些 NVMe 裝置，io.max 似乎完全沒有 throttle 效果。原因：NVMe 走 multi-queue blk-mq，部分早期 kernel 對 blk-mq 的 IO throttle 支援不完整。
+        現代 kernel（5.x+）已修正，但若仍遇到，先確認 kernel 版本（<code>uname -r</code>）、再看 <code>cat /sys/block/nvme0n1/queue/scheduler</code> 看 scheduler 設定。
+        替代方案：用 io.cost / io.latency 取代硬性 io.max，更適合高速儲存。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 5 · io.latency target 設太低造成過度 throttle</div>
+      <p>
+        把 io.latency target 設成 1ms（NVMe 物理 latency 之下），結果<em>所有 cgroup 都被 throttle</em>——因為「<em>實際 latency &gt; target</em>」永遠成立。
+        修法：先看 <code>io.stat</code> 的 <code>avg_lat</code>（cgroup 正常運作的 latency），target 設成它的 1.2 倍左右。
+        不要設低於裝置物理 latency（NVMe ~100μs、SSD ~500μs、HDD ~5ms）。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 6 · 多 cgroup 寫同一檔案造成 IO 統計失真</div>
+      <p>
+        cgroup A 與 B 同時寫 <code>/data/shared.log</code>，inode 歸某一個 cgroup（取決於 first dirtier 與遷移狀態）。
+        IO 限制只會套到 inode 的 owner，<strong>另一個 cgroup 的限制完全沒效果</strong>。
+        kernel 文件原話：「<em>use cases where multiple cgroups write to a single inode simultaneously are not supported well</em>」。
+        修法：避免多 cgroup 寫同一檔案。對 shared log 用 syslog 等 broker 集中寫入。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 7 · IO Priority 互動衝突</div>
+      <p>
+        process 自己呼叫 <code>ionice -c 1 cmd</code> 設 RT priority，但 cgroup 設 <code>io.prio.class=restrict-to-be</code>——後者會把 process 強制降回 best-effort。
+        反過來，<code>promote-to-rt</code> 會把所有 IO 強制升 RT，<em>覆蓋</em> 應用自己設的 ionice。
+        修法：除非有明確意圖，<code>io.prio.class</code> 用 <code>no-change</code>（預設），讓應用自己控制 IO priority。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 8 · io.weight 數值不直覺</div>
+      <p>
+        和 cpu.weight 類似，io.weight 範圍 1–10000、預設 100，但範圍取捨完全不同。
+        典型誤解：「<em>系統服務設 io.weight=10，application 設 io.weight=100</em>」期待 1:10 的比例——但要看實際裝置 vrate 與兩個 cgroup 的活躍狀態。
+        在 NVMe 等高速裝置上，差別小到看不出來；在 HDD 上才比較明顯。
+        建議：weight 比例不要差太多（最多 4–8 倍），裝置差別才會顯著反映在 throughput 上。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 6: 動手練習 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · 比較 v1 與 v2 對 buffered write 的控制（15 分鐘）</div>
+      <p>如果你的測試機可以切換到 v1（hybrid mount），跑相同 dd 測試比較：</p>
+      <ol>
+        <li>在 v1 設 blkio.throttle.write_bps_device=10M，跑 buffered <code>dd</code>，記錄完成時間</li>
+        <li>切換到 v2，設 io.max wbps=10M（記得 +memory +io），跑相同測試</li>
+        <li>對比結果：v1 應該秒殺完成（限制無效），v2 應該按 10MB/s 限速</li>
+      </ol>
+      <p>這個對比體現了 v2 IO 控制的根本性進步。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · 寫一個 io.pressure 監控腳本（10 分鐘）</div>
+<pre><code>#!/bin/bash
+# io-pressure-monitor.sh
+# 監控所有 service 的 io.pressure，當 some avg10 > 10% 就 alert
+
+while true; do
+    for cg in /sys/fs/cgroup/system.slice/*.service; do
+        [ -f "$cg/io.pressure" ] || continue
+        some=$(grep "^some" "$cg/io.pressure" | grep -oP 'avg10=\K[\d.]+')
+        if [ -n "$some" ] && (( $(echo "$some > 10" | bc -l) )); then
+            echo "$(date +%T) ALERT $(basename $cg): IO pressure some=$some%"
+        fi
+    done
+    sleep 5
+done</code></pre>
+      <p>跑一段時間，看哪些 service 是 IO heavy。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 為 PostgreSQL 設計完整 IO 配置（15 分鐘）</div>
+      <p>假設一台機器跑 PostgreSQL（latency-critical）+ 每日備份 batch（IO heavy）：</p>
+      <ol>
+        <li>用 <code>IODeviceLatencyTargetSec</code> 為 postgres 設 latency target（NVMe 用 5ms）</li>
+        <li>用 <code>IOWeight</code> 給 batch 較低權重</li>
+        <li>用 <code>IOReadIOPSMax</code> 給 batch IOPS 上限，避免它把整個磁碟吃滿</li>
+      </ol>
+      <p>寫出完整的 systemd unit Memory* / IO* 設定。</p>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 用 io.stat 算 IO bandwidth utilization（思考題，10 分鐘）</div>
+      <p>不需要執行，回答以下設計問題：</p>
+      <ol>
+        <li>每 10 秒讀兩次 <code>io.stat</code>，怎麼算這 10 秒的實際 read/write bandwidth？</li>
+        <li>怎麼判斷 cgroup 的 IO 限制是否「<em>緊得有感</em>」（= IO 想要更多但被擋）？提示：對比 io.stat 與 io.pressure。</li>
+        <li>怎麼整合到 Prometheus？應該 export 哪些 metrics？</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 7: 自我檢查題 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>v1 為什麼控制不了 buffered write？v2 透過什麼機制解決？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>v1 失敗原因</strong>：buffered write 透過 page cache 中介——資料先寫到 page cache，由 kernel writeback worker thread 在背景 flush 到磁碟。block layer 看到 bio 時，bio 的 cgroup 是 worker thread 的 cgroup（root），<em>不是原始應用的 cgroup</em>。所以 v1 只能限制 direct IO 與 read。
+        <strong>v2 解決方式</strong>：透過 <strong>memory + io controller 協同</strong>實現 cgroup writeback。
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>memory controller 知道每個 page 屬於哪個 cgroup（per-page ownership）</li>
+          <li>writeback worker 看 dirty page 時，把 page 的 cgroup 資訊帶到 bio</li>
+          <li>block layer 看到 bio 的真實 cgroup，套對應的 io 限制</li>
+        </ol>
+        <strong>前提條件</strong>：v2 unified hierarchy（memory 與 io 在同 cgroup）+ filesystem 支援 cgroup writeback（ext4 / btrfs / xfs / f2fs / ext2）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>io.max、io.weight、io.cost、io.latency 各自解決什麼問題？什麼場景該選哪個？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>io.max</strong>：硬性 BPS / IOPS 上限。場景：multi-tenant 硬性 SLA，「<em>絕不超過 X MB/s</em>」。</li>
+          <li><strong>io.weight</strong>：比例分配（基於 blk-iocost）。場景：相對優先級控制，「<em>service A 拿到 4 倍 service B 的 IO</em>」。需要先 enable blk-iocost。</li>
+          <li><strong>io.cost</strong>：blk-iocost 進階控制——管理員提供 latency target 與 vrate 範圍（min/max%），kernel 動態調整。場景：精細的 IO QoS，雲端 multi-tenant。</li>
+          <li><strong>io.latency</strong>：基於 latency target 的 workload 保護。當受保護 cgroup 的 latency 超過 target，throttle 同層其他 cgroup。場景：latency-critical 服務（DB、cache）保護。</li>
+        </ul>
+        <strong>選擇邏輯</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>需要絕對防爆 → io.max（避免某 cgroup 把磁碟吃光）</li>
+          <li>正常優先級分配 → io.weight</li>
+          <li>保護 latency-critical workload → io.latency（首選）</li>
+          <li>雲端精細 QoS → io.cost</li>
+        </ul>
+        實務上常組合用：weight 處理日常 + latency 保護關鍵 workload + max 當最後防線。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span>cgroup writeback 需要哪三個條件？少了任何一個會發生什麼？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>三個條件</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>v2 啟用 memory + io controller</strong>：兩個都在同一 cgroup hierarchy 下</li>
+          <li><strong>filesystem 支援 cgroup writeback</strong>：ext2、ext4、btrfs、xfs、f2fs</li>
+          <li><strong>正確掛載</strong>：filesystem 以支援 cgroup writeback 的方式 mount（一般預設就是）</li>
+        </ol>
+        <strong>缺一的後果</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>缺 memory controller → 沒有 page ownership 資訊，buffered write 歸 root</li>
+          <li>缺 io controller → 沒有 io 限制可套，限制完全失效</li>
+          <li>filesystem 不支援（NFS、tmpfs、CIFS、overlayfs）→ 整個 cgroup writeback 機制 fall back，buffered write 歸 root</li>
+        </ul>
+        <strong>檢查方法</strong>：寫個 dd buffered write 測試，看是否真的被限速。<em>不要相信介面值，要實測</em>。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span>Memory Ownership 與 IO Ownership 的差別是什麼？多 cgroup 共用一個檔案會發生什麼？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>關鍵差別</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>Memory Ownership</strong>：per-page 追蹤。每個 page 由「<em>第一個 touch</em>」的 cgroup 擁有，page release 才釋放。多 cgroup 寫同檔案，不同 page 可能歸不同 cgroup。</li>
+          <li><strong>IO Ownership</strong>：per-inode 追蹤。整個 inode 只能歸一個 cgroup。kernel 偵測「<em>主要 dirtier</em>」變動會切換 inode 歸屬。</li>
+        </ul>
+        <strong>多 cgroup 共用檔案的問題（foreign pages）</strong>：cgroup A 寫了大部分內容，inode 歸 A；cgroup B 也開始寫——B 寫的 page 在 memory 視角歸 B（per-page），但 writeback 仍按 inode 歸 A。這些「<em>歸屬不一致</em>」的 page 是 foreign pages。
+        <strong>kernel 的處理</strong>：持續追蹤 foreign pages 比例，當 B 變成主要 dirtier，inode 歸屬切換到 B。但這個切換不是即時的，且<em>多 cgroup 同時寫同檔案</em> kernel 文件明確說「<em>not supported well</em>」——一部分 IO 必然歸錯，無法精準控制。
+        <strong>實務避免方法</strong>：架構上不讓多 cgroup 寫同檔案。共享 log 用 syslog/journald 集中寫入。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span>io.latency 為什麼只在 peer level 影響？怎麼設計 cgroup hierarchy 才能讓 latency target 真正保護整個 workload？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>peer-level 設計</strong>：io.latency 只影響「<em>同一 parent 下的 sibling cgroup</em>」之間的 throttle。對 child 的 child（隔層）不直接影響——它們有自己的 peer group。
+        <strong>原因</strong>：cgroup hierarchy 的階層性決定資源是「<em>逐層分配</em>」。在 A/B 層級設 latency target 控制 A 與 B 的競爭關係；A 內部的 child 是 A 自己的事。
+        <strong>正確設計</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>頂層按 workload 類型分</strong>：<code>workload.slice</code>（latency-critical）、<code>system.slice</code>（system services）、<code>batch.slice</code>（low-priority）。</li>
+          <li><strong>在頂層設 io.latency</strong>：對 workload.slice 設 50ms、system.slice 設 100ms。它們互相影響（peer），達到主要保護效果。</li>
+          <li><strong>workload.slice 內可再細分但不需設 io.latency</strong>：頂層保護已經夠用，內部用 io.weight 做相對優先即可。</li>
+        </ol>
+        <strong>fbtax2 案例</strong>：Meta 對 workload.slice 設 50ms、system.slice 設 75ms，效果非常好。設更深層的 io.latency 會讓設定變複雜但收益小。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>blk-iocost 是什麼？跟 io.weight 是什麼關係？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>blk-iocost</strong>：是 v2 io controller 的<em>底層 backend</em>，全稱 block I/O cost。它用「<em>每個 IO 的成本（virtual time）</em>」計量裝置使用情況——比 v1 的 CFQ-based blkio 精細許多，特別適合 NVMe 等高速裝置。
+        <strong>跟 io.weight 的關係</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>io.weight 是 user 寫入的<em>數值</em>（1–10000）</li>
+          <li>blk-iocost 是<em>實作機制</em>，把 weight 換算成 vrate 配額並 enforce</li>
+          <li>沒啟用 blk-iocost 時，<code>io.weight</code> 介面存在但<em>沒有效果</em>——這是常見踩雷點</li>
+        </ul>
+        <strong>啟用方式</strong>：在 root cgroup 寫入 <code>io.cost.qos</code>：<code>echo "8:0 enable=1 ctrl=auto" &gt; /sys/fs/cgroup/io.cost.qos</code>。
+        <strong>監控工具</strong>：kernel source 提供 <code>tools/cgroup/iocost_monitor.py</code>（drgn-based），可看每個 cgroup 的 weight、hweight%、vrate、debt 等內部狀態。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span>io.prio.class 的 4 個值各自意思？跟 process-level ionice 怎麼互動？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>四個值</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><code>no-change</code>（預設）：cgroup 不干預，process 自己用 ionice 設的優先級生效。</li>
+          <li><code>promote-to-rt</code>：所有 IO 強制提升到 RT（realtime）class，<em>覆蓋</em> process 自己的設定。</li>
+          <li><code>restrict-to-be</code>：限制在 best-effort class——即使 process 設了 RT 也降級。</li>
+          <li><code>idle</code>：所有 IO 變 idle class，CFQ 排程下只在無人用時跑。</li>
+        </ul>
+        <strong>跟 ionice 的互動</strong>：cgroup 設定<em>覆蓋</em>（override）process 自己的 ionice。
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>process 設 RT，cgroup 設 restrict-to-be → 最終是 best-effort（cgroup 贏）</li>
+          <li>process 設 best-effort，cgroup 設 promote-to-rt → 最終是 RT（cgroup 贏）</li>
+          <li>process 設 RT，cgroup 設 no-change → 最終是 RT（process 自己決定）</li>
+        </ul>
+        <strong>建議</strong>：除非有明確理由要覆蓋，<code>io.prio.class</code> 用 <code>no-change</code>（預設）讓應用自己決定。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>實作思考題：你管理一台 NVMe 機器跑：（A）關鍵 PostgreSQL（latency-sensitive）、（B）Redis cache（讀多寫少）、（C）每日備份 batch（寫密集）。設計完整 IO 配置策略。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>方案</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[root cgroup setup]
+# 啟用 blk-iocost（一次性 setup）
+echo "259:0 enable=1 ctrl=auto" > /sys/fs/cgroup/io.cost.qos
+
+[A: postgresql.service] - 關鍵 DB
+IOWeight=400              # 較高權重
+IODeviceLatencyTargetSec=/dev/nvme0n1 5ms  # NVMe 物理 ~100μs，5ms 寬鬆
+# 不設 io.max（不希望被限制）
+# 不設 io.prio.class（讓 PG 自己控制）
+
+[B: redis.service] - cache
+IOWeight=200              # 中等權重
+IODeviceLatencyTargetSec=/dev/nvme0n1 5ms  # 也保護 latency
+# Redis 主要走記憶體，IO 不重，這樣足夠
+
+[C: backup.service] - batch
+IOWeight=50               # 低權重
+IODeviceLatencyTargetSec=/dev/nvme0n1 50ms # 可容忍較高 latency
+IOWriteBandwidthMax=/dev/nvme0n1 200M     # 寫入 bandwidth 上限
+IOReadIOPSMax=/dev/nvme0n1 5000           # 讀 IOPS 上限
+ExecStartPost=/bin/bash -c 'echo idle > $cgroup/io.prio.class'
+# idle class 讓 batch 真的讓位</pre>
+        <strong>設計理由</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>PG 與 Redis 用 io.latency 保護</strong>：5ms target 對 NVMe 寬鬆，但能擋住 batch 的 IO 干擾。</li>
+          <li><strong>權重分配</strong>：400:200:50 比例反映業務優先級。</li>
+          <li><strong>backup 加雙重限制</strong>：io.max 防爆 + io.prio.class=idle 完全讓位。即使 PG 沒競爭，backup 不會把 NVMe 跑飽。</li>
+          <li><strong>不設 io.max 給 PG</strong>：DB 偶爾的 burst（checkpoint、WAL flush）需要瞬時高 IO，硬限會適得其反。</li>
+        </ol>
+        <strong>監控配套</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>對 PG 監控 <code>io.pressure some avg10 &lt; 5%</code> 與 <code>io.stat avg_lat</code></li>
+          <li>對 backup 容忍 throttle（這是預期行為）</li>
+          <li>整體機器監控 <code>/proc/pressure/io full avg10</code> &lt; 1%</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 8: 延伸閱讀 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+
+    <div class="refs">
+      <ol>
+        <li>
+          <a href="https://docs.kernel.org/admin-guide/cgroup-v2.html#io" target="_blank" rel="noopener">Linux Kernel 官方文件 · §5.3 IO</a>
+          <span class="ref-source">docs.kernel.org · IO controller 介面權威定義含 writeback 機制</span>
+        </li>
+        <li>
+          <a href="https://facebookmicrosites.github.io/cgroup2/docs/io-controller.html" target="_blank" rel="noopener">IO Controller · Meta cgroup2 guide</a>
+          <span class="ref-source">facebookmicrosites.github.io · Meta fbtax2 案例：io.latency 在大規模生產的實戰</span>
+        </li>
+        <li>
+          <a href="https://access.redhat.com/solutions/7081187" target="_blank" rel="noopener">cgroup v2 IO latency controller · Red Hat 2024-08</a>
+          <span class="ref-source">access.redhat.com · 官方推薦 io.latency 配置流程</span>
+        </li>
+        <li>
+          <a href="https://biriukov.dev/docs/page-cache/6-cgroup-v2-and-page-cache/" target="_blank" rel="noopener">cgroup v2 and Page Cache · Viacheslav Biriukov</a>
+          <span class="ref-source">biriukov.dev · cgroup writeback 實作細節，含 cgtouch debug 工具</span>
+        </li>
+        <li>
+          <a href="https://lwn.net/Articles/796866/" target="_blank" rel="noopener">blk-iocost · LWN.net</a>
+          <span class="ref-source">lwn.net · blk-iocost 設計動機與成本模型</span>
+        </li>
+        <li>
+          <a href="https://www.alibabacloud.com/help/en/alinux/user-guide/configure-the-weight-based-throttling-feature-of-blk-iocost" target="_blank" rel="noopener">blk-iocost weight-based throttling · Alibaba Cloud</a>
+          <span class="ref-source">alibabacloud.com · 雲端 IO QoS 實戰配置（2025）</span>
+        </li>
+        <li>
+          <a href="https://github.com/torvalds/linux/blob/master/tools/cgroup/iocost_monitor.py" target="_blank" rel="noopener">iocost_monitor.py · kernel source</a>
+          <span class="ref-source">github.com · debug blk-iocost 內部狀態的權威工具</span>
+        </li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Chapter nav ====================== -->
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn" href="ch09-cpuset-pid.html">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">Ch.9 cpuset 與 PID</span>
+    </a>
+    <a class="nav-btn next disabled">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">Ch.11 其他 controllers</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window.JHsunTheme = { get: getCurrentMode, set: (m) => { setStored(m); applyTheme(m); }, toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); }, };
+})();
+</script>
+
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+
+</body>
+</html>

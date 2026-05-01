@@ -1,0 +1,1441 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.14 效能調校與診斷實戰 — cgroup v2 完整教學</title>
+<meta name="description" content="cgroup v2 效能調校與診斷實戰：USE/RED 方法論、PSI-driven tuning、fio/stress-ng/wrk benchmark、OOM/throttle/IO 瓶頸 playbook。">
+
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626; --color-danger-soft: #fee2e2;
+  --color-info: #0891b2; --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px;
+  --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px; --text-4xl: 64px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee; --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+</style>
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.topbar { position: sticky; top: 0; z-index: 50; background: color-mix(in oklch, var(--bg-canvas) 88%, transparent); backdrop-filter: saturate(180%) blur(12px); -webkit-backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--border-soft); }
+.topbar-inner { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.brand { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-secondary); }
+.brand a { color: inherit; text-decoration: none; }
+.brand a:hover { color: var(--color-primary); }
+.brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+.topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+[data-theme-toggle] { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 999px; padding: 6px 14px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background .2s, border-color .2s, color .2s; }
+[data-theme-toggle]:hover { background: var(--bg-muted); border-color: var(--border-mid); color: var(--text-primary); }
+[data-theme-toggle] .theme-icon { font-size: 14px; line-height: 1; }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: 0 var(--space-5); }
+
+.chapter-head { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); }
+.chapter-tag { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary-text); background: var(--color-primary-soft); padding: 4px 12px; border-radius: 999px; margin-bottom: var(--space-4); }
+.chapter-title { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; margin-bottom: var(--space-3); }
+.chapter-subtitle { font-family: var(--font-serif-body); font-size: var(--text-md); color: var(--text-secondary); line-height: 1.65; font-style: italic; }
+.chapter-meta { margin-top: var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.chapter-meta-item { display: flex; align-items: center; gap: 6px; }
+.chapter-meta-item::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.chapter-meta-item:first-child::before { display: none; }
+
+.section { padding: var(--space-7) 0; border-bottom: 1px solid var(--border-soft); }
+.section:last-of-type { border-bottom: none; }
+.section-label { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-primary); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2); }
+.section-label::before { content: ""; width: 24px; height: 1px; background: var(--color-primary); }
+.section-title { font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600; margin-bottom: var(--space-5); letter-spacing: -0.01em; line-height: 1.2; }
+
+.prose p { font-family: var(--font-serif-body); font-size: var(--text-base); color: var(--text-primary); line-height: 1.85; margin-bottom: var(--space-4); }
+.prose h3 { font-family: var(--font-sans); font-size: var(--text-lg); font-weight: 600; color: var(--text-primary); margin: var(--space-6) 0 var(--space-3); letter-spacing: -0.01em; }
+.prose h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 500; color: var(--text-primary); margin: var(--space-5) 0 var(--space-2); }
+.prose ul, .prose ol { font-family: var(--font-serif-body); margin-bottom: var(--space-4); padding-left: var(--space-5); line-height: 1.8; }
+.prose ul li, .prose ol li { margin-bottom: var(--space-2); color: var(--text-primary); }
+.prose ul li::marker { color: var(--color-primary); }
+.prose strong { font-weight: 600; color: var(--text-primary); }
+.prose em { color: var(--color-primary-text); font-style: italic; }
+.prose code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-code); padding: 1px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+.prose a { color: var(--color-primary); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.prose a:hover { color: var(--color-primary-hover); }
+
+.highlights { background: var(--color-primary-soft); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.highlights ol { font-family: var(--font-sans); padding-left: var(--space-5); margin: 0; }
+.highlights li { font-size: var(--text-sm); color: var(--color-primary-text); margin-bottom: var(--space-2); line-height: 1.65; }
+.highlights li:last-child { margin-bottom: 0; }
+.highlights li strong { color: var(--color-primary-text); font-weight: 600; }
+
+.news-box { background: var(--color-info-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.news-item { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); line-height: 1.7; padding: var(--space-2) 0; border-bottom: 1px solid color-mix(in oklch, var(--color-info) 20%, transparent); }
+.news-item:last-child { border-bottom: none; padding-bottom: 0; }
+.news-item:first-child { padding-top: 0; }
+.news-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-info); margin-right: var(--space-2); }
+
+pre { font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.7; background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; margin-bottom: var(--space-4); color: var(--text-primary); }
+pre code { background: transparent; border: none; padding: 0; font-size: inherit; color: inherit; }
+
+.cmp-table { width: 100%; border-collapse: collapse; margin-bottom: var(--space-4); font-size: var(--text-sm); font-family: var(--font-sans); }
+.cmp-table th, .cmp-table td { padding: var(--space-3); text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.cmp-table th { font-weight: 600; color: var(--text-primary); background: var(--bg-muted); font-size: var(--text-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+.cmp-table tbody tr:hover { background: var(--bg-muted); }
+.cmp-table code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 1px 5px; border-radius: var(--radius-sm); color: var(--color-primary-text); }
+
+.lab { background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.lab-title { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--color-primary); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px dashed var(--border-soft); }
+.lab-title::before { content: "▶ "; color: var(--color-primary); }
+.lab p { font-family: var(--font-sans); font-size: var(--text-sm); margin-bottom: var(--space-3); color: var(--text-secondary); line-height: 1.7; }
+.lab pre { font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.lab pre:last-child { margin-bottom: 0; }
+.lab ol, .lab ul { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); color: var(--text-secondary); line-height: 1.7; }
+
+.pitfall { background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); }
+.pitfall-title { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 600; color: var(--color-warning); margin-bottom: var(--space-2); }
+.pitfall p { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-primary); margin-bottom: var(--space-2); line-height: 1.7; }
+.pitfall p:last-child { margin-bottom: 0; }
+.pitfall code { background: color-mix(in oklch, var(--color-warning) 15%, transparent); border-color: color-mix(in oklch, var(--color-warning) 30%, transparent); color: var(--text-primary); }
+
+.quiz-item { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-3); }
+.quiz-q { font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; color: var(--text-primary); margin-bottom: var(--space-2); display: flex; gap: var(--space-2); }
+.quiz-q-num { font-family: var(--font-mono); color: var(--color-primary); flex-shrink: 0; }
+.quiz-toggle { background: transparent; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 4px 10px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); cursor: pointer; margin-top: var(--space-2); transition: background .2s, color .2s; }
+.quiz-toggle:hover { background: var(--bg-muted); color: var(--color-primary); }
+.quiz-a { display: none; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px dashed var(--border-soft); font-family: var(--font-serif-body); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.75; }
+.quiz-a.open { display: block; }
+.quiz-a strong { color: var(--color-primary); font-weight: 600; }
+
+.diagram { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); margin-bottom: var(--space-4); text-align: center; }
+.diagram svg { max-width: 100%; height: auto; }
+.diagram-caption { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-3); text-align: center; }
+
+.refs ol { font-family: var(--font-sans); font-size: var(--text-sm); padding-left: var(--space-5); line-height: 1.8; }
+.refs li { margin-bottom: var(--space-2); color: var(--text-secondary); }
+.refs li::marker { color: var(--color-primary); }
+.refs a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dashed var(--color-primary); }
+.refs a:hover { color: var(--color-primary-hover); }
+.refs .ref-source { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); display: block; margin-top: 2px; }
+
+.chapter-nav { margin-top: var(--space-6); padding: var(--space-5) 0; display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.nav-btn { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; padding: var(--space-3) var(--space-4); background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); text-decoration: none; color: var(--text-primary); transition: border-color .2s, transform .15s; }
+.nav-btn:hover { border-color: var(--color-primary); transform: translateY(-1px); }
+.nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+.nav-btn-label { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.04em; }
+.nav-btn-title { font-size: var(--text-sm); font-weight: 500; }
+.nav-btn.next { text-align: right; align-items: flex-end; }
+
+@media (max-width: 720px) {
+  .chapter-title { font-size: var(--text-2xl); }
+  .section-title { font-size: var(--text-xl); }
+  .cmp-table { font-size: var(--text-xs); }
+  .cmp-table th, .cmp-table td { padding: var(--space-2); }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <a href="ch00-index.html">cgroup-v2 / docs</a>
+      <span style="color: var(--text-muted);">/ ch.14</span>
+    </div>
+    <div class="topbar-actions">
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </div>
+  </div>
+</header>
+
+<header class="chapter-head">
+  <div class="container">
+    <span class="chapter-tag">Part V · 可觀測性 · Chapter 14</span>
+    <h1 class="chapter-title">效能調校與診斷實戰</h1>
+    <p class="chapter-subtitle">
+      前 13 章把 cgroup v2 各個 controller 與觀測介面講透，但<em>知道介面</em> 與 <em>會調出好性能</em> 之間還有距離。
+      本章是 Part V 的收尾——也是全書的「<em>實戰篇</em>」。
+      涵蓋 Brendan Gregg 的 USE / RED 方法論在 cgroup 場景的應用、PSI-driven tuning 流程、
+      benchmark 三劍客（fio / stress-ng / wrk），最後給出 4 個生產 troubleshooting playbook：
+      OOM 調查、CPU throttling 排查、IO 瓶頸定位、PSI 告警處理。
+    </p>
+    <div class="chapter-meta">
+      <span class="chapter-meta-item">~7,200 字</span>
+      <span class="chapter-meta-item">閱讀時間 27 分鐘</span>
+      <span class="chapter-meta-item">難度：實戰</span>
+      <span class="chapter-meta-item">最後更新 2026-04-28</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ====================== Section 1: 本章重點 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">01 · Highlights</div>
+    <h2 class="section-title">本章重點</h2>
+
+    <div class="highlights">
+      <ol>
+        <li><strong>USE method 是調校的起點</strong>：對每個資源（CPU/Memory/IO/Network）檢查 Utilization、Saturation、Errors。cgroup v2 把 USE 從「<em>per-host</em>」變成「<em>per-cgroup</em>」——這是巨大進步。</li>
+        <li><strong>PSI-driven tuning 流程</strong>：以 PSI 為主指標，迭代式 tuning。設 limit → 跑 workload → 看 PSI → 調整。比拍腦袋設數字可靠得多。</li>
+        <li><strong>Benchmark 三劍客</strong>：<code>fio</code>（IO 性能與 IO controller 驗證）、<code>stress-ng</code>（CPU/memory/syscall 壓力測試）、<code>wrk</code>（HTTP 端到端 latency）。三個工具配合 cgroup 限制是調校驗證的標配。</li>
+        <li><strong>容量規劃公式</strong>：<code>peak × 1.5</code>（hard limit）、<code>p95 × 1.2</code>（soft limit）、<code>p50</code>（min/request）。基於歷史資料而非猜測。</li>
+        <li><strong>4 個 production playbook</strong>：OOM 調查（從 events → stat → dmesg）、CPU throttling 排查（cpu.stat → quota 設定）、IO 瓶頸（io.pressure → fio 重現）、PSI 告警處理（trigger → cgroup 定位 → 緩解）。</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 2: 最新動態 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">02 · Latest</div>
+    <h2 class="section-title">最新動態（2025–2026）</h2>
+
+    <div class="news-box">
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>學術界發布 cgroup v2 IO isolation 完整研究</strong>（Atlarge IISWC 2025）。系統性評估 io.weight、io.max、io.cost、io.latency 五種 control knob 在 NVMe 上的 isolation 效果，提供生產級 tuning 數據。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>fio 對 cgroup v2 整合更成熟</strong>。新版 fio 直接支援 <code>cgroup</code> option 把 worker 放進指定 cgroup，省去 systemd-run 包裝步驟。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025–2026</span>
+        <strong>stress-ng 持續更新對 cgroup 場景的驗證</strong>。新增 cgroup-specific stressors 直接驗證 cgroup behavior，是 v2 限制 testing 的標準工具。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2026</span>
+        <strong>K8s 1.36 In-Place Pod Resize 持續演進</strong>。可以動態調整 limit 不需重啟 Pod——配合 PSI-driven tuning 形成完整 closed-loop 自動調校。
+      </div>
+      <div class="news-item">
+        <span class="news-date">2025</span>
+        <strong>benchmark 普及包含 PSI baseline</strong>。Phoronix Test Suite、OpenBenchmarking.org 等 benchmark 結果開始包含 PSI 數據——「<em>跑分時 PSI 多少</em>」成為新指標。
+      </div>
+    </div>
+
+    <div class="prose">
+      <p>
+        2026 年的時點，<strong>cgroup v2 性能調校已從「<em>玄學</em>」走向「<em>科學</em>」</strong>——有完整方法論、權威 benchmark、學術研究背書。
+        本章把這些整合成「<em>從不知道到精通</em>」的實戰路徑。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 3: 核心內容 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">03 · Core Concepts</div>
+    <h2 class="section-title">核心內容</h2>
+
+    <div class="prose">
+      <h3>3.1 USE method：cgroup 版本</h3>
+      <p>
+        Brendan Gregg 的 <strong>USE method</strong>（Utilization、Saturation、Errors）是性能分析的經典框架。
+        傳統 USE 是 per-host：看整機 CPU、memory、IO、network 的這三個指標。
+        cgroup v2 讓 USE 變成 <strong>per-cgroup</strong>，分析顆粒度更精細：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>資源</th><th>Utilization（用了多少）</th><th>Saturation（多塞）</th><th>Errors（錯誤）</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>CPU</strong></td>
+          <td><code>cpu.stat</code> usage_usec rate</td>
+          <td><code>cpu.pressure</code> some / cpu.stat throttled_usec</td>
+          <td>cpu.stat nr_throttled、sched_switch failure</td>
+        </tr>
+        <tr>
+          <td><strong>Memory</strong></td>
+          <td><code>memory.current</code> / <code>memory.peak</code></td>
+          <td><code>memory.pressure</code> some/full</td>
+          <td><code>memory.events</code> oom_kill</td>
+        </tr>
+        <tr>
+          <td><strong>IO</strong></td>
+          <td><code>io.stat</code> rbytes/wbytes rate</td>
+          <td><code>io.pressure</code> some/full</td>
+          <td>EIO syscall（用 bpftrace 抓）</td>
+        </tr>
+        <tr>
+          <td><strong>PIDs</strong></td>
+          <td><code>pids.current</code> / <code>pids.peak</code></td>
+          <td>fork rate（bpftrace）</td>
+          <td><code>pids.events</code> max</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <p>
+        <strong>USE 檢查順序</strong>：先 <em>Errors</em>（最緊急）→ 再 <em>Saturation</em>（PSI 高表示壓力大）→ 最後 <em>Utilization</em>（用量分析）。
+        多數人直覺看 utilization，但<em>使用率高不一定有問題</em>——使用率 90% 但 saturation 為 0，表示用得很滿但沒卡住。反之使用率 30% 但 saturation 高，表示被某個東西卡住（鎖、IO wait、scheduler 不公）。
+      </p>
+
+      <h3>3.2 RED method：服務視角</h3>
+      <p>
+        USE 是「<em>資源</em>」視角，<strong>RED method</strong>（Rate、Errors、Duration）是「<em>服務</em>」視角：
+      </p>
+      <ul>
+        <li><strong>Rate</strong>：每秒 request 數</li>
+        <li><strong>Errors</strong>：每秒錯誤數（5xx、failed RPC）</li>
+        <li><strong>Duration</strong>：request latency（p50、p95、p99）</li>
+      </ul>
+      <p>
+        cgroup 場景下，RED 跟 USE 互補：RED 告訴你「<em>使用者體驗多差</em>」，USE 告訴你「<em>資源層為什麼差</em>」。
+        典型 debug 流程：RED 偵測異常（latency p99 上升）→ USE 找原因（哪個資源 saturation 高）→ cgroup 介面定位（哪個 cgroup 是肇事者）→ 修復。
+      </p>
+
+      <h3>3.3 PSI-driven tuning：迭代式調校</h3>
+      <p>
+        傳統的 cgroup limit 設定靠經驗值與「<em>看起來合理的數字</em>」，後果就是常見的兩種失敗——設太緊（throttle 嚴重）或設太鬆（沒保護效果）。
+        <strong>PSI-driven tuning</strong> 用 PSI 作為迭代訊號：
+      </p>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 680 320" role="img" aria-label="PSI-driven tuning 流程">
+        <text x="340" y="22" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="600" fill="var(--text-primary)">PSI-driven tuning 迭代流程</text>
+
+        <!-- Step 1 -->
+        <rect x="40" y="55" width="140" height="60" rx="8" fill="var(--color-info-soft)" stroke="var(--color-info)" stroke-width="0.5"/>
+        <text x="110" y="80" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-info)">1. baseline</text>
+        <text x="110" y="98" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">無 limit 跑 workload</text>
+        <text x="110" y="111" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">記錄 peak、p95</text>
+
+        <!-- Arrow -->
+        <path d="M 180 85 L 215 85" stroke="var(--text-muted)" stroke-width="1.5" marker-end="url(#arrow1)"/>
+
+        <!-- Step 2 -->
+        <rect x="220" y="55" width="140" height="60" rx="8" fill="var(--color-warning-soft)" stroke="var(--color-warning)" stroke-width="0.5"/>
+        <text x="290" y="80" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-warning)">2. 設 limit</text>
+        <text x="290" y="98" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">peak × 1.5（hard）</text>
+        <text x="290" y="111" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">p95 × 1.2（soft）</text>
+
+        <!-- Arrow -->
+        <path d="M 360 85 L 395 85" stroke="var(--text-muted)" stroke-width="1.5" marker-end="url(#arrow1)"/>
+
+        <!-- Step 3 -->
+        <rect x="400" y="55" width="140" height="60" rx="8" fill="var(--color-primary-soft)" stroke="var(--color-primary)" stroke-width="0.5"/>
+        <text x="470" y="80" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-primary)">3. 跑 load test</text>
+        <text x="470" y="98" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">完整 traffic cycle</text>
+        <text x="470" y="111" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">記錄 PSI</text>
+
+        <!-- Step 4: 中間判斷 -->
+        <rect x="220" y="155" width="240" height="60" rx="8" fill="var(--bg-muted)" stroke="var(--border-mid)" stroke-width="1"/>
+        <text x="340" y="180" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--text-primary)">4. 看 PSI</text>
+        <text x="340" y="198" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">some &gt; 10% → 太緊；some &lt; 1% → 可能太鬆</text>
+        <text x="340" y="211" text-anchor="middle" font-family="var(--font-sans)" font-size="10" fill="var(--text-secondary)">events 有 oom/throttle → 嚴重需調</text>
+
+        <!-- 從 step 3 往下 -->
+        <path d="M 470 115 L 470 155" stroke="var(--text-muted)" stroke-width="1.5" marker-end="url(#arrow1)"/>
+        <path d="M 470 155 L 460 155" stroke="var(--text-muted)" stroke-width="1.5"/>
+
+        <!-- Loop back -->
+        <path d="M 340 215 L 340 255 L 110 255 L 110 115" stroke="var(--color-primary)" stroke-width="1.5" stroke-dasharray="4,4" fill="none" marker-end="url(#arrow1)"/>
+        <text x="200" y="248" text-anchor="middle" font-family="var(--font-sans)" font-size="10" font-style="italic" fill="var(--color-primary)">迭代調 limit 直到 PSI 落在合理範圍</text>
+
+        <!-- Step 5 終態 -->
+        <rect x="265" y="270" width="150" height="40" rx="8" fill="var(--color-success-soft)" stroke="var(--color-success)" stroke-width="0.5"/>
+        <text x="340" y="294" text-anchor="middle" font-family="var(--font-mono)" font-size="11" font-weight="600" fill="var(--color-success)">5. 部署 production</text>
+
+        <defs>
+          <marker id="arrow1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--text-muted)"/>
+          </marker>
+        </defs>
+      </svg>
+      <div class="diagram-caption">圖 14.1 · PSI-driven tuning 迭代流程</div>
+    </div>
+
+    <div class="prose">
+      <h4>具體 PSI 閾值參考</h4>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>Workload 類型</th><th>some avg10 目標</th><th>full avg10 目標</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Latency-critical（DB、cache、API）</td>
+          <td>&lt; 1%</td>
+          <td>0%</td>
+        </tr>
+        <tr>
+          <td>互動服務（web app、microservice）</td>
+          <td>&lt; 5%</td>
+          <td>&lt; 0.5%</td>
+        </tr>
+        <tr>
+          <td>Best-effort（batch、async job）</td>
+          <td>&lt; 20%</td>
+          <td>&lt; 5%</td>
+        </tr>
+        <tr>
+          <td>Background（log shipping、metrics）</td>
+          <td>容忍高</td>
+          <td>容忍高</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h3>3.4 容量規劃公式</h3>
+      <p>
+        從歷史資料推算合理 limit 是性能調校的基礎。實務經驗法則：
+      </p>
+    </div>
+
+    <table class="cmp-table">
+      <thead>
+        <tr><th>介面</th><th>建議公式</th><th>意義</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>memory.max</code> / <code>cpu.max</code></td>
+          <td>peak × 1.5</td>
+          <td>給 burst 留 50% headroom，hard limit</td>
+        </tr>
+        <tr>
+          <td><code>memory.high</code></td>
+          <td>p95 × 1.2 或 limit × 0.9</td>
+          <td>正常運作 95% 時間在 high 之下，超過先 throttle</td>
+        </tr>
+        <tr>
+          <td><code>memory.min</code> / <code>memory.low</code></td>
+          <td>p50 working set</td>
+          <td>核心 working set，受保護</td>
+        </tr>
+        <tr>
+          <td><code>cpu.weight</code></td>
+          <td>業務優先級比例（4:2:1）</td>
+          <td>不需要絕對數字，比例最重要</td>
+        </tr>
+        <tr>
+          <td><code>pids.max</code></td>
+          <td>peak × 2</td>
+          <td>fork-heavy 應用要寬鬆，防 abnormal spike</td>
+        </tr>
+        <tr>
+          <td><code>io.max</code></td>
+          <td>裝置總頻寬 × 80%</td>
+          <td>不要設裝置滿頻寬，保留給 system</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="prose">
+      <h3>3.5 Benchmark 三劍客</h3>
+      <p>
+        cgroup limit 設好後，<strong>必須驗證</strong>它真的有效。三個 benchmark 工具是標配：
+      </p>
+
+      <h4>fio：IO benchmark + cgroup IO controller 驗證</h4>
+<pre><code># 基本 IO benchmark
+fio --name=random-rw \
+    --rw=randrw --rwmixread=70 \
+    --bs=4k --size=1G --numjobs=4 \
+    --runtime=60 --group_reporting \
+    --time_based --ioengine=libaio \
+    --direct=1 --iodepth=32
+
+# 在 cgroup 內跑（驗證 io.max 限制）
+sudo systemd-run --slice=user.slice --unit=fio-test \
+    -p IOWriteBandwidthMax="/dev/nvme0n1 100M" \
+    --pty \
+    fio --name=write-test --rw=write --bs=1M --size=2G \
+        --runtime=30 --time_based --direct=1 \
+        --filename=/data/test.bin
+
+# 預期：write throughput 約 100MB/s（被 cgroup 限制）
+# 如果跑出 800MB/s，io.max 沒生效（檢查 +io 是否啟用、filesystem 支援）
+</code></pre>
+
+      <h4>stress-ng：CPU / memory / syscall 壓力測試</h4>
+<pre><code># CPU 壓力（驗證 cpu.max throttle）
+sudo systemd-run --slice=user.slice --unit=cpu-test \
+    -p CPUQuota=50% \
+    --pty \
+    stress-ng --cpu 4 --timeout 30s --metrics-brief
+
+# 預期：總 CPU 利用率約 50%（被 cgroup 限制）
+
+# Memory 壓力（驗證 memory.max OOM）
+sudo systemd-run --slice=user.slice --unit=mem-test \
+    -p MemoryMax=200M \
+    --pty \
+    stress-ng --vm 1 --vm-bytes 500M --timeout 30s
+
+# 預期：被 OOM kill（cgroup 限制 200M，要 500M）
+
+# 完整 cgroup behavior 驗證
+stress-ng --vm 4 --vm-bytes 256M \
+          --cpu 4 \
+          --io 2 \
+          --timeout 60s \
+          --metrics-brief
+</code></pre>
+
+      <h4>wrk：HTTP 端到端 latency</h4>
+<pre><code># 對 service 跑 HTTP 壓測
+wrk -t 4 -c 100 -d 60s --latency \
+    http://your-service/api/endpoint
+
+# 範例輸出：
+# Latency Distribution
+#    50%    1.20ms
+#    75%    2.40ms
+#    90%    5.50ms
+#    99%   25.30ms
+# Requests/sec:  8534.21
+
+# 在跑 wrk 的同時觀察 PSI（另一 terminal）
+watch -n 1 "cat /sys/fs/cgroup/system.slice/your-service.service/cpu.pressure"
+
+# 對比有/無 cgroup limit 的 latency
+# 如果 limit 太緊，p99 會大幅上升
+</code></pre>
+      <p>
+        <strong>三工具搭配場景</strong>：
+      </p>
+      <ul>
+        <li><strong>fio</strong>：驗證 io.max / io.weight、找 IO 瓶頸、測 NVMe / SSD 真實效能</li>
+        <li><strong>stress-ng</strong>：驗證 cpu.max / memory.max、模擬 noisy neighbor、測試 OOM 行為</li>
+        <li><strong>wrk</strong>：端到端 latency、user-perceived performance、SLA 驗證</li>
+      </ul>
+
+      <h3>3.6 Playbook 1：OOM 調查</h3>
+      <p>
+        Pod / service 莫名重啟，懷疑 OOM。診斷流程：
+      </p>
+<pre><code># Step 1: 確認是 OOM（不是 crash 或 SIGKILL）
+journalctl -u myapp.service | grep -i 'oom\|killed'
+dmesg | grep -i 'killed process'
+
+# Step 2: 看 cgroup events（最權威來源）
+CG=$(systemctl show -p ControlGroup --value myapp.service)
+cat /sys/fs/cgroup$CG/memory.events
+# 如果 oom_kill > 0，確認是 cgroup OOM
+
+# Step 3: 看 OOM 時的 memory.stat
+cat /sys/fs/cgroup$CG/memory.stat | head -20
+# 重點：anon、file、kernel_stack
+# anon 大表示真實 leak / 高需求；file 大可能只是 page cache
+
+# Step 4: 看歷史峰值
+cat /sys/fs/cgroup$CG/memory.peak
+# 跟 memory.max 比，差距多少？
+
+# Step 5: 看 dmesg 完整 OOM 訊息
+dmesg | grep -A 30 'Memory cgroup out of memory'
+# 會顯示被殺的 process、其他 process 用量、reason
+
+# Step 6: 判斷原因
+# - peak ≈ max → 容量不足，調大 limit
+# - peak << max 但 OOM → 突發 spike，需要看 anon 增長率（用 bpftrace）
+# - oom_group_kill > 0 → Pod 整體 atomic kill（K8s 預期行為）
+
+# Step 7: 修復
+# 短期：調大 memory.max
+# 中期：設 memory.high 提早 throttle warn
+# 長期：找應用 leak、優化 working set</code></pre>
+
+      <h3>3.7 Playbook 2：CPU throttling 排查</h3>
+      <p>
+        應用響應變慢，懷疑被 cgroup CPU throttle：
+      </p>
+<pre><code># Step 1: 看 cpu.stat 確認 throttle
+CG=$(systemctl show -p ControlGroup --value myapp.service)
+cat /sys/fs/cgroup$CG/cpu.stat
+# 重點：
+#   nr_throttled        ← throttle 次數，> 0 表示被限制
+#   throttled_usec      ← throttle 累計微秒
+#   nr_periods          ← cpu.max period 數
+
+# Step 2: 計算 throttle 比例
+# throttle_pct = throttled_usec / (nr_periods * period)
+# 如果 > 5%，throttle 已影響性能
+
+# Step 3: 看 cpu.pressure
+cat /sys/fs/cgroup$CG/cpu.pressure
+# some avg10 高表示有 task 在等 CPU
+
+# Step 4: 看 cpu.max 設定
+cat /sys/fs/cgroup$CG/cpu.max
+# "$QUOTA $PERIOD" 格式，例如 "100000 100000" = 1 CPU
+
+# Step 5: 看實際使用量
+# 算每秒 CPU usage
+sleep 10
+USAGE_NOW=$(awk '/usage_usec/{print $2}' /sys/fs/cgroup$CG/cpu.stat)
+sleep 10
+USAGE_LATER=$(awk '/usage_usec/{print $2}' /sys/fs/cgroup$CG/cpu.stat)
+echo "CPU usage rate: $((($USAGE_LATER - $USAGE_NOW) / 10000000))%"
+
+# Step 6: 修復
+# - 應用真的需要更多 CPU → 調大 cpu.max
+# - 應用 over-fork（每 fork 都 hit max）→ 看 thread 數，可能要 limit 應用
+# - 短期 burst → 啟用 cpu.max.burst 允許 burst（kernel 5.14+）
+echo "200000 100000 50000" > /sys/fs/cgroup$CG/cpu.max  # quota period burst
+</code></pre>
+
+      <h3>3.8 Playbook 3：IO 瓶頸定位</h3>
+      <p>
+        Service latency p99 突然上升，看起來是 IO 問題：
+      </p>
+<pre><code># Step 1: 確認是 IO 問題
+CG=$(systemctl show -p ControlGroup --value myapp.service)
+cat /sys/fs/cgroup$CG/io.pressure
+# some/full avg10 高 → 確認 IO 是瓶頸
+
+# Step 2: 看 IO 模式
+cat /sys/fs/cgroup$CG/io.stat
+# rbytes / wbytes / rios / wios per device
+# 計算 IOPS、bandwidth、avg io size
+
+# Step 3: 區分讀寫
+# 讀 spike：看是不是 cache miss（memory.stat workingset_refault_file）
+# 寫 spike：看是不是 buffered write 累積（memory.stat file_dirty）
+
+# Step 4: 找肇事者（如果是 multi-tenant）
+# 對所有 cgroup 的 io.pressure 排序
+for cg in /sys/fs/cgroup/system.slice/*.service; do
+    name=$(basename "$cg")
+    some=$(grep '^some' "$cg/io.pressure" 2>/dev/null | grep -oP 'avg10=\K[\d.]+')
+    [ -n "$some" ] && echo "$some $name"
+done | sort -rn | head -10
+
+# Step 5: 用 fio 重現問題
+# 在受害者 cgroup 內跑 fio，量 latency 分布
+sudo systemd-run --slice=$(systemctl show -p Slice --value myapp.service) \
+    --pty \
+    fio --name=test --rw=randread --bs=4k --size=1G \
+        --runtime=30 --time_based --ioengine=libaio \
+        --direct=1 --iodepth=32 \
+        --output-format=json+ | jq '.jobs[].read.lat_ns.percentile'
+
+# Step 6: 修復
+# - 設 io.latency 保護（如果是 multi-tenant noisy neighbor）
+# - 設 io.weight 調整優先級
+# - 設 io.max 給 batch jobs 防爆
+# - filesystem 層：確認 writeback 設定（vm.dirty_*）
+# - 硬體層：升級 NVMe、加裝 read cache
+</code></pre>
+
+      <h3>3.9 Playbook 4：PSI 告警處理</h3>
+      <p>
+        Prometheus alert 觸發 <code>memory.pressure full avg10 &gt; 5%</code>：
+      </p>
+<pre><code># Step 1: 確認 alert 範圍（哪個 cgroup？）
+# alert label 應該包含 service / pod 名稱
+
+# Step 2: 看當前 PSI 與歷史趨勢
+CG=$(systemctl show -p ControlGroup --value $SERVICE)
+cat /sys/fs/cgroup$CG/memory.pressure
+# 看 avg10、avg60、avg300 比較——是 spike 還是持續？
+
+# Step 3: 看 events
+cat /sys/fs/cgroup$CG/memory.events
+# 有 oom_kill？已經死過了，是 K8s 重啟
+# 只有 high count？throttling 中，可能還活著
+
+# Step 4: 看當前 stat
+cat /sys/fs/cgroup$CG/memory.stat | head -10
+cat /sys/fs/cgroup$CG/memory.current
+cat /sys/fs/cgroup$CG/memory.peak
+
+# Step 5: 找根因
+# - 是不是流量 spike？看 RED metrics 的 rate
+# - 是不是 memory leak？看 anon 增長趨勢（多採幾次 stat）
+# - 是不是 noisy neighbor 觸發 reclaim？看其他 cgroup 的 events
+
+# Step 6: 緩解（短期 + 長期）
+# 短期：
+#   調大 memory.max（如果 hardware 允許）
+#   殺長期跑的 background job 釋放記憶體
+#   減少 traffic（degrade non-critical features）
+# 長期：
+#   修 leak
+#   重新設計 working set
+#   水平擴容（再加 instance）
+
+# Step 7: 寫 post-mortem，更新 runbook
+</code></pre>
+
+      <h3>3.10 性能調校的 Don'ts</h3>
+      <p>
+        實戰累積的經驗——這些事<em>不要</em>做：
+      </p>
+      <ul>
+        <li><strong>不要拍腦袋設 limit</strong>：先量，再設。沒 baseline 的 limit 都是猜的。</li>
+        <li><strong>不要只設 hard limit 不設 soft limit</strong>：memory.max 沒搭配 memory.high 等於沒緩衝，OOM 直接發生。</li>
+        <li><strong>不要用 utilization 當 alert 指標</strong>：utilization 高不一定有問題，用 PSI。</li>
+        <li><strong>不要 production 上做 destructive benchmark</strong>：fio direct=1 可能毀檔案，stress-ng vm 可能 OOM。先 staging。</li>
+        <li><strong>不要對所有 service 用同一套 limit</strong>：DB、web、batch 的 access pattern 完全不同，公式不同。</li>
+        <li><strong>不要忽略 PSI 的 total</strong>：avg10 看似正常但 total 在快速增長 = 有秒級 spike，使用者已感受到。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 4: 實戰範例 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">04 · Hands-on</div>
+    <h2 class="section-title">實戰範例</h2>
+
+    <div class="lab">
+      <div class="lab-title">Lab 1 · 完整 PSI-driven tuning 流程（30 分鐘）</div>
+<pre><code># 對一個假設的 web service 跑完整 tuning
+
+# Phase 1: Baseline（無 limit）
+sudo systemd-run --slice=user.slice --unit=baseline \
+    --pty \
+    python3 -m http.server 8888 &
+
+# 用 wrk 跑 60 秒
+wrk -t 4 -c 50 -d 60s --latency http://localhost:8888/
+
+# 記錄 baseline
+CG=$(systemctl show -p ControlGroup --value baseline.service)
+PEAK=$(cat /sys/fs/cgroup$CG/memory.peak)
+echo "baseline peak: $PEAK"
+
+# Phase 2: 設第一輪 limit（peak × 1.5）
+LIMIT=$((PEAK * 3 / 2))
+echo "first limit: $LIMIT"
+echo "$LIMIT" | sudo tee /sys/fs/cgroup$CG/memory.max
+echo "$((LIMIT * 9 / 10))" | sudo tee /sys/fs/cgroup$CG/memory.high
+
+# Phase 3: 跑相同 wrk 量測
+wrk -t 4 -c 50 -d 60s --latency http://localhost:8888/
+
+# Phase 4: 看 PSI
+cat /sys/fs/cgroup$CG/memory.pressure
+cat /sys/fs/cgroup$CG/memory.events
+
+# Phase 5: 判斷
+# some avg10 < 1% → limit 合理
+# some > 5% → 太緊，調大
+# events oom > 0 → 嚴重不夠
+
+# 清理
+sudo systemctl stop baseline
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 2 · 用 fio 驗證 io.max 限制</div>
+<pre><code># 設定限制
+DEVICE_MAJ_MIN="259:0"  # 改成你的裝置
+sudo systemd-run --slice=user.slice --unit=fio-bound \
+    -p IOWriteBandwidthMax="/dev/nvme0n1 50M" \
+    -p IOReadBandwidthMax="/dev/nvme0n1 50M" \
+    --pty \
+    bash
+
+# 在裡面跑：
+fio --name=test \
+    --rw=randwrite --bs=64k --size=500M \
+    --runtime=30 --time_based --ioengine=libaio \
+    --direct=1 --iodepth=16 \
+    --filename=/tmp/fio-test.bin
+
+# 預期：throughput 約 50 MB/s（被 cgroup 限制）
+
+# 對比：移除限制
+exit
+sudo systemd-run --slice=user.slice --unit=fio-free \
+    --pty \
+    fio --name=test --rw=randwrite --bs=64k --size=500M \
+        --runtime=30 --time_based --ioengine=libaio \
+        --direct=1 --iodepth=16 \
+        --filename=/tmp/fio-test2.bin
+
+# 預期：throughput 滿頻寬（NVMe 通常 1+ GB/s）
+
+# 清理
+rm /tmp/fio-test*.bin
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 3 · 用 stress-ng 驗證 cpu.max throttle</div>
+<pre><code># 跑 4 個 CPU stress thread，但 limit 只給 50% 1 CPU
+sudo systemd-run --slice=user.slice --unit=cpu-throttle \
+    -p CPUQuota=50% \
+    --pty \
+    stress-ng --cpu 4 --timeout 30s --metrics-brief
+
+# 在另一 terminal 監控
+CG=$(systemctl show -p ControlGroup --value cpu-throttle.service)
+watch -n 1 "
+echo '=== cpu.stat ==='
+cat /sys/fs/cgroup$CG/cpu.stat | head -8
+echo
+echo '=== cpu.pressure ==='
+cat /sys/fs/cgroup$CG/cpu.pressure
+"
+
+# 預期觀察：
+# nr_throttled 持續增長
+# throttled_usec 累計
+# cpu.pressure some 數字非零（多 thread 在等 CPU）
+
+# 清理
+sudo systemctl stop cpu-throttle 2>/dev/null
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 4 · 模擬 noisy neighbor 並用 io.latency 保護</div>
+<pre><code># 1. 啟動受害者（DB 模擬）
+sudo systemd-run --slice=user.slice --unit=victim-db \
+    -p IODeviceLatencyTargetSec="/dev/nvme0n1 5ms" \
+    --pty \
+    bash -c '
+while :; do
+    fio --name=db-read --rw=randread --bs=4k --size=100M \
+        --runtime=10 --time_based --direct=1 --iodepth=8 \
+        --output-format=terse --filename=/tmp/db-test.bin 2>/dev/null \
+        | tee -a /tmp/db-latency.log
+done
+'
+
+# 2. 等 30 秒，記錄 baseline latency
+sleep 30
+echo "=== baseline ==="
+tail /tmp/db-latency.log
+
+# 3. 啟動 noisy neighbor
+sudo systemd-run --slice=user.slice --unit=noisy \
+    --pty \
+    fio --name=batch-write --rw=write --bs=1M --size=2G \
+        --runtime=60 --time_based --direct=1 --iodepth=32 \
+        --filename=/tmp/noisy.bin
+
+# 4. 觀察 victim-db 的 latency 是否被保護
+sleep 30
+echo "=== with noisy ==="
+tail /tmp/db-latency.log
+
+# 預期：因為 victim-db 有 io.latency target，latency 不會大幅惡化
+# 對比：移除 io.latency 設定再跑一次，看差別
+
+# 清理
+sudo systemctl stop victim-db noisy
+rm /tmp/db-test.bin /tmp/noisy.bin /tmp/db-latency.log
+</code></pre>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">Lab 5 · 寫 OOM 自動 post-mortem 腳本</div>
+<pre><code>#!/bin/bash
+# oom-postmortem.sh
+# 偵測 OOM 後自動收集 cgroup 完整狀態
+
+CG=${1:?usage: $0 /sys/fs/cgroup/PATH}
+OUT=/tmp/oom-pm-$(date +%s).txt
+
+{
+    echo "=== OOM POST-MORTEM ==="
+    echo "Time: $(date)"
+    echo "Cgroup: $CG"
+    echo ""
+    
+    echo "=== memory.events ==="
+    cat $CG/memory.events
+    echo ""
+    
+    echo "=== memory.stat (key fields) ==="
+    grep -E '^(anon|file|kernel_stack|slab|pgfault|pgmajfault)' $CG/memory.stat
+    echo ""
+    
+    echo "=== memory.current / peak / max ==="
+    echo "current: $(cat $CG/memory.current)"
+    echo "peak:    $(cat $CG/memory.peak)"
+    echo "max:     $(cat $CG/memory.max)"
+    echo ""
+    
+    echo "=== memory.pressure ==="
+    cat $CG/memory.pressure
+    echo ""
+    
+    echo "=== Recent dmesg OOM ==="
+    dmesg | grep -A 20 'Memory cgroup out of memory' | tail -50
+    echo ""
+    
+    echo "=== Top processes in cgroup ==="
+    for pid in $(cat $CG/cgroup.procs 2>/dev/null); do
+        ps -o pid,rss,comm -p $pid 2>/dev/null
+    done | sort -k2 -rn | head -10
+    
+} > $OUT
+
+echo "Post-mortem saved to: $OUT"
+</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 5: 常見陷阱 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">05 · Pitfalls</div>
+    <h2 class="section-title">常見陷阱</h2>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 1 · benchmark 不在 production-equivalent 環境跑</div>
+      <p>
+        在開發機跑 fio 看到 NVMe 1.5GB/s，把 production limit 設成 1.5GB/s——production 上 NVMe 是不同型號，實際只有 800MB/s，limit 反而太高沒保護效果。
+        修法：benchmark 在實際 production 機型上跑（staging 用相同 hardware）。OpenBenchmarking.org 有大量實機數據可參考。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 2 · 只跑 1 次 benchmark 就下結論</div>
+      <p>
+        fio 一次跑出 950 MB/s，認為這是真實值——但這次可能 cache hit 高、或剛好沒 noisy neighbor。
+        修法：至少跑 3 次取平均，最好跑 10 次看分布。stress-ng 的 <code>--times</code> 參數讓 benchmark 自動重複。注意 standard deviation——如果 stdev 大，limit 要設保守。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 3 · fio direct=1 沒注意造成 buffered write 偽訊號</div>
+      <p>
+        fio 預設 buffered IO，吃 page cache 時 throughput 看似超高（記憶體頻寬），不是真實 disk 速度。
+        修法：要量 disk 真實效能，<code>--direct=1</code> 必加（bypass page cache）。要量含 cache 效能（real workload）就不加，但要區分清楚。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 4 · 用 stress-ng 在 production 機器跑</div>
+      <p>
+        production 機跑 <code>stress-ng --vm 4 --vm-bytes 4G</code>——4GB 記憶體分配可能觸發 OOM 殺到 production service。
+        修法：stress-ng 永遠在 staging / dedicated test 機跑。production 要 stress test 用 canary deploy + 漸進流量加壓，不直接跑 stressor。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 5 · CPU throttling 看 cpu.stat 卻忘了 cpu.pressure</div>
+      <p>
+        cpu.stat 的 nr_throttled = 0，覺得「<em>沒被 throttle</em>」——但 cpu.pressure 顯示 some avg10 = 30%。
+        原因：throttle 是「<em>被 cgroup quota 限制</em>」、pressure 是「<em>等 CPU 排程</em>」。沒 throttle 不代表沒 CPU 競爭——可能是同 cgroup 內 thread 互相搶。
+        修法：兩個一起看。pressure 高但 throttle 為 0 表示是<em>內部</em>競爭，調 cpu.max 沒用，要看 thread 數或上下游 dependency。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 6 · OOM 後沒看 memory.events 就改 limit</div>
+      <p>
+        看到 OOM 直接「<em>調大 memory.max 從 1G 到 2G</em>」——但其實 events 顯示 oom_kill = 0、只有 high count 飆漲，根本沒 OOM。實際是 memory.high 太緊造成 throttle，被誤認為 OOM。
+        修法：先看 events 確認類型：oom_kill &gt; 0 才是真 OOM；只有 high &gt; 0 是 throttling，調 memory.high 而非 max。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 7 · capacity planning 用 average 而非 percentile</div>
+      <p>
+        看到 cgroup average memory 用 500MB，把 limit 設 750MB（×1.5）——但實際 p99 是 900MB，每天都 OOM 幾次。
+        修法：永遠用 percentile（p95、p99）規劃，不用 average。Prometheus 的 <code>histogram_quantile</code> 或 <code>quantile_over_time</code> 是必備工具。
+      </p>
+    </div>
+
+    <div class="pitfall">
+      <div class="pitfall-title">陷阱 8 · benchmark 結果套用到不同 workload pattern</div>
+      <p>
+        fio 跑 randread 4k 看 NVMe 性能，套用到 sequential write 1MB 場景——數字差 10 倍以上。
+        修法：benchmark 要模擬<em>真實 workload pattern</em>。DB 跑 4k random read+write 70/30；分析 workload 跑 1M sequential read；log shipping 跑 4k+ sequential write。每個 service 要量自己的 IO pattern。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 6: 動手練習 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">06 · Exercises</div>
+    <h2 class="section-title">動手練習</h2>
+
+    <div class="lab">
+      <div class="lab-title">練習 1 · 完整 USE 分析（30 分鐘）</div>
+      <p>對你機器上一個 active service 跑完整 USE 分析：</p>
+      <ol>
+        <li>列出所有 active services（<code>systemctl list-units --state=active</code>）</li>
+        <li>選一個有意思的（如 systemd-resolved、postgresql 等）</li>
+        <li>對每個資源（CPU、Memory、IO、PIDs）填出 Utilization、Saturation、Errors 三個指標的當前值</li>
+        <li>判斷哪個資源「<em>最該擔心</em>」？</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 2 · 設計完整 capacity planning（20 分鐘）</div>
+      <p>假設你要規劃一個 8GB 機器跑：</p>
+      <ul>
+        <li>PostgreSQL：working set p50=2GB、p95=3GB、peak=4GB</li>
+        <li>Redis cache：working set p50=1GB、p95=1.2GB、peak=1.5GB</li>
+        <li>應用 service：working set p50=500MB、p95=800MB、peak=1.2GB</li>
+      </ul>
+      <p>用本章公式：</p>
+      <ol>
+        <li>每個 service 的 memory.min / memory.high / memory.max 各設多少？</li>
+        <li>系統還剩多少 RAM 給 OS / page cache？</li>
+        <li>如果加一個 batch service（peak 1GB）能塞進來嗎？怎麼塞？</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 3 · 跑 wrk benchmark + PSI 對照（30 分鐘）</div>
+      <p>對自己的某個 web service 跑：</p>
+<pre><code># Baseline
+wrk -t 4 -c 100 -d 60s --latency $URL > /tmp/baseline.txt
+
+# 跑同時觀察 PSI（背景）
+(
+    while :; do
+        cat /sys/fs/cgroup/system.slice/$SERVICE/memory.pressure
+        cat /sys/fs/cgroup/system.slice/$SERVICE/cpu.pressure
+        sleep 5
+    done
+) > /tmp/psi.log &
+PSI_PID=$!
+
+wrk -t 4 -c 100 -d 60s --latency $URL > /tmp/with-load.txt
+
+kill $PSI_PID</code></pre>
+      <p>分析：</p>
+      <ol>
+        <li>load 下 p99 latency 比 baseline 多多少？</li>
+        <li>load 期間 PSI 數字怎麼變？</li>
+        <li>PSI 與 latency 的 correlation 強嗎？</li>
+      </ol>
+    </div>
+
+    <div class="lab">
+      <div class="lab-title">練習 4 · 用 4 個 playbook 解一個歷史 incident（思考題，15 分鐘）</div>
+      <p>回想你過去處理過的一個 production incident（OOM、CPU 飽和、IO 慢、latency spike），用本章 playbook 重做：</p>
+      <ol>
+        <li>當時你用的調查路徑是什麼？</li>
+        <li>跟 playbook 比，少了哪些步驟？</li>
+        <li>有沒有可能更快定位？</li>
+        <li>修法是治標還是治本？</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 7: 自我檢查題 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">07 · Self-check</div>
+    <h2 class="section-title">自我檢查題</h2>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q1.</span><span>USE method 與 RED method 各自視角是什麼？兩者怎麼互補？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>USE method（Brendan Gregg）</strong>：<em>資源</em>視角。對每個資源（CPU、Memory、IO、Network）檢查：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>Utilization</strong>：用了多少（百分比、用量）</li>
+          <li><strong>Saturation</strong>：多塞（queue depth、PSI）</li>
+          <li><strong>Errors</strong>：錯誤數</li>
+        </ul>
+        <strong>RED method</strong>：<em>服務</em>視角：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>Rate</strong>：req/sec</li>
+          <li><strong>Errors</strong>：error/sec</li>
+          <li><strong>Duration</strong>：latency p50 / p95 / p99</li>
+        </ul>
+        <strong>互補關係</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>RED 告訴你「<em>使用者體驗多差</em>」</li>
+          <li>USE 告訴你「<em>哪個資源是瓶頸</em>」</li>
+          <li>cgroup 介面告訴你「<em>哪個 cgroup / 應用是肇事者</em>」</li>
+        </ol>
+        <strong>典型流程</strong>：RED 偵測 latency p99 上升 → USE 找到 memory saturation 高 → cgroup events 看到某 cgroup 大量 oom_kill → 修復。
+        <strong>cgroup v2 的價值</strong>：讓 USE 從 per-host 變成 per-cgroup，故障定位顆粒度大幅提升。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q2.</span><span>PSI-driven tuning 為什麼比拍腦袋設 limit 好？完整流程是什麼？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>為什麼 PSI-driven 好</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>傳統做法：「<em>看起來合理就設</em>」——常見失敗：太緊（throttle）或太鬆（沒保護）。</li>
+          <li>PSI 直接量化「<em>使用者感受</em>」——客觀指標。</li>
+          <li>迭代式逼近最佳解，不是一次性猜測。</li>
+        </ul>
+        <strong>完整流程</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>baseline</strong>：無 limit 跑 workload，記錄 peak、p95、p50。</li>
+          <li><strong>設第一輪 limit</strong>：peak × 1.5（hard）、p95 × 1.2（soft）、p50（min/request）。</li>
+          <li><strong>跑 load test</strong>：完整 traffic cycle（含 peak 時段）。</li>
+          <li><strong>看 PSI</strong>：
+            <ul>
+              <li>some &gt; 10% → 太緊，調大</li>
+              <li>some &lt; 1% → 可能太鬆（如果是 cost-sensitive）</li>
+              <li>events 有 oom/throttle → 嚴重需調</li>
+            </ul>
+          </li>
+          <li><strong>迭代</strong>：回 step 2，調整 limit 再測。</li>
+          <li><strong>合理範圍後部署 production</strong>。</li>
+        </ol>
+        <strong>K8s 整合</strong>：1.36+ In-Place Pod Resize 配合 PSI metrics 可做<em>自動</em>調校（VPA-style）。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q3.</span><span>容量規劃公式（peak × 1.5、p95 × 1.2、p50）的意義？為什麼不用 average？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>公式意義</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>peak × 1.5（memory.max / cpu.max）</strong>：給 burst 留 50% headroom，hard limit 防爆。</li>
+          <li><strong>p95 × 1.2（memory.high / cpu soft cap）</strong>：正常運作 95% 時間在 high 之下，超過時先 throttle 警告——給 monitor 介入時間。</li>
+          <li><strong>p50（memory.min / memory.low）</strong>：核心 working set，受保護不被 reclaim。</li>
+        </ul>
+        <strong>為什麼不用 average</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>掩蓋 spike</strong>：average 500MB 但 p99 900MB——按 average 設 limit 每天 OOM 幾次。</li>
+          <li><strong>長尾分布</strong>：實際 workload 分布長尾（多數低、偶爾高），average 嚴重低估真實需求。</li>
+          <li><strong>SLA 視角</strong>：使用者體驗看尾延遲（p99），不看平均。</li>
+        </ol>
+        <strong>實務工具</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>Prometheus：<code>histogram_quantile(0.95, rate(memory_usage[5m]))</code></li>
+          <li>記錄 7-30 天，覆蓋完整 traffic cycle（週末 vs 平日、月初月底）</li>
+          <li>定期 review，traffic pattern 變化時 limit 也要調</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q4.</span><span>fio、stress-ng、wrk 三個 benchmark 工具各自最適合什麼場景？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>fio（Flexible IO Tester）</strong>：
+            <ul>
+              <li>場景：IO performance benchmark、io.max / io.weight 驗證、找 IO 瓶頸</li>
+              <li>強項：完整 IO pattern（random / sequential、read / write、mixed）、direct IO 支援、多 worker 並行</li>
+              <li>典型用法：<code>fio --rw=randrw --bs=4k --direct=1 --iodepth=32</code></li>
+            </ul>
+          </li>
+          <li><strong>stress-ng</strong>：
+            <ul>
+              <li>場景：CPU、memory、syscall 多維度壓力測試、模擬 noisy neighbor、cpu.max / memory.max 行為驗證</li>
+              <li>強項：300+ stressors，包含異常情境（fork bomb、page fault storm）；--metrics-brief 自動 report</li>
+              <li>典型用法：<code>stress-ng --vm 4 --vm-bytes 256M --cpu 4 --timeout 60s</code></li>
+            </ul>
+          </li>
+          <li><strong>wrk</strong>：
+            <ul>
+              <li>場景：HTTP service 端到端 latency、user-perceived performance、SLA 驗證</li>
+              <li>強項：高並發 client（c4 c500+）、Lua script 自訂 request、percentile latency report</li>
+              <li>典型用法：<code>wrk -t 4 -c 100 -d 60s --latency $URL</code></li>
+            </ul>
+          </li>
+        </ul>
+        <strong>搭配使用</strong>：典型流程是 stress-ng 模擬資源壓力 + wrk 量 user-side latency + fio 量底層 IO——三者組合複現 production 場景。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q5.</span><span>OOM 調查 playbook 的關鍵步驟是什麼？怎麼區分真 OOM、throttling、與 SIGKILL？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>關鍵步驟</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>journalctl + dmesg</strong>：確認是 OOM（"Memory cgroup out of memory"）還是其他</li>
+          <li><strong>memory.events</strong>：看 oom_kill 數，&gt; 0 確認是 cgroup OOM</li>
+          <li><strong>memory.stat</strong>：看 anon / file 比例判斷 leak vs cache</li>
+          <li><strong>memory.peak vs max</strong>：差距多少？</li>
+          <li><strong>dmesg OOM 訊息</strong>：被殺的 process、其他 process 用量</li>
+          <li><strong>判斷原因</strong>：peak ≈ max（容量不足）、peak &lt;&lt; max（突發 spike）、oom_group_kill（K8s atomic）</li>
+        </ol>
+        <strong>區分三種 kill</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>真 OOM kill</strong>：dmesg 有 "Memory cgroup out of memory"、memory.events oom_kill 增加。</li>
+          <li><strong>throttling（誤認 OOM）</strong>：應用慢但活著，memory.events 只有 high 增加，oom_kill = 0。修法是調 memory.high。</li>
+          <li><strong>外部 SIGKILL</strong>：systemd 觸發（OOMScoreAdjust）、K8s evict、運維手動 kill。dmesg 沒 OOM 訊息，journal 顯示 "Killed signal received"。</li>
+        </ul>
+        <strong>實務技巧</strong>：寫 OOM post-mortem 腳本（Lab 5）自動收集所有資料，事後分析比即時 debug 高效。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q6.</span><span>CPU throttling 與 CPU pressure 的差別？兩者都看可以發現什麼問題？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>CPU throttling（cpu.stat）</strong>：「<em>被 cgroup quota 限制</em>」。當 cgroup 在一個 period 內用完 quota，剩下時間 task 被 throttle 不能跑。看 nr_throttled、throttled_usec。
+        <strong>CPU pressure（cpu.pressure）</strong>：「<em>有 task 在等 CPU schedule</em>」。可能是被 throttle、也可能是同 cgroup 內 thread 太多互搶。
+        <strong>兩者組合分析</strong>：
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>throttle 高 + pressure 高</strong>：cpu.max 設太緊，調大就能改善。</li>
+          <li><strong>throttle 為 0 + pressure 高</strong>：<em>內部</em>競爭——thread 數太多、互相搶 CPU。調 cpu.max 沒用，要看應用 thread 池大小或 CPU pinning。</li>
+          <li><strong>throttle 高 + pressure 低</strong>：奇怪——通常是 thread 數少於 quota，每個 thread 都被 throttle 但其他 thread 沒在等。可能是 application sleep / IO wait 多。</li>
+          <li><strong>都低</strong>：CPU 沒問題，瓶頸在其他資源。</li>
+        </ul>
+        <strong>實務 debug 步驟</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li>看 cpu.pressure → 確認有 CPU 競爭</li>
+          <li>看 cpu.stat → 區分 quota 限制 vs 內部競爭</li>
+          <li>看 thread 數（ls /proc/PID/task | wc -l）→ 確認 thread pool</li>
+          <li>用 bpftrace sched_switch 看具體 schedule 模式</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q7.</span><span>Multi-tenant 機器發現某個 service IO latency p99 上升。從本章 playbook 怎麼一步步定位？</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>步驟</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>確認 IO 是瓶頸</strong>：cat io.pressure，some / full avg10 高 → 確認。</li>
+          <li><strong>看 IO 模式</strong>：cat io.stat 算 IOPS、bandwidth、avg io size。判斷是 read spike 還是 write spike。</li>
+          <li><strong>區分原因</strong>：
+            <ul>
+              <li>讀 spike：cat memory.stat 看 workingset_refault_file（page cache miss）</li>
+              <li>寫 spike：cat memory.stat 看 file_dirty（buffered write 累積）</li>
+            </ul>
+          </li>
+          <li><strong>找肇事者（multi-tenant）</strong>：對所有 service 的 io.pressure some 排序，找 top 10。
+            <pre style="margin-top:4px;font-size:11px;">for cg in /sys/fs/cgroup/system.slice/*.service; do
+    some=$(grep some $cg/io.pressure | grep -oP 'avg10=\K[\d.]+')
+    [ -n "$some" ] && echo "$some $(basename $cg)"
+done | sort -rn | head</pre>
+          </li>
+          <li><strong>用 fio 重現</strong>：在受害者 cgroup 內跑 fio，量 latency 分布。
+            <pre style="margin-top:4px;font-size:11px;">systemd-run --slice=victim.slice fio --rw=randread --bs=4k --runtime=30 --time_based</pre>
+          </li>
+          <li><strong>修復</strong>：
+            <ul>
+              <li>對受害者設 io.latency target（multi-tenant 保護首選）</li>
+              <li>對肇事者設 io.weight 調低或 io.max 防爆</li>
+              <li>filesystem 層調 vm.dirty_ratio（writeback 行為）</li>
+              <li>硬體層升級 NVMe / 加 read cache</li>
+            </ul>
+          </li>
+        </ol>
+        <strong>真實案例</strong>：DB latency p99 從 5ms 上升到 50ms。pressure some 25% → 確認 IO。io.stat 看 wbytes 飆升 → 寫 spike。對所有 cgroup 排序找到 backup.service 在跑 → 對 backup 設 io.weight=50，對 DB 設 io.latency target=10ms → p99 恢復 8ms。
+      </div>
+    </div>
+
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="quiz-q-num">Q8.</span><span>實作思考題：你接手一個沒有 cgroup limit 的 production 環境，要建立完整的 cgroup-based 性能管理體系。請設計從 baseline 量測到自動調校的完整流程。</span></div>
+      <button class="quiz-toggle" onclick="toggleAnswer(this)">查看答案</button>
+      <div class="quiz-a">
+        <strong>完整流程（5 階段）</strong>：
+        <pre style="margin-top:8px;font-size:11px;">[Phase 1: 觀測基礎建設（1-2 週）]
+- 部署 PSI metrics 採集（Prometheus + node_exporter textfile）
+- 部署 cgroup events 監聽（基於 inotify 的 daemon）
+- 部署 eBPF 觀測（cAdvisor / Pixie / 自寫 libbpf agent）
+- 確保收集：所有 service 的 PSI、events、stat
+- Grafana dashboard 視覺化
+
+[Phase 2: Baseline 量測（2-4 週）]
+- 對每個 service 收集至少 7 天資料（含週末）
+- 計算 p50 / p95 / p99 / peak
+- 識別 traffic pattern：daily peak、weekly peak、event-driven spike
+- 對 latency-critical service 額外跑 wrk benchmark 建立 SLA baseline
+- 對 IO-heavy service 跑 fio 量裝置真實能力
+
+[Phase 3: 第一輪 limit（漸進式 rollout）]
+- 用本章公式：peak × 1.5、p95 × 1.2、p50
+- 從<em>非 critical</em> service 先設限（log shipper、metrics agent）
+- 觀察 1 週，看 PSI、events 反應
+- 確認沒誤殺，再對 critical service 設限
+- 每次只動 1 個 service，留 24 小時觀察
+
+[Phase 4: 進階 tuning]
+- 對 latency-critical 加 io.latency / cpu.idle co-location
+- 對 multi-tenant 加 io.weight 比例分配
+- 啟用 systemd-oomd（ManagedOOMMemoryPressure）
+- 設定 memory_recursiveprot mount option
+- 對 K8s 啟用 Memory QoS（v1.34 Beta）
+
+[Phase 5: 自動化 + closed loop]
+- Prometheus alert：PSI / events 閾值觸發
+- VPA / HPA 整合 PSI metrics 自動調 limit
+- K8s 1.36+ In-Place Resize 不重啟調整
+- 月度 review：用過去 30 天資料重算 limit
+- 寫 runbook：每個 alert 對應 playbook</pre>
+        <strong>關鍵原則</strong>：
+        <ol style="margin-top:8px;padding-left:20px;">
+          <li><strong>觀測先行</strong>：沒 metrics 不要設 limit，盲目限制比沒限制糟。</li>
+          <li><strong>漸進 rollout</strong>：一次一個 service，留觀察期。</li>
+          <li><strong>非 critical 先試</strong>：失敗代價低。</li>
+          <li><strong>PSI 是主指標</strong>，utilization 是輔助。</li>
+          <li><strong>定期 review</strong>：traffic pattern 會變，limit 要隨之調整。</li>
+        </ol>
+        <strong>常見失敗</strong>：直接套網路上找的「<em>建議 limit</em>」、跳過 baseline、所有 service 同時設限。本章 playbook 是用來避免這些坑。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Section 8: 延伸閱讀 ====================== -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">08 · Further reading</div>
+    <h2 class="section-title">延伸閱讀</h2>
+
+    <div class="refs">
+      <ol>
+        <li>
+          <a href="https://www.brendangregg.com/usemethod.html" target="_blank" rel="noopener">USE Method · Brendan Gregg</a>
+          <span class="ref-source">brendangregg.com · USE method 原始定義與適用場景</span>
+        </li>
+        <li>
+          <a href="https://grafana.com/blog/2018/08/02/the-red-method-how-to-instrument-your-services/" target="_blank" rel="noopener">The RED Method · Grafana Labs</a>
+          <span class="ref-source">grafana.com · RED method 在 microservice 場景</span>
+        </li>
+        <li>
+          <a href="https://atlarge-research.com/pdfs/2025-iiswc-cgroups.pdf" target="_blank" rel="noopener">Does Linux Provide Performance Isolation for NVMe SSDs? · IISWC 2025</a>
+          <span class="ref-source">atlarge-research.com · 學術界完整 cgroup IO isolation 評估</span>
+        </li>
+        <li>
+          <a href="https://github.com/axboe/fio" target="_blank" rel="noopener">fio · Flexible IO Tester</a>
+          <span class="ref-source">github.com · fio 官方 repo，job file 範例豐富</span>
+        </li>
+        <li>
+          <a href="https://github.com/ColinIanKing/stress-ng" target="_blank" rel="noopener">stress-ng</a>
+          <span class="ref-source">github.com · 300+ stressors，cgroup-aware 測試</span>
+        </li>
+        <li>
+          <a href="https://github.com/wg/wrk" target="_blank" rel="noopener">wrk · Modern HTTP benchmarking tool</a>
+          <span class="ref-source">github.com · 高並發 HTTP benchmark 標準工具</span>
+        </li>
+        <li>
+          <a href="https://www.brendangregg.com/Slides/LISA13_Linux_Performance.pdf" target="_blank" rel="noopener">Linux Performance Tools · Brendan Gregg</a>
+          <span class="ref-source">brendangregg.com · Linux 性能調校完整工具圖譜</span>
+        </li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== Chapter nav ====================== -->
+<section class="container">
+  <nav class="chapter-nav">
+    <a class="nav-btn" href="ch13-ebpf-cgroup.html">
+      <span class="nav-btn-label">← Previous</span>
+      <span class="nav-btn-title">Ch.13 eBPF 與 cgroup</span>
+    </a>
+    <a class="nav-btn next disabled">
+      <span class="nav-btn-label">Next →</span>
+      <span class="nav-btn-title">Ch.15 systemd 整合</span>
+    </a>
+  </nav>
+</section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window.JHsunTheme = { get: getCurrentMode, set: (m) => { setStored(m); applyTheme(m); }, toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); }, };
+})();
+</script>
+
+<script>
+function toggleAnswer(btn) {
+  const ans = btn.nextElementSibling;
+  ans.classList.toggle('open');
+  btn.textContent = ans.classList.contains('open') ? '收起答案' : '查看答案';
+}
+</script>
+
+</body>
+</html>
