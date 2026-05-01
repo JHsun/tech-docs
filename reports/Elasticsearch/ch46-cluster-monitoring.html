@@ -1,0 +1,1238 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="_cat APIs、Stack Monitoring、Elastic Agent 監控、_health_report">
+<title>CH 46 · Cluster Monitoring 與 Stack Monitoring</title>
+<style>
+/* ============================================================
+   JHsun TechDocs — Unified Design Token Layer
+   v1.0 · Calm Teal (hue 200° / chroma 0.11)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+
+  --color-success:        #16a34a;
+  --color-success-soft:   #dcfce7;
+  --color-warning:        #d97706;
+  --color-warning-soft:   #fef3c7;
+  --color-danger:         #dc2626;
+  --color-danger-soft:    #fee2e2;
+  --color-info:           #0891b2;
+  --color-info-soft:      #cffafe;
+  --color-neutral-accent: #7c3aed;
+
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+
+  --font-mono:       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:       "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif:      "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  32px;
+  --text-3xl:  44px;
+  --text-4xl:  64px;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+
+  --container-narrow: 720px;
+  --container-wide:   1280px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+
+:root[data-theme="dark"] {
+  --color-success:        #4ade80;
+  --color-success-soft:   oklch(0.30 0.08 145);
+  --color-warning:        #fbbf24;
+  --color-warning-soft:   oklch(0.32 0.10 70);
+  --color-danger:         #f87171;
+  --color-danger-soft:    oklch(0.32 0.10 27);
+  --color-info:           #22d3ee;
+  --color-info-soft:      oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.16 0.008 50);
+  --bg-surface:     oklch(0.20 0.009 50);
+  --bg-muted:       oklch(0.23 0.010 50);
+  --bg-code:        oklch(0.18 0.009 50);
+  --border-soft:    oklch(0.28 0.010 50);
+  --border-mid:     oklch(0.36 0.012 50);
+  --text-primary:   oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted:     oklch(0.58 0.007 60);
+
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+
+/* ============== Chapter shared styles ============== */
+* { box-sizing: border-box; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+@media (min-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 240px; gap: var(--space-7); }
+}
+main { min-width: 0; padding: var(--space-6) 0; }
+main.prose { max-width: var(--container-narrow); margin: 0 auto; }
+
+/* Top navigation */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: color-mix(in oklch, var(--bg-canvas) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.topbar-inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.brand {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-primary-text);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+.nav-links { display: flex; gap: var(--space-2); margin-left: auto; align-items: center; }
+.nav-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  transition: all 0.15s;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--bg-muted); }
+.nav-links a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Theme toggle button */
+[data-theme-toggle] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  transition: all 0.15s;
+}
+[data-theme-toggle]:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.theme-icon { font-size: var(--text-base); }
+
+/* Headings */
+h1, h2, h3, h4 {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  line-height: 1.3;
+  margin-top: var(--space-7);
+  margin-bottom: var(--space-4);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+h1 { font-size: var(--text-3xl); margin-top: var(--space-5); }
+h2 { font-size: var(--text-2xl); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-soft); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-md); color: var(--text-secondary); }
+
+p { margin: var(--space-4) 0; color: var(--text-primary); }
+
+/* Inline code */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+  border: 1px solid var(--border-soft);
+}
+
+/* Code block */
+.code-wrap {
+  position: relative;
+  margin: var(--space-4) 0;
+}
+.code-wrap > .code-lang {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.code-wrap > .copy-btn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 4px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  transition: all 0.15s;
+  opacity: 0;
+}
+.code-wrap:hover > .copy-btn { opacity: 1; }
+.code-wrap > .copy-btn:hover {
+  background: var(--color-primary);
+  color: var(--bg-canvas);
+  border-color: var(--color-primary);
+}
+.code-wrap > .copy-btn.copied {
+  background: var(--color-success);
+  color: white;
+  border-color: var(--color-success);
+  opacity: 1;
+}
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-7) var(--space-4) var(--space-4);
+  overflow-x: auto;
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  margin: 0;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: var(--text-primary);
+  font-size: inherit;
+}
+
+/* Lists */
+ul, ol { padding-left: var(--space-6); }
+li { margin: var(--space-2) 0; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: var(--space-4) 0; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+th, td {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+}
+th { background: var(--bg-muted); font-weight: 600; color: var(--text-primary); }
+tr:last-child td { border-bottom: none; }
+
+/* Callouts */
+.callout {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  border-left: 4px solid var(--color-info);
+  background: var(--color-info-soft);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+.callout.warning { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.danger  { border-color: var(--color-danger);  background: var(--color-danger-soft); }
+.callout.success { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout strong { display: block; margin-bottom: var(--space-2); }
+:root[data-theme="dark"] .callout { color: var(--text-primary); }
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: 999px;
+  margin-right: var(--space-1);
+  letter-spacing: 0.02em;
+}
+.badge.beginner { background: var(--color-success-soft); color: var(--color-success); }
+.badge.developer { background: var(--color-info-soft); color: var(--color-info); }
+.badge.operator { background: var(--color-warning-soft); color: var(--color-warning); }
+.badge.advanced { background: var(--color-primary-soft); color: var(--color-primary-text); }
+:root[data-theme="dark"] .badge { filter: brightness(1.1); }
+
+/* Chapter meta */
+.chapter-meta {
+  margin: var(--space-4) 0 var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.chapter-meta .meta-row { margin: var(--space-1) 0; }
+.chapter-meta .meta-label {
+  display: inline-block;
+  width: 70px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* TOC sidebar */
+.toc {
+  position: sticky;
+  top: 80px;
+  align-self: start;
+  font-size: var(--text-sm);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  padding: var(--space-4) 0;
+  display: none;
+}
+@media (min-width: 1100px) {
+  .toc { display: block; }
+}
+.toc-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.toc ul { list-style: none; padding-left: 0; margin: 0; }
+.toc li { margin: 0; }
+.toc a {
+  display: block;
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-left: 2px solid var(--border-soft);
+  transition: all 0.15s;
+  line-height: 1.5;
+}
+.toc a:hover { color: var(--color-primary); border-left-color: var(--color-primary); }
+.toc a.toc-h3 { padding-left: var(--space-5); font-size: 0.92em; color: var(--text-muted); }
+
+/* Bottom nav */
+.bottom-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  margin-top: var(--space-8);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.bottom-nav a {
+  flex: 1;
+  min-width: 200px;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.bottom-nav a:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.bottom-nav .nav-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.bottom-nav .nav-title { font-weight: 600; color: var(--text-primary); }
+.bottom-nav a.next { text-align: right; }
+.bottom-nav a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Footer */
+footer {
+  text-align: center;
+  padding: var(--space-7) var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  border-top: 1px solid var(--border-soft);
+  margin-top: var(--space-8);
+}
+footer a { color: var(--color-primary); text-decoration: none; }
+
+/* Index page specific */
+.hero {
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+  background: linear-gradient(135deg, var(--color-primary-soft) 0%, var(--bg-canvas) 100%);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: var(--space-7);
+}
+.hero h1 {
+  font-size: var(--text-4xl);
+  margin: 0 0 var(--space-4);
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.02em;
+}
+.hero p { font-size: var(--text-md); color: var(--text-secondary); max-width: 720px; margin: 0 auto; }
+.hero .meta {
+  margin-top: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.path-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  margin: var(--space-6) 0;
+}
+@media (min-width: 768px) { .path-grid { grid-template-columns: repeat(3, 1fr); } }
+.path-card {
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  transition: all 0.2s;
+}
+.path-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-md); }
+.path-card .path-icon { font-size: 32px; display: block; margin-bottom: var(--space-3); }
+.path-card h3 { margin: 0 0 var(--space-2); font-size: var(--text-lg); }
+.path-card .path-flow {
+  margin-top: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.part {
+  margin: var(--space-7) 0;
+}
+.part-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--color-primary);
+}
+.part-header .part-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.part-header h2 { margin: 0; border: none; padding: 0; }
+
+.chapter-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+@media (min-width: 700px)  { .chapter-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1100px) { .chapter-grid { grid-template-columns: repeat(3, 1fr); } }
+.chapter-card {
+  display: block;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.chapter-card:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  transform: translateY(-1px);
+}
+.chapter-card .ch-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+.chapter-card .ch-title {
+  display: block;
+  margin: var(--space-2) 0;
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+.chapter-card .ch-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--space-2);
+}
+.chapter-card .ch-badges { font-size: 11px; }
+
+
+/* Mermaid container */
+.mermaid-wrap {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-wrap .mermaid {
+  display: inline-block;
+  min-width: 100%;
+}
+.mermaid-caption {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+/* Hide raw mermaid source until rendered */
+.mermaid:not([data-processed="true"]) {
+  visibility: hidden;
+  min-height: 1em;
+}
+
+</style>
+<script>
+/* JHsun TechDocs — Theme toggle v1.0 */
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+
+</script>
+<script>
+
+// Copy-to-clipboard for all <pre> blocks
+(function () {
+  function init() {
+    document.querySelectorAll('main pre').forEach(function (pre) {
+      if (pre.parentElement.classList.contains('code-wrap')) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'code-wrap';
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
+      const lang = pre.querySelector('code')?.className.match(/language-(\w+)/)?.[1];
+      if (lang) {
+        const tag = document.createElement('span');
+        tag.className = 'code-lang';
+        tag.textContent = lang;
+        wrap.appendChild(tag);
+      }
+      const btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.type = 'button';
+      btn.textContent = '📋 複製';
+      btn.addEventListener('click', function () {
+        const text = pre.innerText;
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(text).then(success).catch(fallback);
+        } else {
+          fallback();
+        }
+        function success() {
+          btn.textContent = '✓ 已複製';
+          btn.classList.add('copied');
+          setTimeout(function () { btn.textContent = '📋 複製'; btn.classList.remove('copied'); }, 1800);
+        }
+        function fallback() {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); success(); } catch (_) {}
+          document.body.removeChild(ta);
+        }
+      });
+      wrap.appendChild(btn);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+// Auto-build TOC from h2/h3 in <main>
+(function () {
+  function init() {
+    const toc = document.querySelector('.toc ul');
+    if (!toc) return;
+    const headings = document.querySelectorAll('main h2, main h3');
+    headings.forEach(function (h) {
+      if (!h.id) {
+        h.id = h.textContent.trim().toLowerCase()
+          .replace(/[^\w\u4e00-\u9fff\s-]/g, '')
+          .replace(/\s+/g, '-');
+      }
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = '#' + h.id;
+      a.textContent = h.textContent;
+      a.className = 'toc-' + h.tagName.toLowerCase();
+      li.appendChild(a);
+      toc.appendChild(li);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+
+// Mermaid initialization with theme sync
+(function () {
+  function getMermaidTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default';
+  }
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    const cs = getComputedStyle(document.documentElement);
+    return {
+      startOnLoad: false,
+      theme: isDark ? 'dark' : 'default',
+      themeVariables: {
+        fontFamily: cs.getPropertyValue('--font-sans').trim() || 'DM Sans, sans-serif',
+        fontSize: '14px',
+        primaryColor: isDark ? '#1e3a4a' : '#e0f2fe',
+        primaryTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        primaryBorderColor: isDark ? '#5fb3d4' : '#0891b2',
+        lineColor: isDark ? '#7aa3b8' : '#475569',
+        secondaryColor: isDark ? '#2a3f4f' : '#f1f5f9',
+        tertiaryColor: isDark ? '#1a2530' : '#fafafa',
+        background: isDark ? '#1e2a35' : '#ffffff',
+        mainBkg: isDark ? '#243441' : '#ecfeff',
+        secondBkg: isDark ? '#1a2530' : '#f8fafc',
+        nodeBorder: isDark ? '#5fb3d4' : '#0891b2',
+        clusterBkg: isDark ? '#1a2530' : '#f1f5f9',
+        clusterBorder: isDark ? '#3a5260' : '#cbd5e1',
+        defaultLinkColor: isDark ? '#7aa3b8' : '#475569',
+        titleColor: isDark ? '#e6f2f8' : '#0f172a',
+        edgeLabelBackground: isDark ? '#243441' : '#ffffff',
+        actorBkg: isDark ? '#243441' : '#ecfeff',
+        actorBorder: isDark ? '#5fb3d4' : '#0891b2',
+        actorTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        actorLineColor: isDark ? '#5fb3d4' : '#0891b2',
+        signalColor: isDark ? '#7aa3b8' : '#334155',
+        signalTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        labelBoxBkgColor: isDark ? '#1a2530' : '#fef3c7',
+        labelBoxBorderColor: isDark ? '#a89060' : '#d97706',
+        labelTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        loopTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        noteBkgColor: isDark ? '#3a4f3a' : '#fef3c7',
+        noteBorderColor: isDark ? '#86c598' : '#d97706',
+        noteTextColor: isDark ? '#e6f2f8' : '#0f172a',
+      },
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true, showSequenceNumbers: false, mirrorActors: true, bottomMarginAdj: 10 },
+    };
+  }
+
+  let renderCounter = 0;
+  async function renderAll() {
+    if (typeof mermaid === 'undefined') return;
+    renderCounter++;
+    const myCounter = renderCounter;
+    mermaid.initialize(getMermaidConfig());
+    const blocks = document.querySelectorAll('.mermaid');
+    for (const el of blocks) {
+      // restore source if already rendered
+      if (el.dataset.source) el.innerHTML = el.dataset.source;
+      else el.dataset.source = el.innerHTML;
+      el.removeAttribute('data-processed');
+    }
+    if (myCounter !== renderCounter) return;
+    try {
+      await mermaid.run({ querySelector: '.mermaid' });
+    } catch (e) { console.warn('Mermaid render error', e); }
+  }
+
+  function init() {
+    renderAll();
+    window.addEventListener('jhsun:theme-changed', renderAll);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="ch00-elasticsearch-index.html">ES Self-Managed Docs</a>
+    <nav class="nav-links">
+      <a href="ch45-watcher-alerting.html" aria-label="上一章">← 上一章</a>
+      <a href="ch00-elasticsearch-index.html" aria-label="回首頁">首頁</a>
+      <a href="ch47-snapshot-slm.html" aria-label="下一章">下一章 →</a>
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </nav>
+  </div>
+</header>
+<div class="layout">
+<main class="prose">
+
+<h1>CH 46 · Cluster Monitoring 與 Stack Monitoring</h1>
+
+<div class="chapter-meta">
+  <div class="meta-row"><span class="meta-label">適合對象</span>
+    <span class="badge operator">🔴 維運者</span>
+    <span class="badge advanced">⚡ 進階</span>
+  </div>
+  <div class="meta-row"><span class="meta-label">閱讀時間</span> 約 25 分鐘</div>
+  <div class="meta-row"><span class="meta-label">前置知識</span> CH 03 分散式架構、CH 18 JVM、CH 30 ILM</div>
+  <div class="meta-row"><span class="meta-label">本章目標</span> _cat APIs、_cluster APIs、Stack Monitoring 部署、自我監控架構、關鍵 metrics 與 alert</div>
+</div>
+
+<h2 id="監控範圍">監控範圍</h2>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TB
+    subgraph Layers["監控分層"]
+      direction TB
+      L1["💻 Host：CPU、RAM、disk、network"]
+      L2["☕ JVM：heap、GC、threads"]
+      L3["🔧 Elasticsearch：cluster health、shards、indexing/search rate、queue"]
+      L4["🪟 Kibana：load、connection 數、savedObject latency"]
+      L5["⚙️ Logstash / Beats：events、failed events"]
+      L1 --> L2 --> L3 --> L4 --> L5
+    end
+
+    classDef host fill:#fee2e2,stroke:#dc2626,color:#0f172a
+    classDef jvm fill:#fed7aa,stroke:#ea580c,color:#0f172a
+    classDef es fill:#cffafe,stroke:#0891b2,color:#0f172a
+    classDef stack fill:#dcfce7,stroke:#16a34a,color:#0f172a
+    class L1 host
+    class L2 jvm
+    class L3 es
+    class L4,L5 stack
+</pre>
+<div class="mermaid-caption">圖 46-1：監控分層</div>
+</div>
+
+<h2 id="cat-apis">_cat APIs：人類友善的速查</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>API</th><th>用途</th></tr></thead>
+  <tbody>
+    <tr><td><code>_cat/health</code></td><td>cluster 整體健康</td></tr>
+    <tr><td><code>_cat/nodes</code></td><td>節點清單與基本資訊</td></tr>
+    <tr><td><code>_cat/indices</code></td><td>所有 index 與大小</td></tr>
+    <tr><td><code>_cat/shards</code></td><td>所有 shard 分配狀態</td></tr>
+    <tr><td><code>_cat/allocation</code></td><td>每節點 disk 用量</td></tr>
+    <tr><td><code>_cat/recovery</code></td><td>正在 recovery 的 shard</td></tr>
+    <tr><td><code>_cat/thread_pool</code></td><td>thread pool 狀態</td></tr>
+    <tr><td><code>_cat/pending_tasks</code></td><td>等待中的 cluster tasks</td></tr>
+    <tr><td><code>_cat/master</code></td><td>當前 master 節點</td></tr>
+    <tr><td><code>_cat/snapshots</code></td><td>snapshot 清單</td></tr>
+    <tr><td><code>_cat/segments</code></td><td>Lucene segment 細節</td></tr>
+    <tr><td><code>_cat/templates</code></td><td>index templates</td></tr>
+    <tr><td><code>_cat/aliases</code></td><td>aliases</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 id="cat-用法">通用語法</h3>
+
+<pre><code class="language-bash"># 含 header
+GET /_cat/health?v
+
+# 指定欄位
+GET /_cat/nodes?v&h=name,role,heap.percent,ram.percent,cpu,disk.used_percent
+
+# 排序
+GET /_cat/indices?v&s=store.size:desc
+
+# JSON 格式
+GET /_cat/health?format=json
+
+# 列出可用欄位
+GET /_cat/nodes?help
+</code></pre>
+
+<h3 id="關鍵-cat-範例">每日必看</h3>
+
+<pre><code class="language-bash"># 1. cluster 健康
+GET /_cat/health?v
+# epoch      timestamp cluster      status node.total node.data shards pri relo init unassign pending_tasks ...
+# 1735689600 10:00:00  production   green  9          6         500    250 0    0    0        0             ...
+
+# 2. 節點狀態
+GET /_cat/nodes?v&h=name,role,heap.percent,ram.percent,cpu,load_1m,disk.used_percent,master&s=name
+
+# 3. 異常 shard
+GET /_cat/shards?v&h=index,shard,prirep,state,unassigned.reason,node | grep -v STARTED
+
+# 4. disk 用量
+GET /_cat/allocation?v
+
+# 5. 大 index 排行
+GET /_cat/indices?v&s=store.size:desc&h=index,docs.count,store.size,pri.store.size | head -20
+</code></pre>
+
+<h2 id="cluster-apis">_cluster APIs（程式化使用）</h2>
+
+<pre><code class="language-bash"># 整體健康（最常用）
+GET /_cluster/health?level=indices&pretty
+
+# 等待 yellow 以上才繼續
+GET /_cluster/health?wait_for_status=yellow&timeout=30s
+
+# 完整 cluster state（量大！）
+GET /_cluster/state?filter_path=metadata.indices.*.settings.index.number_of_shards
+
+# Pending tasks
+GET /_cluster/pending_tasks
+
+# Allocation explain
+POST /_cluster/allocation/explain
+{
+  "index": "my-index",
+  "shard": 0,
+  "primary": false
+}
+
+# 重新分配 stuck 的 shard
+POST /_cluster/reroute?retry_failed=true
+</code></pre>
+
+<h2 id="nodes-stats">_nodes/stats（細緻指標）</h2>
+
+<pre><code class="language-bash">GET /_nodes/stats?human&pretty
+
+# 篩選某類別
+GET /_nodes/stats/jvm,os,fs,thread_pool?human&pretty
+
+# 單節點
+GET /_nodes/{node-id}/stats
+</code></pre>
+
+<h3 id="關鍵指標">關鍵指標（要監控）</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>類別</th><th>指標</th><th>警示</th></tr></thead>
+  <tbody>
+    <tr><td>JVM</td><td>heap_used_percent</td><td>&gt; 75% 警告</td></tr>
+    <tr><td>JVM GC</td><td>old GC pause time</td><td>&gt; 1s 警告</td></tr>
+    <tr><td>OS</td><td>cpu.percent</td><td>&gt; 80% 警告</td></tr>
+    <tr><td>OS</td><td>load_average.1m / cores</td><td>&gt; 1.5 警告</td></tr>
+    <tr><td>Disk</td><td>fs.total.available_in_bytes / total</td><td>&lt; 15% 警告（low watermark 85%）</td></tr>
+    <tr><td>Thread pool</td><td>write.rejected, search.rejected</td><td>持續上升 = 過載</td></tr>
+    <tr><td>Indexing</td><td>index.indexing.current</td><td>&gt; 1000 = 寫入瓶頸</td></tr>
+    <tr><td>Search</td><td>indices.search.query_current</td><td>&gt; 100 = 查詢瓶頸</td></tr>
+    <tr><td>Cluster</td><td>pending_tasks</td><td>&gt; 100 = master 過載</td></tr>
+    <tr><td>Indices</td><td>unassigned shards</td><td>&gt; 0 = 異常</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="stack-monitoring">Stack Monitoring：自我監控</h2>
+
+<p>Stack Monitoring 把 ES / Kibana / Logstash / Beats 自身的指標收集到 ES，在 Kibana 中視覺化。</p>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart LR
+    subgraph Prod["🟢 Production Cluster"]
+      ES1["ES Nodes"]
+      KB1["Kibana"]
+      LS1["Logstash / Beats"]
+    end
+
+    subgraph Mon["🔵 Monitoring Cluster (推薦獨立)"]
+      MES["Monitoring ES"]
+      MKB["Monitoring Kibana"]
+    end
+
+    Beat["📊 Metricbeat<br/>(收集 metrics)"]
+
+    ES1 -.metrics.-> Beat
+    KB1 -.metrics.-> Beat
+    LS1 -.metrics.-> Beat
+
+    Beat -->|HTTP| MES
+    MKB --> MES
+
+    classDef prod fill:#dcfce7,stroke:#16a34a,color:#0f172a
+    classDef mon fill:#cffafe,stroke:#0891b2,color:#0f172a,stroke-width:2px
+    classDef beat fill:#fef3c7,stroke:#d97706,color:#0f172a
+    class ES1,KB1,LS1,Prod prod
+    class MES,MKB,Mon mon
+    class Beat beat
+</pre>
+<div class="mermaid-caption">圖 46-2：Stack Monitoring 推薦架構（獨立 monitoring cluster）</div>
+</div>
+
+<h2 id="部署-stack-monitoring">部署 Stack Monitoring</h2>
+
+<h3 id="metricbeat-collection">Metricbeat 模式（推薦）</h3>
+
+<p>Elastic 官方推薦的方式（取代舊的 internal collection）。在每個被監控節點裝 Metricbeat：</p>
+
+<pre><code class="language-bash"># 在 ES 節點上裝
+sudo apt-get install metricbeat
+
+# 啟用 Elasticsearch xpack module
+sudo metricbeat modules enable elasticsearch-xpack
+
+# 編輯 /etc/metricbeat/modules.d/elasticsearch-xpack.yml
+sudo tee /etc/metricbeat/modules.d/elasticsearch-xpack.yml << 'EOF'
+- module: elasticsearch
+  xpack.enabled: true
+  period: 10s
+  hosts: [ "https://localhost:9200" ]
+  username: "remote_monitoring_user"
+  password: "${ES_PWD}"
+  ssl.certificate_authorities: [ "/etc/metricbeat/ca.crt" ]
+EOF
+
+# 設輸出目的地（monitoring cluster）
+sudo tee -a /etc/metricbeat/metricbeat.yml << 'EOF'
+output.elasticsearch:
+  hosts: [ "https://monitoring-cluster.example.com:9200" ]
+  username: "beats_writer"
+  password: "${MON_PWD}"
+  ssl.certificate_authorities: [ "/etc/metricbeat/ca.crt" ]
+EOF
+
+sudo systemctl enable --now metricbeat
+</code></pre>
+
+<p>Kibana 模式同理（<code>kibana-xpack</code> module），Logstash 用 <code>logstash-xpack</code>。</p>
+
+<h3 id="elastic-agent-9x">Elastic Agent 模式（9.x 推薦）</h3>
+
+<p>9.x 已將 Elastic Agent 列為主推。一個 agent 取代 Metricbeat / Filebeat / Auditbeat：</p>
+
+<pre><code class="language-bash"># 在 Fleet 中為節點 enroll
+elastic-agent enroll \
+  --url=https://fleet.example.com:8220 \
+  --enrollment-token=...
+
+elastic-agent install
+</code></pre>
+
+<p>在 Kibana → Fleet → Integrations 加入「Elasticsearch」integration，自動配置監控收集。</p>
+
+<h3 id="kibana-monitoring-ui">Kibana Stack Monitoring UI</h3>
+
+<p>連到 monitoring cluster 的 Kibana → Stack Monitoring，可看到：</p>
+
+<ul>
+  <li><strong>Cluster overview</strong>：cluster status、node 數、shard 數、用戶數</li>
+  <li><strong>Nodes</strong>：每節點 CPU、heap、disk、indexing/search rate</li>
+  <li><strong>Indices</strong>：indexing rate、search rate、segment 數、storage</li>
+  <li><strong>Logs</strong>：cluster log（需 Filebeat 裝 elasticsearch module）</li>
+  <li><strong>Kibana / Logstash / Beats</strong> 視角</li>
+</ul>
+
+<h2 id="why-separate-monitoring-cluster">為何要獨立 Monitoring Cluster？</h2>
+
+<ul>
+  <li><strong>循環依賴</strong>：production 掛了，自我監控也丟，無法 troubleshoot</li>
+  <li><strong>資源隔離</strong>：監控查詢不要佔用 production 資源</li>
+  <li><strong>合規</strong>：audit/監控資料可獨立存取控制</li>
+  <li><strong>規模小</strong>：3 個 small node 就夠監控數十個 production nodes</li>
+</ul>
+
+<h2 id="關鍵-cluster-alerts">關鍵 Cluster Alerts（內建）</h2>
+
+<p>Stack Monitoring 啟用後 Kibana 自動建立預設 alert rules：</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Alert</th><th>觸發條件</th></tr></thead>
+  <tbody>
+    <tr><td>Cluster health</td><td>狀態變 yellow / red</td></tr>
+    <tr><td>License expiration</td><td>授權即將過期</td></tr>
+    <tr><td>CPU usage</td><td>節點 CPU 持續高</td></tr>
+    <tr><td>Disk usage</td><td>節點磁碟用量超過 watermark</td></tr>
+    <tr><td>JVM Memory</td><td>Heap 持續 &gt; 85%</td></tr>
+    <tr><td>Missing monitoring data</td><td>沒收到某節點 metrics</td></tr>
+    <tr><td>Thread pool rejections</td><td>queue 持續滿</td></tr>
+    <tr><td>CCR read exceptions</td><td>CCR 失敗</td></tr>
+    <tr><td>Large shards</td><td>shard 大小超過 50 GB</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>可在 Stack Monitoring 頁面 enable / 客製。</p>
+
+<h2 id="prometheus-grafana">Prometheus / Grafana 整合</h2>
+
+<p>若你已有 Prometheus 生態，可用：</p>
+
+<ul>
+  <li><strong>elasticsearch_exporter</strong>（社群）：把 ES metrics 轉 Prometheus 格式</li>
+  <li><strong>Metricbeat → Prometheus remote write</strong></li>
+  <li><strong>Grafana 內建 Elasticsearch datasource</strong>：直接從 ES 查 logs 與 metrics 畫圖</li>
+</ul>
+
+<pre><code class="language-bash"># elasticsearch_exporter 範例
+docker run -d \
+  -p 9114:9114 \
+  --name es_exporter \
+  quay.io/prometheuscommunity/elasticsearch-exporter \
+  --es.uri=https://es.example.com:9200 \
+  --es.all
+</code></pre>
+
+<h2 id="slow-log">Slow Log：找慢查詢/慢索引</h2>
+
+<pre><code class="language-bash"># 啟用 search slow log
+PUT my-index/_settings
+{
+  "index.search.slowlog.threshold.query.warn":  "10s",
+  "index.search.slowlog.threshold.query.info":  "5s",
+  "index.search.slowlog.threshold.query.debug": "2s",
+  "index.search.slowlog.threshold.fetch.warn":  "1s"
+}
+
+# 啟用 indexing slow log
+PUT my-index/_settings
+{
+  "index.indexing.slowlog.threshold.index.warn":  "10s",
+  "index.indexing.slowlog.threshold.index.info":  "5s",
+  "index.indexing.slowlog.threshold.index.debug": "2s"
+}
+</code></pre>
+
+<p>Log 寫到 <code>{cluster}_index_search_slowlog.json</code>，可用 Filebeat 收集分析。</p>
+
+<h2 id="tasks-management">執行中的長任務</h2>
+
+<pre><code class="language-bash"># 列所有 task
+GET /_tasks?detailed=true&group_by=parents
+
+# 找跑超過 5 秒的 search
+GET /_tasks?actions=*search*&detailed=true
+
+# 取消
+POST /_tasks/{task_id}/_cancel
+</code></pre>
+
+<h2 id="audit-自我監控">Audit 自我監控（CH 24）</h2>
+
+<p>把 audit log 也送到 monitoring cluster，用 Watcher 監控異常：</p>
+
+<ul>
+  <li>多次認證失敗 → 可能 brute force</li>
+  <li>access_denied 暴增 → role 設定錯</li>
+  <li>新 user / role 被建立 → 異常授權變更</li>
+</ul>
+
+<h2 id="health-api">Health API（9.x 增強）</h2>
+
+<pre><code class="language-bash">GET /_health_report
+</code></pre>
+
+<p>9.x 新的 unified health API，回傳：</p>
+
+<ul>
+  <li>cluster status（master、shards、ILM、SLM、disk、repository_integrity、disk）</li>
+  <li>每個 indicator 的 impact、diagnosis、user_action</li>
+</ul>
+
+<p>取代舊的多個 health 來源檢查。</p>
+
+<h2 id="best-practices">最佳實踐</h2>
+
+<ul>
+  <li><strong>用獨立 monitoring cluster</strong>，避免循環依賴</li>
+  <li><strong>9.x 用 Elastic Agent</strong>（取代 Metricbeat 模式）</li>
+  <li><strong>關鍵 alert</strong>：cluster health、heap、disk watermark、unassigned shards、license</li>
+  <li><strong>啟用 slow log</strong>，threshold 從寬到嚴調整</li>
+  <li><strong>加 cluster._cat 到 dashboard</strong>，每日早會看一眼</li>
+  <li><strong>9.x 用 _health_report</strong> 取代分散的健康檢查</li>
+  <li><strong>Audit log 收到 monitoring cluster</strong>，與業務分離</li>
+  <li><strong>整合 PagerDuty</strong>：critical alert（heap &gt; 90%、red status）走 oncall</li>
+  <li><strong>定期 fire drill</strong>：模擬 node down 看告警是否觸發</li>
+</ul>
+
+<h2 id="本章重點回顧">本章重點回顧</h2>
+
+<ul>
+  <li>監控分層：host → JVM → ES → stack（Kibana/Logstash/Beats）</li>
+  <li>_cat APIs 給人看；_cluster / _nodes/stats 給程式</li>
+  <li>關鍵指標：heap %、disk %、CPU、unassigned shards、thread pool rejected</li>
+  <li>Stack Monitoring 自動收集所有 stack 元件指標</li>
+  <li>9.x 推薦用 <strong>Elastic Agent</strong> 取代 Metricbeat 收集</li>
+  <li><strong>獨立 monitoring cluster</strong> 是必備配置（避免循環依賴）</li>
+  <li>內建 alert rules 可直接 enable，省自己寫</li>
+  <li>Slow log 是找慢查詢/索引的標準工具</li>
+  <li>9.x <code>_health_report</code> API 統一健康檢查</li>
+</ul>
+
+<h2 id="延伸閱讀">延伸閱讀</h2>
+
+<ul>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/monitor" target="_blank" rel="noopener">Monitoring</a></li>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/monitor/stack-monitoring" target="_blank" rel="noopener">Stack monitoring</a></li>
+  <li><a href="https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-health-report" target="_blank" rel="noopener">Health API</a></li>
+</ul>
+
+<nav class="bottom-nav"><a class="prev" href="ch45-watcher-alerting.html"><span class="nav-label">← 上一章</span><span class="nav-title">Watcher 與 Alerting</span></a><a class="next" href="ch47-snapshot-slm.html"><span class="nav-label">下一章 →</span><span class="nav-title">Snapshot 與 SLM</span></a></nav>
+</main>
+<aside class="toc">
+  <div class="toc-title">本章目錄</div>
+  <ul></ul>
+</aside>
+</div>
+<footer>
+  <p>Elasticsearch Self-Managed 完整教學文件 · 基於 Elastic Stack 9.x（最新 9.3.4）<br>
+  資料來源：<a href="https://www.elastic.co/docs" target="_blank" rel="noopener">Elastic 官方文件</a> · 最後更新：2026-05</p>
+</footer>
+</body>
+</html>

@@ -1,0 +1,1412 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="理解 Elasticsearch 叢集形成、master 選舉、Quorum、Voting Configuration 與 Bootstrap 過程">
+<title>CH 04 · 叢集發現、選舉與 Cluster State</title>
+<style>
+/* ============================================================
+   JHsun TechDocs — Unified Design Token Layer
+   v1.0 · Calm Teal (hue 200° / chroma 0.11)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+
+  --color-success:        #16a34a;
+  --color-success-soft:   #dcfce7;
+  --color-warning:        #d97706;
+  --color-warning-soft:   #fef3c7;
+  --color-danger:         #dc2626;
+  --color-danger-soft:    #fee2e2;
+  --color-info:           #0891b2;
+  --color-info-soft:      #cffafe;
+  --color-neutral-accent: #7c3aed;
+
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+
+  --font-mono:       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:       "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif:      "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  32px;
+  --text-3xl:  44px;
+  --text-4xl:  64px;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+
+  --container-narrow: 720px;
+  --container-wide:   1280px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+
+:root[data-theme="dark"] {
+  --color-success:        #4ade80;
+  --color-success-soft:   oklch(0.30 0.08 145);
+  --color-warning:        #fbbf24;
+  --color-warning-soft:   oklch(0.32 0.10 70);
+  --color-danger:         #f87171;
+  --color-danger-soft:    oklch(0.32 0.10 27);
+  --color-info:           #22d3ee;
+  --color-info-soft:      oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.16 0.008 50);
+  --bg-surface:     oklch(0.20 0.009 50);
+  --bg-muted:       oklch(0.23 0.010 50);
+  --bg-code:        oklch(0.18 0.009 50);
+  --border-soft:    oklch(0.28 0.010 50);
+  --border-mid:     oklch(0.36 0.012 50);
+  --text-primary:   oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted:     oklch(0.58 0.007 60);
+
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+
+/* ============== Chapter shared styles ============== */
+* { box-sizing: border-box; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+@media (min-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 240px; gap: var(--space-7); }
+}
+main { min-width: 0; padding: var(--space-6) 0; }
+main.prose { max-width: var(--container-narrow); margin: 0 auto; }
+
+/* Top navigation */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: color-mix(in oklch, var(--bg-canvas) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.topbar-inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.brand {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-primary-text);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+.nav-links { display: flex; gap: var(--space-2); margin-left: auto; align-items: center; }
+.nav-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  transition: all 0.15s;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--bg-muted); }
+.nav-links a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Theme toggle button */
+[data-theme-toggle] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  transition: all 0.15s;
+}
+[data-theme-toggle]:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.theme-icon { font-size: var(--text-base); }
+
+/* Headings */
+h1, h2, h3, h4 {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  line-height: 1.3;
+  margin-top: var(--space-7);
+  margin-bottom: var(--space-4);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+h1 { font-size: var(--text-3xl); margin-top: var(--space-5); }
+h2 { font-size: var(--text-2xl); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-soft); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-md); color: var(--text-secondary); }
+
+p { margin: var(--space-4) 0; color: var(--text-primary); }
+
+/* Inline code */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+  border: 1px solid var(--border-soft);
+}
+
+/* Code block */
+.code-wrap {
+  position: relative;
+  margin: var(--space-4) 0;
+}
+.code-wrap > .code-lang {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.code-wrap > .copy-btn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 4px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  transition: all 0.15s;
+  opacity: 0;
+}
+.code-wrap:hover > .copy-btn { opacity: 1; }
+.code-wrap > .copy-btn:hover {
+  background: var(--color-primary);
+  color: var(--bg-canvas);
+  border-color: var(--color-primary);
+}
+.code-wrap > .copy-btn.copied {
+  background: var(--color-success);
+  color: white;
+  border-color: var(--color-success);
+  opacity: 1;
+}
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-7) var(--space-4) var(--space-4);
+  overflow-x: auto;
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  margin: 0;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: var(--text-primary);
+  font-size: inherit;
+}
+
+/* Lists */
+ul, ol { padding-left: var(--space-6); }
+li { margin: var(--space-2) 0; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: var(--space-4) 0; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+th, td {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+}
+th { background: var(--bg-muted); font-weight: 600; color: var(--text-primary); }
+tr:last-child td { border-bottom: none; }
+
+/* Callouts */
+.callout {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  border-left: 4px solid var(--color-info);
+  background: var(--color-info-soft);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+.callout.warning { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.danger  { border-color: var(--color-danger);  background: var(--color-danger-soft); }
+.callout.success { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout strong { display: block; margin-bottom: var(--space-2); }
+:root[data-theme="dark"] .callout { color: var(--text-primary); }
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: 999px;
+  margin-right: var(--space-1);
+  letter-spacing: 0.02em;
+}
+.badge.beginner { background: var(--color-success-soft); color: var(--color-success); }
+.badge.developer { background: var(--color-info-soft); color: var(--color-info); }
+.badge.operator { background: var(--color-warning-soft); color: var(--color-warning); }
+.badge.advanced { background: var(--color-primary-soft); color: var(--color-primary-text); }
+:root[data-theme="dark"] .badge { filter: brightness(1.1); }
+
+/* Chapter meta */
+.chapter-meta {
+  margin: var(--space-4) 0 var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.chapter-meta .meta-row { margin: var(--space-1) 0; }
+.chapter-meta .meta-label {
+  display: inline-block;
+  width: 70px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* TOC sidebar */
+.toc {
+  position: sticky;
+  top: 80px;
+  align-self: start;
+  font-size: var(--text-sm);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  padding: var(--space-4) 0;
+  display: none;
+}
+@media (min-width: 1100px) {
+  .toc { display: block; }
+}
+.toc-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.toc ul { list-style: none; padding-left: 0; margin: 0; }
+.toc li { margin: 0; }
+.toc a {
+  display: block;
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-left: 2px solid var(--border-soft);
+  transition: all 0.15s;
+  line-height: 1.5;
+}
+.toc a:hover { color: var(--color-primary); border-left-color: var(--color-primary); }
+.toc a.toc-h3 { padding-left: var(--space-5); font-size: 0.92em; color: var(--text-muted); }
+
+/* Bottom nav */
+.bottom-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  margin-top: var(--space-8);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.bottom-nav a {
+  flex: 1;
+  min-width: 200px;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.bottom-nav a:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.bottom-nav .nav-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.bottom-nav .nav-title { font-weight: 600; color: var(--text-primary); }
+.bottom-nav a.next { text-align: right; }
+.bottom-nav a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Footer */
+footer {
+  text-align: center;
+  padding: var(--space-7) var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  border-top: 1px solid var(--border-soft);
+  margin-top: var(--space-8);
+}
+footer a { color: var(--color-primary); text-decoration: none; }
+
+/* Index page specific */
+.hero {
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+  background: linear-gradient(135deg, var(--color-primary-soft) 0%, var(--bg-canvas) 100%);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: var(--space-7);
+}
+.hero h1 {
+  font-size: var(--text-4xl);
+  margin: 0 0 var(--space-4);
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.02em;
+}
+.hero p { font-size: var(--text-md); color: var(--text-secondary); max-width: 720px; margin: 0 auto; }
+.hero .meta {
+  margin-top: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.path-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  margin: var(--space-6) 0;
+}
+@media (min-width: 768px) { .path-grid { grid-template-columns: repeat(3, 1fr); } }
+.path-card {
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  transition: all 0.2s;
+}
+.path-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-md); }
+.path-card .path-icon { font-size: 32px; display: block; margin-bottom: var(--space-3); }
+.path-card h3 { margin: 0 0 var(--space-2); font-size: var(--text-lg); }
+.path-card .path-flow {
+  margin-top: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.part {
+  margin: var(--space-7) 0;
+}
+.part-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--color-primary);
+}
+.part-header .part-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.part-header h2 { margin: 0; border: none; padding: 0; }
+
+.chapter-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+@media (min-width: 700px)  { .chapter-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1100px) { .chapter-grid { grid-template-columns: repeat(3, 1fr); } }
+.chapter-card {
+  display: block;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.chapter-card:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  transform: translateY(-1px);
+}
+.chapter-card .ch-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+.chapter-card .ch-title {
+  display: block;
+  margin: var(--space-2) 0;
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+.chapter-card .ch-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--space-2);
+}
+.chapter-card .ch-badges { font-size: 11px; }
+
+
+/* Mermaid container */
+.mermaid-wrap {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-wrap .mermaid {
+  display: inline-block;
+  min-width: 100%;
+}
+.mermaid-caption {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+/* Hide raw mermaid source until rendered */
+.mermaid:not([data-processed="true"]) {
+  visibility: hidden;
+  min-height: 1em;
+}
+
+</style>
+<script>
+/* JHsun TechDocs — Theme toggle v1.0 */
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+
+</script>
+<script>
+
+// Copy-to-clipboard for all <pre> blocks
+(function () {
+  function init() {
+    document.querySelectorAll('main pre').forEach(function (pre) {
+      if (pre.parentElement.classList.contains('code-wrap')) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'code-wrap';
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
+      const lang = pre.querySelector('code')?.className.match(/language-(\w+)/)?.[1];
+      if (lang) {
+        const tag = document.createElement('span');
+        tag.className = 'code-lang';
+        tag.textContent = lang;
+        wrap.appendChild(tag);
+      }
+      const btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.type = 'button';
+      btn.textContent = '📋 複製';
+      btn.addEventListener('click', function () {
+        const text = pre.innerText;
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(text).then(success).catch(fallback);
+        } else {
+          fallback();
+        }
+        function success() {
+          btn.textContent = '✓ 已複製';
+          btn.classList.add('copied');
+          setTimeout(function () { btn.textContent = '📋 複製'; btn.classList.remove('copied'); }, 1800);
+        }
+        function fallback() {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); success(); } catch (_) {}
+          document.body.removeChild(ta);
+        }
+      });
+      wrap.appendChild(btn);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+// Auto-build TOC from h2/h3 in <main>
+(function () {
+  function init() {
+    const toc = document.querySelector('.toc ul');
+    if (!toc) return;
+    const headings = document.querySelectorAll('main h2, main h3');
+    headings.forEach(function (h) {
+      if (!h.id) {
+        h.id = h.textContent.trim().toLowerCase()
+          .replace(/[^\w\u4e00-\u9fff\s-]/g, '')
+          .replace(/\s+/g, '-');
+      }
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = '#' + h.id;
+      a.textContent = h.textContent;
+      a.className = 'toc-' + h.tagName.toLowerCase();
+      li.appendChild(a);
+      toc.appendChild(li);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+
+// Mermaid initialization with theme sync
+(function () {
+  function getMermaidTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default';
+  }
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    const cs = getComputedStyle(document.documentElement);
+    return {
+      startOnLoad: false,
+      theme: isDark ? 'dark' : 'default',
+      themeVariables: {
+        fontFamily: cs.getPropertyValue('--font-sans').trim() || 'DM Sans, sans-serif',
+        fontSize: '14px',
+        primaryColor: isDark ? '#1e3a4a' : '#e0f2fe',
+        primaryTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        primaryBorderColor: isDark ? '#5fb3d4' : '#0891b2',
+        lineColor: isDark ? '#7aa3b8' : '#475569',
+        secondaryColor: isDark ? '#2a3f4f' : '#f1f5f9',
+        tertiaryColor: isDark ? '#1a2530' : '#fafafa',
+        background: isDark ? '#1e2a35' : '#ffffff',
+        mainBkg: isDark ? '#243441' : '#ecfeff',
+        secondBkg: isDark ? '#1a2530' : '#f8fafc',
+        nodeBorder: isDark ? '#5fb3d4' : '#0891b2',
+        clusterBkg: isDark ? '#1a2530' : '#f1f5f9',
+        clusterBorder: isDark ? '#3a5260' : '#cbd5e1',
+        defaultLinkColor: isDark ? '#7aa3b8' : '#475569',
+        titleColor: isDark ? '#e6f2f8' : '#0f172a',
+        edgeLabelBackground: isDark ? '#243441' : '#ffffff',
+        actorBkg: isDark ? '#243441' : '#ecfeff',
+        actorBorder: isDark ? '#5fb3d4' : '#0891b2',
+        actorTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        actorLineColor: isDark ? '#5fb3d4' : '#0891b2',
+        signalColor: isDark ? '#7aa3b8' : '#334155',
+        signalTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        labelBoxBkgColor: isDark ? '#1a2530' : '#fef3c7',
+        labelBoxBorderColor: isDark ? '#a89060' : '#d97706',
+        labelTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        loopTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        noteBkgColor: isDark ? '#3a4f3a' : '#fef3c7',
+        noteBorderColor: isDark ? '#86c598' : '#d97706',
+        noteTextColor: isDark ? '#e6f2f8' : '#0f172a',
+      },
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true, showSequenceNumbers: false, mirrorActors: true, bottomMarginAdj: 10 },
+    };
+  }
+
+  let renderCounter = 0;
+  async function renderAll() {
+    if (typeof mermaid === 'undefined') return;
+    renderCounter++;
+    const myCounter = renderCounter;
+    mermaid.initialize(getMermaidConfig());
+    const blocks = document.querySelectorAll('.mermaid');
+    for (const el of blocks) {
+      // restore source if already rendered
+      if (el.dataset.source) el.innerHTML = el.dataset.source;
+      else el.dataset.source = el.innerHTML;
+      el.removeAttribute('data-processed');
+    }
+    if (myCounter !== renderCounter) return;
+    try {
+      await mermaid.run({ querySelector: '.mermaid' });
+    } catch (e) { console.warn('Mermaid render error', e); }
+  }
+
+  function init() {
+    renderAll();
+    window.addEventListener('jhsun:theme-changed', renderAll);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="ch00-elasticsearch-index.html">ES Self-Managed Docs</a>
+    <nav class="nav-links">
+      <a href="ch03-distributed-architecture.html" aria-label="上一章">← 上一章</a>
+      <a href="ch00-elasticsearch-index.html" aria-label="回首頁">首頁</a>
+      <a href="ch05-read-write-flow.html" aria-label="下一章">下一章 →</a>
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </nav>
+  </div>
+</header>
+<div class="layout">
+<main class="prose">
+
+<h1>CH 04 · 叢集發現、選舉與 Cluster State</h1>
+
+<div class="chapter-meta">
+  <div class="meta-row"><span class="meta-label">適合對象</span>
+    <span class="badge operator">🔴 維運者</span>
+    <span class="badge advanced">⚡ 進階</span>
+  </div>
+  <div class="meta-row"><span class="meta-label">閱讀時間</span> 約 30 分鐘</div>
+  <div class="meta-row"><span class="meta-label">前置知識</span> CH 03 · 分散式架構與 Node Roles</div>
+  <div class="meta-row"><span class="meta-label">本章目標</span> 理解叢集如何形成、master 如何選舉、cluster state 如何同步、Voting Configuration 與 Quorum、bootstrap 過程與 split-brain 預防、節點故障偵測機制</div>
+</div>
+
+<h2 id="從零開始-cluster-formation">從零開始：Cluster Formation</h2>
+
+<p>當你啟動一個全新的 Elasticsearch 節點時，它會經歷以下過程：</p>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TB
+    Start(["啟動節點"]) --> Config["載入設定<br/>elasticsearch.yml"]
+    Config --> Discovery["🔍 Discovery<br/>透過 seed_hosts 找其他節點"]
+    Discovery --> Election["🗳️ Election<br/>選出 master（如尚未選出）"]
+    Election --> Join["🔗 Cluster Join<br/>加入叢集，接收完整 cluster state"]
+    Join --> Recovery["💾 Shard Recovery<br/>從 disk 或 remote 恢復指派的 shards"]
+    Recovery --> Ready(["✅ Ready · 開始服務"])
+
+    classDef step fill:#e0f2fe,stroke:#0284c7,color:#0f172a
+    classDef ready fill:#dcfce7,stroke:#16a34a,color:#0f172a,stroke-width:2px
+    class Config,Discovery,Election,Join,Recovery step
+    class Ready ready
+</pre>
+<div class="mermaid-caption">圖 4-1：節點啟動到加入叢集的完整流程</div>
+</div>
+
+<p>這個流程的核心在於 <strong>discovery</strong>（節點發現）與 <strong>election</strong>（master 選舉），兩者結合稱為 <strong>cluster formation</strong>。</p>
+
+<h2 id="discovery-發現機制">Discovery（發現機制）</h2>
+
+<p>節點需要知道「叢集裡其他節點在哪」才能加入。Elasticsearch 不依賴 multicast（早期版本支援，已移除），而採用 <strong>seed-based discovery</strong>：</p>
+
+<pre><code class="language-yaml"># elasticsearch.yml
+discovery.seed_hosts:
+  - master-1.example.com:9300
+  - master-2.example.com:9300
+  - master-3.example.com:9300
+
+# 也可以省略 port，預設用 transport.profiles.default.port (9300)
+discovery.seed_hosts:
+  - master-1.example.com
+  - master-2.example.com
+  - master-3.example.com
+</code></pre>
+
+<p>節點啟動時會：</p>
+
+<ol>
+  <li>解析 <code>discovery.seed_hosts</code> 列表中的位址</li>
+  <li>透過 transport（9300）連線並交換節點資訊</li>
+  <li>取得整個叢集的節點清單</li>
+  <li>嘗試與 active master 建立連線</li>
+</ol>
+
+<div class="callout">
+  <strong>💡 只列 master-eligible 節點即可</strong>
+  <code>discovery.seed_hosts</code> 不需列出所有節點，只要列出<strong>足以聯繫到 master-eligible 節點</strong>的位址即可。data-only 節點可省略。
+</div>
+
+<h3 id="seed-providers">Seed Hosts Providers</h3>
+
+<p>除了直接列 IP/hostname，ES 也支援多種<strong>動態 seed provider</strong>：</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Provider</th><th>用途</th></tr></thead>
+  <tbody>
+    <tr><td><code>settings</code> (預設)</td><td>從 elasticsearch.yml 直接讀取</td></tr>
+    <tr><td><code>file</code></td><td>從 <code>$ES_PATH_CONF/unicast_hosts.txt</code> 讀取，可動態更新無需重啟</td></tr>
+    <tr><td><code>ec2</code></td><td>透過 AWS API 自動發現有特定 tag 的 EC2 instances</td></tr>
+    <tr><td><code>gce</code></td><td>透過 GCP API 自動發現 GCE instances</td></tr>
+    <tr><td><code>azure-classic</code></td><td>透過 Azure API 自動發現</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>啟用 file-based provider：</p>
+
+<pre><code class="language-yaml">discovery.seed_providers: file
+</code></pre>
+
+<p>建立 <code>unicast_hosts.txt</code>：</p>
+
+<pre><code class="language-bash">cat > /etc/elasticsearch/unicast_hosts.txt << EOF
+master-1.example.com:9300
+master-2.example.com:9300
+master-3.example.com:9300
+EOF
+</code></pre>
+
+<p>檔案有變更時 ES 會自動重新讀取，非常適合搭配 service discovery（Consul、Kubernetes、雲端 SD）。</p>
+
+<h2 id="quorum-法定人數">Quorum（法定人數）</h2>
+
+<p>分散式系統最大的挑戰是<strong>避免 split-brain</strong>（腦裂）：當網路分割造成兩個子集合，雙方都各自選出 master 並各自寫入資料，事後無法合併。</p>
+
+<p>Elasticsearch 透過<strong>法定人數（quorum）</strong>規則保證在任何時刻最多只有一個 master 能做出決策。Quorum 定義為：</p>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart LR
+    subgraph N3["3 節點：quorum=2"]
+      direction TB
+      A1["✅ M1"]
+      A2["✅ M2"]
+      A3["❌ M3 故障"]
+      L3["仍可運作<br/>容忍 1 故障"]
+    end
+    subgraph N5["5 節點：quorum=3"]
+      direction TB
+      B1["✅ M1"]
+      B2["✅ M2"]
+      B3["✅ M3"]
+      B4["❌ M4 故障"]
+      B5["❌ M5 故障"]
+      L5["仍可運作<br/>容忍 2 故障"]
+    end
+    subgraph N2["⚠️ 2 節點：quorum=2"]
+      direction TB
+      C1["✅ M1"]
+      C2["❌ M2 故障"]
+      LBad["無法達標<br/>整體癱瘓 — 不要這樣配"]
+    end
+
+    classDef ok fill:#dcfce7,stroke:#16a34a,color:#0f172a
+    classDef fail fill:#fee2e2,stroke:#dc2626,color:#0f172a
+    classDef warn fill:#fef3c7,stroke:#d97706,color:#0f172a
+    classDef bad fill:#fee2e2,stroke:#dc2626,color:#0f172a,stroke-width:2px
+    class A1,A2,B1,B2,B3,C1 ok
+    class A3,B4,B5,C2 fail
+    class L3,L5 warn
+    class LBad bad
+</pre>
+<div class="mermaid-caption">圖 4-2：Quorum 容錯示意 — 為何 master-eligible 節點數要奇數</div>
+</div>
+
+<pre><code class="language-text">quorum = floor(N/2) + 1
+
+其中 N = voting nodes 的數量
+
+範例：
+  N = 1 → quorum = 1   （單節點，無法容忍故障）
+  N = 2 → quorum = 2   （任一掛掉就無法達標 — 不要這樣配）
+  N = 3 → quorum = 2   （可容忍 1 個故障）⭐ 最小推薦
+  N = 5 → quorum = 3   （可容忍 2 個故障）⭐ 大型叢集
+  N = 7 → quorum = 4   （可容忍 3 個故障）
+</code></pre>
+
+<div class="callout danger">
+  <strong>🚨 為什麼是奇數？</strong>
+  4 個節點與 3 個節點的容錯能力相同（皆為 1 個故障），但 4 個節點的成本更高、且網路分割成 2-2 時兩邊都無法達標。所以<strong>master-eligible 節點數應為奇數</strong>（3、5、7）。
+</div>
+
+<h2 id="voting-configuration">Voting Configuration</h2>
+
+<p>從 7.0 起，ES 改用<strong>動態 voting configuration</strong> 取代舊的 <code>discovery.zen.minimum_master_nodes</code>。Voting configuration 是當前用於 quorum 計算的<strong>節點集合</strong>，由 master 自動維護。</p>
+
+<p>檢視當前 voting configuration：</p>
+
+<pre><code class="language-bash">curl -X GET "https://localhost:9200/_cluster/state/metadata?filter_path=metadata.cluster_coordination&pretty" \
+  -u elastic:CHANGEME \
+  --cacert /path/to/http_ca.crt
+</code></pre>
+
+<p>輸出範例：</p>
+
+<pre><code class="language-json">{
+  "metadata": {
+    "cluster_coordination": {
+      "term": 7,
+      "last_committed_config": [
+        "node-id-master-1",
+        "node-id-master-2",
+        "node-id-master-3"
+      ],
+      "last_accepted_config": [
+        "node-id-master-1",
+        "node-id-master-2",
+        "node-id-master-3"
+      ]
+    }
+  }
+}
+</code></pre>
+
+<h3 id="自動維護">Voting Configuration 的自動維護</h3>
+
+<p>當你新增或移除 master-eligible 節點時，ES 會自動調整 voting configuration：</p>
+
+<ul>
+  <li>新節點加入後，會自動加入 voting config</li>
+  <li>節點優雅關閉（graceful shutdown）後，會自動從 voting config 移除</li>
+  <li><strong>但若節點突然消失（crash）</strong>，預設不會自動移除（避免短暫網路問題誤判）</li>
+</ul>
+
+<h3 id="主動排除節點">主動排除節點（Voting Exclusions）</h3>
+
+<p>若要永久移除一個 master-eligible 節點，應先把它加入<strong>排除列表</strong>，讓 voting config 自動縮小，再關閉節點：</p>
+
+<pre><code class="language-bash"># 排除特定節點（按 node name）
+curl -X POST "https://localhost:9200/_cluster/voting_config_exclusions?node_names=master-3" \
+  -u elastic:CHANGEME \
+  --cacert /path/to/http_ca.crt
+</code></pre>
+
+<pre><code class="language-bash"># 確認 voting config 已縮小（剩 master-1 和 master-2）
+curl -X GET "https://localhost:9200/_cluster/state/metadata?filter_path=metadata.cluster_coordination" \
+  -u elastic:CHANGEME \
+  --cacert /path/to/http_ca.crt
+</code></pre>
+
+<pre><code class="language-bash"># 然後可以安全關閉 master-3，操作完成後清除排除規則
+curl -X DELETE "https://localhost:9200/_cluster/voting_config_exclusions" \
+  -u elastic:CHANGEME \
+  --cacert /path/to/http_ca.crt
+</code></pre>
+
+<h2 id="cluster-bootstrap">Cluster Bootstrap（首次形成）</h2>
+
+<p>當你<strong>第一次啟動一個全新叢集</strong>時，必須告訴 ES 「初始的 master-eligible 節點是誰」，否則它無法決定第一個 voting configuration：</p>
+
+<pre><code class="language-yaml"># elasticsearch.yml — 只在第一次啟動時設定
+cluster.initial_master_nodes:
+  - master-1
+  - master-2
+  - master-3
+</code></pre>
+
+<div class="callout danger">
+  <strong>🚨 cluster.initial_master_nodes 只用一次</strong>
+  叢集成功 bootstrap 後，這個設定<strong>必須立刻從 elasticsearch.yml 中移除</strong>。原因：
+  <ul>
+    <li>叢集已經把 voting configuration 寫入持久化儲存</li>
+    <li>之後重啟單一節點時，若這個設定還在，可能會誤觸 bootstrap，建立一個新叢集（與原叢集分裂），造成 <strong>data loss</strong></li>
+    <li>新加入的節點不需要這個設定，它們會透過 discovery + join 流程自動加入</li>
+  </ul>
+</div>
+
+<h3 id="auto-bootstrap-開發模式">Auto-bootstrap 開發模式</h3>
+
+<p>如果 ES 偵測到是<strong>單機開發模式</strong>（綁定 localhost、且未設定 production 相關參數），它會自動 bootstrap 為單節點叢集，不需設定 <code>cluster.initial_master_nodes</code>。</p>
+
+<p>判斷是否為 development mode 的條件：</p>
+
+<ul>
+  <li><code>network.host</code> 為 loopback（127.0.0.1）或未設定（預設 _local_）</li>
+  <li><code>discovery.seed_hosts</code> 與 <code>cluster.initial_master_nodes</code> 都未設定</li>
+</ul>
+
+<p>一旦把 <code>network.host</code> 改為非 loopback（例如 0.0.0.0），ES 就進入 <strong>production mode</strong>，會啟用所有 <strong>bootstrap checks</strong>（CH 06 詳述），並要求明確設定 cluster formation 參數。</p>
+
+<h2 id="master-選舉演算法">Master 選舉演算法</h2>
+
+<p>當叢集啟動或現任 master 失聯時，會觸發選舉。ES 使用基於 <strong>Raft 變體</strong>的演算法：</p>
+
+<ol>
+  <li>每個 master-eligible 節點計算自己看到的 voting nodes 集合</li>
+  <li>當節點偵測到沒有 master 時，發起 <strong>pre-vote</strong> 階段（避免無謂的 term 增加）</li>
+  <li>取得 pre-vote 多數同意後，提升自己的 term，發起 <strong>vote</strong> 請求</li>
+  <li>其他節點收到 vote 請求後，根據 term、cluster state 版本等規則決定是否投票</li>
+  <li>取得 quorum 票數的節點成為新 master</li>
+  <li>新 master 廣播 cluster state 並開始服務</li>
+</ol>
+
+<h3 id="觸發選舉的時機">觸發選舉的時機</h3>
+
+<ul>
+  <li>叢集首次形成（bootstrap）</li>
+  <li>所有節點啟動時，發現沒有現任 master</li>
+  <li>原 master 失聯（網路分割或機器掛掉）</li>
+  <li>節點被踢出 cluster fault detection</li>
+</ul>
+
+<h3 id="選舉相關參數">選舉相關參數（一般無需修改）</h3>
+
+<pre><code class="language-yaml"># 選舉超時（預設 10s）
+cluster.election.duration: 500ms
+cluster.election.initial_timeout: 100ms
+cluster.election.back_off_time: 100ms
+cluster.election.max_timeout: 10s
+
+# 發現超時
+discovery.find_peers_interval: 1s
+discovery.probe.connect_timeout: 30s
+discovery.probe.handshake_timeout: 30s
+</code></pre>
+
+<h2 id="cluster-state-publishing">Cluster State 發布（Publishing）</h2>
+
+<p>Master 對 cluster state 的變更採<strong>兩階段提交（two-phase commit）</strong>：</p>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+sequenceDiagram
+    participant M as Master
+    participant N1 as Node 1
+    participant N2 as Node 2
+    participant N3 as Node 3
+
+    Note over M,N3: Phase 1：Publish（發布新 state）
+    M->>+N1: 發送新 cluster state
+    M->>+N2: 發送新 cluster state
+    M->>+N3: 發送新 cluster state
+    N1-->>-M: ACK（已收到）
+    N2-->>-M: ACK（已收到）
+    N3-->>-M: ACK（已收到）
+    Note over M: 等待 quorum 個 ACK 才繼續
+
+    Note over M,N3: Phase 2：Commit（正式套用）
+    M->>N1: Commit signal
+    M->>N2: Commit signal
+    M->>N3: Commit signal
+    Note over N1,N3: 各 node 正式套用新 state
+</pre>
+<div class="mermaid-caption">圖 4-3：Cluster State 兩階段提交流程</div>
+</div>
+
+<p>關鍵時間參數：</p>
+
+<pre><code class="language-yaml"># Master 等待 publish 階段 ACK 的最大時間（預設 30s）
+cluster.publish.timeout: 30s
+
+# Master 等待 commit 階段完成的最大時間（預設 30s）
+cluster.publish.info_timeout: 10s
+</code></pre>
+
+<p>如果 publish/commit 超時，master 會降階並重新選舉。這通常是 <strong>master 過載</strong> 或<strong>網路問題</strong> 的徵兆。</p>
+
+<h3 id="cluster-state-效能">Cluster State 效能調校</h3>
+
+<p>常見導致 cluster state 過大的原因：</p>
+
+<ul>
+  <li>數量過多的 indices（例如 daily index × 數年）</li>
+  <li>單一 mapping 上千個 field（mapping explosion）</li>
+  <li>過多 ILM/SLM policies、ingest pipelines、role mappings</li>
+</ul>
+
+<p>排查工具：</p>
+
+<pre><code class="language-bash"># 檢視 cluster state 大小
+curl -X GET "https://localhost:9200/_cluster/state?filter_path=metadata.indices.*.settings.index.number_of_shards" \
+  -u elastic:CHANGEME \
+  --cacert /path/to/http_ca.crt | wc -c
+</code></pre>
+
+<pre><code class="language-bash"># 計算 indices 數量
+curl -X GET "https://localhost:9200/_cat/indices?v" \
+  -u elastic:CHANGEME \
+  --cacert /path/to/http_ca.crt | wc -l
+</code></pre>
+
+<p>處理對策：</p>
+<ul>
+  <li>合併小 indices（透過 ILM rollover）</li>
+  <li>用 Data Streams 取代 daily indices</li>
+  <li>合理使用 dynamic mapping，必要時設 <code>"dynamic": "strict"</code></li>
+</ul>
+
+<h2 id="fault-detection-故障偵測">Cluster Fault Detection（故障偵測）</h2>
+
+<p>節點之間透過<strong>定期 ping</strong>偵測對方是否存活：</p>
+
+<h3 id="follower-checks">Follower Checks（master 檢查 followers）</h3>
+
+<p>Master 定期向所有非 master 節點發送 ping，超時或連續失敗則認定該節點離開叢集。</p>
+
+<pre><code class="language-yaml"># 每次檢查的間隔（預設 1s）
+cluster.fault_detection.follower_check.interval: 1s
+
+# 單次 ping 超時（預設 10s）
+cluster.fault_detection.follower_check.timeout: 10s
+
+# 連續失敗次數閾值（預設 3）
+cluster.fault_detection.follower_check.retry_count: 3
+</code></pre>
+
+<p>預設下，節點需連續 3 次每次 10 秒 ping 失敗（共約 30 秒），才會被踢出。</p>
+
+<h3 id="leader-checks">Leader Checks（followers 檢查 master）</h3>
+
+<p>非 master 節點也會定期 ping master：</p>
+
+<pre><code class="language-yaml">cluster.fault_detection.leader_check.interval: 1s
+cluster.fault_detection.leader_check.timeout: 10s
+cluster.fault_detection.leader_check.retry_count: 3
+</code></pre>
+
+<p>若連續失敗，followers 會發起新一輪 master 選舉。</p>
+
+<div class="callout warning">
+  <strong>⚠️ 不要把 timeout 調太短</strong>
+  在 GC pause、磁碟暫時 I/O 飆高、跨 AZ 網路抖動時，短暫 ping 失敗很正常。把 timeout 調到 1-2 秒可能造成頻繁的不必要選舉，反而拖累叢集。預設值在絕大多數場景表現良好。
+</div>
+
+<h2 id="實作-3-節點叢集設定範例">實作：3 節點叢集設定範例</h2>
+
+<p>以下是一個生產級的 3 節點 master + data 混合叢集設定（適用於小型部署）。後續章節（CH 07-15）會進一步擴展。</p>
+
+<h3 id="master-1-yml">Node 1（master-1）— elasticsearch.yml</h3>
+
+<pre><code class="language-yaml">cluster.name: production-cluster
+node.name: master-1
+node.roles: [ master, data, ingest ]
+
+network.host: 10.0.1.10
+http.port: 9200
+transport.port: 9300
+
+discovery.seed_hosts:
+  - 10.0.1.10
+  - 10.0.1.11
+  - 10.0.1.12
+
+# 只在「第一次」啟動叢集時設定，啟動成功後立即移除
+cluster.initial_master_nodes:
+  - master-1
+  - master-2
+  - master-3
+
+# 資料路徑
+path.data: /var/lib/elasticsearch
+path.logs: /var/log/elasticsearch
+</code></pre>
+
+<h3 id="master-2-yml">Node 2（master-2）— elasticsearch.yml</h3>
+
+<pre><code class="language-yaml">cluster.name: production-cluster
+node.name: master-2
+node.roles: [ master, data, ingest ]
+
+network.host: 10.0.1.11
+http.port: 9200
+transport.port: 9300
+
+discovery.seed_hosts:
+  - 10.0.1.10
+  - 10.0.1.11
+  - 10.0.1.12
+
+cluster.initial_master_nodes:
+  - master-1
+  - master-2
+  - master-3
+</code></pre>
+
+<h3 id="master-3-yml">Node 3（master-3）— elasticsearch.yml</h3>
+
+<pre><code class="language-yaml">cluster.name: production-cluster
+node.name: master-3
+node.roles: [ master, data, ingest ]
+
+network.host: 10.0.1.12
+http.port: 9200
+transport.port: 9300
+
+discovery.seed_hosts:
+  - 10.0.1.10
+  - 10.0.1.11
+  - 10.0.1.12
+
+cluster.initial_master_nodes:
+  - master-1
+  - master-2
+  - master-3
+</code></pre>
+
+<h3 id="啟動順序">啟動順序與驗證</h3>
+
+<pre><code class="language-bash"># 在三台機器上同時啟動（順序不重要，三者會等彼此達到 quorum）
+sudo systemctl start elasticsearch
+</code></pre>
+
+<pre><code class="language-bash"># 驗證叢集狀態
+curl -X GET "https://localhost:9200/_cluster/health?pretty" \
+  -u elastic:CHANGEME \
+  --cacert /etc/elasticsearch/certs/http_ca.crt
+</code></pre>
+
+<p>期望輸出：</p>
+
+<pre><code class="language-json">{
+  "cluster_name" : "production-cluster",
+  "status" : "green",
+  "number_of_nodes" : 3,
+  "number_of_data_nodes" : 3,
+  "active_primary_shards" : 0,
+  "active_shards" : 0,
+  ...
+}
+</code></pre>
+
+<p><strong>確認 status 為 green、number_of_nodes 為 3 後，編輯三個節點的 elasticsearch.yml 移除 <code>cluster.initial_master_nodes</code> 設定</strong>（不需重啟）。</p>
+
+<h2 id="常見問題排錯">常見問題排錯</h2>
+
+<h3 id="問題-master-not-discovered">問題 1：master not discovered</h3>
+
+<p>節點啟動後 log 持續出現：</p>
+
+<pre><code class="language-text">master not discovered yet, this node has not previously joined a bootstrapped cluster
+</code></pre>
+
+<p><strong>可能原因與檢查：</strong></p>
+<ol>
+  <li><code>discovery.seed_hosts</code> 列表中的 hostname/IP 是否正確？網路是否通？</li>
+  <li>9300 port 是否被防火牆阻擋？</li>
+  <li><code>cluster.name</code> 在所有節點是否一致？</li>
+  <li>是否有設 <code>cluster.initial_master_nodes</code>？（首次啟動必須）</li>
+  <li>TLS 憑證是否相互信任？（CH 19 詳述）</li>
+</ol>
+
+<h3 id="問題-node-name-mismatch">問題 2：node name 不在 initial_master_nodes 列表</h3>
+
+<pre><code class="language-text">cluster.initial_master_nodes did not contain any nodes that match this node
+</code></pre>
+
+<p><strong>原因</strong>：<code>cluster.initial_master_nodes</code> 中列的名字必須與 <code>node.name</code> 完全相符。預設 node.name 為機器 hostname，可能與你預期不同。明確設定 <code>node.name</code> 即可解決。</p>
+
+<h3 id="問題-split-brain">問題 3：split-brain 已發生</h3>
+
+<p>若不慎讓兩組節點各自形成獨立叢集，補救方式是<strong>選一邊保留、另一邊重新加入</strong>：</p>
+
+<ol>
+  <li>停止「要被廢棄」那邊的所有節點</li>
+  <li>清除這些節點的 <code>path.data</code> 資料目錄</li>
+  <li>確認 <code>elasticsearch.yml</code> 的 <code>cluster.name</code>、<code>discovery.seed_hosts</code> 指向「要保留」那邊</li>
+  <li>移除 <code>cluster.initial_master_nodes</code></li>
+  <li>啟動，節點會以新成員身份加入</li>
+</ol>
+
+<div class="callout danger">
+  <strong>⚠️ 資料無法自動合併</strong>
+  Split-brain 期間兩邊各自寫入的資料無法自動合併。若資料重要，先用 snapshot 備份雙方再決定保留哪邊。
+</div>
+
+<h2 id="本章重點回顧">本章重點回顧</h2>
+
+<ul>
+  <li>節點透過 <code>discovery.seed_hosts</code> 發現彼此，可使用 file/cloud SD 動態管理</li>
+  <li><strong>Quorum = floor(N/2) + 1</strong>，master-eligible 節點數應為 <strong>奇數（3/5/7）</strong></li>
+  <li>Voting Configuration 由 master 動態維護；移除節點前應先用 voting exclusions API</li>
+  <li><code>cluster.initial_master_nodes</code> <strong>只在首次 bootstrap 使用</strong>，之後立即移除</li>
+  <li>Master 選舉採 Raft 變體，由 quorum 票決定</li>
+  <li>Cluster state 變更採兩階段提交，過大會拖累 publish 速度</li>
+  <li>Fault detection 透過定期 ping 偵測，預設 ~30 秒判定節點離線</li>
+  <li>常見問題多源自網路不通、cluster.name 不一致、initial_master_nodes 設定錯誤</li>
+</ul>
+
+<h2 id="下章預告">下章預告</h2>
+
+<p>下一章 <strong>CH 05 · 讀寫流程</strong>將深入：</p>
+<ul>
+  <li>Document 寫入的完整路徑：buffer → translog → segment → merge</li>
+  <li>Refresh、Flush、Merge 的差異與調校</li>
+  <li>讀取（search / get）流程：query → fetch 兩階段</li>
+  <li>NRT（near real-time）的實際延遲與調整方式</li>
+</ul>
+
+<h2 id="延伸閱讀">延伸閱讀</h2>
+
+<ul>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/distributed-architecture/discovery-cluster-formation" target="_blank" rel="noopener">Elastic Docs · Discovery and cluster formation</a></li>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/distributed-architecture/discovery-cluster-formation/modules-discovery-quorums" target="_blank" rel="noopener">Quorum-based decision making</a></li>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/distributed-architecture/discovery-cluster-formation/modules-discovery-voting" target="_blank" rel="noopener">Voting configurations</a></li>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/distributed-architecture/discovery-cluster-formation/cluster-fault-detection" target="_blank" rel="noopener">Cluster fault detection</a></li>
+</ul>
+
+<nav class="bottom-nav"><a class="prev" href="ch03-distributed-architecture.html"><span class="nav-label">← 上一章</span><span class="nav-title">分散式架構與 Node Roles</span></a><a class="next" href="ch05-read-write-flow.html"><span class="nav-label">下一章 →</span><span class="nav-title">讀寫流程：Refresh / Flush / Merge / Translog</span></a></nav>
+</main>
+<aside class="toc">
+  <div class="toc-title">本章目錄</div>
+  <ul></ul>
+</aside>
+</div>
+<footer>
+  <p>Elasticsearch Self-Managed 完整教學文件 · 基於 Elastic Stack 9.x（最新 9.3.4）<br>
+  資料來源：<a href="https://www.elastic.co/docs" target="_blank" rel="noopener">Elastic 官方文件</a> · 最後更新：2026-05</p>
+</footer>
+</body>
+</html>

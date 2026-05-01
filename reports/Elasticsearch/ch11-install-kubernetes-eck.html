@@ -1,0 +1,1486 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="ECK Operator 部署、CRD、生產級 Elasticsearch 叢集 manifest">
+<title>CH 11 · Kubernetes ECK Operator 通用安裝</title>
+<style>
+/* ============================================================
+   JHsun TechDocs — Unified Design Token Layer
+   v1.0 · Calm Teal (hue 200° / chroma 0.11)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+
+  --color-success:        #16a34a;
+  --color-success-soft:   #dcfce7;
+  --color-warning:        #d97706;
+  --color-warning-soft:   #fef3c7;
+  --color-danger:         #dc2626;
+  --color-danger-soft:    #fee2e2;
+  --color-info:           #0891b2;
+  --color-info-soft:      #cffafe;
+  --color-neutral-accent: #7c3aed;
+
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+
+  --font-mono:       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:       "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif:      "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  32px;
+  --text-3xl:  44px;
+  --text-4xl:  64px;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+
+  --container-narrow: 720px;
+  --container-wide:   1280px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+
+:root[data-theme="dark"] {
+  --color-success:        #4ade80;
+  --color-success-soft:   oklch(0.30 0.08 145);
+  --color-warning:        #fbbf24;
+  --color-warning-soft:   oklch(0.32 0.10 70);
+  --color-danger:         #f87171;
+  --color-danger-soft:    oklch(0.32 0.10 27);
+  --color-info:           #22d3ee;
+  --color-info-soft:      oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.16 0.008 50);
+  --bg-surface:     oklch(0.20 0.009 50);
+  --bg-muted:       oklch(0.23 0.010 50);
+  --bg-code:        oklch(0.18 0.009 50);
+  --border-soft:    oklch(0.28 0.010 50);
+  --border-mid:     oklch(0.36 0.012 50);
+  --text-primary:   oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted:     oklch(0.58 0.007 60);
+
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+
+/* ============== Chapter shared styles ============== */
+* { box-sizing: border-box; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+@media (min-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 240px; gap: var(--space-7); }
+}
+main { min-width: 0; padding: var(--space-6) 0; }
+main.prose { max-width: var(--container-narrow); margin: 0 auto; }
+
+/* Top navigation */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: color-mix(in oklch, var(--bg-canvas) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.topbar-inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.brand {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-primary-text);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+.nav-links { display: flex; gap: var(--space-2); margin-left: auto; align-items: center; }
+.nav-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  transition: all 0.15s;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--bg-muted); }
+.nav-links a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Theme toggle button */
+[data-theme-toggle] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  transition: all 0.15s;
+}
+[data-theme-toggle]:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.theme-icon { font-size: var(--text-base); }
+
+/* Headings */
+h1, h2, h3, h4 {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  line-height: 1.3;
+  margin-top: var(--space-7);
+  margin-bottom: var(--space-4);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+h1 { font-size: var(--text-3xl); margin-top: var(--space-5); }
+h2 { font-size: var(--text-2xl); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-soft); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-md); color: var(--text-secondary); }
+
+p { margin: var(--space-4) 0; color: var(--text-primary); }
+
+/* Inline code */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+  border: 1px solid var(--border-soft);
+}
+
+/* Code block */
+.code-wrap {
+  position: relative;
+  margin: var(--space-4) 0;
+}
+.code-wrap > .code-lang {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.code-wrap > .copy-btn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 4px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  transition: all 0.15s;
+  opacity: 0;
+}
+.code-wrap:hover > .copy-btn { opacity: 1; }
+.code-wrap > .copy-btn:hover {
+  background: var(--color-primary);
+  color: var(--bg-canvas);
+  border-color: var(--color-primary);
+}
+.code-wrap > .copy-btn.copied {
+  background: var(--color-success);
+  color: white;
+  border-color: var(--color-success);
+  opacity: 1;
+}
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-7) var(--space-4) var(--space-4);
+  overflow-x: auto;
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  margin: 0;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: var(--text-primary);
+  font-size: inherit;
+}
+
+/* Lists */
+ul, ol { padding-left: var(--space-6); }
+li { margin: var(--space-2) 0; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: var(--space-4) 0; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+th, td {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+}
+th { background: var(--bg-muted); font-weight: 600; color: var(--text-primary); }
+tr:last-child td { border-bottom: none; }
+
+/* Callouts */
+.callout {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  border-left: 4px solid var(--color-info);
+  background: var(--color-info-soft);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+.callout.warning { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.danger  { border-color: var(--color-danger);  background: var(--color-danger-soft); }
+.callout.success { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout strong { display: block; margin-bottom: var(--space-2); }
+:root[data-theme="dark"] .callout { color: var(--text-primary); }
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: 999px;
+  margin-right: var(--space-1);
+  letter-spacing: 0.02em;
+}
+.badge.beginner { background: var(--color-success-soft); color: var(--color-success); }
+.badge.developer { background: var(--color-info-soft); color: var(--color-info); }
+.badge.operator { background: var(--color-warning-soft); color: var(--color-warning); }
+.badge.advanced { background: var(--color-primary-soft); color: var(--color-primary-text); }
+:root[data-theme="dark"] .badge { filter: brightness(1.1); }
+
+/* Chapter meta */
+.chapter-meta {
+  margin: var(--space-4) 0 var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.chapter-meta .meta-row { margin: var(--space-1) 0; }
+.chapter-meta .meta-label {
+  display: inline-block;
+  width: 70px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* TOC sidebar */
+.toc {
+  position: sticky;
+  top: 80px;
+  align-self: start;
+  font-size: var(--text-sm);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  padding: var(--space-4) 0;
+  display: none;
+}
+@media (min-width: 1100px) {
+  .toc { display: block; }
+}
+.toc-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.toc ul { list-style: none; padding-left: 0; margin: 0; }
+.toc li { margin: 0; }
+.toc a {
+  display: block;
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-left: 2px solid var(--border-soft);
+  transition: all 0.15s;
+  line-height: 1.5;
+}
+.toc a:hover { color: var(--color-primary); border-left-color: var(--color-primary); }
+.toc a.toc-h3 { padding-left: var(--space-5); font-size: 0.92em; color: var(--text-muted); }
+
+/* Bottom nav */
+.bottom-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  margin-top: var(--space-8);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.bottom-nav a {
+  flex: 1;
+  min-width: 200px;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.bottom-nav a:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.bottom-nav .nav-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.bottom-nav .nav-title { font-weight: 600; color: var(--text-primary); }
+.bottom-nav a.next { text-align: right; }
+.bottom-nav a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Footer */
+footer {
+  text-align: center;
+  padding: var(--space-7) var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  border-top: 1px solid var(--border-soft);
+  margin-top: var(--space-8);
+}
+footer a { color: var(--color-primary); text-decoration: none; }
+
+/* Index page specific */
+.hero {
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+  background: linear-gradient(135deg, var(--color-primary-soft) 0%, var(--bg-canvas) 100%);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: var(--space-7);
+}
+.hero h1 {
+  font-size: var(--text-4xl);
+  margin: 0 0 var(--space-4);
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.02em;
+}
+.hero p { font-size: var(--text-md); color: var(--text-secondary); max-width: 720px; margin: 0 auto; }
+.hero .meta {
+  margin-top: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.path-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  margin: var(--space-6) 0;
+}
+@media (min-width: 768px) { .path-grid { grid-template-columns: repeat(3, 1fr); } }
+.path-card {
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  transition: all 0.2s;
+}
+.path-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-md); }
+.path-card .path-icon { font-size: 32px; display: block; margin-bottom: var(--space-3); }
+.path-card h3 { margin: 0 0 var(--space-2); font-size: var(--text-lg); }
+.path-card .path-flow {
+  margin-top: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.part {
+  margin: var(--space-7) 0;
+}
+.part-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--color-primary);
+}
+.part-header .part-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.part-header h2 { margin: 0; border: none; padding: 0; }
+
+.chapter-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+@media (min-width: 700px)  { .chapter-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1100px) { .chapter-grid { grid-template-columns: repeat(3, 1fr); } }
+.chapter-card {
+  display: block;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.chapter-card:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  transform: translateY(-1px);
+}
+.chapter-card .ch-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+.chapter-card .ch-title {
+  display: block;
+  margin: var(--space-2) 0;
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+.chapter-card .ch-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--space-2);
+}
+.chapter-card .ch-badges { font-size: 11px; }
+
+
+/* Mermaid container */
+.mermaid-wrap {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-wrap .mermaid {
+  display: inline-block;
+  min-width: 100%;
+}
+.mermaid-caption {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+/* Hide raw mermaid source until rendered */
+.mermaid:not([data-processed="true"]) {
+  visibility: hidden;
+  min-height: 1em;
+}
+
+</style>
+<script>
+/* JHsun TechDocs — Theme toggle v1.0 */
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+
+</script>
+<script>
+
+// Copy-to-clipboard for all <pre> blocks
+(function () {
+  function init() {
+    document.querySelectorAll('main pre').forEach(function (pre) {
+      if (pre.parentElement.classList.contains('code-wrap')) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'code-wrap';
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
+      const lang = pre.querySelector('code')?.className.match(/language-(\w+)/)?.[1];
+      if (lang) {
+        const tag = document.createElement('span');
+        tag.className = 'code-lang';
+        tag.textContent = lang;
+        wrap.appendChild(tag);
+      }
+      const btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.type = 'button';
+      btn.textContent = '📋 複製';
+      btn.addEventListener('click', function () {
+        const text = pre.innerText;
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(text).then(success).catch(fallback);
+        } else {
+          fallback();
+        }
+        function success() {
+          btn.textContent = '✓ 已複製';
+          btn.classList.add('copied');
+          setTimeout(function () { btn.textContent = '📋 複製'; btn.classList.remove('copied'); }, 1800);
+        }
+        function fallback() {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); success(); } catch (_) {}
+          document.body.removeChild(ta);
+        }
+      });
+      wrap.appendChild(btn);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+// Auto-build TOC from h2/h3 in <main>
+(function () {
+  function init() {
+    const toc = document.querySelector('.toc ul');
+    if (!toc) return;
+    const headings = document.querySelectorAll('main h2, main h3');
+    headings.forEach(function (h) {
+      if (!h.id) {
+        h.id = h.textContent.trim().toLowerCase()
+          .replace(/[^\w\u4e00-\u9fff\s-]/g, '')
+          .replace(/\s+/g, '-');
+      }
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = '#' + h.id;
+      a.textContent = h.textContent;
+      a.className = 'toc-' + h.tagName.toLowerCase();
+      li.appendChild(a);
+      toc.appendChild(li);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+
+// Mermaid initialization with theme sync
+(function () {
+  function getMermaidTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default';
+  }
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    const cs = getComputedStyle(document.documentElement);
+    return {
+      startOnLoad: false,
+      theme: isDark ? 'dark' : 'default',
+      themeVariables: {
+        fontFamily: cs.getPropertyValue('--font-sans').trim() || 'DM Sans, sans-serif',
+        fontSize: '14px',
+        primaryColor: isDark ? '#1e3a4a' : '#e0f2fe',
+        primaryTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        primaryBorderColor: isDark ? '#5fb3d4' : '#0891b2',
+        lineColor: isDark ? '#7aa3b8' : '#475569',
+        secondaryColor: isDark ? '#2a3f4f' : '#f1f5f9',
+        tertiaryColor: isDark ? '#1a2530' : '#fafafa',
+        background: isDark ? '#1e2a35' : '#ffffff',
+        mainBkg: isDark ? '#243441' : '#ecfeff',
+        secondBkg: isDark ? '#1a2530' : '#f8fafc',
+        nodeBorder: isDark ? '#5fb3d4' : '#0891b2',
+        clusterBkg: isDark ? '#1a2530' : '#f1f5f9',
+        clusterBorder: isDark ? '#3a5260' : '#cbd5e1',
+        defaultLinkColor: isDark ? '#7aa3b8' : '#475569',
+        titleColor: isDark ? '#e6f2f8' : '#0f172a',
+        edgeLabelBackground: isDark ? '#243441' : '#ffffff',
+        actorBkg: isDark ? '#243441' : '#ecfeff',
+        actorBorder: isDark ? '#5fb3d4' : '#0891b2',
+        actorTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        actorLineColor: isDark ? '#5fb3d4' : '#0891b2',
+        signalColor: isDark ? '#7aa3b8' : '#334155',
+        signalTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        labelBoxBkgColor: isDark ? '#1a2530' : '#fef3c7',
+        labelBoxBorderColor: isDark ? '#a89060' : '#d97706',
+        labelTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        loopTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        noteBkgColor: isDark ? '#3a4f3a' : '#fef3c7',
+        noteBorderColor: isDark ? '#86c598' : '#d97706',
+        noteTextColor: isDark ? '#e6f2f8' : '#0f172a',
+      },
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true, showSequenceNumbers: false, mirrorActors: true, bottomMarginAdj: 10 },
+    };
+  }
+
+  let renderCounter = 0;
+  async function renderAll() {
+    if (typeof mermaid === 'undefined') return;
+    renderCounter++;
+    const myCounter = renderCounter;
+    mermaid.initialize(getMermaidConfig());
+    const blocks = document.querySelectorAll('.mermaid');
+    for (const el of blocks) {
+      // restore source if already rendered
+      if (el.dataset.source) el.innerHTML = el.dataset.source;
+      else el.dataset.source = el.innerHTML;
+      el.removeAttribute('data-processed');
+    }
+    if (myCounter !== renderCounter) return;
+    try {
+      await mermaid.run({ querySelector: '.mermaid' });
+    } catch (e) { console.warn('Mermaid render error', e); }
+  }
+
+  function init() {
+    renderAll();
+    window.addEventListener('jhsun:theme-changed', renderAll);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="ch00-elasticsearch-index.html">ES Self-Managed Docs</a>
+    <nav class="nav-links">
+      <a href="ch10-install-docker.html" aria-label="上一章">← 上一章</a>
+      <a href="ch00-elasticsearch-index.html" aria-label="回首頁">首頁</a>
+      <a href="ch12-install-kubernetes-eks.html" aria-label="下一章">下一章 →</a>
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </nav>
+  </div>
+</header>
+<div class="layout">
+<main class="prose">
+
+<h1>CH 11 · Kubernetes ECK Operator 通用安裝</h1>
+
+<div class="chapter-meta">
+  <div class="meta-row"><span class="meta-label">適合對象</span>
+    <span class="badge operator">🔴 維運者</span>
+    <span class="badge advanced">⚡ 進階</span>
+  </div>
+  <div class="meta-row"><span class="meta-label">閱讀時間</span> 約 30 分鐘</div>
+  <div class="meta-row"><span class="meta-label">前置知識</span> Kubernetes 基礎、CH 03-06</div>
+  <div class="meta-row"><span class="meta-label">本章目標</span> 認識 ECK Operator、用 YAML manifest / Helm 兩種方式安裝、部署第一個 Elasticsearch 叢集、CRD 完整對照</div>
+</div>
+
+<h2 id="什麼是-eck">什麼是 ECK？</h2>
+
+<p><strong>Elastic Cloud on Kubernetes (ECK)</strong> 是 Elastic 官方的 Kubernetes <strong>Operator</strong>，將 Elastic Stack 完整納入 K8s 原生管理：</p>
+
+<ul>
+  <li>用 CRD（Custom Resource Definition）描述想要的叢集狀態</li>
+  <li>Operator 持續調節（reconcile）K8s 資源以滿足 desired state</li>
+  <li>自動處理：StatefulSet 建立、PVC 配置、TLS 憑證輪替、滾動升級、配置變更、health check</li>
+  <li>支援 Elasticsearch、Kibana、APM Server、Beats、Elastic Agent、Logstash、Maps Server、AutoOps Agent、Package Registry</li>
+</ul>
+
+<h2 id="eck-架構">ECK 架構</h2>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TB
+    User["👤 使用者"]
+    YAML["📄 Elasticsearch CRD<br/>YAML manifest"]
+    User -->|kubectl apply| YAML
+
+    subgraph K8s["Kubernetes Cluster"]
+      direction TB
+      API["K8s API Server"]
+      OP["⚙️ ECK Operator<br/>(Deployment in elastic-system)"]
+      YAML --> API
+      API --> OP
+
+      subgraph ES["Elasticsearch Cluster"]
+        SS1["StatefulSet<br/>master"]
+        SS2["StatefulSet<br/>data-hot"]
+        SS3["StatefulSet<br/>data-warm"]
+        SVC["Service<br/>ClusterIP/LB"]
+        Sec["Secret<br/>certs/passwords"]
+        CM["ConfigMap<br/>elasticsearch.yml"]
+      end
+
+      OP -->|建立/更新| SS1
+      OP -->|建立/更新| SS2
+      OP -->|建立/更新| SS3
+      OP -->|建立/更新| SVC
+      OP -->|產生| Sec
+      OP -->|產生| CM
+    end
+
+    classDef user fill:#fef3c7,stroke:#d97706,color:#0f172a
+    classDef op fill:#dcfce7,stroke:#16a34a,color:#0f172a,stroke-width:2px
+    classDef es fill:#cffafe,stroke:#0891b2,color:#0f172a
+    classDef api fill:#e0f2fe,stroke:#0284c7,color:#0f172a
+    class User,YAML user
+    class OP op
+    class SS1,SS2,SS3,SVC,Sec,CM es
+    class API api
+</pre>
+<div class="mermaid-caption">圖 11-1：ECK Operator 工作模式</div>
+</div>
+
+<h2 id="支援的-k8s-版本">支援的 Kubernetes 版本</h2>
+
+<p>ECK <strong>3.3.x</strong>（2026/04 最新）支援：</p>
+
+<ul>
+  <li>Kubernetes 1.31 以上</li>
+  <li>OpenShift 4.16 以上</li>
+  <li>EKS、GKE、AKS、Rancher、Tanzu、其他 conformant 發行版</li>
+  <li>Kind、Minikube、k3s（開發用）</li>
+</ul>
+
+<div class="callout">
+  <strong>💡 ECK 與 Stack 版本對應</strong>
+  ECK 3.0 起支援 Elastic Stack 9.x。ECK 2.16+ 仍可管 8.x。<strong>單一 Operator 可同時管理多個不同版本的 Stack 部署</strong>。
+</div>
+
+<h2 id="兩種安裝方式">兩種安裝方式</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>方式</th><th>適用</th></tr></thead>
+  <tbody>
+    <tr><td>YAML manifest</td><td>快速安裝、無 Helm 環境、CI/CD 直接 apply</td></tr>
+    <tr><td>Helm chart</td><td>需要客製化 values、整合 ArgoCD/Flux GitOps</td></tr>
+    <tr><td>OperatorHub (OLM)</td><td>OpenShift 環境</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="方式-1-yaml-manifest">方式 1：YAML manifest 安裝</h2>
+
+<h3 id="manifest-step-1-crds">Step 1：安裝 CRDs</h3>
+
+<pre><code class="language-bash">ECK_VERSION=3.3.2
+
+# 建立 CRDs（cluster-wide 資源，需 cluster-admin 權限）
+kubectl create -f https://download.elastic.co/downloads/eck/${ECK_VERSION}/crds.yaml
+</code></pre>
+
+<p>此步驟會建立以下 CRD：</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>CRD</th><th>用途</th></tr></thead>
+  <tbody>
+    <tr><td>elasticsearches.elasticsearch.k8s.elastic.co</td><td>Elasticsearch 叢集</td></tr>
+    <tr><td>kibanas.kibana.k8s.elastic.co</td><td>Kibana 部署</td></tr>
+    <tr><td>apmservers.apm.k8s.elastic.co</td><td>APM Server</td></tr>
+    <tr><td>beats.beat.k8s.elastic.co</td><td>Beats（Filebeat、Metricbeat...）</td></tr>
+    <tr><td>agents.agent.k8s.elastic.co</td><td>Elastic Agent</td></tr>
+    <tr><td>logstashes.logstash.k8s.elastic.co</td><td>Logstash pipeline</td></tr>
+    <tr><td>elasticmapsservers.maps.k8s.elastic.co</td><td>Elastic Maps Server</td></tr>
+    <tr><td>autoopsagents.autoops.k8s.elastic.co</td><td>AutoOps Agent</td></tr>
+    <tr><td>packageregistries.packageregistry.k8s.elastic.co</td><td>Elastic Package Registry</td></tr>
+    <tr><td>stackconfigpolicies.stackconfigpolicy.k8s.elastic.co</td><td>跨多叢集配置政策</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 id="manifest-step-2-operator">Step 2：安裝 Operator</h3>
+
+<pre><code class="language-bash">kubectl apply -f https://download.elastic.co/downloads/eck/${ECK_VERSION}/operator.yaml
+</code></pre>
+
+<p>會建立：</p>
+<ul>
+  <li>namespace: <code>elastic-system</code></li>
+  <li>ServiceAccount、ClusterRole、ClusterRoleBinding</li>
+  <li>StatefulSet：<code>elastic-operator</code>（單副本）</li>
+  <li>Service、ValidatingWebhookConfiguration</li>
+</ul>
+
+<h3 id="manifest-step-3-verify">Step 3：驗證</h3>
+
+<pre><code class="language-bash">kubectl get pods -n elastic-system
+# NAME                 READY   STATUS    RESTARTS   AGE
+# elastic-operator-0   1/1     Running   0          30s
+
+kubectl get crd | grep elastic.co
+# elasticsearches.elasticsearch.k8s.elastic.co   2026-...
+# kibanas.kibana.k8s.elastic.co                  2026-...
+# ...
+
+# 檢視 Operator log
+kubectl logs -n elastic-system -f sts/elastic-operator
+</code></pre>
+
+<h2 id="方式-2-helm">方式 2：Helm chart 安裝</h2>
+
+<h3 id="helm-step-1">Step 1：新增 repo</h3>
+
+<pre><code class="language-bash">helm repo add elastic https://helm.elastic.co
+helm repo update
+
+# 查看可用版本
+helm search repo elastic/eck-operator -l
+</code></pre>
+
+<h3 id="helm-step-2-cluster-wide">Step 2：Cluster-wide 安裝</h3>
+
+<pre><code class="language-bash">helm install elastic-operator elastic/eck-operator \
+  --namespace elastic-system \
+  --create-namespace \
+  --version 3.3.2
+</code></pre>
+
+<h3 id="helm-step-3-namespace-restricted">Step 3（替代）：限定 namespace 安裝</h3>
+
+<p>多租戶環境下，可讓 operator 只管特定 namespaces：</p>
+
+<pre><code class="language-bash"># 1. CRDs 仍須由 cluster admin 安裝（一次）
+helm install elastic-operator-crds elastic/eck-operator-crds \
+  --version 3.3.2
+
+# 2. 限定 operator 只管 'team-a-elastic' 與 'team-b-elastic' namespaces
+helm install elastic-operator elastic/eck-operator \
+  --namespace elastic-system \
+  --create-namespace \
+  --set installCRDs=false \
+  --set createClusterScopedResources=false \
+  --set managedNamespaces='{team-a-elastic,team-b-elastic}' \
+  --set webhook.enabled=false \
+  --version 3.3.2
+</code></pre>
+
+<h3 id="helm-values-範例">完整 values.yaml 範例</h3>
+
+<pre><code class="language-yaml"># eck-values.yaml
+replicaCount: 1
+
+managedNamespaces:
+  - default
+  - elasticsearch
+  - logging
+
+resources:
+  limits:
+    cpu: 1
+    memory: 1Gi
+  requests:
+    cpu: 100m
+    memory: 150Mi
+
+webhook:
+  enabled: true
+
+config:
+  logVerbosity: "0"
+  metricsPort: "9090"
+  enforceRbacOnRefs: false
+  enableTracing: false
+  enableLeaderElection: true
+  exposedNodeLabels:
+    - topology.kubernetes.io/zone
+    - topology.kubernetes.io/region
+
+# 自訂 image（air-gapped 環境，CH 16）
+image:
+  repository: docker.elastic.co/eck/eck-operator
+  pullPolicy: IfNotPresent
+
+telemetry:
+  disabled: false
+  distributionChannel: "helm"
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+</code></pre>
+
+<pre><code class="language-bash">helm install elastic-operator elastic/eck-operator \
+  --namespace elastic-system \
+  --create-namespace \
+  -f eck-values.yaml \
+  --version 3.3.2
+</code></pre>
+
+<h2 id="第一個-elasticsearch-cluster">部署第一個 Elasticsearch 叢集（Quickstart）</h2>
+
+<p>建立 <code>quickstart.yaml</code>：</p>
+
+<pre><code class="language-yaml">apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: quickstart
+  namespace: default
+spec:
+  version: 9.3.4
+  nodeSets:
+    - name: default
+      count: 1
+      config:
+        # 在 K8s 中通常關閉 mmap（影響效能但避免 vm.max_map_count 設定問題）
+        # 生產環境改為使用 init container 設定 sysctl（見後文）
+        node.store.allow_mmap: false
+</code></pre>
+
+<pre><code class="language-bash">kubectl apply -f quickstart.yaml
+
+# 觀察狀態
+kubectl get elasticsearch
+# NAME         HEALTH   NODES   VERSION   PHASE   AGE
+# quickstart   green    1       9.3.4     Ready   2m
+
+kubectl get pods --selector='elasticsearch.k8s.elastic.co/cluster-name=quickstart'
+</code></pre>
+
+<h3 id="取得密碼與憑證">取得 elastic 密碼與 CA 憑證</h3>
+
+<pre><code class="language-bash"># 密碼存在 Secret 中
+PASSWORD=$(kubectl get secret quickstart-es-elastic-user \
+  -o go-template='{{.data.elastic | base64decode}}')
+echo $PASSWORD
+
+# 取得 CA 憑證
+kubectl get secret quickstart-es-http-certs-public \
+  -o go-template='{{index .data "ca.crt" | base64decode}}' > ca.crt
+</code></pre>
+
+<h3 id="從外部連線">從外部 / 本機連線測試</h3>
+
+<pre><code class="language-bash"># 用 port-forward 暫時打通
+kubectl port-forward service/quickstart-es-http 9200
+
+# 另一個 terminal
+curl --cacert ca.crt -u "elastic:$PASSWORD" https://localhost:9200/
+</code></pre>
+
+<h2 id="生產級-elasticsearch-cluster">生產級 Elasticsearch 叢集（多節點集合）</h2>
+
+<p>以下是一個典型的 hot/warm 分層生產配置，3 master + 3 data_hot + 3 data_warm：</p>
+
+<pre><code class="language-yaml">apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: production
+  namespace: elastic
+spec:
+  version: 9.3.4
+
+  # ─── HTTP Service 設定 ─────────────────
+  http:
+    tls:
+      selfSignedCertificate:
+        subjectAltNames:
+          - dns: elasticsearch.example.com
+    service:
+      spec:
+        type: ClusterIP   # 內部使用，外部用 Ingress 暴露
+
+  # ─── Update Strategy ──────────────────
+  updateStrategy:
+    changeBudget:
+      maxSurge: 1
+      maxUnavailable: 1
+
+  # ─── Pod Disruption Budget ────────────
+  # ECK 3.x 預設自動產生，無需手動設
+
+  # ─── Node Sets ────────────────────────
+  nodeSets:
+
+    # ── Master nodes ──
+    - name: master
+      count: 3
+      config:
+        node.roles: ["master"]
+        xpack.ml.enabled: false
+      # 在 cloud K8s 上推薦用 zoneAwareness（ECK 3.4+）
+      zoneAwareness:
+        topologyKey: topology.kubernetes.io/zone
+      podTemplate:
+        spec:
+          # init container 設定 sysctl（替代 node.store.allow_mmap: false）
+          initContainers:
+            - name: sysctl
+              securityContext:
+                privileged: true
+                runAsUser: 0
+              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+          containers:
+            - name: elasticsearch
+              env:
+                - name: ES_JAVA_OPTS
+                  value: "-Xms2g -Xmx2g"
+              resources:
+                requests:
+                  memory: 4Gi
+                  cpu: 1
+                limits:
+                  memory: 4Gi
+                  cpu: 2
+      volumeClaimTemplates:
+        - metadata:
+            name: elasticsearch-data
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 20Gi
+            storageClassName: fast-ssd
+
+    # ── Hot Data nodes ──
+    - name: data-hot
+      count: 3
+      config:
+        node.roles: ["data_hot", "data_content", "ingest"]
+      zoneAwareness:
+        topologyKey: topology.kubernetes.io/zone
+      podTemplate:
+        spec:
+          initContainers:
+            - name: sysctl
+              securityContext: { privileged: true, runAsUser: 0 }
+              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+          containers:
+            - name: elasticsearch
+              env:
+                - name: ES_JAVA_OPTS
+                  value: "-Xms16g -Xmx16g"
+              resources:
+                requests:
+                  memory: 32Gi
+                  cpu: 4
+                limits:
+                  memory: 32Gi
+                  cpu: 8
+      volumeClaimTemplates:
+        - metadata:
+            name: elasticsearch-data
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 1Ti
+            storageClassName: fast-ssd
+
+    # ── Warm Data nodes ──
+    - name: data-warm
+      count: 3
+      config:
+        node.roles: ["data_warm"]
+      zoneAwareness:
+        topologyKey: topology.kubernetes.io/zone
+      podTemplate:
+        spec:
+          initContainers:
+            - name: sysctl
+              securityContext: { privileged: true, runAsUser: 0 }
+              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+          containers:
+            - name: elasticsearch
+              env:
+                - name: ES_JAVA_OPTS
+                  value: "-Xms8g -Xmx8g"
+              resources:
+                requests:
+                  memory: 16Gi
+                  cpu: 2
+                limits:
+                  memory: 16Gi
+                  cpu: 4
+      volumeClaimTemplates:
+        - metadata:
+            name: elasticsearch-data
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 5Ti
+            storageClassName: standard-ssd
+</code></pre>
+
+<h2 id="storage-class-規劃">StorageClass 規劃</h2>
+
+<p>本機 K8s 通常需要先建立 StorageClass。範例（與雲端對應的具體 storage 類型在 CH 12-14）：</p>
+
+<pre><code class="language-yaml"># local-path-storage.yaml（適用 k3s/Kind/開發用）
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fast-ssd
+provisioner: rancher.io/local-path
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+</code></pre>
+
+<p>關鍵屬性：</p>
+<ul>
+  <li><code>volumeBindingMode: WaitForFirstConsumer</code> — 確保 PVC 與 Pod 在同一 zone</li>
+  <li><code>reclaimPolicy: Retain</code> — 刪除 ES 時 PV 與資料保留（避免誤刪）</li>
+  <li><code>allowVolumeExpansion: true</code> — 允許後續擴容（ECK 自動處理）</li>
+</ul>
+
+<h2 id="部署-kibana">部署 Kibana</h2>
+
+<pre><code class="language-yaml">apiVersion: kibana.k8s.elastic.co/v1
+kind: Kibana
+metadata:
+  name: production
+  namespace: elastic
+spec:
+  version: 9.3.4
+  count: 2
+  elasticsearchRef:
+    name: production
+    namespace: elastic
+  http:
+    service:
+      spec:
+        type: ClusterIP
+  podTemplate:
+    spec:
+      containers:
+        - name: kibana
+          resources:
+            requests:
+              memory: 1Gi
+              cpu: 500m
+            limits:
+              memory: 2Gi
+              cpu: 1
+</code></pre>
+
+<pre><code class="language-bash">kubectl apply -f kibana.yaml
+kubectl get kibana
+# NAME         HEALTH   NODES   VERSION   AGE
+# production   green    2       9.3.4     5m
+</code></pre>
+
+<h2 id="管理叢集操作">日常管理操作</h2>
+
+<h3 id="觀察叢集狀態">觀察叢集狀態</h3>
+
+<pre><code class="language-bash"># 列出叢集
+kubectl get elasticsearch -A
+
+# 詳細資訊
+kubectl describe elasticsearch production -n elastic
+
+# 即時 events
+kubectl get events -n elastic --sort-by='.lastTimestamp'
+</code></pre>
+
+<h3 id="水平擴容">水平擴容（增加節點）</h3>
+
+<pre><code class="language-bash"># 把 data-hot 從 3 → 6
+kubectl patch elasticsearch production -n elastic --type='json' \
+  -p='[{"op": "replace", "path": "/spec/nodeSets/1/count", "value": 6}]'
+</code></pre>
+
+<h3 id="儲存擴容">儲存擴容（增加 PVC 大小）</h3>
+
+<p>修改 manifest 中的 storage 大小（如 1Ti → 2Ti），<code>kubectl apply</code>。需要 StorageClass 支援 <code>allowVolumeExpansion</code>。</p>
+
+<h3 id="rolling-upgrade">Stack 版本升級</h3>
+
+<pre><code class="language-bash"># 直接修改 spec.version
+kubectl patch elasticsearch production -n elastic --type='merge' \
+  -p='{"spec":{"version":"9.3.5"}}'
+
+# 同步升 Kibana
+kubectl patch kibana production -n elastic --type='merge' \
+  -p='{"spec":{"version":"9.3.5"}}'
+</code></pre>
+
+<p>ECK 會自動執行<strong>滾動升級</strong>：每次只重啟一個 pod，等 cluster green 後再下一個。</p>
+
+<h3 id="設定-superuser">使用內建 elastic 使用者</h3>
+
+<pre><code class="language-bash">kubectl get secret production-es-elastic-user -n elastic \
+  -o go-template='{{.data.elastic | base64decode}}'
+</code></pre>
+
+<h3 id="設定-stack-config-policy">透過 StackConfigPolicy 統一配置</h3>
+
+<p>ECK 3.x 引入的 CRD，可批量管理多叢集的 settings、ingest pipelines、ILM、role mappings：</p>
+
+<pre><code class="language-yaml">apiVersion: stackconfigpolicy.k8s.elastic.co/v1alpha1
+kind: StackConfigPolicy
+metadata:
+  name: my-policy
+  namespace: elastic
+spec:
+  resourceSelector:
+    matchLabels:
+      tier: production
+  elasticsearch:
+    clusterSettings:
+      indices.recovery.max_bytes_per_sec: "100mb"
+    snapshotRepositories:
+      backup-repo:
+        type: s3
+        settings:
+          bucket: my-es-backups
+    ilmPolicies:
+      logs-retention:
+        policy:
+          phases:
+            hot: { actions: { rollover: { max_age: "1d" } } }
+            delete: { min_age: "30d", actions: { delete: {} } }
+</code></pre>
+
+<h2 id="升級-eck-operator">升級 ECK Operator 本身</h2>
+
+<pre><code class="language-bash"># YAML 方式
+kubectl replace -f https://download.elastic.co/downloads/eck/3.3.3/crds.yaml
+kubectl apply -f https://download.elastic.co/downloads/eck/3.3.3/operator.yaml
+
+# Helm 方式
+helm upgrade elastic-operator elastic/eck-operator \
+  -n elastic-system --version 3.3.3
+</code></pre>
+
+<div class="callout warning">
+  <strong>⚠️ Operator 升級可能觸發 rolling restart</strong>
+  某些 ECK 版本升級會調整 pod template（hash 變化），導致所有 ES pods 重啟。生產環境升級前先閱讀該版本的 release notes，並用 <code>eck.k8s.elastic.co/managed=false</code> annotation 暫時排除部分叢集，分批 rolling。
+</div>
+
+<h2 id="解除-managed">暫時排除某叢集</h2>
+
+<pre><code class="language-bash"># 排除單一叢集
+kubectl annotate --overwrite elasticsearch production -n elastic \
+  eck.k8s.elastic.co/managed=false
+
+# 此時 ECK 不會碰它，可手動 kubectl 操作底層 STS
+
+# 重新交給 ECK 管理
+kubectl annotate elasticsearch production -n elastic \
+  eck.k8s.elastic.co/managed-
+</code></pre>
+
+<h2 id="解除安裝-eck">解除安裝 ECK</h2>
+
+<div class="callout danger">
+  <strong>🚨 刪 CRD 會刪除所有 Elasticsearch！</strong>
+  CRD 是 cluster-wide 資源，刪除會 cascade 刪除全 cluster 內所有 elasticsearch、kibana 等 CR，導致<strong>所有叢集被刪除</strong>。先備份資料！
+</div>
+
+<pre><code class="language-bash"># 1. 先刪除所有 CR（保留 PVC 視 reclaimPolicy 而定）
+kubectl delete elasticsearch --all -A
+kubectl delete kibana --all -A
+
+# 2. 刪除 operator
+kubectl delete -f https://download.elastic.co/downloads/eck/3.3.2/operator.yaml
+
+# 3. 最後刪 CRDs（如果你確定不再用）
+kubectl delete -f https://download.elastic.co/downloads/eck/3.3.2/crds.yaml
+</code></pre>
+
+<h2 id="本章重點回顧">本章重點回顧</h2>
+
+<ul>
+  <li>ECK Operator 用 K8s 原生方式管理 Elastic Stack，CRD 描述 desired state</li>
+  <li>最新版 ECK 3.3.2，需 K8s 1.31+ 或 OpenShift 4.16+</li>
+  <li>兩種安裝方式：YAML manifest 或 Helm chart；Helm 適合 GitOps</li>
+  <li>NodeSet 是核心抽象：每個 NodeSet 對應一個 StatefulSet</li>
+  <li>用 <code>node.roles</code> 區分 master / data tiers / ingest 等角色</li>
+  <li>StorageClass 必須支援 <code>WaitForFirstConsumer</code> 與 <code>allowVolumeExpansion</code></li>
+  <li>用 init container 設定 <code>vm.max_map_count</code>（避免 <code>node.store.allow_mmap: false</code> 的效能損失）</li>
+  <li>ECK 3.4+ 引入 <code>zoneAwareness</code>，自動處理跨 zone 部署</li>
+  <li>升級 Stack 版本只需改 <code>spec.version</code>，ECK 自動 rolling</li>
+</ul>
+
+<h2 id="下章預告">下章預告</h2>
+
+<p>接下來三章會分別深入三大公有雲 K8s 服務上的 ECK 部署：</p>
+<ul>
+  <li><strong>CH 12 · AWS EKS</strong> — Storage Class、ALB Ingress、IAM、IRSA</li>
+  <li><strong>CH 13 · GKE</strong> — Persistent Disk 種類、Workload Identity、GCS snapshot</li>
+  <li><strong>CH 14 · AKS</strong> — Azure Disk、Application Gateway、Entra ID 整合</li>
+</ul>
+
+<h2 id="延伸閱讀">延伸閱讀</h2>
+
+<ul>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/deploy/cloud-on-k8s" target="_blank" rel="noopener">ECK Documentation</a></li>
+  <li><a href="https://github.com/elastic/cloud-on-k8s" target="_blank" rel="noopener">cloud-on-k8s GitHub Repository</a></li>
+  <li><a href="https://artifacthub.io/packages/helm/elastic/eck-operator" target="_blank" rel="noopener">eck-operator Helm chart</a></li>
+</ul>
+
+<nav class="bottom-nav"><a class="prev" href="ch10-install-docker.html"><span class="nav-label">← 上一章</span><span class="nav-title">Docker 與 Docker Compose</span></a><a class="next" href="ch12-install-kubernetes-eks.html"><span class="nav-label">下一章 →</span><span class="nav-title">AWS EKS 部署</span></a></nav>
+</main>
+<aside class="toc">
+  <div class="toc-title">本章目錄</div>
+  <ul></ul>
+</aside>
+</div>
+<footer>
+  <p>Elasticsearch Self-Managed 完整教學文件 · 基於 Elastic Stack 9.x（最新 9.3.4）<br>
+  資料來源：<a href="https://www.elastic.co/docs" target="_blank" rel="noopener">Elastic 官方文件</a> · 最後更新：2026-05</p>
+</footer>
+</body>
+</html>

@@ -1,0 +1,1327 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Elastic Stack 9.x air-gapped 完整離線部署指南">
+<title>CH 16 · Air-gapped 離線環境部署</title>
+<style>
+/* ============================================================
+   JHsun TechDocs — Unified Design Token Layer
+   v1.0 · Calm Teal (hue 200° / chroma 0.11)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+
+  --color-success:        #16a34a;
+  --color-success-soft:   #dcfce7;
+  --color-warning:        #d97706;
+  --color-warning-soft:   #fef3c7;
+  --color-danger:         #dc2626;
+  --color-danger-soft:    #fee2e2;
+  --color-info:           #0891b2;
+  --color-info-soft:      #cffafe;
+  --color-neutral-accent: #7c3aed;
+
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+
+  --font-mono:       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:       "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif:      "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  32px;
+  --text-3xl:  44px;
+  --text-4xl:  64px;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+
+  --container-narrow: 720px;
+  --container-wide:   1280px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+
+:root[data-theme="dark"] {
+  --color-success:        #4ade80;
+  --color-success-soft:   oklch(0.30 0.08 145);
+  --color-warning:        #fbbf24;
+  --color-warning-soft:   oklch(0.32 0.10 70);
+  --color-danger:         #f87171;
+  --color-danger-soft:    oklch(0.32 0.10 27);
+  --color-info:           #22d3ee;
+  --color-info-soft:      oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.16 0.008 50);
+  --bg-surface:     oklch(0.20 0.009 50);
+  --bg-muted:       oklch(0.23 0.010 50);
+  --bg-code:        oklch(0.18 0.009 50);
+  --border-soft:    oklch(0.28 0.010 50);
+  --border-mid:     oklch(0.36 0.012 50);
+  --text-primary:   oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted:     oklch(0.58 0.007 60);
+
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+
+/* ============== Chapter shared styles ============== */
+* { box-sizing: border-box; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+@media (min-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 240px; gap: var(--space-7); }
+}
+main { min-width: 0; padding: var(--space-6) 0; }
+main.prose { max-width: var(--container-narrow); margin: 0 auto; }
+
+/* Top navigation */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: color-mix(in oklch, var(--bg-canvas) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.topbar-inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.brand {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-primary-text);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+.nav-links { display: flex; gap: var(--space-2); margin-left: auto; align-items: center; }
+.nav-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  transition: all 0.15s;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--bg-muted); }
+.nav-links a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Theme toggle button */
+[data-theme-toggle] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  transition: all 0.15s;
+}
+[data-theme-toggle]:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.theme-icon { font-size: var(--text-base); }
+
+/* Headings */
+h1, h2, h3, h4 {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  line-height: 1.3;
+  margin-top: var(--space-7);
+  margin-bottom: var(--space-4);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+h1 { font-size: var(--text-3xl); margin-top: var(--space-5); }
+h2 { font-size: var(--text-2xl); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-soft); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-md); color: var(--text-secondary); }
+
+p { margin: var(--space-4) 0; color: var(--text-primary); }
+
+/* Inline code */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+  border: 1px solid var(--border-soft);
+}
+
+/* Code block */
+.code-wrap {
+  position: relative;
+  margin: var(--space-4) 0;
+}
+.code-wrap > .code-lang {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.code-wrap > .copy-btn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 4px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  transition: all 0.15s;
+  opacity: 0;
+}
+.code-wrap:hover > .copy-btn { opacity: 1; }
+.code-wrap > .copy-btn:hover {
+  background: var(--color-primary);
+  color: var(--bg-canvas);
+  border-color: var(--color-primary);
+}
+.code-wrap > .copy-btn.copied {
+  background: var(--color-success);
+  color: white;
+  border-color: var(--color-success);
+  opacity: 1;
+}
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-7) var(--space-4) var(--space-4);
+  overflow-x: auto;
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  margin: 0;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: var(--text-primary);
+  font-size: inherit;
+}
+
+/* Lists */
+ul, ol { padding-left: var(--space-6); }
+li { margin: var(--space-2) 0; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: var(--space-4) 0; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+th, td {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+}
+th { background: var(--bg-muted); font-weight: 600; color: var(--text-primary); }
+tr:last-child td { border-bottom: none; }
+
+/* Callouts */
+.callout {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  border-left: 4px solid var(--color-info);
+  background: var(--color-info-soft);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+.callout.warning { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.danger  { border-color: var(--color-danger);  background: var(--color-danger-soft); }
+.callout.success { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout strong { display: block; margin-bottom: var(--space-2); }
+:root[data-theme="dark"] .callout { color: var(--text-primary); }
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: 999px;
+  margin-right: var(--space-1);
+  letter-spacing: 0.02em;
+}
+.badge.beginner { background: var(--color-success-soft); color: var(--color-success); }
+.badge.developer { background: var(--color-info-soft); color: var(--color-info); }
+.badge.operator { background: var(--color-warning-soft); color: var(--color-warning); }
+.badge.advanced { background: var(--color-primary-soft); color: var(--color-primary-text); }
+:root[data-theme="dark"] .badge { filter: brightness(1.1); }
+
+/* Chapter meta */
+.chapter-meta {
+  margin: var(--space-4) 0 var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.chapter-meta .meta-row { margin: var(--space-1) 0; }
+.chapter-meta .meta-label {
+  display: inline-block;
+  width: 70px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* TOC sidebar */
+.toc {
+  position: sticky;
+  top: 80px;
+  align-self: start;
+  font-size: var(--text-sm);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  padding: var(--space-4) 0;
+  display: none;
+}
+@media (min-width: 1100px) {
+  .toc { display: block; }
+}
+.toc-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.toc ul { list-style: none; padding-left: 0; margin: 0; }
+.toc li { margin: 0; }
+.toc a {
+  display: block;
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-left: 2px solid var(--border-soft);
+  transition: all 0.15s;
+  line-height: 1.5;
+}
+.toc a:hover { color: var(--color-primary); border-left-color: var(--color-primary); }
+.toc a.toc-h3 { padding-left: var(--space-5); font-size: 0.92em; color: var(--text-muted); }
+
+/* Bottom nav */
+.bottom-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  margin-top: var(--space-8);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.bottom-nav a {
+  flex: 1;
+  min-width: 200px;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.bottom-nav a:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.bottom-nav .nav-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.bottom-nav .nav-title { font-weight: 600; color: var(--text-primary); }
+.bottom-nav a.next { text-align: right; }
+.bottom-nav a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Footer */
+footer {
+  text-align: center;
+  padding: var(--space-7) var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  border-top: 1px solid var(--border-soft);
+  margin-top: var(--space-8);
+}
+footer a { color: var(--color-primary); text-decoration: none; }
+
+/* Index page specific */
+.hero {
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+  background: linear-gradient(135deg, var(--color-primary-soft) 0%, var(--bg-canvas) 100%);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: var(--space-7);
+}
+.hero h1 {
+  font-size: var(--text-4xl);
+  margin: 0 0 var(--space-4);
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.02em;
+}
+.hero p { font-size: var(--text-md); color: var(--text-secondary); max-width: 720px; margin: 0 auto; }
+.hero .meta {
+  margin-top: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.path-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  margin: var(--space-6) 0;
+}
+@media (min-width: 768px) { .path-grid { grid-template-columns: repeat(3, 1fr); } }
+.path-card {
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  transition: all 0.2s;
+}
+.path-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-md); }
+.path-card .path-icon { font-size: 32px; display: block; margin-bottom: var(--space-3); }
+.path-card h3 { margin: 0 0 var(--space-2); font-size: var(--text-lg); }
+.path-card .path-flow {
+  margin-top: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.part {
+  margin: var(--space-7) 0;
+}
+.part-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--color-primary);
+}
+.part-header .part-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.part-header h2 { margin: 0; border: none; padding: 0; }
+
+.chapter-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+@media (min-width: 700px)  { .chapter-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1100px) { .chapter-grid { grid-template-columns: repeat(3, 1fr); } }
+.chapter-card {
+  display: block;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.chapter-card:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  transform: translateY(-1px);
+}
+.chapter-card .ch-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+.chapter-card .ch-title {
+  display: block;
+  margin: var(--space-2) 0;
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+.chapter-card .ch-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--space-2);
+}
+.chapter-card .ch-badges { font-size: 11px; }
+
+
+/* Mermaid container */
+.mermaid-wrap {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-wrap .mermaid {
+  display: inline-block;
+  min-width: 100%;
+}
+.mermaid-caption {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+/* Hide raw mermaid source until rendered */
+.mermaid:not([data-processed="true"]) {
+  visibility: hidden;
+  min-height: 1em;
+}
+
+</style>
+<script>
+/* JHsun TechDocs — Theme toggle v1.0 */
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+
+</script>
+<script>
+
+// Copy-to-clipboard for all <pre> blocks
+(function () {
+  function init() {
+    document.querySelectorAll('main pre').forEach(function (pre) {
+      if (pre.parentElement.classList.contains('code-wrap')) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'code-wrap';
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
+      const lang = pre.querySelector('code')?.className.match(/language-(\w+)/)?.[1];
+      if (lang) {
+        const tag = document.createElement('span');
+        tag.className = 'code-lang';
+        tag.textContent = lang;
+        wrap.appendChild(tag);
+      }
+      const btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.type = 'button';
+      btn.textContent = '📋 複製';
+      btn.addEventListener('click', function () {
+        const text = pre.innerText;
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(text).then(success).catch(fallback);
+        } else {
+          fallback();
+        }
+        function success() {
+          btn.textContent = '✓ 已複製';
+          btn.classList.add('copied');
+          setTimeout(function () { btn.textContent = '📋 複製'; btn.classList.remove('copied'); }, 1800);
+        }
+        function fallback() {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); success(); } catch (_) {}
+          document.body.removeChild(ta);
+        }
+      });
+      wrap.appendChild(btn);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+// Auto-build TOC from h2/h3 in <main>
+(function () {
+  function init() {
+    const toc = document.querySelector('.toc ul');
+    if (!toc) return;
+    const headings = document.querySelectorAll('main h2, main h3');
+    headings.forEach(function (h) {
+      if (!h.id) {
+        h.id = h.textContent.trim().toLowerCase()
+          .replace(/[^\w\u4e00-\u9fff\s-]/g, '')
+          .replace(/\s+/g, '-');
+      }
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = '#' + h.id;
+      a.textContent = h.textContent;
+      a.className = 'toc-' + h.tagName.toLowerCase();
+      li.appendChild(a);
+      toc.appendChild(li);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+
+// Mermaid initialization with theme sync
+(function () {
+  function getMermaidTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default';
+  }
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    const cs = getComputedStyle(document.documentElement);
+    return {
+      startOnLoad: false,
+      theme: isDark ? 'dark' : 'default',
+      themeVariables: {
+        fontFamily: cs.getPropertyValue('--font-sans').trim() || 'DM Sans, sans-serif',
+        fontSize: '14px',
+        primaryColor: isDark ? '#1e3a4a' : '#e0f2fe',
+        primaryTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        primaryBorderColor: isDark ? '#5fb3d4' : '#0891b2',
+        lineColor: isDark ? '#7aa3b8' : '#475569',
+        secondaryColor: isDark ? '#2a3f4f' : '#f1f5f9',
+        tertiaryColor: isDark ? '#1a2530' : '#fafafa',
+        background: isDark ? '#1e2a35' : '#ffffff',
+        mainBkg: isDark ? '#243441' : '#ecfeff',
+        secondBkg: isDark ? '#1a2530' : '#f8fafc',
+        nodeBorder: isDark ? '#5fb3d4' : '#0891b2',
+        clusterBkg: isDark ? '#1a2530' : '#f1f5f9',
+        clusterBorder: isDark ? '#3a5260' : '#cbd5e1',
+        defaultLinkColor: isDark ? '#7aa3b8' : '#475569',
+        titleColor: isDark ? '#e6f2f8' : '#0f172a',
+        edgeLabelBackground: isDark ? '#243441' : '#ffffff',
+        actorBkg: isDark ? '#243441' : '#ecfeff',
+        actorBorder: isDark ? '#5fb3d4' : '#0891b2',
+        actorTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        actorLineColor: isDark ? '#5fb3d4' : '#0891b2',
+        signalColor: isDark ? '#7aa3b8' : '#334155',
+        signalTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        labelBoxBkgColor: isDark ? '#1a2530' : '#fef3c7',
+        labelBoxBorderColor: isDark ? '#a89060' : '#d97706',
+        labelTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        loopTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        noteBkgColor: isDark ? '#3a4f3a' : '#fef3c7',
+        noteBorderColor: isDark ? '#86c598' : '#d97706',
+        noteTextColor: isDark ? '#e6f2f8' : '#0f172a',
+      },
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true, showSequenceNumbers: false, mirrorActors: true, bottomMarginAdj: 10 },
+    };
+  }
+
+  let renderCounter = 0;
+  async function renderAll() {
+    if (typeof mermaid === 'undefined') return;
+    renderCounter++;
+    const myCounter = renderCounter;
+    mermaid.initialize(getMermaidConfig());
+    const blocks = document.querySelectorAll('.mermaid');
+    for (const el of blocks) {
+      // restore source if already rendered
+      if (el.dataset.source) el.innerHTML = el.dataset.source;
+      else el.dataset.source = el.innerHTML;
+      el.removeAttribute('data-processed');
+    }
+    if (myCounter !== renderCounter) return;
+    try {
+      await mermaid.run({ querySelector: '.mermaid' });
+    } catch (e) { console.warn('Mermaid render error', e); }
+  }
+
+  function init() {
+    renderAll();
+    window.addEventListener('jhsun:theme-changed', renderAll);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="ch00-elasticsearch-index.html">ES Self-Managed Docs</a>
+    <nav class="nav-links">
+      <a href="ch15-install-kibana.html" aria-label="上一章">← 上一章</a>
+      <a href="ch00-elasticsearch-index.html" aria-label="回首頁">首頁</a>
+      <a href="ch17-elasticsearch-yml.html" aria-label="下一章">下一章 →</a>
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </nav>
+  </div>
+</header>
+<div class="layout">
+<main class="prose">
+
+<h1>CH 16 · Air-gapped 離線環境部署</h1>
+
+<div class="chapter-meta">
+  <div class="meta-row"><span class="meta-label">適合對象</span>
+    <span class="badge operator">🔴 維運者</span>
+    <span class="badge advanced">⚡ 進階</span>
+  </div>
+  <div class="meta-row"><span class="meta-label">閱讀時間</span> 約 22 分鐘</div>
+  <div class="meta-row"><span class="meta-label">前置知識</span> CH 06-15</div>
+  <div class="meta-row"><span class="meta-label">本章目標</span> 在無網際網路的環境部署完整 Elastic Stack；私有 registry mirror、離線授權、ECK air-gapped 模式</div>
+</div>
+
+<h2 id="什麼是-air-gapped">什麼是 Air-gapped 環境？</h2>
+
+<p>Air-gapped（氣隙）環境指的是<strong>網路與外部網際網路完全隔離</strong>的部署環境，常見於：</p>
+
+<ul>
+  <li>政府、金融、軍工、醫療等高安全敏感場域</li>
+  <li>合規要求（HIPAA、PCI-DSS、ISO 27001、ITAR）</li>
+  <li>OT/SCADA 工業控制網路</li>
+  <li>金鑰管理區、機敏資料儲存區</li>
+</ul>
+
+<p>挑戰：</p>
+<ul>
+  <li>無法直接 <code>apt install</code> / <code>dnf install</code> / <code>helm pull</code> / <code>docker pull</code></li>
+  <li>授權檔需要離線發放（不能線上啟用）</li>
+  <li>Beats、Elastic Agent 的 integrations 需要離線同步</li>
+  <li>plugin、ML model、ingest pipeline 都需手動帶入</li>
+</ul>
+
+<h2 id="整體策略">整體策略</h2>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart LR
+    subgraph Online["📡 連網區（Staging）"]
+      direction TB
+      DL["⬇️ 下載所有需要的 artifacts"]
+      Pkg["📦 packages, images, plugins,<br/>EPR images, ML models"]
+      DL --> Pkg
+    end
+
+    Transfer["💾 實體傳輸<br/>USB / DVD / 跨網閘"]
+
+    subgraph Airgap["🔒 Air-gapped 區（Production）"]
+      direction TB
+      Mirror["🪞 內部 Mirror<br/>Nexus / Harbor / Artifactory"]
+      Cluster["🏢 Elastic Stack<br/>從內部 mirror 拉"]
+      Mirror --> Cluster
+    end
+
+    Pkg --> Transfer
+    Transfer --> Mirror
+
+    classDef online fill:#dcfce7,stroke:#16a34a,color:#0f172a
+    classDef airgap fill:#fee2e2,stroke:#dc2626,color:#0f172a
+    classDef transfer fill:#fef3c7,stroke:#d97706,color:#0f172a
+    class DL,Pkg online
+    class Mirror,Cluster airgap
+    class Transfer transfer
+</pre>
+<div class="mermaid-caption">圖 16-1：Air-gapped 部署資料流</div>
+</div>
+
+<h2 id="step-1-清單">Step 1：建立離線資源清單</h2>
+
+<p>以下是一個典型 Stack（ES + Kibana + Beats + ECK）所需的全部 artifacts：</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>類型</th><th>來源</th><th>大小（估）</th></tr></thead>
+  <tbody>
+    <tr><td>Elasticsearch tar.gz / deb / rpm / Docker image</td><td>artifacts.elastic.co</td><td>~ 700 MB / image ~ 1.2 GB</td></tr>
+    <tr><td>Kibana 同上</td><td>artifacts.elastic.co</td><td>~ 1.5 GB（含內建 Chromium）</td></tr>
+    <tr><td>Logstash（如需）</td><td>同上</td><td>~ 600 MB</td></tr>
+    <tr><td>Beats / Elastic Agent</td><td>同上</td><td>~ 100 MB each</td></tr>
+    <tr><td>Plugins（如 analysis-icu、analysis-smartcn）</td><td>artifacts.elastic.co</td><td>~ 10-50 MB each</td></tr>
+    <tr><td>Elastic Package Registry image</td><td>docker.elastic.co/package-registry</td><td>~ 6-8 GB（含全部 integrations）</td></tr>
+    <tr><td>ECK Operator image + CRDs/operator.yaml</td><td>docker.elastic.co/eck</td><td>~ 200 MB</td></tr>
+    <tr><td>ML pre-trained models（如 ELSER、E5）</td><td>需透過 Eland 工具離線匯入</td><td>~ 500 MB - 2 GB each</td></tr>
+    <tr><td>Stack license file（自簽 basic 或購買的訂閱檔）</td><td>basic 自動產生；訂閱由 Elastic 提供</td><td>&lt; 10 KB</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="step-2-下載-artifacts">Step 2：在連網區下載所有 artifacts</h2>
+
+<h3 id="elasticsearch-下載">Elasticsearch / Kibana / Logstash</h3>
+
+<pre><code class="language-bash">VERSION=9.3.4
+mkdir -p offline-bundle
+cd offline-bundle
+
+# Linux x86_64 + ARM64
+for ARCH in linux-x86_64 linux-aarch64; do
+  for COMP in elasticsearch kibana logstash; do
+    wget "https://artifacts.elastic.co/downloads/${COMP}/${COMP}-${VERSION}-${ARCH}.tar.gz"
+    wget "https://artifacts.elastic.co/downloads/${COMP}/${COMP}-${VERSION}-${ARCH}.tar.gz.sha512"
+  done
+done
+
+# Debian / RPM
+for ARCH in amd64 arm64; do
+  wget "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-${VERSION}-${ARCH}.deb"
+  wget "https://artifacts.elastic.co/downloads/kibana/kibana-${VERSION}-${ARCH}.deb"
+done
+for ARCH in x86_64 aarch64; do
+  wget "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-${VERSION}-${ARCH}.rpm"
+  wget "https://artifacts.elastic.co/downloads/kibana/kibana-${VERSION}-${ARCH}.rpm"
+done
+</code></pre>
+
+<h3 id="docker-image-export">Docker images export</h3>
+
+<pre><code class="language-bash">cd offline-bundle && mkdir docker-images && cd docker-images
+
+# 拉取所有需要的 image
+for img in \
+  "docker.elastic.co/elasticsearch/elasticsearch:${VERSION}" \
+  "docker.elastic.co/kibana/kibana:${VERSION}" \
+  "docker.elastic.co/logstash/logstash:${VERSION}" \
+  "docker.elastic.co/beats/filebeat:${VERSION}" \
+  "docker.elastic.co/beats/metricbeat:${VERSION}" \
+  "docker.elastic.co/elastic-agent/elastic-agent:${VERSION}" \
+  "docker.elastic.co/package-registry/distribution:${VERSION}" \
+  "docker.elastic.co/eck/eck-operator:3.3.2"; do
+
+  docker pull $img
+  fname=$(echo $img | tr '/:' '_')
+  docker save $img -o "${fname}.tar"
+  gzip "${fname}.tar"
+done
+
+ls -lh
+</code></pre>
+
+<h3 id="plugins-download">Plugins</h3>
+
+<pre><code class="language-bash">mkdir -p offline-bundle/plugins
+cd offline-bundle/plugins
+
+# 範例：中文分詞 plugin
+for plugin in analysis-icu analysis-smartcn analysis-kuromoji repository-s3 repository-gcs repository-azure; do
+  wget "https://artifacts.elastic.co/downloads/elasticsearch-plugins/${plugin}/${plugin}-${VERSION}.zip"
+done
+</code></pre>
+
+<h3 id="eck-yaml-下載">ECK manifest 下載</h3>
+
+<pre><code class="language-bash">ECK_VERSION=3.3.2
+mkdir -p offline-bundle/eck && cd offline-bundle/eck
+wget "https://download.elastic.co/downloads/eck/${ECK_VERSION}/crds.yaml"
+wget "https://download.elastic.co/downloads/eck/${ECK_VERSION}/operator.yaml"
+</code></pre>
+
+<h3 id="helm-charts-下載">Helm charts（如使用）</h3>
+
+<pre><code class="language-bash">helm pull elastic/eck-operator --version 3.3.2 -d offline-bundle/helm
+helm pull elastic/eck-stack --version 0.x.x -d offline-bundle/helm
+</code></pre>
+
+<h2 id="step-3-傳輸到-airgapped">Step 3：傳輸到 Air-gapped 區</h2>
+
+<p>產生 SHA256 清單作為驗證：</p>
+
+<pre><code class="language-bash">cd offline-bundle
+find . -type f -exec sha256sum {} \; > MANIFEST.sha256
+
+# 打包
+tar -czf elastic-airgapped-${VERSION}.tar.gz .
+sha256sum elastic-airgapped-${VERSION}.tar.gz > elastic-airgapped-${VERSION}.tar.gz.sha256
+</code></pre>
+
+<p>透過資安規範允許的傳輸方式（USB、跨網閘檔案傳輸、刻錄光碟等）帶入 air-gapped 區。</p>
+
+<h2 id="step-4-mirror-registry">Step 4：在內部建立 Mirror</h2>
+
+<h3 id="docker-image-import-private-registry">Docker images 推到內部 Registry</h3>
+
+<p>假設內部已有 Harbor / Nexus / Artifactory：</p>
+
+<pre><code class="language-bash">INTERNAL_REGISTRY=registry.internal.example.com
+
+cd offline-bundle/docker-images
+
+for tarball in *.tar.gz; do
+  gunzip -k $tarball
+  tar_file="${tarball%.gz}"
+
+  # 載入到本機 docker
+  docker load -i $tar_file
+
+  # 從檔案名解析原始 image name
+  original=$(docker load -i $tar_file 2>&1 | grep "Loaded image" | awk '{print $3}')
+
+  # 改 tag 指向內部 registry
+  internal_tag="${INTERNAL_REGISTRY}/${original#docker.elastic.co/}"
+
+  docker tag $original $internal_tag
+  docker push $internal_tag
+
+  echo "Pushed: $internal_tag"
+done
+</code></pre>
+
+<h3 id="apt-yum-mirror">套件 Repository Mirror</h3>
+
+<p>用 <strong>aptly</strong>（Debian）、<strong>createrepo</strong>（RHEL）或 <strong>JFrog Artifactory</strong> 建立內部 repo：</p>
+
+<pre><code class="language-bash"># Debian/Ubuntu：用 aptly
+aptly repo create -distribution=stable -component=main elastic-9
+aptly repo add elastic-9 offline-bundle/elasticsearch-9.3.4-amd64.deb
+aptly repo add elastic-9 offline-bundle/kibana-9.3.4-amd64.deb
+aptly publish repo elastic-9
+# Aptly 會啟動 HTTP server 服務該 repo
+
+# RHEL：用 createrepo_c
+mkdir -p /var/www/html/elastic/9
+cp offline-bundle/*.rpm /var/www/html/elastic/9/
+createrepo_c /var/www/html/elastic/9/
+# 設 nginx 對外服務
+</code></pre>
+
+<p>內網 client 改用內部 repo：</p>
+
+<pre><code class="language-bash"># Debian
+echo "deb [trusted=yes] http://aptly.internal.example.com/ stable main" | \
+  sudo tee /etc/apt/sources.list.d/elastic-internal.list
+sudo apt update
+
+# RHEL
+sudo tee /etc/yum.repos.d/elastic-internal.repo << EOF
+[elastic-internal]
+name=Internal Elastic Mirror
+baseurl=http://repo.internal.example.com/elastic/9/
+enabled=1
+gpgcheck=0
+EOF
+</code></pre>
+
+<h2 id="step-5-elasticsearch-airgapped">Step 5：Elasticsearch 離線安裝</h2>
+
+<p>後續流程與 CH 07-08 完全相同，只是改從內部來源取得：</p>
+
+<pre><code class="language-bash"># Debian 從內部 repo 安裝
+sudo apt install -y elasticsearch=9.3.4
+
+# 或直接安裝離線檔
+sudo dpkg -i elasticsearch-9.3.4-amd64.deb
+</code></pre>
+
+<h2 id="step-6-eck-airgapped">Step 6：ECK 在 Air-gapped 環境</h2>
+
+<h3 id="image-override">改用內部 registry 的 image</h3>
+
+<p>ECK Operator 預設拉 <code>docker.elastic.co/elasticsearch/elasticsearch:9.3.4</code>。在 air-gapped 必須讓它從內部 registry 拉：</p>
+
+<h4 id="方式-1-修改-operator">方式 1：修改 Operator Deployment</h4>
+
+<pre><code class="language-yaml"># operator.yaml 中找到 elastic-operator Deployment
+spec:
+  template:
+    spec:
+      containers:
+        - name: manager
+          image: registry.internal.example.com/eck/eck-operator:3.3.2
+          args:
+            - "manager"
+            - "--container-registry=registry.internal.example.com"
+            - "--container-suffix="
+</code></pre>
+
+<h4 id="方式-2-helm-values">方式 2：Helm values</h4>
+
+<pre><code class="language-yaml"># eck-values.yaml
+image:
+  repository: registry.internal.example.com/eck/eck-operator
+  tag: 3.3.2
+
+config:
+  containerRegistry: "registry.internal.example.com"
+
+# 內部 registry 若需 imagePullSecret
+imagePullSecrets:
+  - name: registry-creds
+</code></pre>
+
+<pre><code class="language-bash">helm install elastic-operator eck-operator-3.3.2.tgz \
+  -n elastic-system --create-namespace \
+  -f eck-values.yaml
+</code></pre>
+
+<h3 id="elasticsearch-cr-with-internal">Elasticsearch CR 也需指定內部 image</h3>
+
+<pre><code class="language-yaml">apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: production
+spec:
+  version: 9.3.4
+  image: registry.internal.example.com/elasticsearch/elasticsearch:9.3.4
+  nodeSets:
+    - name: default
+      count: 3
+      # ...
+</code></pre>
+
+<p>或在 ECK Operator 的 <code>--container-registry</code> 已設好的情況下，會自動 prefix。</p>
+
+<h2 id="step-7-离線授權">Step 7：離線授權檔安裝</h2>
+
+<h3 id="basic-自動">Basic（免費）授權</h3>
+
+<p>9.x 啟動時自動產生 self-signed basic license，無需操作。Basic 已涵蓋大多數核心功能（搜尋、聚合、ILM、基本安全）。</p>
+
+<h3 id="付費訂閱授權">Platinum / Enterprise 付費訂閱</h3>
+
+<p>從 Elastic 取得 <code>license.json</code>（透過 sales contact 或 support portal），離線安裝：</p>
+
+<pre><code class="language-bash">curl -k -u elastic:$PASSWORD \
+  -X PUT "https://localhost:9200/_license" \
+  -H 'Content-Type: application/json' \
+  -d @license.json
+
+# 確認
+curl -k -u elastic:$PASSWORD https://localhost:9200/_license
+</code></pre>
+
+<h2 id="step-8-elastic-package-registry">Step 8：Elastic Package Registry（EPR）</h2>
+
+<p>Fleet / Elastic Agent 的 integrations（如 nginx、kafka、windows、aws...）由 EPR 提供。在 air-gapped 必須<strong>內部部署 EPR</strong>。</p>
+
+<h3 id="部署-內部-epr">部署內部 EPR</h3>
+
+<pre><code class="language-bash">docker run -d \
+  --name epr \
+  -p 8443:8080 \
+  registry.internal.example.com/package-registry/distribution:9.3.4
+</code></pre>
+
+<p>K8s 用 ECK 的 PackageRegistry CR：</p>
+
+<pre><code class="language-yaml">apiVersion: packageregistry.k8s.elastic.co/v1alpha1
+kind: PackageRegistry
+metadata:
+  name: epr
+  namespace: elastic
+spec:
+  version: 9.3.4
+  image: registry.internal.example.com/package-registry/distribution:9.3.4
+  count: 1
+</code></pre>
+
+<h3 id="設定-kibana-用內部-epr">設定 Kibana 用內部 EPR</h3>
+
+<pre><code class="language-yaml"># kibana.yml
+xpack.fleet.registryUrl: "https://epr.internal.example.com:8443"
+
+# Kibana 9.x 也支援的 air-gapped flag
+xpack.fleet.isAirGapped: true
+</code></pre>
+
+<h2 id="step-9-ml-models">Step 9：離線匯入 ML Models</h2>
+
+<p>ELSER（Elastic Learned Sparse EncodeR）、E5 等向量搜尋模型，預設由 Kibana 從 ml-models.elastic.co 下載。Air-gapped 需用 <strong>Eland</strong> 工具：</p>
+
+<h3 id="online-export-model">在連網區下載並匯出</h3>
+
+<pre><code class="language-bash">pip install eland
+docker pull docker.elastic.co/eland/eland
+
+# 用 eland 直接從 HuggingFace 匯入到 ES（連網區）
+eland_import_hub_model \
+  --hub-model-id sentence-transformers/all-MiniLM-L6-v2 \
+  --task-type text_embedding \
+  --es-username elastic \
+  --es-password "$PASSWORD" \
+  --url https://es-online:9200 \
+  --insecure
+
+# 從 online ES 把 model 匯出（透過 reindex 或 snapshot）
+</code></pre>
+
+<h3 id="airgapped-import-model">離線匯入</h3>
+
+<p>另一個方式：在連網區用 eland 把 model 包成可直接 import 的 tar：</p>
+
+<pre><code class="language-bash">eland_export_model \
+  --model-id sentence-transformers__all-minilm-l6-v2 \
+  --output ./models/
+
+# 把 ./models 目錄帶入 air-gapped 環境
+# 在 air-gapped 環境用 eland 匯入
+eland_import_hub_model \
+  --model-path ./models/ \
+  --es-username elastic \
+  --es-password "$PASSWORD" \
+  --url https://es-airgapped:9200
+</code></pre>
+
+<h2 id="step-10-离線-fleet-server">Step 10：離線 Fleet Server</h2>
+
+<p>Fleet Server 是 Elastic Agent 的中央管理元件。在 air-gapped 環境同樣不能連 elastic.co，必須：</p>
+
+<ol>
+  <li>使用內部 registry 的 elastic-agent image</li>
+  <li>設定 Kibana 的 fleet 為 air-gapped 模式（上節）</li>
+  <li>Agent enrollment 時用內部 Fleet Server 位址</li>
+</ol>
+
+<pre><code class="language-bash">docker run -d \
+  --name fleet-server \
+  --net host \
+  -e FLEET_SERVER_ENABLE=1 \
+  -e FLEET_SERVER_ELASTICSEARCH_HOST=https://es-airgapped:9200 \
+  -e FLEET_URL=https://fleet-server.internal.example.com:8220 \
+  -e FLEET_SERVER_SERVICE_TOKEN=$SERVICE_TOKEN \
+  registry.internal.example.com/elastic-agent/elastic-agent:9.3.4
+</code></pre>
+
+<h2 id="升級流程">Air-gapped 升級流程</h2>
+
+<p>每次升級都重複完整流程：</p>
+
+<ol>
+  <li>連網區下載新版本所有 artifacts</li>
+  <li>透過跨網閘傳輸到 air-gapped 區</li>
+  <li>推上內部 Mirror / Registry</li>
+  <li>逐一升級：先 ES → Kibana → Beats / Agent → 升級 ECK Operator（若用）</li>
+  <li>若有付費授權：確認新版本仍在訂閱有效期</li>
+</ol>
+
+<div class="callout warning">
+  <strong>⚠️ 規劃緩衝</strong>
+  Air-gapped 升級前，必須在連網的 staging 環境完整跑過一遍升級流程，確認沒有相容性問題後再進入 production。
+</div>
+
+<h2 id="常見問題-airgapped">常見問題</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>症狀</th><th>處理</th></tr></thead>
+  <tbody>
+    <tr><td>Kibana log 出現 connection refused 至 epr.elastic.co</td><td>未設 <code>xpack.fleet.registryUrl</code> 或內部 EPR 未啟動</td></tr>
+    <tr><td>ECK Operator 拉 image 失敗</td><td>沒設 <code>--container-registry</code> 或 imagePullSecret 未配</td></tr>
+    <tr><td>Plugin install 失敗 unknown plugin</td><td>需用 <code>install file:///path/to/plugin.zip</code> 而非 plugin name</td></tr>
+    <tr><td>授權過期</td><td>從 Elastic 取得新 license.json，PUT 到 <code>/_license</code></td></tr>
+    <tr><td>Telemetry 嘗試外連</td><td>kibana.yml 設 <code>telemetry.enabled: false</code></td></tr>
+    <tr><td>ML model download 失敗</td><td>用 Eland 離線匯入</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="本章重點回顧">本章重點回顧</h2>
+
+<ul>
+  <li>Air-gapped 部署需要在連網區下載完整 artifacts，透過跨網閘傳輸後推上內部 Mirror</li>
+  <li>內部 Mirror 包含三類：Docker registry（Harbor/Nexus）、套件 repo（aptly/createrepo）、ECK manifest</li>
+  <li>ECK Operator 的 <code>--container-registry</code> 旗標讓所有子資源自動使用內部 registry</li>
+  <li>授權：basic 自動產生；付費訂閱用 <code>PUT /_license</code> 離線安裝</li>
+  <li>Elastic Package Registry 在 air-gapped 必須內部部署，並設 <code>xpack.fleet.registryUrl</code></li>
+  <li>ML models 用 Eland 離線匯入</li>
+  <li>每次升級都需重新走完整流程；建議有 staging 環境先驗證</li>
+  <li>關閉 telemetry 避免外連嘗試</li>
+</ul>
+
+<h2 id="本章結語">第二批完結 🎉</h2>
+
+<p>恭喜！你已完成 Part 2 安裝與部署的所有內容。從硬體規劃、bootstrap checks、各 OS 安裝、Docker、三大公有雲 K8s、Kibana、到 air-gapped 環境，你應該能在任何場景部署 Elastic Stack 了。</p>
+
+<p>下一批 <strong>Part 3 · 設定與安全</strong> 將深入：</p>
+<ul>
+  <li>elasticsearch.yml 全面設定詳解</li>
+  <li>JVM 與 GC 調校</li>
+  <li>TLS 完整配置（含自簽 PKI）</li>
+  <li>使用者、角色、API key</li>
+  <li>AD / LDAP / SAML / OIDC 整合</li>
+  <li>稽核日誌</li>
+  <li>欄位/文件級別安全</li>
+  <li>FIPS 模式</li>
+</ul>
+
+<h2 id="延伸閱讀">延伸閱讀</h2>
+
+<ul>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/deploy/cloud-on-k8s/air-gapped-environments" target="_blank" rel="noopener">ECK in Air-gapped Environments</a></li>
+  <li><a href="https://www.elastic.co/guide/en/fleet/current/air-gapped.html" target="_blank" rel="noopener">Fleet & Elastic Agent in Air-gapped Environments</a></li>
+  <li><a href="https://github.com/elastic/eland" target="_blank" rel="noopener">Eland Tool</a></li>
+</ul>
+
+<nav class="bottom-nav"><a class="prev" href="ch15-install-kibana.html"><span class="nav-label">← 上一章</span><span class="nav-title">Kibana 安裝</span></a><a class="next" href="ch17-elasticsearch-yml.html"><span class="nav-label">下一章 →</span><span class="nav-title">elasticsearch.yml 完整設定</span></a></nav>
+</main>
+<aside class="toc">
+  <div class="toc-title">本章目錄</div>
+  <ul></ul>
+</aside>
+</div>
+<footer>
+  <p>Elasticsearch Self-Managed 完整教學文件 · 基於 Elastic Stack 9.x（最新 9.3.4）<br>
+  資料來源：<a href="https://www.elastic.co/docs" target="_blank" rel="noopener">Elastic 官方文件</a> · 最後更新：2026-05</p>
+</footer>
+</body>
+</html>

@@ -1,0 +1,1495 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Query DSL、term vs match、bool query、filter context、BM25 計分">
+<title>CH 36 · Query DSL 基礎</title>
+<style>
+/* ============================================================
+   JHsun TechDocs — Unified Design Token Layer
+   v1.0 · Calm Teal (hue 200° / chroma 0.11)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+
+  --color-success:        #16a34a;
+  --color-success-soft:   #dcfce7;
+  --color-warning:        #d97706;
+  --color-warning-soft:   #fef3c7;
+  --color-danger:         #dc2626;
+  --color-danger-soft:    #fee2e2;
+  --color-info:           #0891b2;
+  --color-info-soft:      #cffafe;
+  --color-neutral-accent: #7c3aed;
+
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+
+  --font-mono:       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:       "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif:      "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  32px;
+  --text-3xl:  44px;
+  --text-4xl:  64px;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+
+  --container-narrow: 720px;
+  --container-wide:   1280px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+
+:root[data-theme="dark"] {
+  --color-success:        #4ade80;
+  --color-success-soft:   oklch(0.30 0.08 145);
+  --color-warning:        #fbbf24;
+  --color-warning-soft:   oklch(0.32 0.10 70);
+  --color-danger:         #f87171;
+  --color-danger-soft:    oklch(0.32 0.10 27);
+  --color-info:           #22d3ee;
+  --color-info-soft:      oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.16 0.008 50);
+  --bg-surface:     oklch(0.20 0.009 50);
+  --bg-muted:       oklch(0.23 0.010 50);
+  --bg-code:        oklch(0.18 0.009 50);
+  --border-soft:    oklch(0.28 0.010 50);
+  --border-mid:     oklch(0.36 0.012 50);
+  --text-primary:   oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted:     oklch(0.58 0.007 60);
+
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+
+/* ============== Chapter shared styles ============== */
+* { box-sizing: border-box; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+@media (min-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 240px; gap: var(--space-7); }
+}
+main { min-width: 0; padding: var(--space-6) 0; }
+main.prose { max-width: var(--container-narrow); margin: 0 auto; }
+
+/* Top navigation */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: color-mix(in oklch, var(--bg-canvas) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.topbar-inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.brand {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-primary-text);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+.nav-links { display: flex; gap: var(--space-2); margin-left: auto; align-items: center; }
+.nav-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  transition: all 0.15s;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--bg-muted); }
+.nav-links a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Theme toggle button */
+[data-theme-toggle] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  transition: all 0.15s;
+}
+[data-theme-toggle]:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.theme-icon { font-size: var(--text-base); }
+
+/* Headings */
+h1, h2, h3, h4 {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  line-height: 1.3;
+  margin-top: var(--space-7);
+  margin-bottom: var(--space-4);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+h1 { font-size: var(--text-3xl); margin-top: var(--space-5); }
+h2 { font-size: var(--text-2xl); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-soft); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-md); color: var(--text-secondary); }
+
+p { margin: var(--space-4) 0; color: var(--text-primary); }
+
+/* Inline code */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+  border: 1px solid var(--border-soft);
+}
+
+/* Code block */
+.code-wrap {
+  position: relative;
+  margin: var(--space-4) 0;
+}
+.code-wrap > .code-lang {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.code-wrap > .copy-btn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 4px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  transition: all 0.15s;
+  opacity: 0;
+}
+.code-wrap:hover > .copy-btn { opacity: 1; }
+.code-wrap > .copy-btn:hover {
+  background: var(--color-primary);
+  color: var(--bg-canvas);
+  border-color: var(--color-primary);
+}
+.code-wrap > .copy-btn.copied {
+  background: var(--color-success);
+  color: white;
+  border-color: var(--color-success);
+  opacity: 1;
+}
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-7) var(--space-4) var(--space-4);
+  overflow-x: auto;
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  margin: 0;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: var(--text-primary);
+  font-size: inherit;
+}
+
+/* Lists */
+ul, ol { padding-left: var(--space-6); }
+li { margin: var(--space-2) 0; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: var(--space-4) 0; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+th, td {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+}
+th { background: var(--bg-muted); font-weight: 600; color: var(--text-primary); }
+tr:last-child td { border-bottom: none; }
+
+/* Callouts */
+.callout {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  border-left: 4px solid var(--color-info);
+  background: var(--color-info-soft);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+.callout.warning { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.danger  { border-color: var(--color-danger);  background: var(--color-danger-soft); }
+.callout.success { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout strong { display: block; margin-bottom: var(--space-2); }
+:root[data-theme="dark"] .callout { color: var(--text-primary); }
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: 999px;
+  margin-right: var(--space-1);
+  letter-spacing: 0.02em;
+}
+.badge.beginner { background: var(--color-success-soft); color: var(--color-success); }
+.badge.developer { background: var(--color-info-soft); color: var(--color-info); }
+.badge.operator { background: var(--color-warning-soft); color: var(--color-warning); }
+.badge.advanced { background: var(--color-primary-soft); color: var(--color-primary-text); }
+:root[data-theme="dark"] .badge { filter: brightness(1.1); }
+
+/* Chapter meta */
+.chapter-meta {
+  margin: var(--space-4) 0 var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.chapter-meta .meta-row { margin: var(--space-1) 0; }
+.chapter-meta .meta-label {
+  display: inline-block;
+  width: 70px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* TOC sidebar */
+.toc {
+  position: sticky;
+  top: 80px;
+  align-self: start;
+  font-size: var(--text-sm);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  padding: var(--space-4) 0;
+  display: none;
+}
+@media (min-width: 1100px) {
+  .toc { display: block; }
+}
+.toc-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.toc ul { list-style: none; padding-left: 0; margin: 0; }
+.toc li { margin: 0; }
+.toc a {
+  display: block;
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-left: 2px solid var(--border-soft);
+  transition: all 0.15s;
+  line-height: 1.5;
+}
+.toc a:hover { color: var(--color-primary); border-left-color: var(--color-primary); }
+.toc a.toc-h3 { padding-left: var(--space-5); font-size: 0.92em; color: var(--text-muted); }
+
+/* Bottom nav */
+.bottom-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  margin-top: var(--space-8);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.bottom-nav a {
+  flex: 1;
+  min-width: 200px;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.bottom-nav a:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.bottom-nav .nav-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.bottom-nav .nav-title { font-weight: 600; color: var(--text-primary); }
+.bottom-nav a.next { text-align: right; }
+.bottom-nav a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Footer */
+footer {
+  text-align: center;
+  padding: var(--space-7) var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  border-top: 1px solid var(--border-soft);
+  margin-top: var(--space-8);
+}
+footer a { color: var(--color-primary); text-decoration: none; }
+
+/* Index page specific */
+.hero {
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+  background: linear-gradient(135deg, var(--color-primary-soft) 0%, var(--bg-canvas) 100%);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: var(--space-7);
+}
+.hero h1 {
+  font-size: var(--text-4xl);
+  margin: 0 0 var(--space-4);
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.02em;
+}
+.hero p { font-size: var(--text-md); color: var(--text-secondary); max-width: 720px; margin: 0 auto; }
+.hero .meta {
+  margin-top: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.path-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  margin: var(--space-6) 0;
+}
+@media (min-width: 768px) { .path-grid { grid-template-columns: repeat(3, 1fr); } }
+.path-card {
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  transition: all 0.2s;
+}
+.path-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-md); }
+.path-card .path-icon { font-size: 32px; display: block; margin-bottom: var(--space-3); }
+.path-card h3 { margin: 0 0 var(--space-2); font-size: var(--text-lg); }
+.path-card .path-flow {
+  margin-top: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.part {
+  margin: var(--space-7) 0;
+}
+.part-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--color-primary);
+}
+.part-header .part-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.part-header h2 { margin: 0; border: none; padding: 0; }
+
+.chapter-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+@media (min-width: 700px)  { .chapter-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1100px) { .chapter-grid { grid-template-columns: repeat(3, 1fr); } }
+.chapter-card {
+  display: block;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.chapter-card:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  transform: translateY(-1px);
+}
+.chapter-card .ch-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+.chapter-card .ch-title {
+  display: block;
+  margin: var(--space-2) 0;
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+.chapter-card .ch-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--space-2);
+}
+.chapter-card .ch-badges { font-size: 11px; }
+
+
+/* Mermaid container */
+.mermaid-wrap {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-wrap .mermaid {
+  display: inline-block;
+  min-width: 100%;
+}
+.mermaid-caption {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+/* Hide raw mermaid source until rendered */
+.mermaid:not([data-processed="true"]) {
+  visibility: hidden;
+  min-height: 1em;
+}
+
+</style>
+<script>
+/* JHsun TechDocs — Theme toggle v1.0 */
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+
+</script>
+<script>
+
+// Copy-to-clipboard for all <pre> blocks
+(function () {
+  function init() {
+    document.querySelectorAll('main pre').forEach(function (pre) {
+      if (pre.parentElement.classList.contains('code-wrap')) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'code-wrap';
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
+      const lang = pre.querySelector('code')?.className.match(/language-(\w+)/)?.[1];
+      if (lang) {
+        const tag = document.createElement('span');
+        tag.className = 'code-lang';
+        tag.textContent = lang;
+        wrap.appendChild(tag);
+      }
+      const btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.type = 'button';
+      btn.textContent = '📋 複製';
+      btn.addEventListener('click', function () {
+        const text = pre.innerText;
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(text).then(success).catch(fallback);
+        } else {
+          fallback();
+        }
+        function success() {
+          btn.textContent = '✓ 已複製';
+          btn.classList.add('copied');
+          setTimeout(function () { btn.textContent = '📋 複製'; btn.classList.remove('copied'); }, 1800);
+        }
+        function fallback() {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); success(); } catch (_) {}
+          document.body.removeChild(ta);
+        }
+      });
+      wrap.appendChild(btn);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+// Auto-build TOC from h2/h3 in <main>
+(function () {
+  function init() {
+    const toc = document.querySelector('.toc ul');
+    if (!toc) return;
+    const headings = document.querySelectorAll('main h2, main h3');
+    headings.forEach(function (h) {
+      if (!h.id) {
+        h.id = h.textContent.trim().toLowerCase()
+          .replace(/[^\w\u4e00-\u9fff\s-]/g, '')
+          .replace(/\s+/g, '-');
+      }
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = '#' + h.id;
+      a.textContent = h.textContent;
+      a.className = 'toc-' + h.tagName.toLowerCase();
+      li.appendChild(a);
+      toc.appendChild(li);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+
+// Mermaid initialization with theme sync
+(function () {
+  function getMermaidTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default';
+  }
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    const cs = getComputedStyle(document.documentElement);
+    return {
+      startOnLoad: false,
+      theme: isDark ? 'dark' : 'default',
+      themeVariables: {
+        fontFamily: cs.getPropertyValue('--font-sans').trim() || 'DM Sans, sans-serif',
+        fontSize: '14px',
+        primaryColor: isDark ? '#1e3a4a' : '#e0f2fe',
+        primaryTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        primaryBorderColor: isDark ? '#5fb3d4' : '#0891b2',
+        lineColor: isDark ? '#7aa3b8' : '#475569',
+        secondaryColor: isDark ? '#2a3f4f' : '#f1f5f9',
+        tertiaryColor: isDark ? '#1a2530' : '#fafafa',
+        background: isDark ? '#1e2a35' : '#ffffff',
+        mainBkg: isDark ? '#243441' : '#ecfeff',
+        secondBkg: isDark ? '#1a2530' : '#f8fafc',
+        nodeBorder: isDark ? '#5fb3d4' : '#0891b2',
+        clusterBkg: isDark ? '#1a2530' : '#f1f5f9',
+        clusterBorder: isDark ? '#3a5260' : '#cbd5e1',
+        defaultLinkColor: isDark ? '#7aa3b8' : '#475569',
+        titleColor: isDark ? '#e6f2f8' : '#0f172a',
+        edgeLabelBackground: isDark ? '#243441' : '#ffffff',
+        actorBkg: isDark ? '#243441' : '#ecfeff',
+        actorBorder: isDark ? '#5fb3d4' : '#0891b2',
+        actorTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        actorLineColor: isDark ? '#5fb3d4' : '#0891b2',
+        signalColor: isDark ? '#7aa3b8' : '#334155',
+        signalTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        labelBoxBkgColor: isDark ? '#1a2530' : '#fef3c7',
+        labelBoxBorderColor: isDark ? '#a89060' : '#d97706',
+        labelTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        loopTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        noteBkgColor: isDark ? '#3a4f3a' : '#fef3c7',
+        noteBorderColor: isDark ? '#86c598' : '#d97706',
+        noteTextColor: isDark ? '#e6f2f8' : '#0f172a',
+      },
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true, showSequenceNumbers: false, mirrorActors: true, bottomMarginAdj: 10 },
+    };
+  }
+
+  let renderCounter = 0;
+  async function renderAll() {
+    if (typeof mermaid === 'undefined') return;
+    renderCounter++;
+    const myCounter = renderCounter;
+    mermaid.initialize(getMermaidConfig());
+    const blocks = document.querySelectorAll('.mermaid');
+    for (const el of blocks) {
+      // restore source if already rendered
+      if (el.dataset.source) el.innerHTML = el.dataset.source;
+      else el.dataset.source = el.innerHTML;
+      el.removeAttribute('data-processed');
+    }
+    if (myCounter !== renderCounter) return;
+    try {
+      await mermaid.run({ querySelector: '.mermaid' });
+    } catch (e) { console.warn('Mermaid render error', e); }
+  }
+
+  function init() {
+    renderAll();
+    window.addEventListener('jhsun:theme-changed', renderAll);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="ch00-elasticsearch-index.html">ES Self-Managed Docs</a>
+    <nav class="nav-links">
+      <a href="ch35-failure-store.html" aria-label="上一章">← 上一章</a>
+      <a href="ch00-elasticsearch-index.html" aria-label="回首頁">首頁</a>
+      <a href="ch37-search-api.html" aria-label="下一章">下一章 →</a>
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </nav>
+  </div>
+</header>
+<div class="layout">
+<main class="prose">
+
+<h1>CH 36 · Query DSL 基礎</h1>
+
+<div class="chapter-meta">
+  <div class="meta-row"><span class="meta-label">適合對象</span>
+    <span class="badge beginner">🟢 初學者</span>
+    <span class="badge developer">🟡 開發者</span>
+  </div>
+  <div class="meta-row"><span class="meta-label">閱讀時間</span> 約 30 分鐘</div>
+  <div class="meta-row"><span class="meta-label">前置知識</span> CH 26 mapping、CH 27 analyzers</div>
+  <div class="meta-row"><span class="meta-label">本章目標</span> 認識 Query DSL 兩大上下文、term vs match、bool 組合、filter context、scoring 概念、常用 query 速查</div>
+</div>
+
+<h2 id="兩大-context">Query Context vs Filter Context</h2>
+
+<p>ES Query DSL 的查詢分為兩種「上下文」，影響是否計分與是否 cache：</p>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart LR
+    subgraph QC["📊 Query Context"]
+      direction TB
+      Q1["計算 _score (相關性)"]
+      Q2["不 cache"]
+      Q3["全文搜尋首選<br/>(match, multi_match)"]
+    end
+
+    subgraph FC["✅ Filter Context"]
+      direction TB
+      F1["不計分<br/>(constant_score=1.0)"]
+      F2["✅ 結果 cache"]
+      F3["精確比對首選<br/>(term, range, exists)"]
+    end
+
+    Req["Query"] --> QC
+    Req --> FC
+
+    classDef qctx fill:#fed7aa,stroke:#ea580c,color:#0f172a
+    classDef fctx fill:#dcfce7,stroke:#16a34a,color:#0f172a,stroke-width:2px
+    class Q1,Q2,Q3 qctx
+    class F1,F2,F3 fctx
+</pre>
+<div class="mermaid-caption">圖 36-1：Query Context vs Filter Context 的差異</div>
+</div>
+
+<div class="callout success">
+  <strong>✅ 黃金法則</strong>
+  <ul>
+    <li>需要計算「相關性分數」 → query context（用 must）</li>
+    <li>純條件過濾（yes/no） → filter context（用 filter）</li>
+    <li>filter 結果會 cache，效能遠勝 query</li>
+  </ul>
+</div>
+
+<h2 id="search-api-基本">Search API 基本結構</h2>
+
+<pre><code class="language-bash">curl -X POST -u elastic:xxx --cacert ca.crt \
+  -H 'Content-Type: application/json' \
+  "https://localhost:9200/products/_search?pretty" -d '
+{
+  "from": 0,
+  "size": 10,
+  "_source": [ "name", "price", "category" ],
+  "sort":   [ { "price": "asc" }, "_score" ],
+  "query": {
+    "bool": {
+      "must":   [ { "match": { "description": "wireless headphones" } } ],
+      "filter": [
+        { "term":  { "category": "electronics" } },
+        { "range": { "price": { "lte": 200 } } }
+      ]
+    }
+  }
+}'
+</code></pre>
+
+<h3 id="response-結構">Response 結構</h3>
+
+<pre><code class="language-json">{
+  "took": 12,                     // 毫秒
+  "timed_out": false,
+  "_shards": { "total": 5, "successful": 5, "failed": 0 },
+  "hits": {
+    "total":     { "value": 142, "relation": "eq" },
+    "max_score": 8.347,
+    "hits": [
+      {
+        "_index":  "products",
+        "_id":     "1",
+        "_score":  8.347,
+        "_source": { "name": "...", "price": 99.99, "category": "electronics" }
+      },
+      ...
+    ]
+  }
+}
+</code></pre>
+
+<h2 id="match-vs-term">最重要：match vs term</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Query</th><th>是否 analyzed</th><th>用途</th></tr></thead>
+  <tbody>
+    <tr><td><code>term</code></td><td>❌（精確比對）</td><td>keyword、numeric、boolean、ID</td></tr>
+    <tr><td><code>match</code></td><td>✅（過 analyzer）</td><td>text 全文搜尋</td></tr>
+    <tr><td><code>match_phrase</code></td><td>✅</td><td>連續詞組（"new york"）</td></tr>
+    <tr><td><code>multi_match</code></td><td>✅</td><td>跨多欄位 match</td></tr>
+    <tr><td><code>terms</code></td><td>❌</td><td>多個值的 IN 查詢</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 id="term-範例">term：精確比對</h3>
+
+<pre><code class="language-json">{
+  "query": {
+    "term": {
+      "category": "electronics"
+    }
+  }
+}
+</code></pre>
+
+<div class="callout warning">
+  <strong>⚠️ 常見陷阱：在 text 欄位用 term</strong>
+  <pre><code class="language-json">{ "term": { "title": "Hello World" } }   // ❌ 大概率搜不到</code></pre>
+  原因：title（text）已被 analyzer 切成 ["hello", "world"]，但 term 不分析 query，所以找不到 "Hello World" 完整字串。
+  <br>正解：用 <code>title.keyword</code>（multi-field）或改用 <code>match</code>。
+</div>
+
+<h3 id="match-範例">match：全文搜尋</h3>
+
+<pre><code class="language-json">{
+  "query": {
+    "match": {
+      "description": "wireless bluetooth headphones"
+    }
+  }
+}
+
+// 進階：指定 operator 與 minimum_should_match
+{
+  "query": {
+    "match": {
+      "description": {
+        "query":    "wireless bluetooth headphones",
+        "operator": "and",                     // 預設 or
+        "minimum_should_match": "75%",
+        "fuzziness": "AUTO"                    // 容錯
+      }
+    }
+  }
+}
+</code></pre>
+
+<h3 id="match-phrase">match_phrase：連續詞組</h3>
+
+<pre><code class="language-json">{
+  "query": {
+    "match_phrase": {
+      "title": {
+        "query": "new york city",
+        "slop":  1                  // 允許 1 個 token 偏移
+      }
+    }
+  }
+}
+</code></pre>
+
+<h3 id="multi-match">multi_match：跨多欄位</h3>
+
+<pre><code class="language-json">{
+  "query": {
+    "multi_match": {
+      "query":  "elasticsearch tutorial",
+      "fields": [ "title^3", "description^1", "tags^2" ],   // ^N 為 boost
+      "type":   "best_fields"     // 或 most_fields, cross_fields, phrase, phrase_prefix
+    }
+  }
+}
+</code></pre>
+
+<h3 id="multi-match-types">multi_match 的 type 選擇</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>type</th><th>行為</th><th>適用</th></tr></thead>
+  <tbody>
+    <tr><td><code>best_fields</code>（預設）</td><td>取分數最高的欄位</td><td>單一概念分散在多欄位</td></tr>
+    <tr><td><code>most_fields</code></td><td>所有欄位分數加總</td><td>同義欄位（title.en + title.zh）</td></tr>
+    <tr><td><code>cross_fields</code></td><td>把多欄位視為一個大欄位</td><td>結構化資料（first_name + last_name）</td></tr>
+    <tr><td><code>phrase</code></td><td>每欄位都用 match_phrase</td><td>連續詞組</td></tr>
+    <tr><td><code>phrase_prefix</code></td><td>類似 phrase + 最後 token 用 prefix</td><td>autocomplete</td></tr>
+    <tr><td><code>bool_prefix</code></td><td>類似 most_fields + 最後 prefix</td><td>autocomplete 變體</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="bool-query">bool Query：組合查詢</h2>
+
+<p>幾乎所有複雜查詢都用 bool 組合：</p>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TB
+    Bool["bool query"]
+
+    Must["must<br/>必須匹配<br/>(計分)"]
+    Should["should<br/>應該匹配<br/>(計分加成)"]
+    Filter["filter<br/>必須匹配<br/>(不計分, cache)"]
+    MustNot["must_not<br/>不能匹配<br/>(不計分)"]
+
+    Bool --> Must
+    Bool --> Should
+    Bool --> Filter
+    Bool --> MustNot
+
+    classDef must fill:#dcfce7,stroke:#16a34a,color:#0f172a
+    classDef should fill:#cffafe,stroke:#0891b2,color:#0f172a
+    classDef filter fill:#fef3c7,stroke:#d97706,color:#0f172a
+    classDef notc fill:#fee2e2,stroke:#dc2626,color:#0f172a
+    class Must must
+    class Should should
+    class Filter filter
+    class MustNot notc
+</pre>
+<div class="mermaid-caption">圖 36-2：bool 四個 clause 用途</div>
+</div>
+
+<h3 id="bool-完整範例">完整範例</h3>
+
+<pre><code class="language-json">{
+  "query": {
+    "bool": {
+      "must": [
+        { "match": { "description": "wireless headphones" } }
+      ],
+      "should": [
+        { "match": { "brand":   "sony" } },
+        { "match": { "feature": "noise cancelling" } }
+      ],
+      "minimum_should_match": 1,
+      "filter": [
+        { "term":  { "category":  "electronics" } },
+        { "term":  { "in_stock":  true } },
+        { "range": { "price":     { "gte": 50, "lte": 500 } } }
+      ],
+      "must_not": [
+        { "term": { "discontinued": true } }
+      ]
+    }
+  }
+}
+</code></pre>
+
+<h3 id="bool-規則速查">語意規則速查</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Clause</th><th>必須匹配</th><th>影響分數</th><th>結果 cache</th></tr></thead>
+  <tbody>
+    <tr><td>must</td><td>✅</td><td>✅</td><td>❌</td></tr>
+    <tr><td>filter</td><td>✅</td><td>❌</td><td>✅</td></tr>
+    <tr><td>should</td><td>非必要（依 minimum_should_match）</td><td>✅</td><td>❌</td></tr>
+    <tr><td>must_not</td><td>反向匹配</td><td>❌</td><td>✅（filter context）</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="range-exists-prefix">Range / Exists / Prefix</h2>
+
+<h3 id="range">range：範圍查詢</h3>
+
+<pre><code class="language-json">{
+  "query": {
+    "range": {
+      "price": {
+        "gte": 50,
+        "lt":  500
+      }
+    }
+  }
+}
+
+// Date 範圍
+{
+  "query": {
+    "range": {
+      "@timestamp": {
+        "gte": "now-7d/d",            // 7 天前的日初
+        "lt":  "now/d",
+        "time_zone": "+08:00",
+        "format": "yyyy-MM-dd"
+      }
+    }
+  }
+}
+</code></pre>
+
+<p>Date Math 速查：</p>
+
+<ul>
+  <li><code>now</code>、<code>now-1d</code>、<code>now-7d/d</code>（rounded down to day）</li>
+  <li><code>now+1h</code>、<code>now/M</code>（month start）</li>
+  <li>單位：y、M、w、d、h、H、m、s、ms</li>
+</ul>
+
+<h3 id="exists-missing">exists：欄位存在</h3>
+
+<pre><code class="language-json">{ "query": { "exists": { "field": "email" } } }
+
+// 找「沒有」某欄位
+{
+  "query": {
+    "bool": {
+      "must_not": [ { "exists": { "field": "email" } } ]
+    }
+  }
+}
+</code></pre>
+
+<h3 id="prefix-wildcard">prefix / wildcard / regexp</h3>
+
+<pre><code class="language-json">// prefix：前綴（用於 keyword）
+{ "query": { "prefix": { "user_id": "user_" } } }
+
+// wildcard：通配（小心，慢）
+{ "query": { "wildcard": { "filename": "*.log" } } }
+
+// regexp：正則
+{ "query": { "regexp": { "user_id": "user_[0-9]+" } } }
+</code></pre>
+
+<div class="callout warning">
+  <strong>⚠️ wildcard / regexp 開頭通配很慢</strong>
+  <code>*foo</code> 需要掃所有 term，效能差。建議：
+  <ul>
+    <li>用 <code>wildcard</code> 型別欄位（CH 26）</li>
+    <li>反向 token：建立 reversed analyzer 把字串反過來索引，把 <code>*ing</code> 變成 <code>gni*</code></li>
+  </ul>
+</div>
+
+<h2 id="ids-query">ids：依 ID 取多筆</h2>
+
+<pre><code class="language-json">{
+  "query": {
+    "ids": {
+      "values": [ "1", "2", "3" ]
+    }
+  }
+}
+</code></pre>
+
+<p>等同於 _mget，但可在 search context 用（與其他條件組合）。</p>
+
+<h2 id="match-all-none">match_all / match_none</h2>
+
+<pre><code class="language-json">{ "query": { "match_all": { } } }    // 全部
+{ "query": { "match_none": { } } }   // 空
+</code></pre>
+
+<h2 id="aggregation-with-query">與 Aggregation 同用</h2>
+
+<pre><code class="language-json">{
+  "size": 0,                     // 不要回 hits，純 aggregation
+  "query": {
+    "bool": {
+      "filter": [
+        { "range": { "@timestamp": { "gte": "now-7d" } } }
+      ]
+    }
+  },
+  "aggs": {
+    "by_category": {
+      "terms": { "field": "category", "size": 10 },
+      "aggs": {
+        "avg_price": { "avg": { "field": "price" } }
+      }
+    }
+  }
+}
+</code></pre>
+
+<p>詳見 CH 38 aggregations。</p>
+
+<h2 id="boost-與計分">Boost 與計分控制</h2>
+
+<h3 id="field-boost">欄位 boost（multi_match）</h3>
+
+<pre><code class="language-json">{
+  "multi_match": {
+    "query": "elasticsearch",
+    "fields": [ "title^3", "description^1" ]    // title 加權 3 倍
+  }
+}
+</code></pre>
+
+<h3 id="query-boost">Query 層 boost</h3>
+
+<pre><code class="language-json">{
+  "bool": {
+    "should": [
+      { "match": { "title":       { "query": "elasticsearch", "boost": 2.0 } } },
+      { "match": { "description": "elasticsearch" } }
+    ]
+  }
+}
+</code></pre>
+
+<h3 id="constant-score">constant_score：固定分數</h3>
+
+<pre><code class="language-json">{
+  "query": {
+    "constant_score": {
+      "filter": { "term": { "category": "electronics" } },
+      "boost":  1.5
+    }
+  }
+}
+</code></pre>
+
+<h3 id="function-score">function_score：自訂計分</h3>
+
+<pre><code class="language-json">{
+  "query": {
+    "function_score": {
+      "query": { "match": { "description": "phone" } },
+      "functions": [
+        {
+          "filter": { "match": { "brand": "apple" } },
+          "weight": 2.0
+        },
+        {
+          "field_value_factor": {
+            "field":    "popularity",
+            "modifier": "log1p",
+            "factor":   1.2,
+            "missing":  1
+          }
+        },
+        {
+          "gauss": {
+            "release_date": {
+              "origin": "now",
+              "scale":  "30d",
+              "decay":  0.5
+            }
+          }
+        }
+      ],
+      "score_mode": "sum",          // 各 function 分數的合併方式
+      "boost_mode": "multiply"       // function 與 query 分數的合併方式
+    }
+  }
+}
+</code></pre>
+
+<h2 id="explain-api">Explain：為何這個分數？</h2>
+
+<pre><code class="language-bash"># 看為什麼某文件得這個分
+curl -X POST -u elastic:xxx --cacert ca.crt \
+  -H 'Content-Type: application/json' \
+  "https://localhost:9200/products/_explain/1?pretty" -d '
+{
+  "query": { "match": { "description": "wireless" } }
+}'
+
+# 在 search 中加 explain=true
+GET products/_search
+{
+  "explain": true,
+  "query": { ... }
+}
+</code></pre>
+
+<p>輸出包含 BM25 計算細節（tf、idf、boost、norm）。</p>
+
+<h2 id="bm25-簡介">BM25 計分簡介</h2>
+
+<p>9.x 預設用 BM25 計分（取代舊的 TF-IDF）。重點：</p>
+
+<ul>
+  <li><strong>TF</strong>（term frequency）：詞在文件中出現次數，<strong>有飽和點</strong>（避免長文章靠重複壓垮短文章）</li>
+  <li><strong>IDF</strong>（inverse document frequency）：詞在多少文件中出現，越少分數越高</li>
+  <li><strong>Length norm</strong>：短文件比長文件更具競爭力（可關閉 <code>norms: false</code>）</li>
+</ul>
+
+<h3 id="custom-similarity">自訂 similarity</h3>
+
+<pre><code class="language-json">{
+  "settings": {
+    "similarity": {
+      "my_bm25": {
+        "type": "BM25",
+        "k1":   1.5,        // 預設 1.2
+        "b":    0.5         // 預設 0.75（length normalization 強度）
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "title": {
+        "type":       "text",
+        "similarity": "my_bm25"
+      }
+    }
+  }
+}
+</code></pre>
+
+<h2 id="dis-max-query">dis_max：最佳欄位拉抬</h2>
+
+<p>對「相同概念在多個欄位」的場景，best_fields 即內部用 dis_max：</p>
+
+<pre><code class="language-json">{
+  "query": {
+    "dis_max": {
+      "queries": [
+        { "match": { "title":       "brown fox" } },
+        { "match": { "description": "brown fox" } }
+      ],
+      "tie_breaker": 0.3
+    }
+  }
+}
+</code></pre>
+
+<p>分數取最高欄位 + 其他欄位 × tie_breaker。</p>
+
+<h2 id="boosting-query">boosting：負面 boost</h2>
+
+<p>把符合 negative 條件的文件分數降低（但不剔除）：</p>
+
+<pre><code class="language-json">{
+  "query": {
+    "boosting": {
+      "positive": { "match": { "description": "headphones" } },
+      "negative": { "term":  { "brand": "no-name-brand" } },
+      "negative_boost": 0.3
+    }
+  }
+}
+</code></pre>
+
+<h2 id="nested-join">Nested 與 Parent-Child Query</h2>
+
+<h3 id="nested-query">Nested</h3>
+
+<pre><code class="language-json">{
+  "query": {
+    "nested": {
+      "path": "comments",
+      "query": {
+        "bool": {
+          "must": [
+            { "match": { "comments.author": "alice" } },
+            { "range": { "comments.stars":  { "gte": 4 } } }
+          ]
+        }
+      },
+      "score_mode": "avg",        // sum, max, min, none
+      "inner_hits": { }           // 取出 nested hit 細節
+    }
+  }
+}
+</code></pre>
+
+<h3 id="parent-child">has_parent / has_child（少用）</h3>
+
+<p>Join field（CH 26）對應的 query。但 join 會帶來顯著效能成本，盡量先考慮 denormalize。</p>
+
+<h2 id="geo-query">Geo Queries</h2>
+
+<pre><code class="language-json">// 座標範圍
+{
+  "query": {
+    "geo_bounding_box": {
+      "location": {
+        "top_left":     { "lat": 25.10, "lon": 121.50 },
+        "bottom_right": { "lat": 25.00, "lon": 121.60 }
+      }
+    }
+  }
+}
+
+// 距離
+{
+  "query": {
+    "geo_distance": {
+      "distance": "10km",
+      "location": { "lat": 25.03, "lon": 121.56 }
+    }
+  }
+}
+
+// 多邊形
+{
+  "query": {
+    "geo_polygon": {
+      "location": {
+        "points": [ ... ]
+      }
+    }
+  }
+}
+</code></pre>
+
+<h2 id="query-cache">Query Cache 與 Filter Cache</h2>
+
+<p>ES 自動 cache 以下：</p>
+
+<ul>
+  <li><strong>Shard request cache</strong>（<code>indices.requests.cache.size</code>，預設 1% heap）</li>
+  <li><strong>Query cache</strong>（filter context 的結果，<code>indices.queries.cache.size</code>，預設 10% heap）</li>
+</ul>
+
+<p>看 cache 命中率：</p>
+
+<pre><code class="language-bash">curl -u elastic:xxx --cacert ca.crt \
+  "https://localhost:9200/_nodes/stats/indices?human&pretty" | jq '.nodes[].indices.query_cache'
+</code></pre>
+
+<p>Cache hit 過低代表 filter 條件變化太多，難以 cache（如 timestamp 用 now 而非 now/d）。</p>
+
+<h2 id="best-practices">Query DSL 最佳實踐</h2>
+
+<ul>
+  <li><strong>能用 filter 就用 filter</strong>，效能 + cache 雙贏</li>
+  <li><strong>固定條件用 <code>now/d</code> 而非 <code>now</code></strong>，提升 cache 命中</li>
+  <li><strong>排序欄位確保有 doc_values</strong>（keyword/numeric/date 預設有，text 沒有）</li>
+  <li><strong>大量結果用 search_after / PIT</strong>（CH 37），不要 deep pagination</li>
+  <li><strong>aggregation only</strong> 場景設 <code>"size": 0</code></li>
+  <li><strong>明確指定 _source</strong>，省網路頻寬</li>
+  <li>用 <strong>profile API</strong> 找慢查詢瓶頸</li>
+  <li>避免 leading wildcard（<code>*foo</code>），改用 <code>wildcard</code> 欄位型別</li>
+  <li>慎用 <code>function_score</code>，會大幅降低 cache 效益</li>
+</ul>
+
+<h2 id="本章重點回顧">本章重點回顧</h2>
+
+<ul>
+  <li><strong>Query Context</strong> 計分但不 cache；<strong>Filter Context</strong> 不計分但 cache</li>
+  <li><code>term</code> 不 analyze 適合 keyword/numeric；<code>match</code> analyze 適合 text</li>
+  <li><strong>bool query</strong> 是組合王者：must（計分）+ filter（純條件）+ should（加成）+ must_not（排除）</li>
+  <li>multi_match 的 type 選擇影響跨欄位計分行為</li>
+  <li>9.x 預設 BM25 計分；可調 k1、b 參數</li>
+  <li>function_score 可加入欄位值、距離衰減等自訂邏輯</li>
+  <li>Geo / nested / parent-child 各有專用 query 語法</li>
+  <li>用 <code>explain</code> API 與 <code>profile</code> API 診斷分數與效能</li>
+</ul>
+
+<h2 id="延伸閱讀">延伸閱讀</h2>
+
+<ul>
+  <li><a href="https://www.elastic.co/docs/reference/query-languages/query-dsl" target="_blank" rel="noopener">Query DSL Reference</a></li>
+  <li><a href="https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-bool-query" target="_blank" rel="noopener">Bool query</a></li>
+  <li><a href="https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-function-score-query" target="_blank" rel="noopener">Function score query</a></li>
+</ul>
+
+<nav class="bottom-nav"><a class="prev" href="ch35-failure-store.html"><span class="nav-label">← 上一章</span><span class="nav-title">Failure Store 與資料品質保護</span></a><a class="next" href="ch37-search-api.html"><span class="nav-label">下一章 →</span><span class="nav-title">Search API 完整指南</span></a></nav>
+</main>
+<aside class="toc">
+  <div class="toc-title">本章目錄</div>
+  <ul></ul>
+</aside>
+</div>
+<footer>
+  <p>Elasticsearch Self-Managed 完整教學文件 · 基於 Elastic Stack 9.x（最新 9.3.4）<br>
+  資料來源：<a href="https://www.elastic.co/docs" target="_blank" rel="noopener">Elastic 官方文件</a> · 最後更新：2026-05</p>
+</footer>
+</body>
+</html>

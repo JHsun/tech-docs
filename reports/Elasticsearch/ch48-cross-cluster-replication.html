@@ -1,0 +1,1285 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="CCR 概念、uni/bi-directional、auto-follow、API key 模式、failover">
+<title>CH 48 · Cross-Cluster Replication (CCR)</title>
+<style>
+/* ============================================================
+   JHsun TechDocs — Unified Design Token Layer
+   v1.0 · Calm Teal (hue 200° / chroma 0.11)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+
+  --color-success:        #16a34a;
+  --color-success-soft:   #dcfce7;
+  --color-warning:        #d97706;
+  --color-warning-soft:   #fef3c7;
+  --color-danger:         #dc2626;
+  --color-danger-soft:    #fee2e2;
+  --color-info:           #0891b2;
+  --color-info-soft:      #cffafe;
+  --color-neutral-accent: #7c3aed;
+
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+
+  --font-mono:       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:       "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif:      "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  32px;
+  --text-3xl:  44px;
+  --text-4xl:  64px;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+
+  --container-narrow: 720px;
+  --container-wide:   1280px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+
+:root[data-theme="dark"] {
+  --color-success:        #4ade80;
+  --color-success-soft:   oklch(0.30 0.08 145);
+  --color-warning:        #fbbf24;
+  --color-warning-soft:   oklch(0.32 0.10 70);
+  --color-danger:         #f87171;
+  --color-danger-soft:    oklch(0.32 0.10 27);
+  --color-info:           #22d3ee;
+  --color-info-soft:      oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.16 0.008 50);
+  --bg-surface:     oklch(0.20 0.009 50);
+  --bg-muted:       oklch(0.23 0.010 50);
+  --bg-code:        oklch(0.18 0.009 50);
+  --border-soft:    oklch(0.28 0.010 50);
+  --border-mid:     oklch(0.36 0.012 50);
+  --text-primary:   oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted:     oklch(0.58 0.007 60);
+
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+
+/* ============== Chapter shared styles ============== */
+* { box-sizing: border-box; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+@media (min-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 240px; gap: var(--space-7); }
+}
+main { min-width: 0; padding: var(--space-6) 0; }
+main.prose { max-width: var(--container-narrow); margin: 0 auto; }
+
+/* Top navigation */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: color-mix(in oklch, var(--bg-canvas) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.topbar-inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.brand {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-primary-text);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+.nav-links { display: flex; gap: var(--space-2); margin-left: auto; align-items: center; }
+.nav-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  transition: all 0.15s;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--bg-muted); }
+.nav-links a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Theme toggle button */
+[data-theme-toggle] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  transition: all 0.15s;
+}
+[data-theme-toggle]:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.theme-icon { font-size: var(--text-base); }
+
+/* Headings */
+h1, h2, h3, h4 {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  line-height: 1.3;
+  margin-top: var(--space-7);
+  margin-bottom: var(--space-4);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+h1 { font-size: var(--text-3xl); margin-top: var(--space-5); }
+h2 { font-size: var(--text-2xl); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-soft); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-md); color: var(--text-secondary); }
+
+p { margin: var(--space-4) 0; color: var(--text-primary); }
+
+/* Inline code */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+  border: 1px solid var(--border-soft);
+}
+
+/* Code block */
+.code-wrap {
+  position: relative;
+  margin: var(--space-4) 0;
+}
+.code-wrap > .code-lang {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.code-wrap > .copy-btn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 4px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  transition: all 0.15s;
+  opacity: 0;
+}
+.code-wrap:hover > .copy-btn { opacity: 1; }
+.code-wrap > .copy-btn:hover {
+  background: var(--color-primary);
+  color: var(--bg-canvas);
+  border-color: var(--color-primary);
+}
+.code-wrap > .copy-btn.copied {
+  background: var(--color-success);
+  color: white;
+  border-color: var(--color-success);
+  opacity: 1;
+}
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-7) var(--space-4) var(--space-4);
+  overflow-x: auto;
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  margin: 0;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: var(--text-primary);
+  font-size: inherit;
+}
+
+/* Lists */
+ul, ol { padding-left: var(--space-6); }
+li { margin: var(--space-2) 0; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: var(--space-4) 0; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+th, td {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+}
+th { background: var(--bg-muted); font-weight: 600; color: var(--text-primary); }
+tr:last-child td { border-bottom: none; }
+
+/* Callouts */
+.callout {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  border-left: 4px solid var(--color-info);
+  background: var(--color-info-soft);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+.callout.warning { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.danger  { border-color: var(--color-danger);  background: var(--color-danger-soft); }
+.callout.success { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout strong { display: block; margin-bottom: var(--space-2); }
+:root[data-theme="dark"] .callout { color: var(--text-primary); }
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: 999px;
+  margin-right: var(--space-1);
+  letter-spacing: 0.02em;
+}
+.badge.beginner { background: var(--color-success-soft); color: var(--color-success); }
+.badge.developer { background: var(--color-info-soft); color: var(--color-info); }
+.badge.operator { background: var(--color-warning-soft); color: var(--color-warning); }
+.badge.advanced { background: var(--color-primary-soft); color: var(--color-primary-text); }
+:root[data-theme="dark"] .badge { filter: brightness(1.1); }
+
+/* Chapter meta */
+.chapter-meta {
+  margin: var(--space-4) 0 var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.chapter-meta .meta-row { margin: var(--space-1) 0; }
+.chapter-meta .meta-label {
+  display: inline-block;
+  width: 70px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* TOC sidebar */
+.toc {
+  position: sticky;
+  top: 80px;
+  align-self: start;
+  font-size: var(--text-sm);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  padding: var(--space-4) 0;
+  display: none;
+}
+@media (min-width: 1100px) {
+  .toc { display: block; }
+}
+.toc-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.toc ul { list-style: none; padding-left: 0; margin: 0; }
+.toc li { margin: 0; }
+.toc a {
+  display: block;
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-left: 2px solid var(--border-soft);
+  transition: all 0.15s;
+  line-height: 1.5;
+}
+.toc a:hover { color: var(--color-primary); border-left-color: var(--color-primary); }
+.toc a.toc-h3 { padding-left: var(--space-5); font-size: 0.92em; color: var(--text-muted); }
+
+/* Bottom nav */
+.bottom-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  margin-top: var(--space-8);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.bottom-nav a {
+  flex: 1;
+  min-width: 200px;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.bottom-nav a:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.bottom-nav .nav-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.bottom-nav .nav-title { font-weight: 600; color: var(--text-primary); }
+.bottom-nav a.next { text-align: right; }
+.bottom-nav a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Footer */
+footer {
+  text-align: center;
+  padding: var(--space-7) var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  border-top: 1px solid var(--border-soft);
+  margin-top: var(--space-8);
+}
+footer a { color: var(--color-primary); text-decoration: none; }
+
+/* Index page specific */
+.hero {
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+  background: linear-gradient(135deg, var(--color-primary-soft) 0%, var(--bg-canvas) 100%);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: var(--space-7);
+}
+.hero h1 {
+  font-size: var(--text-4xl);
+  margin: 0 0 var(--space-4);
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.02em;
+}
+.hero p { font-size: var(--text-md); color: var(--text-secondary); max-width: 720px; margin: 0 auto; }
+.hero .meta {
+  margin-top: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.path-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  margin: var(--space-6) 0;
+}
+@media (min-width: 768px) { .path-grid { grid-template-columns: repeat(3, 1fr); } }
+.path-card {
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  transition: all 0.2s;
+}
+.path-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-md); }
+.path-card .path-icon { font-size: 32px; display: block; margin-bottom: var(--space-3); }
+.path-card h3 { margin: 0 0 var(--space-2); font-size: var(--text-lg); }
+.path-card .path-flow {
+  margin-top: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.part {
+  margin: var(--space-7) 0;
+}
+.part-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--color-primary);
+}
+.part-header .part-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.part-header h2 { margin: 0; border: none; padding: 0; }
+
+.chapter-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+@media (min-width: 700px)  { .chapter-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1100px) { .chapter-grid { grid-template-columns: repeat(3, 1fr); } }
+.chapter-card {
+  display: block;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.chapter-card:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  transform: translateY(-1px);
+}
+.chapter-card .ch-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+.chapter-card .ch-title {
+  display: block;
+  margin: var(--space-2) 0;
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+.chapter-card .ch-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--space-2);
+}
+.chapter-card .ch-badges { font-size: 11px; }
+
+
+/* Mermaid container */
+.mermaid-wrap {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-wrap .mermaid {
+  display: inline-block;
+  min-width: 100%;
+}
+.mermaid-caption {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+/* Hide raw mermaid source until rendered */
+.mermaid:not([data-processed="true"]) {
+  visibility: hidden;
+  min-height: 1em;
+}
+
+</style>
+<script>
+/* JHsun TechDocs — Theme toggle v1.0 */
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+
+</script>
+<script>
+
+// Copy-to-clipboard for all <pre> blocks
+(function () {
+  function init() {
+    document.querySelectorAll('main pre').forEach(function (pre) {
+      if (pre.parentElement.classList.contains('code-wrap')) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'code-wrap';
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
+      const lang = pre.querySelector('code')?.className.match(/language-(\w+)/)?.[1];
+      if (lang) {
+        const tag = document.createElement('span');
+        tag.className = 'code-lang';
+        tag.textContent = lang;
+        wrap.appendChild(tag);
+      }
+      const btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.type = 'button';
+      btn.textContent = '📋 複製';
+      btn.addEventListener('click', function () {
+        const text = pre.innerText;
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(text).then(success).catch(fallback);
+        } else {
+          fallback();
+        }
+        function success() {
+          btn.textContent = '✓ 已複製';
+          btn.classList.add('copied');
+          setTimeout(function () { btn.textContent = '📋 複製'; btn.classList.remove('copied'); }, 1800);
+        }
+        function fallback() {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); success(); } catch (_) {}
+          document.body.removeChild(ta);
+        }
+      });
+      wrap.appendChild(btn);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+// Auto-build TOC from h2/h3 in <main>
+(function () {
+  function init() {
+    const toc = document.querySelector('.toc ul');
+    if (!toc) return;
+    const headings = document.querySelectorAll('main h2, main h3');
+    headings.forEach(function (h) {
+      if (!h.id) {
+        h.id = h.textContent.trim().toLowerCase()
+          .replace(/[^\w\u4e00-\u9fff\s-]/g, '')
+          .replace(/\s+/g, '-');
+      }
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = '#' + h.id;
+      a.textContent = h.textContent;
+      a.className = 'toc-' + h.tagName.toLowerCase();
+      li.appendChild(a);
+      toc.appendChild(li);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+
+// Mermaid initialization with theme sync
+(function () {
+  function getMermaidTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default';
+  }
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    const cs = getComputedStyle(document.documentElement);
+    return {
+      startOnLoad: false,
+      theme: isDark ? 'dark' : 'default',
+      themeVariables: {
+        fontFamily: cs.getPropertyValue('--font-sans').trim() || 'DM Sans, sans-serif',
+        fontSize: '14px',
+        primaryColor: isDark ? '#1e3a4a' : '#e0f2fe',
+        primaryTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        primaryBorderColor: isDark ? '#5fb3d4' : '#0891b2',
+        lineColor: isDark ? '#7aa3b8' : '#475569',
+        secondaryColor: isDark ? '#2a3f4f' : '#f1f5f9',
+        tertiaryColor: isDark ? '#1a2530' : '#fafafa',
+        background: isDark ? '#1e2a35' : '#ffffff',
+        mainBkg: isDark ? '#243441' : '#ecfeff',
+        secondBkg: isDark ? '#1a2530' : '#f8fafc',
+        nodeBorder: isDark ? '#5fb3d4' : '#0891b2',
+        clusterBkg: isDark ? '#1a2530' : '#f1f5f9',
+        clusterBorder: isDark ? '#3a5260' : '#cbd5e1',
+        defaultLinkColor: isDark ? '#7aa3b8' : '#475569',
+        titleColor: isDark ? '#e6f2f8' : '#0f172a',
+        edgeLabelBackground: isDark ? '#243441' : '#ffffff',
+        actorBkg: isDark ? '#243441' : '#ecfeff',
+        actorBorder: isDark ? '#5fb3d4' : '#0891b2',
+        actorTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        actorLineColor: isDark ? '#5fb3d4' : '#0891b2',
+        signalColor: isDark ? '#7aa3b8' : '#334155',
+        signalTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        labelBoxBkgColor: isDark ? '#1a2530' : '#fef3c7',
+        labelBoxBorderColor: isDark ? '#a89060' : '#d97706',
+        labelTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        loopTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        noteBkgColor: isDark ? '#3a4f3a' : '#fef3c7',
+        noteBorderColor: isDark ? '#86c598' : '#d97706',
+        noteTextColor: isDark ? '#e6f2f8' : '#0f172a',
+      },
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true, showSequenceNumbers: false, mirrorActors: true, bottomMarginAdj: 10 },
+    };
+  }
+
+  let renderCounter = 0;
+  async function renderAll() {
+    if (typeof mermaid === 'undefined') return;
+    renderCounter++;
+    const myCounter = renderCounter;
+    mermaid.initialize(getMermaidConfig());
+    const blocks = document.querySelectorAll('.mermaid');
+    for (const el of blocks) {
+      // restore source if already rendered
+      if (el.dataset.source) el.innerHTML = el.dataset.source;
+      else el.dataset.source = el.innerHTML;
+      el.removeAttribute('data-processed');
+    }
+    if (myCounter !== renderCounter) return;
+    try {
+      await mermaid.run({ querySelector: '.mermaid' });
+    } catch (e) { console.warn('Mermaid render error', e); }
+  }
+
+  function init() {
+    renderAll();
+    window.addEventListener('jhsun:theme-changed', renderAll);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="ch00-elasticsearch-index.html">ES Self-Managed Docs</a>
+    <nav class="nav-links">
+      <a href="ch47-snapshot-slm.html" aria-label="上一章">← 上一章</a>
+      <a href="ch00-elasticsearch-index.html" aria-label="回首頁">首頁</a>
+      <a href="ch49-performance-tuning.html" aria-label="下一章">下一章 →</a>
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </nav>
+  </div>
+</header>
+<div class="layout">
+<main class="prose">
+
+<h1>CH 48 · Cross-Cluster Replication (CCR)</h1>
+
+<div class="chapter-meta">
+  <div class="meta-row"><span class="meta-label">適合對象</span>
+    <span class="badge operator">🔴 維運者</span>
+    <span class="badge advanced">⚡ 進階</span>
+  </div>
+  <div class="meta-row"><span class="meta-label">閱讀時間</span> 約 25 分鐘</div>
+  <div class="meta-row"><span class="meta-label">前置知識</span> CH 04 discovery、CH 22 API keys、CH 47 snapshot</div>
+  <div class="meta-row"><span class="meta-label">本章目標</span> CCR 概念、uni/bi-directional、auto-follow、remote cluster 設定、限制、與 snapshot 比較</div>
+</div>
+
+<h2 id="ccr-是什麼">CCR 是什麼？</h2>
+
+<p>CCR（Cross-Cluster Replication）讓一個 cluster 的 index 即時複製到另一個 cluster 的 follower index，背後重播 leader 的寫入操作（透過 soft deletes 機制）。</p>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart LR
+    subgraph DC1["🌐 主資料中心 (Leader)"]
+      L1["logs-app (leader)"]
+      Writer["✏️ 寫入"]
+      Writer --> L1
+    end
+
+    subgraph DC2["🌐 災備資料中心 (Follower)"]
+      F1["logs-app (follower)<br/>📕 read-only"]
+      Reader["🔍 查詢"]
+      Reader --> F1
+    end
+
+    L1 -->|TLS over 9443<br/>increments| F1
+
+    classDef leader fill:#dcfce7,stroke:#16a34a,color:#0f172a
+    classDef follower fill:#cffafe,stroke:#0891b2,color:#0f172a
+    classDef writer fill:#fed7aa,stroke:#ea580c,color:#0f172a
+    classDef reader fill:#fef3c7,stroke:#d97706,color:#0f172a
+    class L1,DC1 leader
+    class F1,DC2 follower
+    class Writer writer
+    class Reader reader
+</pre>
+<div class="mermaid-caption">圖 48-1：典型 uni-directional CCR 架構</div>
+</div>
+
+<h2 id="ccr-用途">CCR 的三大用途</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>用途</th><th>架構</th><th>說明</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Disaster Recovery</strong></td><td>uni-directional</td><td>主中心掛了，切到備援中心查詢</td></tr>
+    <tr><td><strong>Data Locality</strong></td><td>uni-directional × N</td><td>把資料複製到多個地理區，使用者就近查詢</td></tr>
+    <tr><td><strong>Centralized Reporting</strong></td><td>多 leader → 1 follower</td><td>多個小 cluster 的資料匯到中央 cluster 做分析</td></tr>
+    <tr><td><strong>Bi-directional</strong></td><td>互相 follow</td><td>兩 cluster 都可寫不同 index，互相同步（複雜，慎用）</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout warning">
+  <strong>⚠️ CCR 需 Platinum 訂閱</strong>
+  Basic / Gold 訂閱不可用。
+</div>
+
+<h2 id="ccr-vs-snapshot">CCR vs Snapshot</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>項目</th><th>CCR</th><th>Snapshot</th></tr></thead>
+  <tbody>
+    <tr><td>同步即時性</td><td>近即時（秒級）</td><td>排程（小時/天）</td></tr>
+    <tr><td>RPO</td><td>秒</td><td>排程間隔</td></tr>
+    <tr><td>RTO</td><td>秒（切 alias 即可查）</td><td>分鐘到小時（restore 時間）</td></tr>
+    <tr><td>儲存成本</td><td>2x（兩 cluster 都要硬碟）</td><td>1x + S3 費用</td></tr>
+    <tr><td>網路成本</td><td>持續流量</td><td>排程時段流量</td></tr>
+    <tr><td>授權</td><td>Platinum</td><td>Basic 即可</td></tr>
+    <tr><td>適合</td><td>RPO/RTO 嚴格、跨地理查詢</td><td>一般備份、長期保存</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>實務上常<strong>同時用</strong>：CCR 處理近期資料的 DR，snapshot 處理長期保存。</p>
+
+<h2 id="soft-deletes-prerequisite">前置條件：Soft Deletes</h2>
+
+<p>CCR 透過 leader 上保留的「soft delete history」讓 follower 重播。Index 必須啟用 soft deletes：</p>
+
+<ul>
+  <li><strong>7.0 之後新建的 index 預設啟用</strong> ✅</li>
+  <li><strong>7.0 之前的 index 必須 reindex</strong> 才能用 CCR</li>
+</ul>
+
+<p>新建時可調整 retention：</p>
+
+<pre><code class="language-json">{
+  "settings": {
+    "index.soft_deletes.enabled":            true,
+    "index.soft_deletes.retention_lease.period": "12h"
+  }
+}
+</code></pre>
+
+<h2 id="設定-remote-cluster">設定 Remote Cluster 連線</h2>
+
+<p>9.x CCR 推薦走 dedicated <strong>remote cluster interface</strong>（port 9443）+ <strong>API Key 模式</strong>，比舊的 transport 9300 + cert 安全。</p>
+
+<h3 id="step-1-leader-開啟-remote">Step 1：Leader cluster 啟用 remote interface</h3>
+
+<pre><code class="language-yaml"># elasticsearch.yml on Leader nodes
+remote_cluster_server.enabled: true
+remote_cluster.port: 9443
+
+# TLS（必設）
+xpack.security.remote_cluster_server.ssl.enabled: true
+xpack.security.remote_cluster_server.ssl.key:         /etc/elasticsearch/certs/remote.key
+xpack.security.remote_cluster_server.ssl.certificate: /etc/elasticsearch/certs/remote.crt
+xpack.security.remote_cluster_server.ssl.certificate_authorities: [ "/etc/elasticsearch/certs/ca.crt" ]
+</code></pre>
+
+<h3 id="step-2-leader-產生-api-key">Step 2：Leader 產生 cross-cluster API key</h3>
+
+<pre><code class="language-bash">curl -X POST -u elastic:xxx --cacert ca.crt \
+  -H 'Content-Type: application/json' \
+  "https://leader:9200/_security/cross_cluster/api_key" -d '
+{
+  "name": "follower-cluster-key",
+  "access": {
+    "replication": [
+      { "names": [ "logs-*", "metrics-*" ] }
+    ]
+  }
+}'
+</code></pre>
+
+<p>回應會給 <code>encoded</code> 欄位（base64）。<strong>立即抄下來</strong>。</p>
+
+<h3 id="step-3-follower-註冊-remote">Step 3：Follower cluster 註冊 remote cluster</h3>
+
+<p>在 Follower nodes 設 follow role：</p>
+
+<pre><code class="language-yaml"># Follower 節點 yml
+node.roles: [ "data_hot", "data_content", "remote_cluster_client" ]
+</code></pre>
+
+<p>API Key 存 keystore：</p>
+
+<pre><code class="language-bash">sudo /usr/share/elasticsearch/bin/elasticsearch-keystore add \
+  cluster.remote.leader-prod.credentials
+# 貼上 encoded API key
+
+# Reload
+curl -X POST -u elastic:xxx --cacert ca.crt \
+  "https://follower:9200/_nodes/reload_secure_settings"
+</code></pre>
+
+<p>設定 remote cluster：</p>
+
+<pre><code class="language-bash">PUT /_cluster/settings
+{
+  "persistent": {
+    "cluster": {
+      "remote": {
+        "leader-prod": {
+          "mode": "proxy",
+          "proxy_address":           "leader.example.com:9443",
+          "server_name":             "leader.example.com",
+          "skip_unavailable":        false
+        }
+      }
+    }
+  }
+}
+</code></pre>
+
+<h3 id="step-4-驗證-remote">Step 4：驗證</h3>
+
+<pre><code class="language-bash">GET /_remote/info?pretty
+</code></pre>
+
+<p>應看到 <code>connected: true</code>、<code>num_nodes_connected &gt; 0</code>。</p>
+
+<h2 id="建立-follower-index">建立 Follower Index</h2>
+
+<pre><code class="language-bash"># 在 Follower cluster 上執行
+curl -X PUT -u elastic:xxx --cacert ca.crt \
+  -H 'Content-Type: application/json' \
+  "https://follower:9200/logs-app-2026.04.15-000003/_ccr/follow?wait_for_active_shards=1" -d '
+{
+  "remote_cluster":  "leader-prod",
+  "leader_index":    "logs-app-2026.04.15-000003",
+  "max_read_request_operation_count":      5120,
+  "max_outstanding_read_requests":         12,
+  "max_read_request_size":                 "32mb"
+}'
+</code></pre>
+
+<p>建立後 ES 會：</p>
+
+<ol>
+  <li>透過 remote recovery（snapshot infrastructure）複製目前所有 segments</li>
+  <li>切換到 follow 模式，持續拉新的 operations</li>
+</ol>
+
+<p>查狀態：</p>
+
+<pre><code class="language-bash">GET /logs-app-2026.04.15-000003/_ccr/info
+GET /logs-app-2026.04.15-000003/_ccr/stats
+</code></pre>
+
+<h2 id="auto-follow-patterns">Auto-follow Patterns</h2>
+
+<p>對 data stream 與 rolling 索引，逐個建 follower 太麻煩。Auto-follow 自動把符合 pattern 的新 leader index 變成 follower：</p>
+
+<pre><code class="language-bash">PUT /_ccr/auto_follow/logs-pattern
+{
+  "remote_cluster":         "leader-prod",
+  "leader_index_patterns":  [ "logs-*", "metrics-*" ],
+  "leader_index_exclusion_patterns": [ "logs-debug-*" ],
+  "follow_index_pattern":   "{{leader_index}}",       // 預設同名
+  "max_read_request_operation_count": 5120
+}
+</code></pre>
+
+<p>之後 leader 上每出現新 <code>logs-*</code> 或 <code>metrics-*</code> index，follower 會自動建立同名 follower。</p>
+
+<h3 id="auto-follow-管理">管理</h3>
+
+<pre><code class="language-bash"># 列出所有 auto-follow patterns
+GET /_ccr/auto_follow
+
+# 暫停（升級時用）
+POST /_ccr/auto_follow/logs-pattern/pause
+
+# 啟動
+POST /_ccr/auto_follow/logs-pattern/resume
+
+# 看執行狀況
+GET /_ccr/stats
+</code></pre>
+
+<h2 id="ccr-不複製的內容">CCR 不複製的內容</h2>
+
+<p>CCR <strong>只複製 user-generated 索引內容</strong>，不複製 cluster 層級設定：</p>
+
+<ul>
+  <li>❌ Cluster state（settings）</li>
+  <li>❌ <strong>ILM / SLM policies</strong></li>
+  <li>❌ Index templates</li>
+  <li>❌ <strong>Ingest pipelines</strong></li>
+  <li>❌ Watcher / Alerting rules</li>
+  <li>❌ Security（users、roles、API keys）</li>
+  <li>❌ ML jobs</li>
+  <li>❌ Searchable snapshot data（資料在 repo）</li>
+</ul>
+
+<div class="callout warning">
+  <strong>⚠️ Cluster 層級設定要分別維護</strong>
+  Follower cluster 必須<strong>獨立</strong>建立 templates、ILM、users 等。建議用 GitOps（Terraform / 同步 script）讓兩 cluster 保持一致。<br>
+  也可<strong>定期用 snapshot</strong> 備份 system indices 然後 restore 到 follower 來確保同步。
+</div>
+
+<h2 id="bi-directional">Bi-directional Replication</h2>
+
+<p>兩 cluster 都可寫，互相同步。但<strong>同一 index 不可雙寫</strong>，否則會造成衝突。常見做法：</p>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart LR
+    subgraph C1["Cluster Asia (寫 asia-orders)"]
+      A_L["asia-orders (leader)"]
+      US_F["us-orders (follower)"]
+    end
+    subgraph C2["Cluster US (寫 us-orders)"]
+      US_L["us-orders (leader)"]
+      A_F["asia-orders (follower)"]
+    end
+
+    A_L -->|複製| A_F
+    US_L -->|複製| US_F
+
+    Q1["查詢 all-orders<br/>(alias: asia-orders + us-orders)"]
+    Q1 --> A_L
+    Q1 --> US_F
+
+    classDef leader fill:#dcfce7,stroke:#16a34a,color:#0f172a
+    classDef follower fill:#cffafe,stroke:#0891b2,color:#0f172a
+    class A_L,US_L leader
+    class A_F,US_F follower
+</pre>
+<div class="mermaid-caption">圖 48-2：Bi-directional CCR：依地理分流寫入</div>
+</div>
+
+<p>Asia 寫到 <code>asia-orders</code>、US 寫到 <code>us-orders</code>；雙邊用 alias 統一查詢。每邊都看得到全球資料。</p>
+
+<h2 id="ccr-管理操作">管理操作</h2>
+
+<h3 id="pause-resume">暫停 / 繼續</h3>
+
+<pre><code class="language-bash"># 暫停 follow（leader 暫時不需要保留歷史）
+POST /logs-app-2026.04.15-000003/_ccr/pause_follow
+
+# 繼續
+POST /logs-app-2026.04.15-000003/_ccr/resume_follow
+
+# 解除 follow（變回普通 read-only index）
+POST /logs-app-2026.04.15-000003/_close
+POST /logs-app-2026.04.15-000003/_ccr/unfollow
+POST /logs-app-2026.04.15-000003/_open
+</code></pre>
+
+<h3 id="follower-promote">Failover：把 follower 變獨立可寫</h3>
+
+<pre><code class="language-bash"># 1. 暫停 replication
+POST /logs-app/_ccr/pause_follow
+
+# 2. close
+POST /logs-app/_close
+
+# 3. unfollow
+POST /logs-app/_ccr/unfollow
+
+# 4. open，現在可寫了
+POST /logs-app/_open
+</code></pre>
+
+<h2 id="ccr-stats-monitoring">CCR Stats 與監控</h2>
+
+<pre><code class="language-bash"># 整體 CCR stats
+GET /_ccr/stats
+
+# 看 follower lag
+curl -u elastic:xxx --cacert ca.crt \
+  "https://follower:9200/_ccr/stats?pretty" | jq '.indices[] | {
+    index: .index,
+    fatal_exception: .fatal_exception,
+    follower_global_checkpoint: .shards[0].follower_global_checkpoint,
+    leader_global_checkpoint: .shards[0].leader_global_checkpoint,
+    lag: (.shards[0].leader_global_checkpoint - .shards[0].follower_global_checkpoint)
+  }'
+</code></pre>
+
+<h3 id="recovery-progress">看 remote recovery 進度</h3>
+
+<pre><code class="language-bash"># 在 follower cluster 上
+GET /logs-app/_recovery?human&pretty&active_only=true
+</code></pre>
+
+<p>recovery type 為 <code>snapshot</code>（CCR 用 snapshot infra 做初始 copy）。</p>
+
+<h2 id="ccr-效能">效能調校</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>參數</th><th>用途</th></tr></thead>
+  <tbody>
+    <tr><td><code>max_read_request_operation_count</code></td><td>每次拉的 op 數（5120 預設）</td></tr>
+    <tr><td><code>max_read_request_size</code></td><td>每次拉的 size（32mb 預設）</td></tr>
+    <tr><td><code>max_outstanding_read_requests</code></td><td>並行 read request 數（12 預設）</td></tr>
+    <tr><td><code>max_write_request_operation_count</code></td><td>follower 端寫入 batch 大小</td></tr>
+    <tr><td><code>max_outstanding_write_requests</code></td><td>並行寫 request 數</td></tr>
+    <tr><td><code>read_poll_timeout</code></td><td>poll leader 的 timeout（1m 預設）</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>高頻寫入場景把 read/write request count 與 outstanding 都調大。</p>
+
+<h2 id="與-ilm-整合">與 ILM 的互動</h2>
+
+<div class="callout warning">
+  <strong>⚠️ ILM 不會自動傳到 follower</strong>
+  Follower index 不應該被 ILM 管（除了 unfollow 後）。建議：
+  <ul>
+    <li>Follower cluster 上對應的 ILM policy <strong>不要包含 rollover</strong>（leader 已 rollover，follower 跟著）</li>
+    <li>用 auto-follow pattern 設 <code>follow_index_pattern</code> 自動處理 backing indices</li>
+    <li>當 leader index 進入 cold/frozen，follower 也應對應移動（用獨立 ILM 控制 follower tier 配置）</li>
+  </ul>
+</div>
+
+<h2 id="ccr-troubleshooting">常見問題</h2>
+
+<h3 id="lag-too-high">Follower lag 太大</h3>
+
+<ul>
+  <li>檢查 follower cluster 寫入能力（可能 disk IO 不夠）</li>
+  <li>調大 <code>max_outstanding_read_requests</code></li>
+  <li>檢查網路延遲（跨 region 可能 50-200ms RTT）</li>
+</ul>
+
+<h3 id="leader-history-missing">Leader history insufficient</h3>
+
+<p>Follower 跟不上時，leader 的 soft delete history 可能已過期。錯誤訊息類似 <code>operations not found</code>。</p>
+
+<p>解法：增加 leader 的 retention：</p>
+
+<pre><code class="language-bash">PUT /logs-app/_settings
+{
+  "index.soft_deletes.retention_lease.period": "24h"
+}
+</code></pre>
+
+<p>或重建 follower（unfollow + 重新 follow）。</p>
+
+<h3 id="auto-follow-not-working">Auto-follow 沒觸發</h3>
+
+<ul>
+  <li>檢查 <code>GET /_ccr/auto_follow</code> 看 pattern 是否存在且未 paused</li>
+  <li>檢查 <code>GET /_ccr/stats</code> 看是否有 <code>auto_follow_stats.recent_auto_follow_errors</code></li>
+  <li>API key 權限是否有 <code>replication</code> 涵蓋新 index</li>
+</ul>
+
+<h2 id="best-practices">CCR 最佳實踐</h2>
+
+<ul>
+  <li><strong>9.x 用 API key + remote cluster interface 9443</strong>，取代舊 cert + 9300</li>
+  <li><strong>Follower 節點要有 <code>remote_cluster_client</code> role</strong></li>
+  <li><strong>用 auto-follow pattern</strong> 對 data stream 自動化</li>
+  <li><strong>Templates / ILM / Ingest 用 GitOps 同步</strong>到 follower</li>
+  <li><strong>同時用 CCR + snapshot</strong>：CCR 做 RPO，snapshot 做長期保存</li>
+  <li><strong>監控 follower lag</strong>，&gt; 10 分鐘設告警</li>
+  <li><strong>保護 leader history</strong>：retention_lease.period 設足夠覆蓋最差 lag 情境</li>
+  <li>定期演練 <strong>failover</strong>（pause + close + unfollow + open + 切流量）</li>
+  <li><strong>Bi-directional 慎用</strong>：必須業務上保證 index 不雙寫</li>
+  <li>跨 region CCR：注意 <strong>egress 流量費用</strong>，可能比 snapshot 高</li>
+</ul>
+
+<h2 id="本章重點回顧">本章重點回顧</h2>
+
+<ul>
+  <li>CCR 即時複製 leader index 到 follower（read-only），透過 soft deletes 重播</li>
+  <li>需 Platinum 訂閱；7.0 後新建 index 自動啟用 soft deletes</li>
+  <li>9.x 推薦走 <strong>remote cluster interface 9443 + API key</strong> 模式</li>
+  <li>Follower 節點需 <code>remote_cluster_client</code> role</li>
+  <li>三大用途：DR、data locality、centralized reporting</li>
+  <li>用 <strong>auto-follow pattern</strong> 自動 follow data stream 的新 backing indices</li>
+  <li>CCR <strong>只複製 user data</strong>：cluster state、ILM、ingest、users 都要分別維護</li>
+  <li>Failover 流程：pause → close → unfollow → open</li>
+  <li>監控 <code>_ccr/stats</code> 看 follower lag</li>
+  <li>CCR 與 snapshot 可並用：CCR 嚴格 RPO/RTO；snapshot 長期保存</li>
+</ul>
+
+<h2 id="延伸閱讀">延伸閱讀</h2>
+
+<ul>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/tools/cross-cluster-replication" target="_blank" rel="noopener">Cross-cluster replication</a></li>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/remote-clusters" target="_blank" rel="noopener">Remote clusters</a></li>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/tools/cross-cluster-replication/uni-directional-disaster-recovery" target="_blank" rel="noopener">Uni-directional DR</a></li>
+</ul>
+
+<nav class="bottom-nav"><a class="prev" href="ch47-snapshot-slm.html"><span class="nav-label">← 上一章</span><span class="nav-title">Snapshot 與 SLM</span></a><a class="next" href="ch49-performance-tuning.html"><span class="nav-label">下一章 →</span><span class="nav-title">效能調校實戰</span></a></nav>
+</main>
+<aside class="toc">
+  <div class="toc-title">本章目錄</div>
+  <ul></ul>
+</aside>
+</div>
+<footer>
+  <p>Elasticsearch Self-Managed 完整教學文件 · 基於 Elastic Stack 9.x（最新 9.3.4）<br>
+  資料來源：<a href="https://www.elastic.co/docs" target="_blank" rel="noopener">Elastic 官方文件</a> · 最後更新：2026-05</p>
+</footer>
+</body>
+</html>

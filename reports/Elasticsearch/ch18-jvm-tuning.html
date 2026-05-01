@@ -1,0 +1,1283 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Elasticsearch JVM 記憶體模型、Heap 計算、G1 GC、heap dump 診斷">
+<title>CH 18 · JVM 調校</title>
+<style>
+/* ============================================================
+   JHsun TechDocs — Unified Design Token Layer
+   v1.0 · Calm Teal (hue 200° / chroma 0.11)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+
+  --color-success:        #16a34a;
+  --color-success-soft:   #dcfce7;
+  --color-warning:        #d97706;
+  --color-warning-soft:   #fef3c7;
+  --color-danger:         #dc2626;
+  --color-danger-soft:    #fee2e2;
+  --color-info:           #0891b2;
+  --color-info-soft:      #cffafe;
+  --color-neutral-accent: #7c3aed;
+
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+
+  --font-mono:       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:       "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif:      "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  32px;
+  --text-3xl:  44px;
+  --text-4xl:  64px;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+
+  --container-narrow: 720px;
+  --container-wide:   1280px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+
+:root[data-theme="dark"] {
+  --color-success:        #4ade80;
+  --color-success-soft:   oklch(0.30 0.08 145);
+  --color-warning:        #fbbf24;
+  --color-warning-soft:   oklch(0.32 0.10 70);
+  --color-danger:         #f87171;
+  --color-danger-soft:    oklch(0.32 0.10 27);
+  --color-info:           #22d3ee;
+  --color-info-soft:      oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.16 0.008 50);
+  --bg-surface:     oklch(0.20 0.009 50);
+  --bg-muted:       oklch(0.23 0.010 50);
+  --bg-code:        oklch(0.18 0.009 50);
+  --border-soft:    oklch(0.28 0.010 50);
+  --border-mid:     oklch(0.36 0.012 50);
+  --text-primary:   oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted:     oklch(0.58 0.007 60);
+
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+
+/* ============== Chapter shared styles ============== */
+* { box-sizing: border-box; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+@media (min-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 240px; gap: var(--space-7); }
+}
+main { min-width: 0; padding: var(--space-6) 0; }
+main.prose { max-width: var(--container-narrow); margin: 0 auto; }
+
+/* Top navigation */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: color-mix(in oklch, var(--bg-canvas) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.topbar-inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.brand {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-primary-text);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+.nav-links { display: flex; gap: var(--space-2); margin-left: auto; align-items: center; }
+.nav-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  transition: all 0.15s;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--bg-muted); }
+.nav-links a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Theme toggle button */
+[data-theme-toggle] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  transition: all 0.15s;
+}
+[data-theme-toggle]:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.theme-icon { font-size: var(--text-base); }
+
+/* Headings */
+h1, h2, h3, h4 {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  line-height: 1.3;
+  margin-top: var(--space-7);
+  margin-bottom: var(--space-4);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+h1 { font-size: var(--text-3xl); margin-top: var(--space-5); }
+h2 { font-size: var(--text-2xl); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-soft); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-md); color: var(--text-secondary); }
+
+p { margin: var(--space-4) 0; color: var(--text-primary); }
+
+/* Inline code */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+  border: 1px solid var(--border-soft);
+}
+
+/* Code block */
+.code-wrap {
+  position: relative;
+  margin: var(--space-4) 0;
+}
+.code-wrap > .code-lang {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.code-wrap > .copy-btn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 4px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  transition: all 0.15s;
+  opacity: 0;
+}
+.code-wrap:hover > .copy-btn { opacity: 1; }
+.code-wrap > .copy-btn:hover {
+  background: var(--color-primary);
+  color: var(--bg-canvas);
+  border-color: var(--color-primary);
+}
+.code-wrap > .copy-btn.copied {
+  background: var(--color-success);
+  color: white;
+  border-color: var(--color-success);
+  opacity: 1;
+}
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-7) var(--space-4) var(--space-4);
+  overflow-x: auto;
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  margin: 0;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: var(--text-primary);
+  font-size: inherit;
+}
+
+/* Lists */
+ul, ol { padding-left: var(--space-6); }
+li { margin: var(--space-2) 0; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: var(--space-4) 0; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+th, td {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+}
+th { background: var(--bg-muted); font-weight: 600; color: var(--text-primary); }
+tr:last-child td { border-bottom: none; }
+
+/* Callouts */
+.callout {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  border-left: 4px solid var(--color-info);
+  background: var(--color-info-soft);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+.callout.warning { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.danger  { border-color: var(--color-danger);  background: var(--color-danger-soft); }
+.callout.success { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout strong { display: block; margin-bottom: var(--space-2); }
+:root[data-theme="dark"] .callout { color: var(--text-primary); }
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: 999px;
+  margin-right: var(--space-1);
+  letter-spacing: 0.02em;
+}
+.badge.beginner { background: var(--color-success-soft); color: var(--color-success); }
+.badge.developer { background: var(--color-info-soft); color: var(--color-info); }
+.badge.operator { background: var(--color-warning-soft); color: var(--color-warning); }
+.badge.advanced { background: var(--color-primary-soft); color: var(--color-primary-text); }
+:root[data-theme="dark"] .badge { filter: brightness(1.1); }
+
+/* Chapter meta */
+.chapter-meta {
+  margin: var(--space-4) 0 var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.chapter-meta .meta-row { margin: var(--space-1) 0; }
+.chapter-meta .meta-label {
+  display: inline-block;
+  width: 70px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* TOC sidebar */
+.toc {
+  position: sticky;
+  top: 80px;
+  align-self: start;
+  font-size: var(--text-sm);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  padding: var(--space-4) 0;
+  display: none;
+}
+@media (min-width: 1100px) {
+  .toc { display: block; }
+}
+.toc-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.toc ul { list-style: none; padding-left: 0; margin: 0; }
+.toc li { margin: 0; }
+.toc a {
+  display: block;
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-left: 2px solid var(--border-soft);
+  transition: all 0.15s;
+  line-height: 1.5;
+}
+.toc a:hover { color: var(--color-primary); border-left-color: var(--color-primary); }
+.toc a.toc-h3 { padding-left: var(--space-5); font-size: 0.92em; color: var(--text-muted); }
+
+/* Bottom nav */
+.bottom-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  margin-top: var(--space-8);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.bottom-nav a {
+  flex: 1;
+  min-width: 200px;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.bottom-nav a:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.bottom-nav .nav-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.bottom-nav .nav-title { font-weight: 600; color: var(--text-primary); }
+.bottom-nav a.next { text-align: right; }
+.bottom-nav a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Footer */
+footer {
+  text-align: center;
+  padding: var(--space-7) var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  border-top: 1px solid var(--border-soft);
+  margin-top: var(--space-8);
+}
+footer a { color: var(--color-primary); text-decoration: none; }
+
+/* Index page specific */
+.hero {
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+  background: linear-gradient(135deg, var(--color-primary-soft) 0%, var(--bg-canvas) 100%);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: var(--space-7);
+}
+.hero h1 {
+  font-size: var(--text-4xl);
+  margin: 0 0 var(--space-4);
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.02em;
+}
+.hero p { font-size: var(--text-md); color: var(--text-secondary); max-width: 720px; margin: 0 auto; }
+.hero .meta {
+  margin-top: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.path-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  margin: var(--space-6) 0;
+}
+@media (min-width: 768px) { .path-grid { grid-template-columns: repeat(3, 1fr); } }
+.path-card {
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  transition: all 0.2s;
+}
+.path-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-md); }
+.path-card .path-icon { font-size: 32px; display: block; margin-bottom: var(--space-3); }
+.path-card h3 { margin: 0 0 var(--space-2); font-size: var(--text-lg); }
+.path-card .path-flow {
+  margin-top: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.part {
+  margin: var(--space-7) 0;
+}
+.part-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--color-primary);
+}
+.part-header .part-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.part-header h2 { margin: 0; border: none; padding: 0; }
+
+.chapter-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+@media (min-width: 700px)  { .chapter-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1100px) { .chapter-grid { grid-template-columns: repeat(3, 1fr); } }
+.chapter-card {
+  display: block;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.chapter-card:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  transform: translateY(-1px);
+}
+.chapter-card .ch-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+.chapter-card .ch-title {
+  display: block;
+  margin: var(--space-2) 0;
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+.chapter-card .ch-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--space-2);
+}
+.chapter-card .ch-badges { font-size: 11px; }
+
+
+/* Mermaid container */
+.mermaid-wrap {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-wrap .mermaid {
+  display: inline-block;
+  min-width: 100%;
+}
+.mermaid-caption {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+/* Hide raw mermaid source until rendered */
+.mermaid:not([data-processed="true"]) {
+  visibility: hidden;
+  min-height: 1em;
+}
+
+</style>
+<script>
+/* JHsun TechDocs — Theme toggle v1.0 */
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+
+</script>
+<script>
+
+// Copy-to-clipboard for all <pre> blocks
+(function () {
+  function init() {
+    document.querySelectorAll('main pre').forEach(function (pre) {
+      if (pre.parentElement.classList.contains('code-wrap')) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'code-wrap';
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
+      const lang = pre.querySelector('code')?.className.match(/language-(\w+)/)?.[1];
+      if (lang) {
+        const tag = document.createElement('span');
+        tag.className = 'code-lang';
+        tag.textContent = lang;
+        wrap.appendChild(tag);
+      }
+      const btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.type = 'button';
+      btn.textContent = '📋 複製';
+      btn.addEventListener('click', function () {
+        const text = pre.innerText;
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(text).then(success).catch(fallback);
+        } else {
+          fallback();
+        }
+        function success() {
+          btn.textContent = '✓ 已複製';
+          btn.classList.add('copied');
+          setTimeout(function () { btn.textContent = '📋 複製'; btn.classList.remove('copied'); }, 1800);
+        }
+        function fallback() {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); success(); } catch (_) {}
+          document.body.removeChild(ta);
+        }
+      });
+      wrap.appendChild(btn);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+// Auto-build TOC from h2/h3 in <main>
+(function () {
+  function init() {
+    const toc = document.querySelector('.toc ul');
+    if (!toc) return;
+    const headings = document.querySelectorAll('main h2, main h3');
+    headings.forEach(function (h) {
+      if (!h.id) {
+        h.id = h.textContent.trim().toLowerCase()
+          .replace(/[^\w\u4e00-\u9fff\s-]/g, '')
+          .replace(/\s+/g, '-');
+      }
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = '#' + h.id;
+      a.textContent = h.textContent;
+      a.className = 'toc-' + h.tagName.toLowerCase();
+      li.appendChild(a);
+      toc.appendChild(li);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+
+// Mermaid initialization with theme sync
+(function () {
+  function getMermaidTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default';
+  }
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    const cs = getComputedStyle(document.documentElement);
+    return {
+      startOnLoad: false,
+      theme: isDark ? 'dark' : 'default',
+      themeVariables: {
+        fontFamily: cs.getPropertyValue('--font-sans').trim() || 'DM Sans, sans-serif',
+        fontSize: '14px',
+        primaryColor: isDark ? '#1e3a4a' : '#e0f2fe',
+        primaryTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        primaryBorderColor: isDark ? '#5fb3d4' : '#0891b2',
+        lineColor: isDark ? '#7aa3b8' : '#475569',
+        secondaryColor: isDark ? '#2a3f4f' : '#f1f5f9',
+        tertiaryColor: isDark ? '#1a2530' : '#fafafa',
+        background: isDark ? '#1e2a35' : '#ffffff',
+        mainBkg: isDark ? '#243441' : '#ecfeff',
+        secondBkg: isDark ? '#1a2530' : '#f8fafc',
+        nodeBorder: isDark ? '#5fb3d4' : '#0891b2',
+        clusterBkg: isDark ? '#1a2530' : '#f1f5f9',
+        clusterBorder: isDark ? '#3a5260' : '#cbd5e1',
+        defaultLinkColor: isDark ? '#7aa3b8' : '#475569',
+        titleColor: isDark ? '#e6f2f8' : '#0f172a',
+        edgeLabelBackground: isDark ? '#243441' : '#ffffff',
+        actorBkg: isDark ? '#243441' : '#ecfeff',
+        actorBorder: isDark ? '#5fb3d4' : '#0891b2',
+        actorTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        actorLineColor: isDark ? '#5fb3d4' : '#0891b2',
+        signalColor: isDark ? '#7aa3b8' : '#334155',
+        signalTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        labelBoxBkgColor: isDark ? '#1a2530' : '#fef3c7',
+        labelBoxBorderColor: isDark ? '#a89060' : '#d97706',
+        labelTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        loopTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        noteBkgColor: isDark ? '#3a4f3a' : '#fef3c7',
+        noteBorderColor: isDark ? '#86c598' : '#d97706',
+        noteTextColor: isDark ? '#e6f2f8' : '#0f172a',
+      },
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true, showSequenceNumbers: false, mirrorActors: true, bottomMarginAdj: 10 },
+    };
+  }
+
+  let renderCounter = 0;
+  async function renderAll() {
+    if (typeof mermaid === 'undefined') return;
+    renderCounter++;
+    const myCounter = renderCounter;
+    mermaid.initialize(getMermaidConfig());
+    const blocks = document.querySelectorAll('.mermaid');
+    for (const el of blocks) {
+      // restore source if already rendered
+      if (el.dataset.source) el.innerHTML = el.dataset.source;
+      else el.dataset.source = el.innerHTML;
+      el.removeAttribute('data-processed');
+    }
+    if (myCounter !== renderCounter) return;
+    try {
+      await mermaid.run({ querySelector: '.mermaid' });
+    } catch (e) { console.warn('Mermaid render error', e); }
+  }
+
+  function init() {
+    renderAll();
+    window.addEventListener('jhsun:theme-changed', renderAll);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="ch00-elasticsearch-index.html">ES Self-Managed Docs</a>
+    <nav class="nav-links">
+      <a href="ch17-configuration-files.html" aria-label="上一章">← 上一章</a>
+      <a href="ch00-elasticsearch-index.html" aria-label="回首頁">首頁</a>
+      <a href="ch19-tls-ssl.html" aria-label="下一章">下一章 →</a>
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </nav>
+  </div>
+</header>
+<div class="layout">
+<main class="prose">
+
+<h1>CH 18 · JVM 調校</h1>
+
+<div class="chapter-meta">
+  <div class="meta-row"><span class="meta-label">適合對象</span>
+    <span class="badge operator">🔴 維運者</span>
+    <span class="badge advanced">⚡ 進階</span>
+  </div>
+  <div class="meta-row"><span class="meta-label">閱讀時間</span> 約 25 分鐘</div>
+  <div class="meta-row"><span class="meta-label">前置知識</span> CH 06 系統需求、CH 17 設定檔</div>
+  <div class="meta-row"><span class="meta-label">本章目標</span> 認識 Elasticsearch JVM 記憶體模型、Heap 計算、G1 GC 調校、heap dump 與 GC log 解讀</div>
+</div>
+
+<h2 id="elasticsearch-記憶體模型">Elasticsearch 的記憶體模型</h2>
+
+<p>Elasticsearch 的記憶體用量分為三層：</p>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TB
+    subgraph Total["💻 Total RAM (例如 64 GB)"]
+      direction TB
+      Heap["☕ JVM Heap<br/>(31 GB max, 推薦 50% RAM)<br/>indexing buffer · cluster state<br/>aggregations · request"]
+      Off["🔌 Off-heap<br/>(JVM 進程外但仍佔)<br/>Lucene mmap 索引檔案<br/>direct buffers<br/>thread stacks"]
+      Cache["🗂️ OS File System Cache<br/>(剩餘 RAM)<br/>Lucene segments 快取"]
+      Other["⚙️ OS / 其他 process"]
+    end
+
+    classDef heap fill:#dcfce7,stroke:#16a34a,color:#0f172a,stroke-width:2px
+    classDef off fill:#fed7aa,stroke:#ea580c,color:#0f172a
+    classDef cache fill:#cffafe,stroke:#0891b2,color:#0f172a
+    classDef other fill:#f3e8ff,stroke:#7c3aed,color:#0f172a
+    class Heap heap
+    class Off off
+    class Cache cache
+    class Other other
+</pre>
+<div class="mermaid-caption">圖 18-1：Elasticsearch 在一台機器上的記憶體分配</div>
+</div>
+
+<div class="callout">
+  <strong>💡 為什麼 OS file cache 這麼重要？</strong>
+  Lucene 透過 mmap 把 segment 檔案映射到記憶體，讓 OS 自己用 file cache 加速讀取。<strong>file cache 越大、搜尋越快</strong>。這就是為什麼即使 ES heap 用得不多，整台機器仍應幾乎跑滿 RAM 的原因——剩下的 RAM 全給 OS cache。
+</div>
+
+<h2 id="heap-黃金法則">Heap 黃金法則</h2>
+
+<ol>
+  <li><strong>Heap ≤ 50% RAM</strong>：另一半留給 OS cache</li>
+  <li><strong>Heap ≤ 31 GB（compressed oops 限制）</strong>：超過後 JVM 改用 64-bit 指標，反而效能下降 20%+</li>
+  <li><strong>Xms = Xmx</strong>：避免動態 resize 造成 GC pause</li>
+  <li><strong>不要超過單機 64 GB RAM</strong>：超過部分浪費。改用<strong>更多節點</strong>而非單機更大 heap</li>
+</ol>
+
+<h3 id="例子">實例試算</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>機器 RAM</th><th>建議 Heap</th><th>OS cache 預期</th></tr></thead>
+  <tbody>
+    <tr><td>16 GB</td><td>8 GB</td><td>~7 GB</td></tr>
+    <tr><td>32 GB</td><td>16 GB</td><td>~15 GB</td></tr>
+    <tr><td>64 GB</td><td>30-31 GB（卡 compressed oops）</td><td>~32 GB</td></tr>
+    <tr><td>128 GB</td><td>仍 31 GB；OS cache 變 ~96 GB</td><td>~96 GB</td></tr>
+    <tr><td>需要更多 heap</td><td><strong>跑兩個節點 each 31 GB</strong>，或拆機</td><td>—</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="自動-vs-手動-heap">9.x 自動 Heap Sizing</h2>
+
+<p>從 Elastic 7.11+ 起，<strong>不寫 -Xms / -Xmx 即啟用自動計算</strong>。ES 會依：</p>
+
+<ul>
+  <li>節點記憶體（從 cgroup limit 或 OS 偵測）</li>
+  <li>節點 roles（純 master ≠ data hot ≠ ML 節點）</li>
+</ul>
+
+<p>計算合適的 heap。範例（在 64 GB 機器上）：</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>節點角色</th><th>自動 heap</th></tr></thead>
+  <tbody>
+    <tr><td>純 master</td><td>~ 1.6 GB（小，因為不需大 buffer）</td></tr>
+    <tr><td>data + ingest</td><td>~ 31 GB（吃滿 50% / 31 GB 上限）</td></tr>
+    <tr><td>ML node</td><td>較少 heap，因為 ML 用 off-heap native processes</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout success">
+  <strong>✅ 大多數場景：不要手動設定 heap</strong>
+  自動計算已經對絕大多數工作負載最佳化。手動設定的時機是：
+  <ul>
+    <li>容器 cgroup limit 設定不正確時，ES 偵測錯誤</li>
+    <li>故意限制 heap 給其他 process（不建議在生產 ES 上做）</li>
+    <li>需要刻意較小 heap 進行測試</li>
+  </ul>
+</div>
+
+<h2 id="手動設定-heap">手動設定 Heap</h2>
+
+<p>建立 <code>jvm.options.d/heap.options</code>：</p>
+
+<pre><code class="language-properties">-Xms16g
+-Xmx16g
+</code></pre>
+
+<div class="callout danger">
+  <strong>🚨 永遠 Xms == Xmx</strong>
+  <ul>
+    <li>避免 JVM 在 resize 時暫停</li>
+    <li>啟用 <code>bootstrap.memory_lock</code> 後若 Xms ≠ Xmx，無法 lock 全部 heap</li>
+    <li>避免 OS 在 boot 時就配滿了，後續才 resize 失敗</li>
+  </ul>
+</div>
+
+<h2 id="g1-gc">G1 Garbage Collector（9.x 預設）</h2>
+
+<p>Elastic 9.x 預設使用 <strong>G1GC</strong>。G1 比舊的 CMS 在大 heap 上有以下優勢：</p>
+
+<ul>
+  <li>低 pause 時間（目標 200ms 內）</li>
+  <li>對 31 GB heap 仍能維持低延遲</li>
+  <li>更好的記憶體 fragmentation 處理</li>
+</ul>
+
+<h3 id="g1-gc-參數">9.x 預設 G1 GC 參數</h3>
+
+<p>位於 <code>$ES_PATH_CONF/jvm.options</code>（不要改原檔，要覆寫請放 <code>jvm.options.d/</code>）：</p>
+
+<pre><code class="language-properties">## GC configuration
+14-:-XX:+UseG1GC
+
+## Optimizations enabled by ES on JDK 14+
+14-:-XX:G1ReservePercent=25
+14-:-XX:InitiatingHeapOccupancyPercent=30
+</code></pre>
+
+<p>解釋：</p>
+<ul>
+  <li><code>G1ReservePercent=25</code>：保留 25% heap 給 evacuation 失敗備用，預防 to-space exhausted 錯誤</li>
+  <li><code>InitiatingHeapOccupancyPercent=30</code>：heap 佔用達 30% 即觸發 concurrent marking，比預設 45% 更積極</li>
+</ul>
+
+<div class="callout warning">
+  <strong>⚠️ 不建議調整 G1 參數</strong>
+  Elastic 已經調好了。除非你看到具體 GC 問題（pause time、to-space exhausted、concurrent mode failure），<strong>不要動 G1 參數</strong>。
+</div>
+
+<h2 id="zgc-shenandoah">ZGC / Shenandoah（實驗性，特殊場景）</h2>
+
+<p>對於 heap > 32 GB 的特殊需求（如 ML 節點需要大記憶體做 inference），可考慮：</p>
+
+<ul>
+  <li><strong>ZGC</strong>（JDK 21+ 已 GA）：sub-millisecond pause，但有 CPU 開銷</li>
+  <li><strong>Shenandoah</strong>：類似 ZGC，OpenJDK 也支援</li>
+</ul>
+
+<pre><code class="language-properties"># jvm.options.d/zgc.options（非預設，自行測試）
+-XX:+UseZGC
+-XX:+ZGenerational
+</code></pre>
+
+<div class="callout warning">
+  <strong>⚠️ 不要在生產隨意切換 GC</strong>
+  G1 是 Elastic 全力支援與測試的。ZGC 可能在 ES 上有未發現的相容性問題。先在 staging 充分驗證，並開啟 GC log 觀察。
+</div>
+
+<h2 id="完整-jvm-options-範例">生產級 jvm.options.d/ 範例</h2>
+
+<pre><code class="language-bash">sudo mkdir -p /etc/elasticsearch/jvm.options.d/
+
+# 1. Heap 設定
+sudo tee /etc/elasticsearch/jvm.options.d/01-heap.options << 'EOF'
+# 通常省略，讓 ES 自動計算
+# -Xms16g
+# -Xmx16g
+EOF
+
+# 2. OOM dump 設定
+sudo tee /etc/elasticsearch/jvm.options.d/02-oom.options << 'EOF'
+# 寫入 heap dump（OOM 時）
+-XX:+HeapDumpOnOutOfMemoryError
+-XX:HeapDumpPath=/var/lib/elasticsearch/heapdumps
+-XX:ErrorFile=/var/log/elasticsearch/hs_err_pid%p.log
+-XX:OnOutOfMemoryError=systemctl restart elasticsearch.service
+EOF
+
+# 3. GC log（生產建議開啟）
+sudo tee /etc/elasticsearch/jvm.options.d/03-gc-log.options << 'EOF'
+-Xlog:gc*,gc+age=trace,safepoint:file=/var/log/elasticsearch/gc.log:utctime,pid,tags:filecount=32,filesize=64m
+EOF
+
+# 確保目錄存在且可寫
+sudo mkdir -p /var/lib/elasticsearch/heapdumps
+sudo chown elasticsearch:elasticsearch /var/lib/elasticsearch/heapdumps
+</code></pre>
+
+<h2 id="diagnose-jvm">診斷 JVM 狀態</h2>
+
+<h3 id="cluster-jvm-stats">透過 ES API</h3>
+
+<pre><code class="language-bash">curl -u elastic:xxx --cacert ca.crt \
+  "https://localhost:9200/_nodes/stats/jvm?human&pretty" | head -80
+</code></pre>
+
+<p>關鍵欄位：</p>
+
+<pre><code class="language-json">{
+  "jvm": {
+    "timestamp": 1234567890,
+    "uptime_in_millis": 86400000,
+    "mem": {
+      "heap_used_in_bytes":  12884901888,
+      "heap_used_percent":     40,           // 重要！
+      "heap_max_in_bytes":    32212254720,
+      "non_heap_used_in_bytes": 268435456,
+      "pools": {
+        "young":      { "used_in_bytes": ..., "peak_used_in_bytes": ... },
+        "old":        { "used_in_bytes": ..., "peak_used_in_bytes": ... },
+        "survivor":   { "used_in_bytes": ..., "peak_used_in_bytes": ... }
+      }
+    },
+    "threads": {
+      "count":       128,
+      "peak_count":  256
+    },
+    "gc": {
+      "collectors": {
+        "young": {
+          "collection_count":          12345,
+          "collection_time_in_millis": 5400
+        },
+        "old": {
+          "collection_count":          12,
+          "collection_time_in_millis": 800
+        }
+      }
+    },
+    "buffer_pools": { ... },
+    "classes": { ... }
+  }
+}
+</code></pre>
+
+<h3 id="hot-threads">Hot Threads（CPU 高時診斷）</h3>
+
+<pre><code class="language-bash">curl -u elastic:xxx --cacert ca.crt \
+  "https://localhost:9200/_nodes/hot_threads?threads=10&interval=1s"
+</code></pre>
+
+<p>會輸出當前最忙的 threads 與其 stack trace，極適合找出哪個 query / thread pool 過載。</p>
+
+<h3 id="thread-pool">Thread Pool 狀態</h3>
+
+<pre><code class="language-bash">curl -u elastic:xxx --cacert ca.crt \
+  "https://localhost:9200/_cat/thread_pool?v&h=node_name,name,active,queue,rejected"
+</code></pre>
+
+<p>看到 <code>rejected</code> 持續上升即為超載：</p>
+<ul>
+  <li>write rejected → 寫入過快，增加 buffer / 加節點</li>
+  <li>search rejected → 查詢過多，增 replica / 加節點</li>
+</ul>
+
+<h2 id="gc-log-解讀">GC log 解讀</h2>
+
+<p>啟用 GC log 後，<code>/var/log/elasticsearch/gc.log</code> 會記錄每次 GC：</p>
+
+<pre><code class="language-text">[2026-04-15T10:23:45.123+0000][12345][info ][gc          ] GC(123) Pause Young (Normal) (G1 Evacuation Pause) 8192M->2048M(16384M) 45.123ms
+[2026-04-15T10:25:12.456+0000][12345][info ][gc          ] GC(124) Pause Young (Concurrent Start) (G1 Humongous Allocation) 12288M->3072M(16384M) 78.456ms
+[2026-04-15T10:25:13.000+0000][12345][info ][gc          ] GC(125) Concurrent Cycle
+[2026-04-15T10:25:14.222+0000][12345][info ][gc          ] GC(126) Pause Remark 3500M->3500M(16384M) 12.345ms
+</code></pre>
+
+<p>判讀重點：</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>類型</th><th>正常</th><th>警訊</th></tr></thead>
+  <tbody>
+    <tr><td>Young GC pause</td><td>&lt; 100 ms</td><td>&gt; 200 ms</td></tr>
+    <tr><td>Old / Mixed GC pause</td><td>&lt; 500 ms</td><td>&gt; 1 s</td></tr>
+    <tr><td>Young GC 頻率</td><td>每 30 秒一次</td><td>每秒多次（heap 不夠）</td></tr>
+    <tr><td>Old 區佔用</td><td>&lt; 50%</td><td>&gt; 75% 持續上升 = memory leak</td></tr>
+    <tr><td>"to-space exhausted"</td><td>無</td><td>出現 = heap 嚴重不足</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 id="gc-tools">GC log 視覺化工具</h3>
+
+<ul>
+  <li><a href="https://gceasy.io/" target="_blank" rel="noopener">GCeasy.io</a> — 免費上傳分析（注意：勿上傳含敏感字串的 log）</li>
+  <li><strong>GCViewer</strong>（開源）— 本地分析</li>
+  <li>送 GC log 到 ES 自身用 Filebeat 監控（自我監控的玩法）</li>
+</ul>
+
+<h2 id="heap-dump-分析">Heap Dump 分析</h2>
+
+<h3 id="觸發-heap-dump">觸發 heap dump</h3>
+
+<pre><code class="language-bash"># OOM 時自動（已在 jvm.options.d/02-oom.options 開啟）
+
+# 手動觸發（找出 ES PID）
+ES_PID=$(pgrep -f 'org.elasticsearch.bootstrap.Elasticsearch')
+
+# 或透過 systemd
+ES_PID=$(systemctl show elasticsearch -p MainPID --value)
+
+# 用 jcmd（推薦）
+sudo -u elasticsearch /usr/share/elasticsearch/jdk/bin/jcmd $ES_PID GC.heap_dump /tmp/heap.hprof
+
+# 或 jmap（傳統）
+sudo -u elasticsearch /usr/share/elasticsearch/jdk/bin/jmap -dump:format=b,file=/tmp/heap.hprof $ES_PID
+</code></pre>
+
+<h3 id="分析工具">分析工具</h3>
+
+<ul>
+  <li><strong>Eclipse Memory Analyzer (MAT)</strong>：圖形化、強大、免費</li>
+  <li><strong>VisualVM</strong>：JDK bundled，輕量</li>
+  <li><strong>jhat</strong>（已棄用）：命令列工具</li>
+  <li><strong>YourKit / JProfiler</strong>：商業，互動式</li>
+</ul>
+
+<h2 id="常見-jvm-問題排查">常見 JVM 問題排查</h2>
+
+<h3 id="oom-issue">問題 1：OutOfMemoryError</h3>
+
+<p>常見原因：</p>
+<ul>
+  <li>單一 query 聚合資料量過大（aggregation cardinality 太高）</li>
+  <li>Field data cache / request cache 過大</li>
+  <li>過多 indices 或 shards 導致 cluster state 過大</li>
+</ul>
+
+<p>處理：</p>
+<pre><code class="language-bash"># 1. 查看 OOM 的 stack trace
+sudo grep -A 50 "OutOfMemoryError" /var/log/elasticsearch/*.log
+
+# 2. 分析 heap dump（位於 /var/lib/elasticsearch/heapdumps）
+ls /var/lib/elasticsearch/heapdumps
+
+# 3. 透過 cat API 看 shard 數
+curl -u elastic:xxx --cacert ca.crt \
+  "https://localhost:9200/_cat/allocation?v"
+# disk_indices 與 shards 都應在合理範圍
+
+# 4. 檢查 cluster state 大小
+curl -u elastic:xxx --cacert ca.crt \
+  "https://localhost:9200/_cluster/state?filter_path=metadata.indices&pretty" | wc -c
+# 應 < 100 MB；過大代表 indices 太多
+</code></pre>
+
+<h3 id="long-gc-pause">問題 2：長 GC pause（節點不穩）</h3>
+
+<pre><code class="language-bash"># GC log 中找有問題的 entry
+grep -E "Pause.*[5-9][0-9][0-9]ms|Pause.*[1-9][0-9]{3}ms" /var/log/elasticsearch/gc.log
+</code></pre>
+
+<p>常見原因：</p>
+<ul>
+  <li>Heap 設太大（&gt; 31 GB），用了 non-compressed oops</li>
+  <li>機器其他 process 搶 CPU，GC thread 跑不滿</li>
+  <li>啟用 swap 或 swappiness 高（GC 時 page in/out 慢）</li>
+  <li>Memory leak（old gen 持續上升）</li>
+</ul>
+
+<h3 id="circuit-breaker-tripped">問題 3：Circuit breaker tripped</h3>
+
+<p>典型錯誤訊息：</p>
+
+<pre><code class="language-text">CircuitBreakingException[[parent] Data too large, data for [<http_request>] would be 
+[123456789/117.7mb], which is larger than the limit of [12345/12kb]]
+</code></pre>
+
+<p>說明 ES 主動拒絕了一個會吃太多記憶體的請求，<strong>這是好事</strong>（保護節點不 OOM）。處理方式：</p>
+
+<ul>
+  <li>找出問題請求並優化（減少聚合、使用 composite aggregation）</li>
+  <li>用 search-template 或 query DSL 加 size、aggs 限制</li>
+  <li>升級節點規格</li>
+  <li>絕對不要透過調高 limit 來「解決」</li>
+</ul>
+
+<h2 id="container-jvm">容器環境的 JVM 注意事項</h2>
+
+<p>在 Docker / Kubernetes 中跑 ES：</p>
+
+<ol>
+  <li><strong>JVM 會偵測 cgroup memory limit</strong>，依此計算 heap（JEP 282 起，所有 JDK 都支援）</li>
+  <li>但必須<strong>給容器設定 memory limit</strong>，否則 JVM 看到的是 host 全部 RAM</li>
+  <li>建議：<code>container memory = 2 × heap</code>，給 OS cache 留空間</li>
+  <li>K8s 中還要設 <code>requests.memory == limits.memory</code> 才能進入 Guaranteed QoS</li>
+</ol>
+
+<pre><code class="language-yaml"># Kubernetes pod 範例
+resources:
+  requests:
+    memory: 32Gi
+    cpu: 4
+  limits:
+    memory: 32Gi    # 與 requests 一致
+    cpu: 8
+env:
+  - name: ES_JAVA_OPTS
+    value: "-Xms16g -Xmx16g"   # heap = 容器 50%
+</code></pre>
+
+<h2 id="checklist">JVM 調校 Checklist</h2>
+
+<ul>
+  <li>☐ Heap ≤ 50% RAM 且 ≤ 31 GB</li>
+  <li>☐ Xms == Xmx（手動時）</li>
+  <li>☐ 使用 bundled JDK（不要自己安裝）</li>
+  <li>☐ <code>bootstrap.memory_lock: true</code> 已啟用</li>
+  <li>☐ <code>HeapDumpOnOutOfMemoryError</code> 已啟用，dump 路徑可寫</li>
+  <li>☐ GC log 已啟用且有輪替</li>
+  <li>☐ 監控 heap_used_percent（超過 75% 持續就要警報）</li>
+  <li>☐ 監控 thread pool rejected 數</li>
+  <li>☐ 不要安裝任何 javaagent</li>
+  <li>☐ 容器環境：memory limit 已設，且為 heap × 2</li>
+</ul>
+
+<h2 id="本章重點回顧">本章重點回顧</h2>
+
+<ul>
+  <li>ES 記憶體 = JVM heap + Off-heap mmap + OS file cache，三者缺一不可</li>
+  <li>Heap 黃金法則：<strong>≤ 50% RAM，≤ 31 GB，Xms == Xmx</strong></li>
+  <li>9.x 預設自動 heap sizing，<strong>絕大多數情況不要手動設</strong></li>
+  <li>9.x 預設 G1 GC，已調好。<strong>不要動 G1 參數</strong></li>
+  <li>所有 JVM 覆寫一律放 <code>jvm.options.d/</code></li>
+  <li>生產建議開啟 OOM heap dump、GC log（含輪替）</li>
+  <li>診斷三大利器：<code>_nodes/stats/jvm</code>、<code>_nodes/hot_threads</code>、<code>_cat/thread_pool</code></li>
+  <li>Circuit breaker 觸發是保護機制，不是問題本身—去查問題請求</li>
+</ul>
+
+<h2 id="延伸閱讀">延伸閱讀</h2>
+
+<ul>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/deploy/self-managed/important-settings-configuration#heap-size-settings" target="_blank" rel="noopener">Heap size settings</a></li>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/deploy/self-managed/advanced-configuration#set-jvm-options" target="_blank" rel="noopener">Set JVM options</a></li>
+  <li><a href="https://docs.oracle.com/en/java/javase/21/gctuning/garbage-first-g1-garbage-collector1.html" target="_blank" rel="noopener">G1 GC Tuning Guide (Oracle)</a></li>
+</ul>
+
+<nav class="bottom-nav"><a class="prev" href="ch17-configuration-files.html"><span class="nav-label">← 上一章</span><span class="nav-title">設定檔與環境變數</span></a><a class="next" href="ch19-tls-ssl.html"><span class="nav-label">下一章 →</span><span class="nav-title">TLS/SSL 加密通訊</span></a></nav>
+</main>
+<aside class="toc">
+  <div class="toc-title">本章目錄</div>
+  <ul></ul>
+</aside>
+</div>
+<footer>
+  <p>Elasticsearch Self-Managed 完整教學文件 · 基於 Elastic Stack 9.x（最新 9.3.4）<br>
+  資料來源：<a href="https://www.elastic.co/docs" target="_blank" rel="noopener">Elastic 官方文件</a> · 最後更新：2026-05</p>
+</footer>
+</body>
+</html>

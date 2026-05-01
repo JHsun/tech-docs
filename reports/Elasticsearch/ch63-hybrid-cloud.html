@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Hybrid 架構、CCS/CCR、跨雲災備、air-gapped、self-hosted EPR/EMS、IaC">
+<title>CH 63 · Hybrid Cloud / Air-gapped 架構</title>
+<style>
+/* ============================================================
+   JHsun TechDocs — Unified Design Token Layer
+   v1.0 · Calm Teal (hue 200° / chroma 0.11)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+
+  --color-success:        #16a34a;
+  --color-success-soft:   #dcfce7;
+  --color-warning:        #d97706;
+  --color-warning-soft:   #fef3c7;
+  --color-danger:         #dc2626;
+  --color-danger-soft:    #fee2e2;
+  --color-info:           #0891b2;
+  --color-info-soft:      #cffafe;
+  --color-neutral-accent: #7c3aed;
+
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+
+  --font-mono:       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:       "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif:      "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  32px;
+  --text-3xl:  44px;
+  --text-4xl:  64px;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+
+  --container-narrow: 720px;
+  --container-wide:   1280px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+
+:root[data-theme="dark"] {
+  --color-success:        #4ade80;
+  --color-success-soft:   oklch(0.30 0.08 145);
+  --color-warning:        #fbbf24;
+  --color-warning-soft:   oklch(0.32 0.10 70);
+  --color-danger:         #f87171;
+  --color-danger-soft:    oklch(0.32 0.10 27);
+  --color-info:           #22d3ee;
+  --color-info-soft:      oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.16 0.008 50);
+  --bg-surface:     oklch(0.20 0.009 50);
+  --bg-muted:       oklch(0.23 0.010 50);
+  --bg-code:        oklch(0.18 0.009 50);
+  --border-soft:    oklch(0.28 0.010 50);
+  --border-mid:     oklch(0.36 0.012 50);
+  --text-primary:   oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted:     oklch(0.58 0.007 60);
+
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+
+/* ============== Chapter shared styles ============== */
+* { box-sizing: border-box; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+@media (min-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 240px; gap: var(--space-7); }
+}
+main { min-width: 0; padding: var(--space-6) 0; }
+main.prose { max-width: var(--container-narrow); margin: 0 auto; }
+
+/* Top navigation */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: color-mix(in oklch, var(--bg-canvas) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.topbar-inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.brand {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-primary-text);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+.nav-links { display: flex; gap: var(--space-2); margin-left: auto; align-items: center; }
+.nav-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  transition: all 0.15s;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--bg-muted); }
+.nav-links a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Theme toggle button */
+[data-theme-toggle] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  transition: all 0.15s;
+}
+[data-theme-toggle]:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.theme-icon { font-size: var(--text-base); }
+
+/* Headings */
+h1, h2, h3, h4 {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  line-height: 1.3;
+  margin-top: var(--space-7);
+  margin-bottom: var(--space-4);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+h1 { font-size: var(--text-3xl); margin-top: var(--space-5); }
+h2 { font-size: var(--text-2xl); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-soft); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-md); color: var(--text-secondary); }
+
+p { margin: var(--space-4) 0; color: var(--text-primary); }
+
+/* Inline code */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+  border: 1px solid var(--border-soft);
+}
+
+/* Code block */
+.code-wrap {
+  position: relative;
+  margin: var(--space-4) 0;
+}
+.code-wrap > .code-lang {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.code-wrap > .copy-btn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 4px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  transition: all 0.15s;
+  opacity: 0;
+}
+.code-wrap:hover > .copy-btn { opacity: 1; }
+.code-wrap > .copy-btn:hover {
+  background: var(--color-primary);
+  color: var(--bg-canvas);
+  border-color: var(--color-primary);
+}
+.code-wrap > .copy-btn.copied {
+  background: var(--color-success);
+  color: white;
+  border-color: var(--color-success);
+  opacity: 1;
+}
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-7) var(--space-4) var(--space-4);
+  overflow-x: auto;
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  margin: 0;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: var(--text-primary);
+  font-size: inherit;
+}
+
+/* Lists */
+ul, ol { padding-left: var(--space-6); }
+li { margin: var(--space-2) 0; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: var(--space-4) 0; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+th, td {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+}
+th { background: var(--bg-muted); font-weight: 600; color: var(--text-primary); }
+tr:last-child td { border-bottom: none; }
+
+/* Callouts */
+.callout {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  border-left: 4px solid var(--color-info);
+  background: var(--color-info-soft);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+.callout.warning { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.danger  { border-color: var(--color-danger);  background: var(--color-danger-soft); }
+.callout.success { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout strong { display: block; margin-bottom: var(--space-2); }
+:root[data-theme="dark"] .callout { color: var(--text-primary); }
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: 999px;
+  margin-right: var(--space-1);
+  letter-spacing: 0.02em;
+}
+.badge.beginner { background: var(--color-success-soft); color: var(--color-success); }
+.badge.developer { background: var(--color-info-soft); color: var(--color-info); }
+.badge.operator { background: var(--color-warning-soft); color: var(--color-warning); }
+.badge.advanced { background: var(--color-primary-soft); color: var(--color-primary-text); }
+:root[data-theme="dark"] .badge { filter: brightness(1.1); }
+
+/* Chapter meta */
+.chapter-meta {
+  margin: var(--space-4) 0 var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.chapter-meta .meta-row { margin: var(--space-1) 0; }
+.chapter-meta .meta-label {
+  display: inline-block;
+  width: 70px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* TOC sidebar */
+.toc {
+  position: sticky;
+  top: 80px;
+  align-self: start;
+  font-size: var(--text-sm);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  padding: var(--space-4) 0;
+  display: none;
+}
+@media (min-width: 1100px) {
+  .toc { display: block; }
+}
+.toc-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.toc ul { list-style: none; padding-left: 0; margin: 0; }
+.toc li { margin: 0; }
+.toc a {
+  display: block;
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-left: 2px solid var(--border-soft);
+  transition: all 0.15s;
+  line-height: 1.5;
+}
+.toc a:hover { color: var(--color-primary); border-left-color: var(--color-primary); }
+.toc a.toc-h3 { padding-left: var(--space-5); font-size: 0.92em; color: var(--text-muted); }
+
+/* Bottom nav */
+.bottom-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  margin-top: var(--space-8);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.bottom-nav a {
+  flex: 1;
+  min-width: 200px;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.bottom-nav a:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.bottom-nav .nav-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.bottom-nav .nav-title { font-weight: 600; color: var(--text-primary); }
+.bottom-nav a.next { text-align: right; }
+.bottom-nav a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Footer */
+footer {
+  text-align: center;
+  padding: var(--space-7) var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  border-top: 1px solid var(--border-soft);
+  margin-top: var(--space-8);
+}
+footer a { color: var(--color-primary); text-decoration: none; }
+
+/* Index page specific */
+.hero {
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+  background: linear-gradient(135deg, var(--color-primary-soft) 0%, var(--bg-canvas) 100%);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: var(--space-7);
+}
+.hero h1 {
+  font-size: var(--text-4xl);
+  margin: 0 0 var(--space-4);
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.02em;
+}
+.hero p { font-size: var(--text-md); color: var(--text-secondary); max-width: 720px; margin: 0 auto; }
+.hero .meta {
+  margin-top: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.path-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  margin: var(--space-6) 0;
+}
+@media (min-width: 768px) { .path-grid { grid-template-columns: repeat(3, 1fr); } }
+.path-card {
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  transition: all 0.2s;
+}
+.path-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-md); }
+.path-card .path-icon { font-size: 32px; display: block; margin-bottom: var(--space-3); }
+.path-card h3 { margin: 0 0 var(--space-2); font-size: var(--text-lg); }
+.path-card .path-flow {
+  margin-top: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.part {
+  margin: var(--space-7) 0;
+}
+.part-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--color-primary);
+}
+.part-header .part-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.part-header h2 { margin: 0; border: none; padding: 0; }
+
+.chapter-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+@media (min-width: 700px)  { .chapter-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1100px) { .chapter-grid { grid-template-columns: repeat(3, 1fr); } }
+.chapter-card {
+  display: block;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.chapter-card:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  transform: translateY(-1px);
+}
+.chapter-card .ch-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+.chapter-card .ch-title {
+  display: block;
+  margin: var(--space-2) 0;
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+.chapter-card .ch-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--space-2);
+}
+.chapter-card .ch-badges { font-size: 11px; }
+
+
+/* Mermaid container */
+.mermaid-wrap {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-wrap .mermaid {
+  display: inline-block;
+  min-width: 100%;
+}
+.mermaid-caption {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+/* Hide raw mermaid source until rendered */
+.mermaid:not([data-processed="true"]) {
+  visibility: hidden;
+  min-height: 1em;
+}
+
+</style>
+<script>
+/* JHsun TechDocs — Theme toggle v1.0 */
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+
+</script>
+<script>
+
+// Copy-to-clipboard for all <pre> blocks
+(function () {
+  function init() {
+    document.querySelectorAll('main pre').forEach(function (pre) {
+      if (pre.parentElement.classList.contains('code-wrap')) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'code-wrap';
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
+      const lang = pre.querySelector('code')?.className.match(/language-(\w+)/)?.[1];
+      if (lang) {
+        const tag = document.createElement('span');
+        tag.className = 'code-lang';
+        tag.textContent = lang;
+        wrap.appendChild(tag);
+      }
+      const btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.type = 'button';
+      btn.textContent = '📋 複製';
+      btn.addEventListener('click', function () {
+        const text = pre.innerText;
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(text).then(success).catch(fallback);
+        } else {
+          fallback();
+        }
+        function success() {
+          btn.textContent = '✓ 已複製';
+          btn.classList.add('copied');
+          setTimeout(function () { btn.textContent = '📋 複製'; btn.classList.remove('copied'); }, 1800);
+        }
+        function fallback() {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); success(); } catch (_) {}
+          document.body.removeChild(ta);
+        }
+      });
+      wrap.appendChild(btn);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+// Auto-build TOC from h2/h3 in <main>
+(function () {
+  function init() {
+    const toc = document.querySelector('.toc ul');
+    if (!toc) return;
+    const headings = document.querySelectorAll('main h2, main h3');
+    headings.forEach(function (h) {
+      if (!h.id) {
+        h.id = h.textContent.trim().toLowerCase()
+          .replace(/[^\w\u4e00-\u9fff\s-]/g, '')
+          .replace(/\s+/g, '-');
+      }
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = '#' + h.id;
+      a.textContent = h.textContent;
+      a.className = 'toc-' + h.tagName.toLowerCase();
+      li.appendChild(a);
+      toc.appendChild(li);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+
+// Mermaid initialization with theme sync
+(function () {
+  function getMermaidTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default';
+  }
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    const cs = getComputedStyle(document.documentElement);
+    return {
+      startOnLoad: false,
+      theme: isDark ? 'dark' : 'default',
+      themeVariables: {
+        fontFamily: cs.getPropertyValue('--font-sans').trim() || 'DM Sans, sans-serif',
+        fontSize: '14px',
+        primaryColor: isDark ? '#1e3a4a' : '#e0f2fe',
+        primaryTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        primaryBorderColor: isDark ? '#5fb3d4' : '#0891b2',
+        lineColor: isDark ? '#7aa3b8' : '#475569',
+        secondaryColor: isDark ? '#2a3f4f' : '#f1f5f9',
+        tertiaryColor: isDark ? '#1a2530' : '#fafafa',
+        background: isDark ? '#1e2a35' : '#ffffff',
+        mainBkg: isDark ? '#243441' : '#ecfeff',
+        secondBkg: isDark ? '#1a2530' : '#f8fafc',
+        nodeBorder: isDark ? '#5fb3d4' : '#0891b2',
+        clusterBkg: isDark ? '#1a2530' : '#f1f5f9',
+        clusterBorder: isDark ? '#3a5260' : '#cbd5e1',
+        defaultLinkColor: isDark ? '#7aa3b8' : '#475569',
+        titleColor: isDark ? '#e6f2f8' : '#0f172a',
+        edgeLabelBackground: isDark ? '#243441' : '#ffffff',
+        actorBkg: isDark ? '#243441' : '#ecfeff',
+        actorBorder: isDark ? '#5fb3d4' : '#0891b2',
+        actorTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        actorLineColor: isDark ? '#5fb3d4' : '#0891b2',
+        signalColor: isDark ? '#7aa3b8' : '#334155',
+        signalTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        labelBoxBkgColor: isDark ? '#1a2530' : '#fef3c7',
+        labelBoxBorderColor: isDark ? '#a89060' : '#d97706',
+        labelTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        loopTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        noteBkgColor: isDark ? '#3a4f3a' : '#fef3c7',
+        noteBorderColor: isDark ? '#86c598' : '#d97706',
+        noteTextColor: isDark ? '#e6f2f8' : '#0f172a',
+      },
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true, showSequenceNumbers: false, mirrorActors: true, bottomMarginAdj: 10 },
+    };
+  }
+
+  let renderCounter = 0;
+  async function renderAll() {
+    if (typeof mermaid === 'undefined') return;
+    renderCounter++;
+    const myCounter = renderCounter;
+    mermaid.initialize(getMermaidConfig());
+    const blocks = document.querySelectorAll('.mermaid');
+    for (const el of blocks) {
+      // restore source if already rendered
+      if (el.dataset.source) el.innerHTML = el.dataset.source;
+      else el.dataset.source = el.innerHTML;
+      el.removeAttribute('data-processed');
+    }
+    if (myCounter !== renderCounter) return;
+    try {
+      await mermaid.run({ querySelector: '.mermaid' });
+    } catch (e) { console.warn('Mermaid render error', e); }
+  }
+
+  function init() {
+    renderAll();
+    window.addEventListener('jhsun:theme-changed', renderAll);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="ch00-elasticsearch-index.html">ES Self-Managed Docs</a>
+    <nav class="nav-links">
+      <a href="ch62-multitenancy.html" aria-label="上一章">← 上一章</a>
+      <a href="ch00-elasticsearch-index.html" aria-label="回首頁">首頁</a>
+      <a href="ch64-opentelemetry.html" aria-label="下一章">下一章 →</a>
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </nav>
+  </div>
+</header>
+<div class="layout">
+<main class="prose">
+
+<h1>CH 63 · Hybrid Cloud / Air-gapped 架構</h1>
+
+<div class="chapter-meta">
+  <div class="meta-row"><span class="meta-label">適合對象</span>
+    <span class="badge operator">🔴 維運者</span>
+    <span class="badge advanced">⚡ 進階</span>
+  </div>
+  <div class="meta-row"><span class="meta-label">閱讀時間</span> 約 25 分鐘</div>
+  <div class="meta-row"><span class="meta-label">前置知識</span> CH 16 air-gapped、CH 37 CCS、CH 48 CCR</div>
+  <div class="meta-row"><span class="meta-label">本章目標</span> Hybrid 架構模式、Cross-Cluster Search 跨 cloud、災備拓撲、air-gapped 完整方案、私有化部署考量</div>
+</div>
+
+<h2 id="架構驅動因素">什麼情況需要 Hybrid / Air-gapped？</h2>
+
+<ul>
+  <li><strong>合規</strong>：資料 sovereignty、政府機密、金融、醫療</li>
+  <li><strong>安全</strong>：核心系統不對外連網</li>
+  <li><strong>多地理區</strong>：不同 region 提供低 latency</li>
+  <li><strong>多雲容災</strong>：避免單一 cloud provider 失效</li>
+  <li><strong>過渡期</strong>：on-prem → cloud 漸進遷移</li>
+  <li><strong>法規限制</strong>：特定行業必須 on-prem</li>
+</ul>
+
+<h2 id="hybrid-架構模式">Hybrid 架構模式</h2>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TB
+    subgraph Prem["🏢 On-prem / Private Cloud"]
+      ES1["ES Cluster A<br/>(交易資料、敏感)"]
+    end
+
+    subgraph AWS["☁️ AWS"]
+      ES2["ES Cluster B<br/>(applications)"]
+    end
+
+    subgraph GCP["☁️ GCP"]
+      ES3["ES Cluster C<br/>(analytics)"]
+    end
+
+    KB["🪟 統一 Kibana<br/>(用 Cross-Cluster Search)"]
+
+    KB -.CCS.-> ES1
+    KB -.CCS.-> ES2
+    KB -.CCS.-> ES3
+
+    ES1 -.CCR.-> ES2
+    ES2 -.CCR for DR.-> ES1
+
+    classDef prem fill:#fee2e2,stroke:#dc2626,color:#0f172a
+    classDef aws fill:#fef3c7,stroke:#d97706,color:#0f172a
+    classDef gcp fill:#cffafe,stroke:#0891b2,color:#0f172a
+    classDef kb fill:#dcfce7,stroke:#16a34a,color:#0f172a,stroke-width:2px
+    class ES1,Prem prem
+    class ES2,AWS aws
+    class ES3,GCP gcp
+    class KB kb
+</pre>
+<div class="mermaid-caption">圖 63-1：典型 Hybrid Cloud 架構</div>
+</div>
+
+<h2 id="模式-1-centralized-search">模式 1：Centralized Search（用 CCS）</h2>
+
+<p>多個 cluster（不同 cloud / 地理區），用 Cross-Cluster Search 統一查詢：</p>
+
+<pre><code class="language-bash">PUT _cluster/settings
+{
+  "persistent": {
+    "cluster": {
+      "remote": {
+        "us-east": {
+          "mode":          "proxy",
+          "proxy_address": "us-east.example.com:9443",
+          "skip_unavailable": true
+        },
+        "eu-west": {
+          "mode":          "proxy",
+          "proxy_address": "eu-west.example.com:9443"
+        },
+        "asia": {
+          "mode":          "proxy",
+          "proxy_address": "asia.example.com:9443"
+        }
+      }
+    }
+  }
+}
+
+# 查詢
+GET us-east:logs-*,eu-west:logs-*,asia:logs-*/_search
+</code></pre>
+
+<p>單一 Kibana 看所有 cluster。每 cluster 各自 ILM、規模、tier。</p>
+
+<h2 id="模式-2-data-locality-ccr">模式 2：Data Locality with CCR</h2>
+
+<p>主寫 cluster + 多地理區 follower：</p>
+
+<ul>
+  <li>使用者就近查詢 follower（低 latency）</li>
+  <li>單一 leader 維護資料一致性</li>
+  <li>典型場景：電商 catalog、user profile 全球分發</li>
+</ul>
+
+<pre><code class="language-bash"># Asia region follower follow leader
+PUT /products-catalog/_ccr/follow
+{
+  "remote_cluster": "main-leader",
+  "leader_index":   "products-catalog"
+}
+
+# Auto-follow 讓 backing indices 自動跟上
+PUT /_ccr/auto_follow/products-pattern
+{
+  "remote_cluster":         "main-leader",
+  "leader_index_patterns":  [ "products-*" ]
+}
+</code></pre>
+
+<h2 id="模式-3-disaster-recovery">模式 3：Disaster Recovery</h2>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart LR
+    subgraph Primary["🟢 Primary Region"]
+      P["Production Cluster<br/>writes + reads"]
+    end
+
+    subgraph DR["🟡 DR Region (different cloud)"]
+      D["DR Cluster<br/>read-only follower"]
+    end
+
+    Snap["📦 S3 + Cross-region replication<br/>長期備份"]
+
+    Apps["💼 Applications"]
+
+    Apps -->|primary| P
+    P -->|CCR| D
+    P -->|SLM snapshots| Snap
+
+    Apps -.failover.-> D
+
+    classDef p fill:#dcfce7,stroke:#16a34a,color:#0f172a
+    classDef d fill:#fef3c7,stroke:#d97706,color:#0f172a
+    classDef s fill:#cffafe,stroke:#0891b2,color:#0f172a
+    classDef app fill:#fed7aa,stroke:#ea580c,color:#0f172a
+    class P,Primary p
+    class D,DR d
+    class Snap s
+    class Apps app
+</pre>
+<div class="mermaid-caption">圖 63-2：跨雲災備拓撲</div>
+</div>
+
+<p>建議組合：</p>
+
+<ul>
+  <li><strong>CCR</strong>：秒級 RPO，DR cluster 隨時可切</li>
+  <li><strong>S3 cross-region replication</strong>：snapshot 跨地理區自動複製</li>
+  <li><strong>定期 fire drill</strong>：每季演練 failover</li>
+</ul>
+
+<h3 id="failover-runbook">Failover Runbook</h3>
+
+<ol>
+  <li>偵測 primary 失效（external monitoring）</li>
+  <li>把 follower index 變獨立可寫（CH 48）：
+    <pre><code class="language-bash">POST /products-catalog/_ccr/pause_follow
+POST /products-catalog/_close
+POST /products-catalog/_ccr/unfollow
+POST /products-catalog/_open</code></pre>
+  </li>
+  <li>切應用 endpoint 到 DR cluster</li>
+  <li>監控確認流量正常</li>
+  <li>Primary 恢復後，反向 follow（用 reindex 或重建）</li>
+</ol>
+
+<h2 id="模式-4-edge-aggregation">模式 4：Edge Aggregation</h2>
+
+<p>多個小 edge cluster + 1 個 central cluster，CCR 把資料匯集中央做分析：</p>
+
+<ul>
+  <li>製造業：每工廠 1 個 cluster</li>
+  <li>零售：每 region / 每店 cluster</li>
+  <li>IoT：edge 處理 + central 分析</li>
+</ul>
+
+<pre><code class="language-text">edge-factory-A → CCR → central-analytics
+edge-factory-B → CCR → central-analytics
+edge-factory-C → CCR → central-analytics
+</code></pre>
+
+<h2 id="air-gapped-完整方案">Air-gapped 完整方案</h2>
+
+<p>CH 16 已介紹安裝。本節補充<strong>持續維護</strong>。</p>
+
+<h3 id="package-mirror">Package Mirror</h3>
+
+<p>內網建立鏡像服務器：</p>
+
+<ul>
+  <li><strong>Linux package</strong>：reposync / pulp</li>
+  <li><strong>Docker images</strong>：Harbor / Nexus / 自建 registry</li>
+  <li><strong>Helm chart</strong>：Helm repo（OCI 也行）</li>
+  <li><strong>Elastic 套件</strong>：從 Elastic 官方下載 .deb / .rpm / .tar.gz / Docker image</li>
+</ul>
+
+<h3 id="package-registry">Self-hosted Elastic Package Registry (EPR)</h3>
+
+<p>Fleet 預設從 <code>epr.elastic.co</code> 下載 integrations。Air-gapped 需自架：</p>
+
+<pre><code class="language-bash">docker run -d \
+  -p 8080:8080 \
+  -e EPR_PACKAGE_PATH=/packages \
+  -v /local/packages:/packages \
+  docker.elastic.co/package-registry/distribution:latest
+</code></pre>
+
+<p>從 <a href="https://github.com/elastic/package-storage" target="_blank" rel="noopener">elastic/package-storage</a> 下載最新 integrations。</p>
+
+<p>設定 Kibana 連到自架 EPR：</p>
+
+<pre><code class="language-yaml">xpack.fleet.registryUrl: "https://epr.internal.example.com:8080"
+</code></pre>
+
+<h3 id="ml-models">ML Models（air-gapped）</h3>
+
+<p>Hugging Face 模型需先下載到 internal 環境，用 eland 從本地匯入：</p>
+
+<pre><code class="language-bash"># 在有網路的機器
+pip install eland
+eland_import_hub_model \
+  --hub-model-id "dslim/bert-base-NER" \
+  --task-type ner \
+  --output-dir /local/model
+
+# 把整個資料夾搬到 air-gapped 環境
+
+# 在 air-gapped 環境匯入
+eland_import_hub_model \
+  --url https://es:9200 \
+  --hub-model-id "dslim/bert-base-NER" \
+  --task-type ner \
+  --hub-cache-dir /local/model
+</code></pre>
+
+<h3 id="elastic-maps-service">Self-hosted Elastic Maps Service (EMS)</h3>
+
+<p>Kibana Maps 預設用 <code>tiles.maps.elastic.co</code>。Air-gapped 自架：</p>
+
+<pre><code class="language-bash">docker run -d \
+  -p 8080:8080 \
+  -e ELASTIC_LICENSE_TYPE=basic \
+  docker.elastic.co/elastic-maps-service/elastic-maps-server:9.3.4
+</code></pre>
+
+<p>Kibana 設定：</p>
+
+<pre><code class="language-yaml">map.emsUrl: "https://ems.internal.example.com:8080"
+</code></pre>
+
+<h3 id="updates">定期更新流程</h3>
+
+<ol>
+  <li>準備 staging 環境（可連網）</li>
+  <li>下載最新 ES、Kibana、Beats、Agent、integrations、ML models</li>
+  <li>同步到內網 mirror</li>
+  <li>內網 cluster 用 mirror 升級（CH 51 滾動升級）</li>
+  <li>記錄版本與變更</li>
+</ol>
+
+<h2 id="網路與安全">網路與安全考量</h2>
+
+<h3 id="跨-region-加密">跨 region 加密</h3>
+
+<ul>
+  <li>所有跨 cluster traffic 必須 TLS（CH 19）</li>
+  <li>用<strong>對等網路</strong>（VPC Peering / Transit Gateway / Cloud Interconnect）取代 internet</li>
+  <li>跨 cloud 用 VPN 或 SD-WAN</li>
+  <li>9.x remote cluster interface（9443）已支援 mTLS</li>
+</ul>
+
+<h3 id="api-key-strategy">API Key 策略</h3>
+
+<ul>
+  <li>跨 cluster 用 <strong>cross-cluster API key</strong>（CH 22, CH 48）</li>
+  <li>每 region 各有獨立 root user / superuser</li>
+  <li>不要共用 API key 於多 cluster</li>
+</ul>
+
+<h3 id="audit">Audit Trail</h3>
+
+<ul>
+  <li>每 cluster 各自啟用 audit log</li>
+  <li>Audit 集中到專屬 monitoring cluster（避免循環）</li>
+  <li>用 SIEM（CH 58）做跨 cluster 分析</li>
+</ul>
+
+<h2 id="cost-optimization">跨雲成本優化</h2>
+
+<h3 id="egress-fees">Egress 費用考量</h3>
+
+<ul>
+  <li><strong>AWS：跨 region 約 $0.02/GB</strong></li>
+  <li><strong>GCP：跨 region 約 $0.08-0.12/GB</strong></li>
+  <li><strong>Azure：類似</strong></li>
+  <li>Cross-cloud 通常 $0.08/GB+</li>
+</ul>
+
+<p>策略：</p>
+
+<ul>
+  <li><strong>CCR 比 CCS 省</strong>：CCR 持續複製、CCS 每 query 拉資料</li>
+  <li><strong>把分析 cluster 與資料 cluster 同 region</strong></li>
+  <li><strong>用 cold tier + searchable snapshot</strong>（CH 30）：S3 比 EBS 便宜</li>
+  <li><strong>跨 region replication 走 S3</strong>（無 egress 費用，前提：用 S3 CRR）</li>
+</ul>
+
+<h2 id="terraform-iac">Terraform / IaC for Hybrid</h2>
+
+<p>用 Terraform 管理跨雲 cluster：</p>
+
+<pre><code class="language-hcl"># Provider 多家
+provider "aws"   { region = "us-east-1" }
+provider "google" { project = "my-prj" }
+provider "kubernetes" { ... }
+
+# AWS EKS cluster + ECK
+module "ecs_aws" {
+  source       = "./modules/eck"
+  cluster_name = "production-aws"
+  region       = "us-east-1"
+  ...
+}
+
+# GCP GKE + ECK
+module "ecs_gcp" {
+  source       = "./modules/eck"
+  cluster_name = "production-gcp"
+  region       = "us-central1"
+  ...
+}
+
+# Cross-cluster setup
+resource "elasticsearch_cluster_settings" "remote_aws" {
+  persistent = {
+    "cluster.remote.aws.proxy_address" = "..."
+  }
+}
+</code></pre>
+
+<h2 id="monitoring-hybrid">Hybrid 監控</h2>
+
+<ul>
+  <li><strong>專用 monitoring cluster</strong>（CH 46）：建議放在中立位置（如管理 region）</li>
+  <li><strong>每 cluster 用 Elastic Agent 送 metrics</strong> 到 monitoring cluster</li>
+  <li><strong>外部 uptime monitor</strong>（Synthetics CH 57）：從每地理區 ping 每 cluster</li>
+  <li><strong>SLO + burn rate alert</strong>（CH 57）：跨 cluster 整合</li>
+</ul>
+
+<h2 id="best-practices">最佳實踐</h2>
+
+<ul>
+  <li><strong>從業務驅動設計</strong>：合規、地理、災備需求先列清楚</li>
+  <li><strong>用 IaC</strong>：Terraform / Ansible / Helm，可跨環境重複</li>
+  <li><strong>跨 cluster 用 API key + remote_cluster_client role</strong></li>
+  <li><strong>Mapping / templates / ILM 用 GitOps 同步到所有 cluster</strong></li>
+  <li><strong>Egress 流量是隱形成本</strong>，CCR 通常比 CCS 經濟</li>
+  <li><strong>Air-gapped 必備</strong>：self-hosted EPR、EMS、package mirror、ML model cache</li>
+  <li><strong>專用 monitoring cluster</strong>：避免循環依賴</li>
+  <li><strong>定期 fire drill</strong>：跨 region failover、air-gapped 升級</li>
+  <li><strong>SLO 定義跨 cluster</strong>：region availability、cross-region 一致性</li>
+  <li><strong>Backup 多層</strong>：CCR（即時）+ snapshot（長期）+ cross-region replication</li>
+</ul>
+
+<h2 id="本章重點回顧">本章重點回顧</h2>
+
+<ul>
+  <li>Hybrid 架構五大模式：centralized search、data locality、DR、edge aggregation、air-gapped</li>
+  <li><strong>CCS</strong> 跨 cluster 即時查詢；<strong>CCR</strong> 跨 cluster 即時複製</li>
+  <li>跨雲 DR 用 CCR + cross-region snapshot 雙保險</li>
+  <li>Failover runbook 必須演練：unfollow → 切流量</li>
+  <li>Air-gapped 補充：self-hosted EPR、EMS、ML model 本地匯入</li>
+  <li>跨 region traffic 用 VPC peering / Cloud Interconnect</li>
+  <li>9.x remote cluster interface（9443）+ cross-cluster API key 是新標準</li>
+  <li>Egress 費用是隱形成本，CCR 比 CCS 經濟</li>
+  <li>Terraform / IaC 是 hybrid 管理的必備工具</li>
+</ul>
+
+<h2 id="延伸閱讀">延伸閱讀</h2>
+
+<ul>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/remote-clusters" target="_blank" rel="noopener">Remote clusters</a></li>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/deploy/self-managed/air-gapped-install" target="_blank" rel="noopener">Air-gapped install</a></li>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/tools/cross-cluster-replication/uni-directional-disaster-recovery" target="_blank" rel="noopener">Disaster Recovery</a></li>
+</ul>
+
+<nav class="bottom-nav"><a class="prev" href="ch62-multitenancy.html"><span class="nav-label">← 上一章</span><span class="nav-title">Multi-tenancy 設計模式</span></a><a class="next" href="ch64-opentelemetry.html"><span class="nav-label">下一章 →</span><span class="nav-title">OpenTelemetry 與 EDOT 完整整合</span></a></nav>
+</main>
+<aside class="toc">
+  <div class="toc-title">本章目錄</div>
+  <ul></ul>
+</aside>
+</div>
+<footer>
+  <p>Elasticsearch Self-Managed 完整教學文件 · 基於 Elastic Stack 9.x（最新 9.3.4）<br>
+  資料來源：<a href="https://www.elastic.co/docs" target="_blank" rel="noopener">Elastic 官方文件</a> · 最後更新：2026-05</p>
+</footer>
+</body>
+</html>

@@ -1,0 +1,1405 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Elasticsearch SSO：SAML、OIDC、AD/LDAP、PKI、Kerberos、JWT">
+<title>CH 23 · SSO 整合</title>
+<style>
+/* ============================================================
+   JHsun TechDocs — Unified Design Token Layer
+   v1.0 · Calm Teal (hue 200° / chroma 0.11)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+
+  --color-success:        #16a34a;
+  --color-success-soft:   #dcfce7;
+  --color-warning:        #d97706;
+  --color-warning-soft:   #fef3c7;
+  --color-danger:         #dc2626;
+  --color-danger-soft:    #fee2e2;
+  --color-info:           #0891b2;
+  --color-info-soft:      #cffafe;
+  --color-neutral-accent: #7c3aed;
+
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+
+  --font-mono:       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:       "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif:      "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  32px;
+  --text-3xl:  44px;
+  --text-4xl:  64px;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+
+  --container-narrow: 720px;
+  --container-wide:   1280px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+
+:root[data-theme="dark"] {
+  --color-success:        #4ade80;
+  --color-success-soft:   oklch(0.30 0.08 145);
+  --color-warning:        #fbbf24;
+  --color-warning-soft:   oklch(0.32 0.10 70);
+  --color-danger:         #f87171;
+  --color-danger-soft:    oklch(0.32 0.10 27);
+  --color-info:           #22d3ee;
+  --color-info-soft:      oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.16 0.008 50);
+  --bg-surface:     oklch(0.20 0.009 50);
+  --bg-muted:       oklch(0.23 0.010 50);
+  --bg-code:        oklch(0.18 0.009 50);
+  --border-soft:    oklch(0.28 0.010 50);
+  --border-mid:     oklch(0.36 0.012 50);
+  --text-primary:   oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted:     oklch(0.58 0.007 60);
+
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+
+/* ============== Chapter shared styles ============== */
+* { box-sizing: border-box; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+@media (min-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 240px; gap: var(--space-7); }
+}
+main { min-width: 0; padding: var(--space-6) 0; }
+main.prose { max-width: var(--container-narrow); margin: 0 auto; }
+
+/* Top navigation */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: color-mix(in oklch, var(--bg-canvas) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.topbar-inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.brand {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-primary-text);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+.nav-links { display: flex; gap: var(--space-2); margin-left: auto; align-items: center; }
+.nav-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  transition: all 0.15s;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--bg-muted); }
+.nav-links a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Theme toggle button */
+[data-theme-toggle] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  transition: all 0.15s;
+}
+[data-theme-toggle]:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.theme-icon { font-size: var(--text-base); }
+
+/* Headings */
+h1, h2, h3, h4 {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  line-height: 1.3;
+  margin-top: var(--space-7);
+  margin-bottom: var(--space-4);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+h1 { font-size: var(--text-3xl); margin-top: var(--space-5); }
+h2 { font-size: var(--text-2xl); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-soft); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-md); color: var(--text-secondary); }
+
+p { margin: var(--space-4) 0; color: var(--text-primary); }
+
+/* Inline code */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+  border: 1px solid var(--border-soft);
+}
+
+/* Code block */
+.code-wrap {
+  position: relative;
+  margin: var(--space-4) 0;
+}
+.code-wrap > .code-lang {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.code-wrap > .copy-btn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 4px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  transition: all 0.15s;
+  opacity: 0;
+}
+.code-wrap:hover > .copy-btn { opacity: 1; }
+.code-wrap > .copy-btn:hover {
+  background: var(--color-primary);
+  color: var(--bg-canvas);
+  border-color: var(--color-primary);
+}
+.code-wrap > .copy-btn.copied {
+  background: var(--color-success);
+  color: white;
+  border-color: var(--color-success);
+  opacity: 1;
+}
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-7) var(--space-4) var(--space-4);
+  overflow-x: auto;
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  margin: 0;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: var(--text-primary);
+  font-size: inherit;
+}
+
+/* Lists */
+ul, ol { padding-left: var(--space-6); }
+li { margin: var(--space-2) 0; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: var(--space-4) 0; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+th, td {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+}
+th { background: var(--bg-muted); font-weight: 600; color: var(--text-primary); }
+tr:last-child td { border-bottom: none; }
+
+/* Callouts */
+.callout {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  border-left: 4px solid var(--color-info);
+  background: var(--color-info-soft);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+.callout.warning { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.danger  { border-color: var(--color-danger);  background: var(--color-danger-soft); }
+.callout.success { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout strong { display: block; margin-bottom: var(--space-2); }
+:root[data-theme="dark"] .callout { color: var(--text-primary); }
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: 999px;
+  margin-right: var(--space-1);
+  letter-spacing: 0.02em;
+}
+.badge.beginner { background: var(--color-success-soft); color: var(--color-success); }
+.badge.developer { background: var(--color-info-soft); color: var(--color-info); }
+.badge.operator { background: var(--color-warning-soft); color: var(--color-warning); }
+.badge.advanced { background: var(--color-primary-soft); color: var(--color-primary-text); }
+:root[data-theme="dark"] .badge { filter: brightness(1.1); }
+
+/* Chapter meta */
+.chapter-meta {
+  margin: var(--space-4) 0 var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.chapter-meta .meta-row { margin: var(--space-1) 0; }
+.chapter-meta .meta-label {
+  display: inline-block;
+  width: 70px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* TOC sidebar */
+.toc {
+  position: sticky;
+  top: 80px;
+  align-self: start;
+  font-size: var(--text-sm);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  padding: var(--space-4) 0;
+  display: none;
+}
+@media (min-width: 1100px) {
+  .toc { display: block; }
+}
+.toc-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.toc ul { list-style: none; padding-left: 0; margin: 0; }
+.toc li { margin: 0; }
+.toc a {
+  display: block;
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-left: 2px solid var(--border-soft);
+  transition: all 0.15s;
+  line-height: 1.5;
+}
+.toc a:hover { color: var(--color-primary); border-left-color: var(--color-primary); }
+.toc a.toc-h3 { padding-left: var(--space-5); font-size: 0.92em; color: var(--text-muted); }
+
+/* Bottom nav */
+.bottom-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  margin-top: var(--space-8);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.bottom-nav a {
+  flex: 1;
+  min-width: 200px;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.bottom-nav a:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.bottom-nav .nav-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.bottom-nav .nav-title { font-weight: 600; color: var(--text-primary); }
+.bottom-nav a.next { text-align: right; }
+.bottom-nav a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Footer */
+footer {
+  text-align: center;
+  padding: var(--space-7) var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  border-top: 1px solid var(--border-soft);
+  margin-top: var(--space-8);
+}
+footer a { color: var(--color-primary); text-decoration: none; }
+
+/* Index page specific */
+.hero {
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+  background: linear-gradient(135deg, var(--color-primary-soft) 0%, var(--bg-canvas) 100%);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: var(--space-7);
+}
+.hero h1 {
+  font-size: var(--text-4xl);
+  margin: 0 0 var(--space-4);
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.02em;
+}
+.hero p { font-size: var(--text-md); color: var(--text-secondary); max-width: 720px; margin: 0 auto; }
+.hero .meta {
+  margin-top: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.path-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  margin: var(--space-6) 0;
+}
+@media (min-width: 768px) { .path-grid { grid-template-columns: repeat(3, 1fr); } }
+.path-card {
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  transition: all 0.2s;
+}
+.path-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-md); }
+.path-card .path-icon { font-size: 32px; display: block; margin-bottom: var(--space-3); }
+.path-card h3 { margin: 0 0 var(--space-2); font-size: var(--text-lg); }
+.path-card .path-flow {
+  margin-top: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.part {
+  margin: var(--space-7) 0;
+}
+.part-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--color-primary);
+}
+.part-header .part-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.part-header h2 { margin: 0; border: none; padding: 0; }
+
+.chapter-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+@media (min-width: 700px)  { .chapter-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1100px) { .chapter-grid { grid-template-columns: repeat(3, 1fr); } }
+.chapter-card {
+  display: block;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.chapter-card:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  transform: translateY(-1px);
+}
+.chapter-card .ch-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+.chapter-card .ch-title {
+  display: block;
+  margin: var(--space-2) 0;
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+.chapter-card .ch-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--space-2);
+}
+.chapter-card .ch-badges { font-size: 11px; }
+
+
+/* Mermaid container */
+.mermaid-wrap {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-wrap .mermaid {
+  display: inline-block;
+  min-width: 100%;
+}
+.mermaid-caption {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+/* Hide raw mermaid source until rendered */
+.mermaid:not([data-processed="true"]) {
+  visibility: hidden;
+  min-height: 1em;
+}
+
+</style>
+<script>
+/* JHsun TechDocs — Theme toggle v1.0 */
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+
+</script>
+<script>
+
+// Copy-to-clipboard for all <pre> blocks
+(function () {
+  function init() {
+    document.querySelectorAll('main pre').forEach(function (pre) {
+      if (pre.parentElement.classList.contains('code-wrap')) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'code-wrap';
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
+      const lang = pre.querySelector('code')?.className.match(/language-(\w+)/)?.[1];
+      if (lang) {
+        const tag = document.createElement('span');
+        tag.className = 'code-lang';
+        tag.textContent = lang;
+        wrap.appendChild(tag);
+      }
+      const btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.type = 'button';
+      btn.textContent = '📋 複製';
+      btn.addEventListener('click', function () {
+        const text = pre.innerText;
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(text).then(success).catch(fallback);
+        } else {
+          fallback();
+        }
+        function success() {
+          btn.textContent = '✓ 已複製';
+          btn.classList.add('copied');
+          setTimeout(function () { btn.textContent = '📋 複製'; btn.classList.remove('copied'); }, 1800);
+        }
+        function fallback() {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); success(); } catch (_) {}
+          document.body.removeChild(ta);
+        }
+      });
+      wrap.appendChild(btn);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+// Auto-build TOC from h2/h3 in <main>
+(function () {
+  function init() {
+    const toc = document.querySelector('.toc ul');
+    if (!toc) return;
+    const headings = document.querySelectorAll('main h2, main h3');
+    headings.forEach(function (h) {
+      if (!h.id) {
+        h.id = h.textContent.trim().toLowerCase()
+          .replace(/[^\w\u4e00-\u9fff\s-]/g, '')
+          .replace(/\s+/g, '-');
+      }
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = '#' + h.id;
+      a.textContent = h.textContent;
+      a.className = 'toc-' + h.tagName.toLowerCase();
+      li.appendChild(a);
+      toc.appendChild(li);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+
+// Mermaid initialization with theme sync
+(function () {
+  function getMermaidTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default';
+  }
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    const cs = getComputedStyle(document.documentElement);
+    return {
+      startOnLoad: false,
+      theme: isDark ? 'dark' : 'default',
+      themeVariables: {
+        fontFamily: cs.getPropertyValue('--font-sans').trim() || 'DM Sans, sans-serif',
+        fontSize: '14px',
+        primaryColor: isDark ? '#1e3a4a' : '#e0f2fe',
+        primaryTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        primaryBorderColor: isDark ? '#5fb3d4' : '#0891b2',
+        lineColor: isDark ? '#7aa3b8' : '#475569',
+        secondaryColor: isDark ? '#2a3f4f' : '#f1f5f9',
+        tertiaryColor: isDark ? '#1a2530' : '#fafafa',
+        background: isDark ? '#1e2a35' : '#ffffff',
+        mainBkg: isDark ? '#243441' : '#ecfeff',
+        secondBkg: isDark ? '#1a2530' : '#f8fafc',
+        nodeBorder: isDark ? '#5fb3d4' : '#0891b2',
+        clusterBkg: isDark ? '#1a2530' : '#f1f5f9',
+        clusterBorder: isDark ? '#3a5260' : '#cbd5e1',
+        defaultLinkColor: isDark ? '#7aa3b8' : '#475569',
+        titleColor: isDark ? '#e6f2f8' : '#0f172a',
+        edgeLabelBackground: isDark ? '#243441' : '#ffffff',
+        actorBkg: isDark ? '#243441' : '#ecfeff',
+        actorBorder: isDark ? '#5fb3d4' : '#0891b2',
+        actorTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        actorLineColor: isDark ? '#5fb3d4' : '#0891b2',
+        signalColor: isDark ? '#7aa3b8' : '#334155',
+        signalTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        labelBoxBkgColor: isDark ? '#1a2530' : '#fef3c7',
+        labelBoxBorderColor: isDark ? '#a89060' : '#d97706',
+        labelTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        loopTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        noteBkgColor: isDark ? '#3a4f3a' : '#fef3c7',
+        noteBorderColor: isDark ? '#86c598' : '#d97706',
+        noteTextColor: isDark ? '#e6f2f8' : '#0f172a',
+      },
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true, showSequenceNumbers: false, mirrorActors: true, bottomMarginAdj: 10 },
+    };
+  }
+
+  let renderCounter = 0;
+  async function renderAll() {
+    if (typeof mermaid === 'undefined') return;
+    renderCounter++;
+    const myCounter = renderCounter;
+    mermaid.initialize(getMermaidConfig());
+    const blocks = document.querySelectorAll('.mermaid');
+    for (const el of blocks) {
+      // restore source if already rendered
+      if (el.dataset.source) el.innerHTML = el.dataset.source;
+      else el.dataset.source = el.innerHTML;
+      el.removeAttribute('data-processed');
+    }
+    if (myCounter !== renderCounter) return;
+    try {
+      await mermaid.run({ querySelector: '.mermaid' });
+    } catch (e) { console.warn('Mermaid render error', e); }
+  }
+
+  function init() {
+    renderAll();
+    window.addEventListener('jhsun:theme-changed', renderAll);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="ch00-elasticsearch-index.html">ES Self-Managed Docs</a>
+    <nav class="nav-links">
+      <a href="ch22-api-keys.html" aria-label="上一章">← 上一章</a>
+      <a href="ch00-elasticsearch-index.html" aria-label="回首頁">首頁</a>
+      <a href="ch24-audit-logging.html" aria-label="下一章">下一章 →</a>
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </nav>
+  </div>
+</header>
+<div class="layout">
+<main class="prose">
+
+<h1>CH 23 · SSO 整合（SAML、OIDC、AD/LDAP、PKI）</h1>
+
+<div class="chapter-meta">
+  <div class="meta-row"><span class="meta-label">適合對象</span>
+    <span class="badge operator">🔴 維運者</span>
+    <span class="badge advanced">⚡ 進階</span>
+  </div>
+  <div class="meta-row"><span class="meta-label">閱讀時間</span> 約 35 分鐘</div>
+  <div class="meta-row"><span class="meta-label">前置知識</span> CH 19 TLS、CH 20 認證、CH 21 RBAC</div>
+  <div class="meta-row"><span class="meta-label">本章目標</span> 整合企業身份來源：AD/LDAP、SAML、OIDC、PKI、Kerberos、JWT</div>
+</div>
+
+<h2 id="sso-架構總覽">SSO 整合方案總覽</h2>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart LR
+    subgraph Identity["🔐 身份來源"]
+      AD["Active Directory<br/>LDAP / Kerberos"]
+      Okta["Okta / Auth0<br/>OneLogin"]
+      Azure["Azure AD / Entra ID"]
+      Google["Google Workspace"]
+      PKIca["企業 PKI<br/>(client cert)"]
+      JWTsvc["External JWT<br/>service"]
+    end
+
+    subgraph Realms["Elasticsearch Realms"]
+      LDAPr["ldap realm"]
+      ADr["active_directory realm"]
+      SAMLr["saml realm"]
+      OIDCr["oidc realm"]
+      PKIr["pki realm"]
+      KRBr["kerberos realm"]
+      JWTr["jwt realm"]
+    end
+
+    AD --> LDAPr
+    AD --> ADr
+    AD --> KRBr
+    Okta --> SAMLr
+    Okta --> OIDCr
+    Azure --> SAMLr
+    Azure --> OIDCr
+    Google --> OIDCr
+    PKIca --> PKIr
+    JWTsvc --> JWTr
+
+    Realms --> Roles["🎭 ES Roles<br/>(via role_mapping)"]
+
+    classDef idp fill:#fef3c7,stroke:#d97706,color:#0f172a
+    classDef realm fill:#cffafe,stroke:#0891b2,color:#0f172a
+    classDef role fill:#dcfce7,stroke:#16a34a,color:#0f172a,stroke-width:2px
+    class AD,Okta,Azure,Google,PKIca,JWTsvc idp
+    class LDAPr,ADr,SAMLr,OIDCr,PKIr,KRBr,JWTr realm
+    class Roles role
+</pre>
+<div class="mermaid-caption">圖 23-1：身份來源到 ES realm 的對應</div>
+</div>
+
+<h2 id="ldap-realm">LDAP / Active Directory Realm</h2>
+
+<p>用於企業內部 user directory（OpenLDAP、AD、FreeIPA、389 Directory Server）。AD 在 ES 中其實就是 LDAP 的特化（用 <code>active_directory</code> 類型可省略 user search 配置）。</p>
+
+<h3 id="ldap-mode">兩種驗證模式</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>模式</th><th>說明</th><th>適用</th></tr></thead>
+  <tbody>
+    <tr><td><strong>user_search</strong></td><td>先用 bind DN 連入 LDAP，搜尋 user，再用其密碼 bind 一次驗證</td><td>多種 user OU、需動態查詢</td></tr>
+    <tr><td><strong>user DN templates</strong></td><td>直接以 user 提供的密碼 bind 已知模式 DN</td><td>所有 user 在同一 OU 下</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 id="ldap-yaml-config">基本 LDAP 設定（user_search 模式）</h3>
+
+<pre><code class="language-yaml"># elasticsearch.yml
+xpack.security.authc.realms.ldap.ldap1:
+  order: 2
+  url: "ldaps://ldap.example.com:636"
+  bind_dn: "cn=ldap-reader,ou=service-accounts,dc=example,dc=com"
+  user_search:
+    base_dn: "ou=users,dc=example,dc=com"
+    filter: "(uid={0})"
+    scope: sub_tree
+  group_search:
+    base_dn: "ou=groups,dc=example,dc=com"
+    filter: "(member={0})"
+    scope: sub_tree
+  unmapped_groups_as_roles: false
+  ssl:
+    certificate_authorities: [ "config/certs/ldap-ca.crt" ]
+    verification_mode: full
+  cache:
+    ttl: 1h
+    max_users: 10000
+</code></pre>
+
+<p>把 bind DN 密碼存 keystore：</p>
+
+<pre><code class="language-bash">sudo /usr/share/elasticsearch/bin/elasticsearch-keystore add \
+  xpack.security.authc.realms.ldap.ldap1.secure_bind_password
+</code></pre>
+
+<h3 id="ad-config">Active Directory 簡化設定</h3>
+
+<pre><code class="language-yaml">xpack.security.authc.realms.active_directory.ad1:
+  order: 2
+  domain_name: example.com
+  url: "ldaps://dc1.example.com:636"
+  load_balance:
+    type: round_robin
+  ssl:
+    certificate_authorities: [ "config/certs/ad-ca.crt" ]
+    verification_mode: full
+  unmapped_groups_as_roles: false
+</code></pre>
+
+<p>AD 的 user 用 <code>username@domain</code> 或 <code>DOMAIN\username</code> 格式登入，ES 會自動處理。</p>
+
+<h3 id="ldap-user-dn-templates">User DN templates 模式</h3>
+
+<pre><code class="language-yaml">xpack.security.authc.realms.ldap.ldap1:
+  order: 2
+  url: "ldaps://ldap.example.com:636"
+  user_dn_templates:
+    - "uid={0},ou=engineering,dc=example,dc=com"
+    - "uid={0},ou=sales,dc=example,dc=com"
+  group_search:
+    base_dn: "ou=groups,dc=example,dc=com"
+  ssl:
+    certificate_authorities: [ "config/certs/ldap-ca.crt" ]
+</code></pre>
+
+<h3 id="ldap-test">驗證 LDAP 連線</h3>
+
+<pre><code class="language-bash"># 測試 LDAP user 登入
+curl -u "alice:LDAP-Password" --cacert ca.crt \
+  "https://localhost:9200/_security/_authenticate?pretty"
+
+# 應看到 authentication_realm.name = "ldap1"
+</code></pre>
+
+<h3 id="ldap-role-mapping">LDAP Role Mapping</h3>
+
+<pre><code class="language-bash">curl -X PUT -u elastic:xxx --cacert ca.crt \
+  -H 'Content-Type: application/json' \
+  "https://localhost:9200/_security/role_mapping/ldap-admins" -d '
+{
+  "roles": [ "superuser" ],
+  "enabled": true,
+  "rules": {
+    "all": [
+      { "field": { "realm.name": "ldap1" } },
+      { "field": { "groups": "cn=es-admins,ou=groups,dc=example,dc=com" } }
+    ]
+  }
+}'
+</code></pre>
+
+<h2 id="saml-realm">SAML 2.0 Realm</h2>
+
+<p>SAML 是企業 SSO 最常見的標準，搭配 Okta、Azure AD、Auth0、ADFS、PingFederate、OneLogin 等 IdP。</p>
+
+<h3 id="saml-flow">SAML 認證流程</h3>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+sequenceDiagram
+    participant User as 👤 User
+    participant Browser as 🌐 Browser
+    participant Kibana as Kibana
+    participant ES as Elasticsearch
+    participant IdP as 🔐 IdP (Okta)
+
+    User->>Browser: 開啟 Kibana
+    Browser->>Kibana: GET /
+    Kibana->>ES: prepare SAML auth
+    ES-->>Kibana: SAML AuthN request
+    Kibana-->>Browser: redirect to IdP
+    Browser->>IdP: GET /sso?SAMLRequest=...
+    IdP->>User: 顯示登入畫面
+    User->>IdP: 輸入帳密 + MFA
+    IdP-->>Browser: HTML form auto-POST<br/>SAMLResponse → Kibana ACS
+    Browser->>Kibana: POST /api/security/saml/callback
+    Kibana->>ES: authenticate SAML response
+    ES-->>Kibana: token + user info
+    Kibana-->>Browser: Set session cookie
+</pre>
+<div class="mermaid-caption">圖 23-2：SAML SP-initiated 流程</div>
+</div>
+
+<h3 id="saml-idp-side">IdP 端設定（在 Okta/Azure 設）</h3>
+
+<ul>
+  <li><strong>SP Entity ID</strong>：通常用 <code>https://kibana.example.com</code></li>
+  <li><strong>ACS URL</strong>：<code>https://kibana.example.com/api/security/v1/saml</code>（callback）</li>
+  <li><strong>NameID format</strong>：<code>urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress</code> 或 <code>persistent</code></li>
+  <li>下載 IdP metadata XML（含 IdP 簽章公鑰、SSO URL）</li>
+</ul>
+
+<h3 id="saml-es-side">elasticsearch.yml 設定</h3>
+
+<pre><code class="language-yaml">xpack.security.authc.realms.saml.saml1:
+  order: 3
+  attributes.principal: "nameid:persistent"
+  attributes.groups:    "groups"
+  attributes.name:      "displayName"
+  attributes.mail:      "email"
+  idp.metadata.path:    "saml/okta-metadata.xml"
+  idp.entity_id:        "http://www.okta.com/exk1abc..."
+  sp.entity_id:         "https://kibana.example.com"
+  sp.acs:               "https://kibana.example.com/api/security/v1/saml"
+  sp.logout:            "https://kibana.example.com/logout"
+  ssl:
+    certificate_authorities: [ "config/certs/ca.crt" ]
+</code></pre>
+
+<p>Metadata XML 放在 <code>$ES_PATH_CONF/saml/okta-metadata.xml</code>。</p>
+
+<h3 id="saml-kibana-side">kibana.yml 設定</h3>
+
+<pre><code class="language-yaml">xpack.security.authc.providers:
+  saml.saml1:
+    order: 0
+    realm: saml1
+    description: "Login with SSO"
+    icon: "logoSecurity"
+  basic.basic1:
+    order: 1
+    description: "Local login"
+</code></pre>
+
+<h3 id="saml-role-mapping">SAML Role Mapping</h3>
+
+<p>根據 SAML attributes 中 <code>groups</code> 對應 ES role：</p>
+
+<pre><code class="language-bash">curl -X PUT -u elastic:xxx --cacert ca.crt \
+  -H 'Content-Type: application/json' \
+  "https://localhost:9200/_security/role_mapping/saml-engineers" -d '
+{
+  "roles": [ "developer", "kibana_user" ],
+  "enabled": true,
+  "rules": {
+    "all": [
+      { "field": { "realm.name": "saml1" } },
+      { "field": { "groups": "es-engineers" } }
+    ]
+  }
+}'
+</code></pre>
+
+<h3 id="saml-azure-ad">Azure AD / Entra ID 額外注意</h3>
+
+<ul>
+  <li>Application 類型選 <strong>Enterprise application</strong>，啟用 SAML SSO</li>
+  <li>Group claim 來自 Azure AD groups，可用 GUID 或 display name；通常用 GUID 並在 ES role_mapping 寫對應</li>
+  <li>若 user 屬於 100+ groups，Azure 會回 <code>groups overage</code>，需改用 Graph API 查詢</li>
+</ul>
+
+<h2 id="oidc-realm">OpenID Connect (OIDC) Realm</h2>
+
+<p>OIDC 是基於 OAuth 2.0 的現代 SSO 標準，比 SAML 簡單。Google、Microsoft、Auth0、Okta 都支援。</p>
+
+<h3 id="oidc-flow">Authorization Code Flow</h3>
+
+<pre><code class="language-text">1. User 開 Kibana → 重導到 IdP
+2. User 在 IdP 登入 → IdP 回傳 authorization code
+3. Kibana 用 code 向 IdP 交換 ID token + access token
+4. ES 驗證 ID token 簽章與 claims，建立 ES session
+</code></pre>
+
+<h3 id="oidc-config">elasticsearch.yml 設定</h3>
+
+<pre><code class="language-yaml">xpack.security.authc.realms.oidc.oidc1:
+  order: 4
+  rp.client_id:    "kibana-client-id"
+  rp.response_type: "code"
+  rp.redirect_uri: "https://kibana.example.com/api/security/oidc/callback"
+  op.issuer:       "https://login.microsoftonline.com/{tenant-id}/v2.0"
+  op.authorization_endpoint: "https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/authorize"
+  op.token_endpoint:         "https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/token"
+  op.userinfo_endpoint:      "https://graph.microsoft.com/oidc/userinfo"
+  op.jwkset_path:            "https://login.microsoftonline.com/{tenant-id}/discovery/v2.0/keys"
+  rp.requested_scopes: [ "openid", "email", "profile", "groups" ]
+  claims.principal: "preferred_username"
+  claims.groups:    "groups"
+  claims.name:      "name"
+  claims.mail:      "email"
+  ssl:
+    certificate_authorities: [ "config/certs/ca.crt" ]
+</code></pre>
+
+<p>把 client secret 存 keystore：</p>
+
+<pre><code class="language-bash">sudo /usr/share/elasticsearch/bin/elasticsearch-keystore add \
+  xpack.security.authc.realms.oidc.oidc1.rp.client_secret
+</code></pre>
+
+<h3 id="oidc-kibana">kibana.yml</h3>
+
+<pre><code class="language-yaml">xpack.security.authc.providers:
+  oidc.oidc1:
+    order: 0
+    realm: oidc1
+    description: "Login with Microsoft"
+</code></pre>
+
+<h3 id="oidc-google">Google Workspace OIDC 範例</h3>
+
+<pre><code class="language-yaml">xpack.security.authc.realms.oidc.google:
+  order: 4
+  rp.client_id: "xxx.apps.googleusercontent.com"
+  rp.response_type: "code"
+  rp.redirect_uri: "https://kibana.example.com/api/security/oidc/callback"
+  op.issuer: "https://accounts.google.com"
+  op.authorization_endpoint: "https://accounts.google.com/o/oauth2/v2/auth"
+  op.token_endpoint:         "https://oauth2.googleapis.com/token"
+  op.userinfo_endpoint:      "https://openidconnect.googleapis.com/v1/userinfo"
+  op.jwkset_path:            "https://www.googleapis.com/oauth2/v3/certs"
+  rp.requested_scopes: [ "openid", "email", "profile" ]
+  claims.principal: "email"
+  claims.name:      "name"
+</code></pre>
+
+<h2 id="pki-realm">PKI Realm — 客戶端憑證認證</h2>
+
+<p>適合 device-to-ES 場景（IoT、機台 Beats agent），不需密碼。</p>
+
+<h3 id="pki-prerequisites">前置：HTTP TLS 啟用 client auth</h3>
+
+<pre><code class="language-yaml"># elasticsearch.yml
+xpack.security.http.ssl.enabled: true
+xpack.security.http.ssl.client_authentication: optional   # 或 required
+xpack.security.http.ssl.certificate_authorities:
+  - "config/certs/client-ca.crt"
+</code></pre>
+
+<h3 id="pki-realm-config">啟用 PKI realm</h3>
+
+<pre><code class="language-yaml">xpack.security.authc.realms.pki.pki1:
+  order: 5
+  certificate_authorities:
+    - "config/certs/client-ca.crt"
+  username_pattern: "CN=(.*?)(?:,|$)"   # 從 cert subject 抽 username
+</code></pre>
+
+<h3 id="pki-role-mapping">Role Mapping（依 cert DN）</h3>
+
+<pre><code class="language-bash">curl -X PUT -u elastic:xxx --cacert ca.crt \
+  -H 'Content-Type: application/json' \
+  "https://localhost:9200/_security/role_mapping/pki-iot" -d '
+{
+  "roles": [ "iot_writer" ],
+  "enabled": true,
+  "rules": {
+    "all": [
+      { "field": { "realm.name": "pki1" } },
+      { "field": { "dn": "*,OU=IoT,O=Example*" } }
+    ]
+  }
+}'
+</code></pre>
+
+<h3 id="pki-test">使用 client cert 連線</h3>
+
+<pre><code class="language-bash">curl --cert client.crt --key client.key --cacert ca.crt \
+  "https://localhost:9200/_security/_authenticate?pretty"
+# 應看到 authentication_realm.name = "pki1"
+</code></pre>
+
+<h2 id="kerberos-realm">Kerberos / SPNEGO Realm</h2>
+
+<p>讓 Windows 域內的 user 自動 SSO（無需輸入密碼），使用 SPNEGO HTTP 認證。</p>
+
+<h3 id="kerberos-config">設定流程概述</h3>
+
+<ol>
+  <li>在 KDC（通常是 AD DC）為 ES 服務建立 service principal：<code>HTTP/elasticsearch.example.com@EXAMPLE.COM</code></li>
+  <li>產生 keytab 檔，部署到 ES 節點（如 <code>/etc/elasticsearch/krb5.keytab</code>）</li>
+  <li>elasticsearch.yml 啟用 kerberos realm</li>
+</ol>
+
+<pre><code class="language-yaml">xpack.security.authc.realms.kerberos.krb1:
+  order: 3
+  keytab.path: krb5.keytab
+  remove_realm_name: false
+</code></pre>
+
+<h3 id="krb-conf">系統需要 /etc/krb5.conf</h3>
+
+<pre><code class="language-ini">[libdefaults]
+default_realm = EXAMPLE.COM
+
+[realms]
+EXAMPLE.COM = {
+  kdc = dc1.example.com
+  admin_server = dc1.example.com
+}
+
+[domain_realm]
+.example.com = EXAMPLE.COM
+example.com = EXAMPLE.COM
+</code></pre>
+
+<h3 id="kerberos-test">使用 kinit 取得 ticket</h3>
+
+<pre><code class="language-bash">kinit alice@EXAMPLE.COM
+
+# 用 SPNEGO 認證
+curl --negotiate -u : --cacert ca.crt \
+  "https://elasticsearch.example.com:9200/_security/_authenticate?pretty"
+</code></pre>
+
+<h2 id="jwt-realm">JWT Realm</h2>
+
+<p>適合 service-to-service 場景：上游服務簽 JWT，ES 驗證。比起每次都用 ES API key，可由統一身份提供方產生 JWT。</p>
+
+<h3 id="jwt-config">兩種模式</h3>
+
+<ul>
+  <li><strong>id_token</strong>：類似 OIDC ID token，需驗 issuer、audience、簽名</li>
+  <li><strong>access_token</strong>：bearer token，可用對方公鑰或共享金鑰驗證</li>
+</ul>
+
+<pre><code class="language-yaml">xpack.security.authc.realms.jwt.jwt1:
+  order: 6
+  token_type: id_token
+  allowed_issuer: "https://my-issuer.example.com"
+  allowed_audiences: [ "elasticsearch" ]
+  allowed_signature_algorithms: [ "RS256" ]
+  pkc_jwkset_path: "https://my-issuer.example.com/.well-known/jwks.json"
+  claims.principal: "sub"
+  claims.groups:    "groups"
+  client_authentication.type: shared_secret
+</code></pre>
+
+<p>Shared secret 存 keystore：</p>
+
+<pre><code class="language-bash">sudo /usr/share/elasticsearch/bin/elasticsearch-keystore add \
+  xpack.security.authc.realms.jwt.jwt1.client_authentication.shared_secret
+</code></pre>
+
+<h3 id="jwt-usage">使用方式</h3>
+
+<pre><code class="language-bash">curl --cacert ca.crt \
+  -H "Authorization: Bearer eyJhbGc..." \
+  -H "ES-Client-Authentication: SharedSecret &lt;client_secret&gt;" \
+  "https://localhost:9200/_security/_authenticate"
+</code></pre>
+
+<h2 id="realm-chain-組合">多 Realm 共存組合範例</h2>
+
+<p>實務上常同時啟用多種 realm。範例：file（emergency）+ native（內部 user）+ ldap（員工）+ saml（外部夥伴）：</p>
+
+<pre><code class="language-yaml">xpack.security.authc:
+  realms:
+    file:
+      file1:
+        order: 0    # emergency admin 永遠優先
+
+    native:
+      native1:
+        order: 1    # 內部 user / API key
+
+    ldap:
+      ldap1:
+        order: 2
+        url: "ldaps://ad.example.com:636"
+        user_search:
+          base_dn: "ou=users,dc=example,dc=com"
+          filter: "(sAMAccountName={0})"
+        # ...
+
+    saml:
+      saml1:
+        order: 3
+        idp.metadata.path: saml/okta.xml
+        # ...
+</code></pre>
+
+<p>當 user 提供 username/password：file → native → ldap 依序試。SAML 走獨立 web flow，不會被嘗試。</p>
+
+<h2 id="cache-tuning">Cache 與 Performance 調校</h2>
+
+<p>每個 realm 都有 cache 避免每次認證打 LDAP/IdP：</p>
+
+<pre><code class="language-yaml">xpack.security.authc.realms.ldap.ldap1:
+  cache:
+    ttl: 1h           # 認證結果快取多久
+    max_users: 10000  # 最多快取多少 user
+</code></pre>
+
+<p>密碼變更後 cache 清除：</p>
+
+<pre><code class="language-bash">curl -X POST -u elastic:xxx --cacert ca.crt \
+  "https://localhost:9200/_security/realm/ldap1/_clear_cache"
+
+# 清除特定 user
+curl -X POST -u elastic:xxx --cacert ca.crt \
+  "https://localhost:9200/_security/realm/ldap1/_clear_cache?usernames=alice,bob"
+</code></pre>
+
+<h2 id="疑難排解">疑難排解</h2>
+
+<h3 id="ldap-debug">LDAP 連不上</h3>
+
+<pre><code class="language-bash"># 用 ldapsearch 從 ES 節點測
+ldapsearch -x -H ldaps://ldap.example.com -D "cn=ldap-reader,..." -W \
+  -b "ou=users,dc=example,dc=com" "(uid=alice)"
+
+# 開 debug log
+PUT _cluster/settings
+{
+  "persistent": {
+    "logger.org.elasticsearch.xpack.security.authc.ldap": "DEBUG"
+  }
+}
+</code></pre>
+
+<h3 id="saml-debug">SAML 失敗</h3>
+
+<ul>
+  <li>檢查 IdP 簽章證書是否正確匯入 ES（通常在 metadata XML 裡）</li>
+  <li>確認 SP Entity ID、ACS URL 在 IdP 與 ES 完全一致</li>
+  <li>時鐘飄移：SAML 對 NotBefore / NotAfter 嚴格，所有節點 NTP 必須準</li>
+  <li>開 trace log：</li>
+</ul>
+
+<pre><code class="language-json">PUT _cluster/settings
+{
+  "persistent": {
+    "logger.org.elasticsearch.xpack.security.authc.saml": "TRACE"
+  }
+}
+</code></pre>
+
+<h3 id="oidc-debug">OIDC 失敗</h3>
+
+<ul>
+  <li><code>op.issuer</code> 必須與 token 內 <code>iss</code> claim 完全一致（含 https / 結尾 slash）</li>
+  <li>Client ID 與 Redirect URI 必須在 IdP 端註冊</li>
+  <li>JWKS endpoint 可達且回傳有效 JWK set</li>
+</ul>
+
+<h2 id="本章重點回顧">本章重點回顧</h2>
+
+<ul>
+  <li>ES 支援多種企業身份來源：LDAP/AD、SAML、OIDC、PKI、Kerberos、JWT</li>
+  <li>所有 realm 必須有 <code>order</code>，由小到大依序嘗試（SAML/OIDC 走 web flow 例外）</li>
+  <li>LDAP 兩種模式：<strong>user_search</strong>（彈性）vs <strong>user_dn_templates</strong>（簡單）</li>
+  <li>SAML 必設：SP Entity ID、ACS URL、IdP metadata；常見 IdP：Okta、Azure AD、ADFS</li>
+  <li>OIDC 適合現代 IdP（Google、Microsoft、Auth0），比 SAML 簡單</li>
+  <li>PKI 用 client certificate 認證，搭配 HTTP TLS client_authentication</li>
+  <li>Role mapping 把外部 group/attribute 對應到 ES roles，是 SSO 整合靈魂</li>
+  <li>所有密碼/secret 一律 keystore；TLS 必須先就緒</li>
+  <li>每個 realm 都有 cache，密碼變更後可清除</li>
+</ul>
+
+<h2 id="延伸閱讀">延伸閱讀</h2>
+
+<ul>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/users-roles/cluster-or-deployment-auth/saml" target="_blank" rel="noopener">SAML authentication</a></li>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/users-roles/cluster-or-deployment-auth/openid-connect" target="_blank" rel="noopener">OpenID Connect authentication</a></li>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/users-roles/cluster-or-deployment-auth/ldap" target="_blank" rel="noopener">LDAP authentication</a></li>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/users-roles/cluster-or-deployment-auth/active-directory" target="_blank" rel="noopener">Active Directory authentication</a></li>
+</ul>
+
+<nav class="bottom-nav"><a class="prev" href="ch22-api-keys.html"><span class="nav-label">← 上一章</span><span class="nav-title">API Keys 與 Service Accounts</span></a><a class="next" href="ch24-audit-logging.html"><span class="nav-label">下一章 →</span><span class="nav-title">稽核日誌</span></a></nav>
+</main>
+<aside class="toc">
+  <div class="toc-title">本章目錄</div>
+  <ul></ul>
+</aside>
+</div>
+<footer>
+  <p>Elasticsearch Self-Managed 完整教學文件 · 基於 Elastic Stack 9.x（最新 9.3.4）<br>
+  資料來源：<a href="https://www.elastic.co/docs" target="_blank" rel="noopener">Elastic 官方文件</a> · 最後更新：2026-05</p>
+</footer>
+</body>
+</html>

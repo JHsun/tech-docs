@@ -1,0 +1,1344 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Elasticsearch 9.x 在 Docker 中的單節點與多節點部署">
+<title>CH 10 · Docker 與 Docker Compose</title>
+<style>
+/* ============================================================
+   JHsun TechDocs — Unified Design Token Layer
+   v1.0 · Calm Teal (hue 200° / chroma 0.11)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+
+  --color-success:        #16a34a;
+  --color-success-soft:   #dcfce7;
+  --color-warning:        #d97706;
+  --color-warning-soft:   #fef3c7;
+  --color-danger:         #dc2626;
+  --color-danger-soft:    #fee2e2;
+  --color-info:           #0891b2;
+  --color-info-soft:      #cffafe;
+  --color-neutral-accent: #7c3aed;
+
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+
+  --font-mono:       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:       "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif:      "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  32px;
+  --text-3xl:  44px;
+  --text-4xl:  64px;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+
+  --container-narrow: 720px;
+  --container-wide:   1280px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+
+:root[data-theme="dark"] {
+  --color-success:        #4ade80;
+  --color-success-soft:   oklch(0.30 0.08 145);
+  --color-warning:        #fbbf24;
+  --color-warning-soft:   oklch(0.32 0.10 70);
+  --color-danger:         #f87171;
+  --color-danger-soft:    oklch(0.32 0.10 27);
+  --color-info:           #22d3ee;
+  --color-info-soft:      oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.16 0.008 50);
+  --bg-surface:     oklch(0.20 0.009 50);
+  --bg-muted:       oklch(0.23 0.010 50);
+  --bg-code:        oklch(0.18 0.009 50);
+  --border-soft:    oklch(0.28 0.010 50);
+  --border-mid:     oklch(0.36 0.012 50);
+  --text-primary:   oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted:     oklch(0.58 0.007 60);
+
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+
+/* ============== Chapter shared styles ============== */
+* { box-sizing: border-box; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+@media (min-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 240px; gap: var(--space-7); }
+}
+main { min-width: 0; padding: var(--space-6) 0; }
+main.prose { max-width: var(--container-narrow); margin: 0 auto; }
+
+/* Top navigation */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: color-mix(in oklch, var(--bg-canvas) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.topbar-inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.brand {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-primary-text);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+.nav-links { display: flex; gap: var(--space-2); margin-left: auto; align-items: center; }
+.nav-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  transition: all 0.15s;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--bg-muted); }
+.nav-links a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Theme toggle button */
+[data-theme-toggle] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  transition: all 0.15s;
+}
+[data-theme-toggle]:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.theme-icon { font-size: var(--text-base); }
+
+/* Headings */
+h1, h2, h3, h4 {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  line-height: 1.3;
+  margin-top: var(--space-7);
+  margin-bottom: var(--space-4);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+h1 { font-size: var(--text-3xl); margin-top: var(--space-5); }
+h2 { font-size: var(--text-2xl); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-soft); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-md); color: var(--text-secondary); }
+
+p { margin: var(--space-4) 0; color: var(--text-primary); }
+
+/* Inline code */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+  border: 1px solid var(--border-soft);
+}
+
+/* Code block */
+.code-wrap {
+  position: relative;
+  margin: var(--space-4) 0;
+}
+.code-wrap > .code-lang {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.code-wrap > .copy-btn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 4px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  transition: all 0.15s;
+  opacity: 0;
+}
+.code-wrap:hover > .copy-btn { opacity: 1; }
+.code-wrap > .copy-btn:hover {
+  background: var(--color-primary);
+  color: var(--bg-canvas);
+  border-color: var(--color-primary);
+}
+.code-wrap > .copy-btn.copied {
+  background: var(--color-success);
+  color: white;
+  border-color: var(--color-success);
+  opacity: 1;
+}
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-7) var(--space-4) var(--space-4);
+  overflow-x: auto;
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  margin: 0;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: var(--text-primary);
+  font-size: inherit;
+}
+
+/* Lists */
+ul, ol { padding-left: var(--space-6); }
+li { margin: var(--space-2) 0; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: var(--space-4) 0; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+th, td {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+}
+th { background: var(--bg-muted); font-weight: 600; color: var(--text-primary); }
+tr:last-child td { border-bottom: none; }
+
+/* Callouts */
+.callout {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  border-left: 4px solid var(--color-info);
+  background: var(--color-info-soft);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+.callout.warning { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.danger  { border-color: var(--color-danger);  background: var(--color-danger-soft); }
+.callout.success { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout strong { display: block; margin-bottom: var(--space-2); }
+:root[data-theme="dark"] .callout { color: var(--text-primary); }
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: 999px;
+  margin-right: var(--space-1);
+  letter-spacing: 0.02em;
+}
+.badge.beginner { background: var(--color-success-soft); color: var(--color-success); }
+.badge.developer { background: var(--color-info-soft); color: var(--color-info); }
+.badge.operator { background: var(--color-warning-soft); color: var(--color-warning); }
+.badge.advanced { background: var(--color-primary-soft); color: var(--color-primary-text); }
+:root[data-theme="dark"] .badge { filter: brightness(1.1); }
+
+/* Chapter meta */
+.chapter-meta {
+  margin: var(--space-4) 0 var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.chapter-meta .meta-row { margin: var(--space-1) 0; }
+.chapter-meta .meta-label {
+  display: inline-block;
+  width: 70px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* TOC sidebar */
+.toc {
+  position: sticky;
+  top: 80px;
+  align-self: start;
+  font-size: var(--text-sm);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  padding: var(--space-4) 0;
+  display: none;
+}
+@media (min-width: 1100px) {
+  .toc { display: block; }
+}
+.toc-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.toc ul { list-style: none; padding-left: 0; margin: 0; }
+.toc li { margin: 0; }
+.toc a {
+  display: block;
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-left: 2px solid var(--border-soft);
+  transition: all 0.15s;
+  line-height: 1.5;
+}
+.toc a:hover { color: var(--color-primary); border-left-color: var(--color-primary); }
+.toc a.toc-h3 { padding-left: var(--space-5); font-size: 0.92em; color: var(--text-muted); }
+
+/* Bottom nav */
+.bottom-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  margin-top: var(--space-8);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.bottom-nav a {
+  flex: 1;
+  min-width: 200px;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.bottom-nav a:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.bottom-nav .nav-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.bottom-nav .nav-title { font-weight: 600; color: var(--text-primary); }
+.bottom-nav a.next { text-align: right; }
+.bottom-nav a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Footer */
+footer {
+  text-align: center;
+  padding: var(--space-7) var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  border-top: 1px solid var(--border-soft);
+  margin-top: var(--space-8);
+}
+footer a { color: var(--color-primary); text-decoration: none; }
+
+/* Index page specific */
+.hero {
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+  background: linear-gradient(135deg, var(--color-primary-soft) 0%, var(--bg-canvas) 100%);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: var(--space-7);
+}
+.hero h1 {
+  font-size: var(--text-4xl);
+  margin: 0 0 var(--space-4);
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.02em;
+}
+.hero p { font-size: var(--text-md); color: var(--text-secondary); max-width: 720px; margin: 0 auto; }
+.hero .meta {
+  margin-top: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.path-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  margin: var(--space-6) 0;
+}
+@media (min-width: 768px) { .path-grid { grid-template-columns: repeat(3, 1fr); } }
+.path-card {
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  transition: all 0.2s;
+}
+.path-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-md); }
+.path-card .path-icon { font-size: 32px; display: block; margin-bottom: var(--space-3); }
+.path-card h3 { margin: 0 0 var(--space-2); font-size: var(--text-lg); }
+.path-card .path-flow {
+  margin-top: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.part {
+  margin: var(--space-7) 0;
+}
+.part-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--color-primary);
+}
+.part-header .part-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.part-header h2 { margin: 0; border: none; padding: 0; }
+
+.chapter-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+@media (min-width: 700px)  { .chapter-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1100px) { .chapter-grid { grid-template-columns: repeat(3, 1fr); } }
+.chapter-card {
+  display: block;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.chapter-card:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  transform: translateY(-1px);
+}
+.chapter-card .ch-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+.chapter-card .ch-title {
+  display: block;
+  margin: var(--space-2) 0;
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+.chapter-card .ch-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--space-2);
+}
+.chapter-card .ch-badges { font-size: 11px; }
+
+
+/* Mermaid container */
+.mermaid-wrap {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-wrap .mermaid {
+  display: inline-block;
+  min-width: 100%;
+}
+.mermaid-caption {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+/* Hide raw mermaid source until rendered */
+.mermaid:not([data-processed="true"]) {
+  visibility: hidden;
+  min-height: 1em;
+}
+
+</style>
+<script>
+/* JHsun TechDocs — Theme toggle v1.0 */
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+
+</script>
+<script>
+
+// Copy-to-clipboard for all <pre> blocks
+(function () {
+  function init() {
+    document.querySelectorAll('main pre').forEach(function (pre) {
+      if (pre.parentElement.classList.contains('code-wrap')) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'code-wrap';
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
+      const lang = pre.querySelector('code')?.className.match(/language-(\w+)/)?.[1];
+      if (lang) {
+        const tag = document.createElement('span');
+        tag.className = 'code-lang';
+        tag.textContent = lang;
+        wrap.appendChild(tag);
+      }
+      const btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.type = 'button';
+      btn.textContent = '📋 複製';
+      btn.addEventListener('click', function () {
+        const text = pre.innerText;
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(text).then(success).catch(fallback);
+        } else {
+          fallback();
+        }
+        function success() {
+          btn.textContent = '✓ 已複製';
+          btn.classList.add('copied');
+          setTimeout(function () { btn.textContent = '📋 複製'; btn.classList.remove('copied'); }, 1800);
+        }
+        function fallback() {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); success(); } catch (_) {}
+          document.body.removeChild(ta);
+        }
+      });
+      wrap.appendChild(btn);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+// Auto-build TOC from h2/h3 in <main>
+(function () {
+  function init() {
+    const toc = document.querySelector('.toc ul');
+    if (!toc) return;
+    const headings = document.querySelectorAll('main h2, main h3');
+    headings.forEach(function (h) {
+      if (!h.id) {
+        h.id = h.textContent.trim().toLowerCase()
+          .replace(/[^\w\u4e00-\u9fff\s-]/g, '')
+          .replace(/\s+/g, '-');
+      }
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = '#' + h.id;
+      a.textContent = h.textContent;
+      a.className = 'toc-' + h.tagName.toLowerCase();
+      li.appendChild(a);
+      toc.appendChild(li);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+
+// Mermaid initialization with theme sync
+(function () {
+  function getMermaidTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default';
+  }
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    const cs = getComputedStyle(document.documentElement);
+    return {
+      startOnLoad: false,
+      theme: isDark ? 'dark' : 'default',
+      themeVariables: {
+        fontFamily: cs.getPropertyValue('--font-sans').trim() || 'DM Sans, sans-serif',
+        fontSize: '14px',
+        primaryColor: isDark ? '#1e3a4a' : '#e0f2fe',
+        primaryTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        primaryBorderColor: isDark ? '#5fb3d4' : '#0891b2',
+        lineColor: isDark ? '#7aa3b8' : '#475569',
+        secondaryColor: isDark ? '#2a3f4f' : '#f1f5f9',
+        tertiaryColor: isDark ? '#1a2530' : '#fafafa',
+        background: isDark ? '#1e2a35' : '#ffffff',
+        mainBkg: isDark ? '#243441' : '#ecfeff',
+        secondBkg: isDark ? '#1a2530' : '#f8fafc',
+        nodeBorder: isDark ? '#5fb3d4' : '#0891b2',
+        clusterBkg: isDark ? '#1a2530' : '#f1f5f9',
+        clusterBorder: isDark ? '#3a5260' : '#cbd5e1',
+        defaultLinkColor: isDark ? '#7aa3b8' : '#475569',
+        titleColor: isDark ? '#e6f2f8' : '#0f172a',
+        edgeLabelBackground: isDark ? '#243441' : '#ffffff',
+        actorBkg: isDark ? '#243441' : '#ecfeff',
+        actorBorder: isDark ? '#5fb3d4' : '#0891b2',
+        actorTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        actorLineColor: isDark ? '#5fb3d4' : '#0891b2',
+        signalColor: isDark ? '#7aa3b8' : '#334155',
+        signalTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        labelBoxBkgColor: isDark ? '#1a2530' : '#fef3c7',
+        labelBoxBorderColor: isDark ? '#a89060' : '#d97706',
+        labelTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        loopTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        noteBkgColor: isDark ? '#3a4f3a' : '#fef3c7',
+        noteBorderColor: isDark ? '#86c598' : '#d97706',
+        noteTextColor: isDark ? '#e6f2f8' : '#0f172a',
+      },
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true, showSequenceNumbers: false, mirrorActors: true, bottomMarginAdj: 10 },
+    };
+  }
+
+  let renderCounter = 0;
+  async function renderAll() {
+    if (typeof mermaid === 'undefined') return;
+    renderCounter++;
+    const myCounter = renderCounter;
+    mermaid.initialize(getMermaidConfig());
+    const blocks = document.querySelectorAll('.mermaid');
+    for (const el of blocks) {
+      // restore source if already rendered
+      if (el.dataset.source) el.innerHTML = el.dataset.source;
+      else el.dataset.source = el.innerHTML;
+      el.removeAttribute('data-processed');
+    }
+    if (myCounter !== renderCounter) return;
+    try {
+      await mermaid.run({ querySelector: '.mermaid' });
+    } catch (e) { console.warn('Mermaid render error', e); }
+  }
+
+  function init() {
+    renderAll();
+    window.addEventListener('jhsun:theme-changed', renderAll);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="ch00-elasticsearch-index.html">ES Self-Managed Docs</a>
+    <nav class="nav-links">
+      <a href="ch09-install-windows.html" aria-label="上一章">← 上一章</a>
+      <a href="ch00-elasticsearch-index.html" aria-label="回首頁">首頁</a>
+      <a href="ch11-install-kubernetes-eck.html" aria-label="下一章">下一章 →</a>
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </nav>
+  </div>
+</header>
+<div class="layout">
+<main class="prose">
+
+<h1>CH 10 · Docker 與 Docker Compose</h1>
+
+<div class="chapter-meta">
+  <div class="meta-row"><span class="meta-label">適合對象</span>
+    <span class="badge developer">🟡 開發者</span>
+    <span class="badge operator">🔴 維運者</span>
+  </div>
+  <div class="meta-row"><span class="meta-label">閱讀時間</span> 約 25 分鐘</div>
+  <div class="meta-row"><span class="meta-label">前置知識</span> CH 03-06、Docker 基礎</div>
+  <div class="meta-row"><span class="meta-label">本章目標</span> 用 Docker 跑單節點 ES、用 Docker Compose 跑生產級 3 節點叢集、處理 vm.max_map_count 與 volume 持久化</div>
+</div>
+
+<h2 id="官方-docker-image">官方 Docker Image</h2>
+
+<p>Elastic 維護 4 種 image，全部托管於 <code>docker.elastic.co</code>：</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Image</th><th>說明</th></tr></thead>
+  <tbody>
+    <tr><td><code>docker.elastic.co/elasticsearch/elasticsearch</code></td><td>標準完整版（含 ML、所有 modules）</td></tr>
+    <tr><td><code>docker.elastic.co/elasticsearch/elasticsearch-fips</code></td><td>FIPS 140 合規版</td></tr>
+    <tr><td><code>docker.elastic.co/wolfi/elasticsearch</code></td><td>基於 Wolfi（極簡 Linux distro）的版本，攻擊面小</td></tr>
+    <tr><td><code>docker.elastic.co/elasticsearch/elasticsearch:9.3.4-arm64</code></td><td>ARM64 變體（如 Apple Silicon、AWS Graviton）</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Tags 標準格式：<code>:9.3.4</code>、<code>:9.3</code>（最新 9.3.x）、<code>:9</code>（最新 9.x.x）、<code>:latest</code>（不建議用，難追溯）。</p>
+
+<div class="callout danger">
+  <strong>🚨 生產絕不要用 :latest</strong>
+  Pin 到具體版本（如 <code>9.3.4</code>）才能精確控制升級。<code>:latest</code> 會在不知情下更新，導致升級失敗或叢集版本不一致。
+</div>
+
+<h2 id="image-來源比較">標準版 vs Wolfi 版</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>項目</th><th>標準（基於 RHEL UBI）</th><th>Wolfi 版</th></tr></thead>
+  <tbody>
+    <tr><td>大小</td><td>~ 850 MB</td><td>~ 530 MB</td></tr>
+    <tr><td>Shell</td><td>bash 完整</td><td>無 bash（只有 sh）</td></tr>
+    <tr><td>除錯工具</td><td>豐富（curl、ps、netstat 等）</td><td>幾乎沒有</td></tr>
+    <tr><td>安全性</td><td>標準</td><td>更佳（攻擊面更小）</td></tr>
+    <tr><td>適用</td><td>多數場景</td><td>合規環境、CSPM 嚴格的部署</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="step-1-host-prep">先決條件：vm.max_map_count</h2>
+
+<p>Docker 容器內無法修改 sysctl 參數（除非用 <code>--privileged</code>），必須在 <strong>host</strong> 上設定：</p>
+
+<pre><code class="language-bash"># Linux host
+sudo sysctl -w vm.max_map_count=262144
+
+# 永久
+echo 'vm.max_map_count=262144' | sudo tee /etc/sysctl.d/99-elasticsearch.conf
+sudo sysctl --system
+</code></pre>
+
+<div class="callout">
+  <strong>💡 Docker Desktop on macOS / Windows</strong>
+  Docker Desktop 4.x 起，預設 VM 已將 <code>vm.max_map_count</code> 設為足夠值。如果遇到問題，可在 Docker Desktop 設定 → Resources → Virtual Machine 調整。
+</div>
+
+<h2 id="單節點-docker">單節點：Docker run</h2>
+
+<h3 id="開發-mode-localhost">開發模式（localhost only）</h3>
+
+<pre><code class="language-bash"># 拉 image
+docker pull docker.elastic.co/elasticsearch/elasticsearch:9.3.4
+
+# 建立 network
+docker network create elastic
+
+# 啟動單節點 ES
+docker run -d \
+  --name es-single \
+  --net elastic \
+  -p 127.0.0.1:9200:9200 \
+  -e "discovery.type=single-node" \
+  -e "xpack.security.enabled=false" \
+  -e "ES_JAVA_OPTS=-Xms2g -Xmx2g" \
+  --memory=4g \
+  docker.elastic.co/elasticsearch/elasticsearch:9.3.4
+</code></pre>
+
+<p>等 30-60 秒後測試：</p>
+
+<pre><code class="language-bash">curl http://localhost:9200/
+</code></pre>
+
+<h3 id="開發-mode-with-security">開發模式（啟用 security）</h3>
+
+<p>9.x 預設 security 是開的，會自動產生 elastic 密碼：</p>
+
+<pre><code class="language-bash">docker run -d \
+  --name es-single-secure \
+  --net elastic \
+  -p 127.0.0.1:9200:9200 \
+  -e "discovery.type=single-node" \
+  -e "ES_JAVA_OPTS=-Xms2g -Xmx2g" \
+  --memory=4g \
+  docker.elastic.co/elasticsearch/elasticsearch:9.3.4
+
+# 等啟動完成後重設密碼
+docker exec -it es-single-secure /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic
+</code></pre>
+
+<p>取得自動產生的 CA 憑證並測試：</p>
+
+<pre><code class="language-bash">docker cp es-single-secure:/usr/share/elasticsearch/config/certs/http_ca.crt ./http_ca.crt
+
+curl -X GET "https://localhost:9200" \
+  -u elastic --cacert ./http_ca.crt
+</code></pre>
+
+<h2 id="生產級單節點">生產級單節點（含 volume 持久化）</h2>
+
+<pre><code class="language-bash">docker volume create esdata
+docker volume create eslogs
+
+docker run -d \
+  --name elasticsearch \
+  --net elastic \
+  -p 9200:9200 \
+  -p 9300:9300 \
+  -e "node.name=es-prod-1" \
+  -e "cluster.name=production" \
+  -e "discovery.type=single-node" \
+  -e "ES_JAVA_OPTS=-Xms16g -Xmx16g" \
+  -e "bootstrap.memory_lock=true" \
+  --ulimit memlock=-1:-1 \
+  --ulimit nofile=65535:65535 \
+  --memory=32g \
+  -v esdata:/usr/share/elasticsearch/data \
+  -v eslogs:/usr/share/elasticsearch/logs \
+  --restart unless-stopped \
+  docker.elastic.co/elasticsearch/elasticsearch:9.3.4
+</code></pre>
+
+<h3 id="參數解釋">關鍵參數解釋</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>參數</th><th>必要性</th><th>說明</th></tr></thead>
+  <tbody>
+    <tr><td><code>--ulimit memlock=-1:-1</code></td><td>啟用 memory_lock 必要</td><td>允許容器內 process mlockall</td></tr>
+    <tr><td><code>--ulimit nofile=65535:65535</code></td><td>強烈建議</td><td>file descriptor 上限</td></tr>
+    <tr><td><code>--memory=32g</code></td><td>建議</td><td>限制容器最大記憶體；應 ≥ 2 × heap</td></tr>
+    <tr><td><code>-e ES_JAVA_OPTS</code></td><td>建議</td><td>明確設 heap，不要讓自動 sizing 依容器看到的 host 全部 RAM 計算</td></tr>
+    <tr><td><code>-v esdata:/usr/share/elasticsearch/data</code></td><td>必要</td><td>持久化資料，否則容器刪除即資料消失</td></tr>
+    <tr><td><code>--restart unless-stopped</code></td><td>建議</td><td>意外掛掉自動重啟</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="docker-compose-多節點">Docker Compose：3 節點叢集</h2>
+
+<p>真正的生產通常用 ECK（K8s），但 Docker Compose 適合單機測試多節點行為。建立 <code>docker-compose.yml</code>：</p>
+
+<pre><code class="language-yaml">version: "3.9"
+
+services:
+  setup:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.3.4
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+    user: "0"
+    command: >
+      bash -c '
+        if [ ! -f config/certs/ca.zip ]; then
+          echo "Creating CA";
+          bin/elasticsearch-certutil ca --silent --pem -out config/certs/ca.zip;
+          unzip config/certs/ca.zip -d config/certs;
+        fi;
+        if [ ! -f config/certs/certs.zip ]; then
+          echo "Creating certs";
+          echo -ne "instances:\n  - name: es01\n    dns: [es01,localhost]\n    ip: [127.0.0.1]\n  - name: es02\n    dns: [es02,localhost]\n    ip: [127.0.0.1]\n  - name: es03\n    dns: [es03,localhost]\n    ip: [127.0.0.1]\n" > config/certs/instances.yml;
+          bin/elasticsearch-certutil cert --silent --pem -out config/certs/certs.zip --in config/certs/instances.yml --ca-cert config/certs/ca/ca.crt --ca-key config/certs/ca/ca.key;
+          unzip config/certs/certs.zip -d config/certs;
+        fi;
+        chown -R 1000:0 config/certs;
+        echo "Setup complete";
+      '
+
+  es01: &es-default
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.3.4
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+      - esdata01:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    environment:
+      - node.name=es01
+      - cluster.name=docker-cluster
+      - cluster.initial_master_nodes=es01,es02,es03
+      - discovery.seed_hosts=es02,es03
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - bootstrap.memory_lock=true
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.http.ssl.key=certs/es01/es01.key
+      - xpack.security.http.ssl.certificate=certs/es01/es01.crt
+      - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.key=certs/es01/es01.key
+      - xpack.security.transport.ssl.certificate=certs/es01/es01.crt
+      - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.license.self_generated.type=basic
+      - ES_JAVA_OPTS=-Xms2g -Xmx2g
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile:  { soft: 65536, hard: 65536 }
+    mem_limit: 4g
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s --cacert config/certs/ca/ca.crt https://localhost:9200/_cluster/health | grep -E '\"status\":\"(green|yellow)\"' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+
+  es02:
+    <<: *es-default
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+      - esdata02:/usr/share/elasticsearch/data
+    ports:
+      - "9201:9200"
+    environment:
+      - node.name=es02
+      - cluster.name=docker-cluster
+      - cluster.initial_master_nodes=es01,es02,es03
+      - discovery.seed_hosts=es01,es03
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - bootstrap.memory_lock=true
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.http.ssl.key=certs/es02/es02.key
+      - xpack.security.http.ssl.certificate=certs/es02/es02.crt
+      - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.key=certs/es02/es02.key
+      - xpack.security.transport.ssl.certificate=certs/es02/es02.crt
+      - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.license.self_generated.type=basic
+      - ES_JAVA_OPTS=-Xms2g -Xmx2g
+
+  es03:
+    <<: *es-default
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+      - esdata03:/usr/share/elasticsearch/data
+    ports:
+      - "9202:9200"
+    environment:
+      - node.name=es03
+      - cluster.name=docker-cluster
+      - cluster.initial_master_nodes=es01,es02,es03
+      - discovery.seed_hosts=es01,es02
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - bootstrap.memory_lock=true
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.http.ssl.key=certs/es03/es03.key
+      - xpack.security.http.ssl.certificate=certs/es03/es03.crt
+      - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.key=certs/es03/es03.key
+      - xpack.security.transport.ssl.certificate=certs/es03/es03.crt
+      - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.license.self_generated.type=basic
+      - ES_JAVA_OPTS=-Xms2g -Xmx2g
+
+  kibana:
+    depends_on:
+      es01: { condition: service_healthy }
+      es02: { condition: service_healthy }
+      es03: { condition: service_healthy }
+    image: docker.elastic.co/kibana/kibana:9.3.4
+    volumes:
+      - certs:/usr/share/kibana/config/certs
+      - kibanadata:/usr/share/kibana/data
+    ports:
+      - "5601:5601"
+    environment:
+      - SERVERNAME=kibana
+      - ELASTICSEARCH_HOSTS=https://es01:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
+      - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=config/certs/ca/ca.crt
+    mem_limit: 1g
+
+volumes:
+  certs:      { driver: local }
+  esdata01:   { driver: local }
+  esdata02:   { driver: local }
+  esdata03:   { driver: local }
+  kibanadata: { driver: local }
+</code></pre>
+
+<h3 id="env-檔">建立 .env 檔</h3>
+
+<pre><code class="language-bash">cat > .env << EOF
+# 至少 6 個字元，建議 16+
+ELASTIC_PASSWORD=ChangeMeStr0ngP@ssw0rd
+KIBANA_PASSWORD=AnotherStr0ngP@ssw0rd
+EOF
+
+chmod 600 .env
+</code></pre>
+
+<h3 id="啟動">啟動叢集</h3>
+
+<pre><code class="language-bash">docker compose up -d
+docker compose ps
+
+# 觀察 log
+docker compose logs -f es01
+
+# 等 health 為 green
+curl -k -u elastic:ChangeMeStr0ngP@ssw0rd https://localhost:9200/_cluster/health?pretty
+</code></pre>
+
+<h3 id="設定-kibana-system">設定 kibana_system 密碼</h3>
+
+<pre><code class="language-bash">docker exec -it $(docker compose ps -q es01) \
+  /usr/share/elasticsearch/bin/elasticsearch-reset-password \
+  -u kibana_system \
+  --batch \
+  --password "AnotherStr0ngP@ssw0rd"
+</code></pre>
+
+<h2 id="cluster-架構圖">叢集架構圖</h2>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TB
+    subgraph Host["Docker Host"]
+      subgraph Network["Docker Network: elastic"]
+        ES01["📦 es01<br/>9200 (host) → 9200<br/>master + data"]
+        ES02["📦 es02<br/>9201 → 9200<br/>master + data"]
+        ES03["📦 es03<br/>9202 → 9200<br/>master + data"]
+        KB["📦 kibana<br/>5601 → 5601"]
+      end
+      V1[("Volume<br/>esdata01")]
+      V2[("Volume<br/>esdata02")]
+      V3[("Volume<br/>esdata03")]
+      VC[("Volume<br/>certs")]
+    end
+
+    ES01 -.cluster.-> ES02
+    ES02 -.cluster.-> ES03
+    ES01 -.cluster.-> ES03
+    KB --> ES01
+    ES01 --- V1
+    ES02 --- V2
+    ES03 --- V3
+    ES01 --- VC
+    ES02 --- VC
+    ES03 --- VC
+    KB  --- VC
+
+    classDef es fill:#dcfce7,stroke:#16a34a,color:#0f172a
+    classDef kb fill:#cffafe,stroke:#0891b2,color:#0f172a
+    classDef vol fill:#fef3c7,stroke:#d97706,color:#0f172a
+    class ES01,ES02,ES03 es
+    class KB kb
+    class V1,V2,V3,VC vol
+</pre>
+<div class="mermaid-caption">圖 10-1：Docker Compose 3 節點 ES 叢集 + Kibana 架構</div>
+</div>
+
+<h2 id="docker-專屬-tips">Docker 專屬注意事項</h2>
+
+<h3 id="memory-sizing">記憶體規劃</h3>
+
+<p>Elasticsearch 在容器中會自動偵測 cgroup memory limit 並計算 heap。但<strong>強烈建議手動設定</strong> <code>ES_JAVA_OPTS</code>：</p>
+
+<ul>
+  <li>容器 <code>mem_limit</code> = 2 × heap（給 OS cache 留空間）</li>
+  <li>明確指定 <code>-Xms</code> = <code>-Xmx</code>（避免動態 resize）</li>
+  <li>單節點記憶體上限：&lt; 32 GB（compressed oops 限制）</li>
+</ul>
+
+<h3 id="storage">儲存效能</h3>
+
+<p>避免使用 Docker 的 overlay layer 寫資料（效能差）。Volume 一律 mount，並考慮：</p>
+
+<ul>
+  <li><strong>Bind mount</strong>：直接掛 host 目錄，效能最佳，可備份</li>
+  <li><strong>Named volume</strong>：Docker 管理，方便但需注意位於 <code>/var/lib/docker/volumes</code></li>
+  <li><strong>NFS / EFS</strong>：❌ 不要</li>
+</ul>
+
+<pre><code class="language-yaml"># 改用 bind mount（在 docker-compose.yml）
+volumes:
+  - /mnt/nvme/es/data01:/usr/share/elasticsearch/data
+</code></pre>
+
+<h3 id="user-id">UID 與檔案權限</h3>
+
+<p>Image 內的 elasticsearch user 是 UID/GID 1000。Bind mount host 目錄時必須：</p>
+
+<pre><code class="language-bash">sudo chown -R 1000:0 /mnt/nvme/es/data01
+sudo chmod -R 770 /mnt/nvme/es/data01
+</code></pre>
+
+<h3 id="logging-driver">Logging driver</h3>
+
+<p>預設 json-file driver 會無限累積。建議：</p>
+
+<pre><code class="language-yaml">services:
+  es01:
+    # ...
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
+</code></pre>
+
+<p>或集中送往外部：</p>
+
+<pre><code class="language-yaml">    logging:
+      driver: gelf
+      options:
+        gelf-address: "udp://logstash:12201"
+</code></pre>
+
+<h2 id="升級流程-docker">升級流程</h2>
+
+<h3 id="同-major-rolling">同 major rolling upgrade</h3>
+
+<p>逐節點操作：</p>
+
+<pre><code class="language-bash"># 修改 docker-compose.yml 的 image tag（如 9.3.4 → 9.3.5）
+
+# 停用 allocation
+curl -k -u elastic:xxx -X PUT "https://localhost:9200/_cluster/settings" \
+  -H 'Content-Type: application/json' \
+  -d '{ "persistent": { "cluster.routing.allocation.enable": "primaries" } }'
+
+# 一個一個升
+docker compose up -d --no-deps --force-recreate es01
+# 等 es01 重新 join health 為 green/yellow
+
+docker compose up -d --no-deps --force-recreate es02
+# 等 ...
+
+docker compose up -d --no-deps --force-recreate es03
+# 等 ...
+
+# 恢復 allocation
+curl -k -u elastic:xxx -X PUT "https://localhost:9200/_cluster/settings" \
+  -H 'Content-Type: application/json' \
+  -d '{ "persistent": { "cluster.routing.allocation.enable": null } }'
+</code></pre>
+
+<h2 id="docker-開發-techniques">開發者實用技巧</h2>
+
+<h3 id="進入容器">進入容器</h3>
+
+<pre><code class="language-bash">docker exec -it es-single bash
+# Wolfi image 沒有 bash，用 sh
+docker exec -it es-single sh
+</code></pre>
+
+<h3 id="修改設定不重啟">線上修改設定（不重啟）</h3>
+
+<p>Cluster-level dynamic settings 用 API 即可：</p>
+
+<pre><code class="language-bash">curl -k -u elastic:xxx -X PUT "https://localhost:9200/_cluster/settings" \
+  -H 'Content-Type: application/json' \
+  -d '{ "persistent": { "cluster.routing.allocation.disk.threshold_enabled": false } }'
+</code></pre>
+
+<h3 id="docker-cli-vs-podman">Podman 相容性</h3>
+
+<p>9.x 的 image 完全相容 Podman。把所有命令的 <code>docker</code> 換成 <code>podman</code> 即可。Docker Compose 可用 <code>podman-compose</code> 取代。</p>
+
+<h2 id="本章重點回顧">本章重點回顧</h2>
+
+<ul>
+  <li>使用官方 image <code>docker.elastic.co/elasticsearch/elasticsearch:9.3.4</code>，永遠 pin 具體版本</li>
+  <li>容器無法改 sysctl，<strong>必須在 host 上設定 <code>vm.max_map_count=262144</code></strong></li>
+  <li>啟用 <code>bootstrap.memory_lock</code> 必須加 <code>--ulimit memlock=-1:-1</code></li>
+  <li>用 named volume 或 bind mount 持久化 data，不要寫進 container 層</li>
+  <li>Bind mount host 目錄時 ownership 設為 UID 1000:0</li>
+  <li>Docker Compose 3 節點叢集需要 setup container 預先產生 TLS 憑證</li>
+  <li>真正生產環境多節點建議用 ECK（K8s），Docker Compose 主要用於本機測試</li>
+</ul>
+
+<h2 id="延伸閱讀">延伸閱讀</h2>
+
+<ul>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/deploy/self-managed/install-elasticsearch-with-docker" target="_blank" rel="noopener">Install with Docker</a></li>
+  <li><a href="https://www.docker.elastic.co/" target="_blank" rel="noopener">Elastic Docker Registry</a></li>
+  <li><a href="https://github.com/elastic/elasticsearch/tree/main/docs/reference/setup/install/docker" target="_blank" rel="noopener">Sample Docker Compose files</a></li>
+</ul>
+
+<nav class="bottom-nav"><a class="prev" href="ch09-install-windows.html"><span class="nav-label">← 上一章</span><span class="nav-title">Windows 安裝</span></a><a class="next" href="ch11-install-kubernetes-eck.html"><span class="nav-label">下一章 →</span><span class="nav-title">Kubernetes ECK Operator 通用安裝</span></a></nav>
+</main>
+<aside class="toc">
+  <div class="toc-title">本章目錄</div>
+  <ul></ul>
+</aside>
+</div>
+<footer>
+  <p>Elasticsearch Self-Managed 完整教學文件 · 基於 Elastic Stack 9.x（最新 9.3.4）<br>
+  資料來源：<a href="https://www.elastic.co/docs" target="_blank" rel="noopener">Elastic 官方文件</a> · 最後更新：2026-05</p>
+</footer>
+</body>
+</html>

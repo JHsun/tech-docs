@@ -1,0 +1,1281 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Elasticsearch 9.x 硬體規格、OS 調校、JVM 與 bootstrap checks 完整指南">
+<title>CH 06 · 系統需求與 Bootstrap Checks</title>
+<style>
+/* ============================================================
+   JHsun TechDocs — Unified Design Token Layer
+   v1.0 · Calm Teal (hue 200° / chroma 0.11)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+
+  --color-success:        #16a34a;
+  --color-success-soft:   #dcfce7;
+  --color-warning:        #d97706;
+  --color-warning-soft:   #fef3c7;
+  --color-danger:         #dc2626;
+  --color-danger-soft:    #fee2e2;
+  --color-info:           #0891b2;
+  --color-info-soft:      #cffafe;
+  --color-neutral-accent: #7c3aed;
+
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+
+  --font-mono:       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:       "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif:      "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  32px;
+  --text-3xl:  44px;
+  --text-4xl:  64px;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+
+  --container-narrow: 720px;
+  --container-wide:   1280px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+
+:root[data-theme="dark"] {
+  --color-success:        #4ade80;
+  --color-success-soft:   oklch(0.30 0.08 145);
+  --color-warning:        #fbbf24;
+  --color-warning-soft:   oklch(0.32 0.10 70);
+  --color-danger:         #f87171;
+  --color-danger-soft:    oklch(0.32 0.10 27);
+  --color-info:           #22d3ee;
+  --color-info-soft:      oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.16 0.008 50);
+  --bg-surface:     oklch(0.20 0.009 50);
+  --bg-muted:       oklch(0.23 0.010 50);
+  --bg-code:        oklch(0.18 0.009 50);
+  --border-soft:    oklch(0.28 0.010 50);
+  --border-mid:     oklch(0.36 0.012 50);
+  --text-primary:   oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted:     oklch(0.58 0.007 60);
+
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+
+/* ============== Chapter shared styles ============== */
+* { box-sizing: border-box; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+@media (min-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 240px; gap: var(--space-7); }
+}
+main { min-width: 0; padding: var(--space-6) 0; }
+main.prose { max-width: var(--container-narrow); margin: 0 auto; }
+
+/* Top navigation */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: color-mix(in oklch, var(--bg-canvas) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.topbar-inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.brand {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-primary-text);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+.nav-links { display: flex; gap: var(--space-2); margin-left: auto; align-items: center; }
+.nav-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  transition: all 0.15s;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--bg-muted); }
+.nav-links a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Theme toggle button */
+[data-theme-toggle] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  transition: all 0.15s;
+}
+[data-theme-toggle]:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.theme-icon { font-size: var(--text-base); }
+
+/* Headings */
+h1, h2, h3, h4 {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  line-height: 1.3;
+  margin-top: var(--space-7);
+  margin-bottom: var(--space-4);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+h1 { font-size: var(--text-3xl); margin-top: var(--space-5); }
+h2 { font-size: var(--text-2xl); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-soft); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-md); color: var(--text-secondary); }
+
+p { margin: var(--space-4) 0; color: var(--text-primary); }
+
+/* Inline code */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+  border: 1px solid var(--border-soft);
+}
+
+/* Code block */
+.code-wrap {
+  position: relative;
+  margin: var(--space-4) 0;
+}
+.code-wrap > .code-lang {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.code-wrap > .copy-btn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 4px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  transition: all 0.15s;
+  opacity: 0;
+}
+.code-wrap:hover > .copy-btn { opacity: 1; }
+.code-wrap > .copy-btn:hover {
+  background: var(--color-primary);
+  color: var(--bg-canvas);
+  border-color: var(--color-primary);
+}
+.code-wrap > .copy-btn.copied {
+  background: var(--color-success);
+  color: white;
+  border-color: var(--color-success);
+  opacity: 1;
+}
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-7) var(--space-4) var(--space-4);
+  overflow-x: auto;
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  margin: 0;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: var(--text-primary);
+  font-size: inherit;
+}
+
+/* Lists */
+ul, ol { padding-left: var(--space-6); }
+li { margin: var(--space-2) 0; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: var(--space-4) 0; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+th, td {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+}
+th { background: var(--bg-muted); font-weight: 600; color: var(--text-primary); }
+tr:last-child td { border-bottom: none; }
+
+/* Callouts */
+.callout {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  border-left: 4px solid var(--color-info);
+  background: var(--color-info-soft);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+.callout.warning { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.danger  { border-color: var(--color-danger);  background: var(--color-danger-soft); }
+.callout.success { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout strong { display: block; margin-bottom: var(--space-2); }
+:root[data-theme="dark"] .callout { color: var(--text-primary); }
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: 999px;
+  margin-right: var(--space-1);
+  letter-spacing: 0.02em;
+}
+.badge.beginner { background: var(--color-success-soft); color: var(--color-success); }
+.badge.developer { background: var(--color-info-soft); color: var(--color-info); }
+.badge.operator { background: var(--color-warning-soft); color: var(--color-warning); }
+.badge.advanced { background: var(--color-primary-soft); color: var(--color-primary-text); }
+:root[data-theme="dark"] .badge { filter: brightness(1.1); }
+
+/* Chapter meta */
+.chapter-meta {
+  margin: var(--space-4) 0 var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.chapter-meta .meta-row { margin: var(--space-1) 0; }
+.chapter-meta .meta-label {
+  display: inline-block;
+  width: 70px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* TOC sidebar */
+.toc {
+  position: sticky;
+  top: 80px;
+  align-self: start;
+  font-size: var(--text-sm);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  padding: var(--space-4) 0;
+  display: none;
+}
+@media (min-width: 1100px) {
+  .toc { display: block; }
+}
+.toc-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.toc ul { list-style: none; padding-left: 0; margin: 0; }
+.toc li { margin: 0; }
+.toc a {
+  display: block;
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-left: 2px solid var(--border-soft);
+  transition: all 0.15s;
+  line-height: 1.5;
+}
+.toc a:hover { color: var(--color-primary); border-left-color: var(--color-primary); }
+.toc a.toc-h3 { padding-left: var(--space-5); font-size: 0.92em; color: var(--text-muted); }
+
+/* Bottom nav */
+.bottom-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  margin-top: var(--space-8);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.bottom-nav a {
+  flex: 1;
+  min-width: 200px;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.bottom-nav a:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.bottom-nav .nav-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.bottom-nav .nav-title { font-weight: 600; color: var(--text-primary); }
+.bottom-nav a.next { text-align: right; }
+.bottom-nav a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Footer */
+footer {
+  text-align: center;
+  padding: var(--space-7) var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  border-top: 1px solid var(--border-soft);
+  margin-top: var(--space-8);
+}
+footer a { color: var(--color-primary); text-decoration: none; }
+
+/* Index page specific */
+.hero {
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+  background: linear-gradient(135deg, var(--color-primary-soft) 0%, var(--bg-canvas) 100%);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: var(--space-7);
+}
+.hero h1 {
+  font-size: var(--text-4xl);
+  margin: 0 0 var(--space-4);
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.02em;
+}
+.hero p { font-size: var(--text-md); color: var(--text-secondary); max-width: 720px; margin: 0 auto; }
+.hero .meta {
+  margin-top: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.path-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  margin: var(--space-6) 0;
+}
+@media (min-width: 768px) { .path-grid { grid-template-columns: repeat(3, 1fr); } }
+.path-card {
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  transition: all 0.2s;
+}
+.path-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-md); }
+.path-card .path-icon { font-size: 32px; display: block; margin-bottom: var(--space-3); }
+.path-card h3 { margin: 0 0 var(--space-2); font-size: var(--text-lg); }
+.path-card .path-flow {
+  margin-top: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.part {
+  margin: var(--space-7) 0;
+}
+.part-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--color-primary);
+}
+.part-header .part-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.part-header h2 { margin: 0; border: none; padding: 0; }
+
+.chapter-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+@media (min-width: 700px)  { .chapter-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1100px) { .chapter-grid { grid-template-columns: repeat(3, 1fr); } }
+.chapter-card {
+  display: block;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.chapter-card:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  transform: translateY(-1px);
+}
+.chapter-card .ch-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+.chapter-card .ch-title {
+  display: block;
+  margin: var(--space-2) 0;
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+.chapter-card .ch-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--space-2);
+}
+.chapter-card .ch-badges { font-size: 11px; }
+
+
+/* Mermaid container */
+.mermaid-wrap {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-wrap .mermaid {
+  display: inline-block;
+  min-width: 100%;
+}
+.mermaid-caption {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+/* Hide raw mermaid source until rendered */
+.mermaid:not([data-processed="true"]) {
+  visibility: hidden;
+  min-height: 1em;
+}
+
+</style>
+<script>
+/* JHsun TechDocs — Theme toggle v1.0 */
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+
+</script>
+<script>
+
+// Copy-to-clipboard for all <pre> blocks
+(function () {
+  function init() {
+    document.querySelectorAll('main pre').forEach(function (pre) {
+      if (pre.parentElement.classList.contains('code-wrap')) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'code-wrap';
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
+      const lang = pre.querySelector('code')?.className.match(/language-(\w+)/)?.[1];
+      if (lang) {
+        const tag = document.createElement('span');
+        tag.className = 'code-lang';
+        tag.textContent = lang;
+        wrap.appendChild(tag);
+      }
+      const btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.type = 'button';
+      btn.textContent = '📋 複製';
+      btn.addEventListener('click', function () {
+        const text = pre.innerText;
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(text).then(success).catch(fallback);
+        } else {
+          fallback();
+        }
+        function success() {
+          btn.textContent = '✓ 已複製';
+          btn.classList.add('copied');
+          setTimeout(function () { btn.textContent = '📋 複製'; btn.classList.remove('copied'); }, 1800);
+        }
+        function fallback() {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); success(); } catch (_) {}
+          document.body.removeChild(ta);
+        }
+      });
+      wrap.appendChild(btn);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+// Auto-build TOC from h2/h3 in <main>
+(function () {
+  function init() {
+    const toc = document.querySelector('.toc ul');
+    if (!toc) return;
+    const headings = document.querySelectorAll('main h2, main h3');
+    headings.forEach(function (h) {
+      if (!h.id) {
+        h.id = h.textContent.trim().toLowerCase()
+          .replace(/[^\w\u4e00-\u9fff\s-]/g, '')
+          .replace(/\s+/g, '-');
+      }
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = '#' + h.id;
+      a.textContent = h.textContent;
+      a.className = 'toc-' + h.tagName.toLowerCase();
+      li.appendChild(a);
+      toc.appendChild(li);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+
+// Mermaid initialization with theme sync
+(function () {
+  function getMermaidTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default';
+  }
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    const cs = getComputedStyle(document.documentElement);
+    return {
+      startOnLoad: false,
+      theme: isDark ? 'dark' : 'default',
+      themeVariables: {
+        fontFamily: cs.getPropertyValue('--font-sans').trim() || 'DM Sans, sans-serif',
+        fontSize: '14px',
+        primaryColor: isDark ? '#1e3a4a' : '#e0f2fe',
+        primaryTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        primaryBorderColor: isDark ? '#5fb3d4' : '#0891b2',
+        lineColor: isDark ? '#7aa3b8' : '#475569',
+        secondaryColor: isDark ? '#2a3f4f' : '#f1f5f9',
+        tertiaryColor: isDark ? '#1a2530' : '#fafafa',
+        background: isDark ? '#1e2a35' : '#ffffff',
+        mainBkg: isDark ? '#243441' : '#ecfeff',
+        secondBkg: isDark ? '#1a2530' : '#f8fafc',
+        nodeBorder: isDark ? '#5fb3d4' : '#0891b2',
+        clusterBkg: isDark ? '#1a2530' : '#f1f5f9',
+        clusterBorder: isDark ? '#3a5260' : '#cbd5e1',
+        defaultLinkColor: isDark ? '#7aa3b8' : '#475569',
+        titleColor: isDark ? '#e6f2f8' : '#0f172a',
+        edgeLabelBackground: isDark ? '#243441' : '#ffffff',
+        actorBkg: isDark ? '#243441' : '#ecfeff',
+        actorBorder: isDark ? '#5fb3d4' : '#0891b2',
+        actorTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        actorLineColor: isDark ? '#5fb3d4' : '#0891b2',
+        signalColor: isDark ? '#7aa3b8' : '#334155',
+        signalTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        labelBoxBkgColor: isDark ? '#1a2530' : '#fef3c7',
+        labelBoxBorderColor: isDark ? '#a89060' : '#d97706',
+        labelTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        loopTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        noteBkgColor: isDark ? '#3a4f3a' : '#fef3c7',
+        noteBorderColor: isDark ? '#86c598' : '#d97706',
+        noteTextColor: isDark ? '#e6f2f8' : '#0f172a',
+      },
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true, showSequenceNumbers: false, mirrorActors: true, bottomMarginAdj: 10 },
+    };
+  }
+
+  let renderCounter = 0;
+  async function renderAll() {
+    if (typeof mermaid === 'undefined') return;
+    renderCounter++;
+    const myCounter = renderCounter;
+    mermaid.initialize(getMermaidConfig());
+    const blocks = document.querySelectorAll('.mermaid');
+    for (const el of blocks) {
+      // restore source if already rendered
+      if (el.dataset.source) el.innerHTML = el.dataset.source;
+      else el.dataset.source = el.innerHTML;
+      el.removeAttribute('data-processed');
+    }
+    if (myCounter !== renderCounter) return;
+    try {
+      await mermaid.run({ querySelector: '.mermaid' });
+    } catch (e) { console.warn('Mermaid render error', e); }
+  }
+
+  function init() {
+    renderAll();
+    window.addEventListener('jhsun:theme-changed', renderAll);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="ch00-elasticsearch-index.html">ES Self-Managed Docs</a>
+    <nav class="nav-links">
+      <a href="ch05-read-write-flow.html" aria-label="上一章">← 上一章</a>
+      <a href="ch00-elasticsearch-index.html" aria-label="回首頁">首頁</a>
+      <a href="ch07-install-linux-macos.html" aria-label="下一章">下一章 →</a>
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </nav>
+  </div>
+</header>
+<div class="layout">
+<main class="prose">
+
+<h1>CH 06 · 系統需求與 Bootstrap Checks</h1>
+
+<div class="chapter-meta">
+  <div class="meta-row"><span class="meta-label">適合對象</span>
+    <span class="badge operator">🔴 維運者</span>
+  </div>
+  <div class="meta-row"><span class="meta-label">閱讀時間</span> 約 25 分鐘</div>
+  <div class="meta-row"><span class="meta-label">前置知識</span> CH 03-05 · 分散式架構與讀寫流程</div>
+  <div class="meta-row"><span class="meta-label">本章目標</span> 規劃硬體規格、調整 OS 系統參數、認識 Production / Development 模式、通過所有 Bootstrap Checks</div>
+</div>
+
+<h2 id="硬體需求">硬體需求</h2>
+
+<h3 id="cpu">CPU</h3>
+
+<p>Elasticsearch 的 CPU 用量受工作負載影響很大：</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>工作負載</th><th>CPU 特性</th><th>建議規格</th></tr></thead>
+  <tbody>
+    <tr><td>純搜尋（low qps）</td><td>突發、非持續高</td><td>4-8 vCPU 起</td></tr>
+    <tr><td>大量索引寫入</td><td>持續高，多執行緒</td><td>8-16 vCPU</td></tr>
+    <tr><td>聚合、ES|QL、ML</td><td>CPU 密集</td><td>16-32 vCPU</td></tr>
+    <tr><td>kNN/向量搜尋</td><td>SIMD 加速，建議新世代 CPU</td><td>16+ vCPU、AVX2/AVX-512 支援</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>選擇<strong>較新世代</strong>的 CPU（Intel 第 4 代 Xeon Scalable / AMD EPYC Gen 4 / AWS Graviton 4 / Apple Silicon），對 BBQ（Better Binary Quantization）與向量運算有顯著加速。</p>
+
+<h3 id="memory">記憶體（RAM）</h3>
+
+<p>記憶體是 Elasticsearch 最關鍵的資源。三大用途：</p>
+
+<ul>
+  <li><strong>JVM Heap</strong>：用於 indexing buffers、cluster state、search request、aggregations</li>
+  <li><strong>OS File System Cache</strong>：Lucene 倚賴 OS 把 segment 檔案快取到 RAM 中加速搜尋</li>
+  <li><strong>Off-heap memory</strong>：Lucene 的某些結構（doc values、bitmaps）使用 mmap 記憶體</li>
+</ul>
+
+<div class="callout">
+  <strong>💡 黃金比例：Heap ≤ 50% RAM，且 Heap ≤ 31 GB</strong>
+  <ul>
+    <li>JVM heap 設為總 RAM 的 <strong>一半</strong>，另一半留給 OS file cache</li>
+    <li>Heap <strong>不要超過 31 GB</strong>（壓縮指標 compressed oops 的限制；超過後反而效能下降）</li>
+    <li>若機器有 128 GB RAM，heap 也只設 31 GB，剩下給 OS cache</li>
+    <li>若需要更多 heap，請用<strong>更多節點</strong>而非單節點加 heap</li>
+  </ul>
+</div>
+
+<h3 id="storage">儲存（Disk）</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>儲存類型</th><th>適用 Tier</th><th>說明</th></tr></thead>
+  <tbody>
+    <tr><td>本地 NVMe SSD</td><td>Hot</td><td>最佳寫入與搜尋效能。Hot tier 強烈建議</td></tr>
+    <tr><td>本地 SATA SSD</td><td>Hot / Warm</td><td>夠用，但 IOPS 較低</td></tr>
+    <tr><td>本地 HDD（7200rpm+）</td><td>Cold</td><td>容量大但隨機 I/O 慢，僅適合舊資料</td></tr>
+    <tr><td>網路儲存（SAN/NAS/EBS gp3/io2）</td><td>Hot 可，但需注意</td><td>EBS io2 可達 64K IOPS；網路抖動會影響搜尋</td></tr>
+    <tr><td>NFS</td><td>❌ 不建議</td><td>會有 lock、stale handle、效能等問題</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout danger">
+  <strong>🚨 不要用 RAID 0 以外的本地 RAID</strong>
+  Elasticsearch 已透過 replicas 提供叢集級的冗餘。本地 RAID 1/5/6 只會降低寫入效能而沒有實質幫助。直接用 RAID 0 或單一 SSD 即可。當然，雲端的 EBS / Persistent Disk 等服務本身已含底層冗餘，無此顧慮。
+</div>
+
+<h3 id="network">網路</h3>
+
+<ul>
+  <li>叢集內部：<strong>10 GbE 以上</strong>（生產級），1 GbE 僅適合小型開發</li>
+  <li>所有節點之間延遲應 &lt; 5 ms（同一 AZ 或機架）</li>
+  <li>跨 AZ 部署：&lt; 50 ms 可接受，CCS/CCR 跨 region 需特別調校</li>
+  <li>啟用 jumbo frames（MTU 9000）可降低高吞吐時的 CPU 用量</li>
+</ul>
+
+<h2 id="作業系統支援">作業系統支援</h2>
+
+<p>Elastic 9.x 的官方支援平台（節錄自 <a href="https://www.elastic.co/support/matrix" target="_blank" rel="noopener">Support Matrix</a>）：</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>類別</th><th>支援版本</th></tr></thead>
+  <tbody>
+    <tr><td>RHEL / CentOS Stream / Rocky / Alma</td><td>8.x、9.x</td></tr>
+    <tr><td>Ubuntu</td><td>20.04 LTS、22.04 LTS、24.04 LTS</td></tr>
+    <tr><td>Debian</td><td>11、12</td></tr>
+    <tr><td>SLES</td><td>15</td></tr>
+    <tr><td>Amazon Linux</td><td>2、2023</td></tr>
+    <tr><td>Oracle Enterprise Linux</td><td>8.x、9.x</td></tr>
+    <tr><td>Windows Server</td><td>2019、2022、2025</td></tr>
+    <tr><td>macOS</td><td>13、14、15（僅 arm64；x86_64 自 9.0 起 ML 功能停用）</td></tr>
+    <tr><td>Architecture</td><td>x86_64、aarch64（含 AWS Graviton、Apple Silicon）</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="java-jvm">Java / JVM 需求</h2>
+
+<div class="callout success">
+  <strong>✅ 強烈建議使用 Bundled JDK</strong>
+  Elasticsearch 9.x 發行版內建一份 OpenJDK，由 Elastic 維護並隨版本更新。<strong>不要自己安裝 JDK 取代它</strong>，除非有強制要求（例如 FIPS 合規）。
+</div>
+
+<p>Bundled JDK 位於 <code>$ES_HOME/jdk</code>。如果你必須使用自己的 JDK：</p>
+
+<pre><code class="language-bash"># 設定環境變數指向自有 JDK
+export ES_JAVA_HOME=/path/to/your/jdk
+
+# 啟動時 ES 會用這個 JDK 取代 bundled
+sudo systemctl start elasticsearch
+</code></pre>
+
+<p>注意事項：</p>
+<ul>
+  <li>必須使用 <strong>OpenJDK 衍生版本</strong>（不支援 GraalVM、Azul 等少數變種，但 Adoptium、Amazon Corretto 沒問題）</li>
+  <li>建議使用最新 LTS 版本（目前為 JDK 21；JDK 17 仍受支援）</li>
+  <li>FIPS 模式必須使用 Oracle JDK 17（自 8.13+ 起）</li>
+</ul>
+
+<div class="callout danger">
+  <strong>🚨 永遠不要使用第三方 Java agent</strong>
+  APM agent、profiler、tracer 等以 <code>-javaagent:xxx.jar</code> 形式附加的工具，可能造成 ES 啟動失敗、節點凍結甚至資料損毀。請用 Elastic 自家的 APM 整合（CH 60）。
+</div>
+
+<h2 id="production-vs-development">Production Mode vs Development Mode</h2>
+
+<p>Elasticsearch 啟動時會自動判斷自己處於哪種模式：</p>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TB
+    Start(["ES 啟動"]) --> Check{"檢查條件"}
+    Check -->|"network.host 為 loopback<br/>(127.0.0.1)<br/>或未設定"| Dev["🟢 Development Mode<br/>Bootstrap checks 為警告"]
+    Check -->|"network.host 為非 loopback<br/>例如 0.0.0.0、_eth0_、IP"| Prod["🔴 Production Mode<br/>Bootstrap checks 為強制"]
+
+    Dev --> DevR["不通過 → log 警告，但可啟動"]
+    Prod --> ProdR["不通過 → 拒絕啟動"]
+
+    classDef startNode fill:#e0f2fe,stroke:#0284c7,color:#0f172a
+    classDef dev fill:#dcfce7,stroke:#16a34a,color:#0f172a
+    classDef prod fill:#fee2e2,stroke:#dc2626,color:#0f172a,stroke-width:2px
+    class Start startNode
+    class Dev,DevR dev
+    class Prod,ProdR prod
+</pre>
+<div class="mermaid-caption">圖 6-1：Production / Development 模式判斷邏輯</div>
+</div>
+
+<p>意義：</p>
+<ul>
+  <li><strong>Development</strong>：適合本機學習與開發，所有檢查只記錄警告</li>
+  <li><strong>Production</strong>：當你綁定到實際網卡（讓其他節點可連），ES 認為這是正式部署，<strong>所有 bootstrap checks 必須通過才能啟動</strong></li>
+</ul>
+
+<h2 id="bootstrap-checks">Bootstrap Checks 全清單</h2>
+
+<p>Production mode 下，以下檢查必須全部通過。逐一說明：</p>
+
+<h3 id="check-1-heap-size">1. Heap size check</h3>
+
+<p>JVM 啟動時的 <code>-Xms</code>（初始 heap）必須等於 <code>-Xmx</code>（最大 heap），避免動態 resize 造成 GC pause。</p>
+
+<p>Elastic 9.x 預設使用<strong>自動 heap sizing</strong>（依節點記憶體與角色計算），無需手動設定。若要手動覆寫：</p>
+
+<pre><code class="language-bash"># /etc/elasticsearch/jvm.options.d/heap.options
+-Xms16g
+-Xmx16g
+</code></pre>
+
+<h3 id="check-2-file-descriptors">2. File descriptor check</h3>
+
+<p>每個 shard 會開啟多個 segment 檔案 + 網路連線。預設 OS 的 4096 / 65536 限制都太低。</p>
+
+<p><strong>需求：</strong>elasticsearch process 至少能開 <strong>65535</strong> 個 file descriptors。</p>
+
+<p>檢查當前設定：</p>
+
+<pre><code class="language-bash">ulimit -n
+# 或對特定 user 檢查
+sudo -u elasticsearch bash -c 'ulimit -n'
+</code></pre>
+
+<p>調整方式（systemd 環境）：</p>
+
+<pre><code class="language-bash"># 編輯 systemd unit override
+sudo systemctl edit elasticsearch
+</code></pre>
+
+<p>加入：</p>
+
+<pre><code class="language-ini">[Service]
+LimitNOFILE=65535
+</code></pre>
+
+<p>傳統 SysV 環境，編輯 <code>/etc/security/limits.conf</code>：</p>
+
+<pre><code class="language-text">elasticsearch  -  nofile  65535
+elasticsearch  -  nproc   4096
+</code></pre>
+
+<h3 id="check-3-mlockall">3. Memory lock check（如啟用 mlockall）</h3>
+
+<p>啟用 <code>bootstrap.memory_lock: true</code> 後，JVM 會把 heap 鎖定在實體記憶體，避免被 swap 出去（swap 會嚴重影響搜尋延遲）。</p>
+
+<pre><code class="language-yaml"># elasticsearch.yml
+bootstrap.memory_lock: true
+</code></pre>
+
+<p>需要 OS 允許這個 process 使用 memlock：</p>
+
+<pre><code class="language-bash"># systemd 環境
+sudo systemctl edit elasticsearch
+</code></pre>
+
+<pre><code class="language-ini">[Service]
+LimitMEMLOCK=infinity
+</code></pre>
+
+<p>驗證：</p>
+
+<pre><code class="language-bash">curl -X GET "https://localhost:9200/_nodes?filter_path=**.mlockall&pretty" \
+  -u elastic:CHANGEME --cacert /path/to/http_ca.crt
+</code></pre>
+
+<h3 id="check-4-max-map-count">4. Maximum map count check（Linux only）</h3>
+
+<p>Lucene 用 mmap 把 segment 檔案映射到記憶體。需要足夠的 memory map areas。</p>
+
+<p><strong>需求：</strong><code>vm.max_map_count ≥ 262144</code>（建議 <code>1048576</code>）。</p>
+
+<pre><code class="language-bash"># 立即生效
+sudo sysctl -w vm.max_map_count=262144
+
+# 永久生效
+echo 'vm.max_map_count=262144' | sudo tee -a /etc/sysctl.d/99-elasticsearch.conf
+sudo sysctl --system
+</code></pre>
+
+<h3 id="check-5-max-threads">5. Max number of threads</h3>
+
+<p><strong>需求：</strong>elasticsearch user 至少能建立 <strong>4096</strong> 個 threads。</p>
+
+<pre><code class="language-bash">ulimit -u
+# 應 ≥ 4096
+</code></pre>
+
+<p>調整見上方 file descriptors 章節，加入 <code>nproc 4096</code>。</p>
+
+<h3 id="check-6-max-virtual-memory">6. Max virtual memory</h3>
+
+<p>elasticsearch 必須能使用<strong>無限</strong>的 virtual memory（mmap 需要）。</p>
+
+<pre><code class="language-bash">ulimit -v
+# 應為 unlimited
+</code></pre>
+
+<h3 id="check-7-discovery">7. Discovery configuration</h3>
+
+<p>Production mode 必須設定以下其一：</p>
+
+<ul>
+  <li><code>discovery.seed_hosts</code></li>
+  <li><code>discovery.seed_providers</code></li>
+  <li><code>cluster.initial_master_nodes</code>（僅首次 bootstrap）</li>
+</ul>
+
+<h3 id="check-8-jvm-server">8. Use server JVM</h3>
+
+<p>必須使用 server JVM（不是 client JVM）。Bundled JDK 預設即為 server JVM，這個檢查通常不會失敗。</p>
+
+<h3 id="check-9-jdk-version">9. JDK version</h3>
+
+<p>最低支援版本：見當前版本的 support matrix。9.x 預期需 JDK 21+。</p>
+
+<h3 id="check-10-onerror">10. -XX:OnError / -XX:OnOutOfMemoryError 限制</h3>
+
+<p>不可使用 <code>-XX:OnError</code> 或 <code>-XX:OnOutOfMemoryError</code> JVM 參數。請改用 Elasticsearch 的 <code>jvm.options</code> 內建 <code>-XX:HeapDumpOnOutOfMemoryError</code>。</p>
+
+<h3 id="check-11-early-access-jdk">11. Early-access build check</h3>
+
+<p>不可使用 JDK 的 early-access 預覽版（如 JDK 22-ea）。</p>
+
+<h3 id="check-12-all-permission">12. JVM SecurityManager all-permission</h3>
+
+<p>不可使用授予 java.security.AllPermission 的 SecurityManager 政策（可能繞過 ES 自己的安全機制）。</p>
+
+<h2 id="完整-os-tuning">完整 OS Tuning Script（Linux）</h2>
+
+<p>以下是一個一次性套用全部建議設定的 script，適用 RHEL/Ubuntu 等主流 Linux：</p>
+
+<pre><code class="language-bash">#!/bin/bash
+# elasticsearch-os-tune.sh
+set -e
+
+# 1. 提高 vm.max_map_count
+cat > /etc/sysctl.d/99-elasticsearch.conf <<EOF
+vm.max_map_count = 262144
+vm.swappiness = 1
+fs.file-max = 1048576
+net.core.somaxconn = 65535
+net.ipv4.tcp_max_syn_backlog = 65535
+EOF
+sysctl --system
+
+# 2. 設定 user limits
+cat > /etc/security/limits.d/99-elasticsearch.conf <<EOF
+elasticsearch  -  nofile   65535
+elasticsearch  -  nproc    4096
+elasticsearch  -  memlock  unlimited
+elasticsearch  -  fsize    unlimited
+elasticsearch  -  as       unlimited
+EOF
+
+# 3. 設定 systemd 限制
+mkdir -p /etc/systemd/system/elasticsearch.service.d/
+cat > /etc/systemd/system/elasticsearch.service.d/override.conf <<EOF
+[Service]
+LimitNOFILE=65535
+LimitNPROC=4096
+LimitMEMLOCK=infinity
+LimitFSIZE=infinity
+LimitAS=infinity
+TimeoutStartSec=180
+EOF
+systemctl daemon-reload
+
+# 4. 關閉 swap（強烈建議）
+swapoff -a
+sed -i.bak '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+
+# 5. 關閉 transparent huge pages（避免不可預期的 GC pause）
+echo never > /sys/kernel/mm/transparent_hugepage/enabled
+echo never > /sys/kernel/mm/transparent_hugepage/defrag
+
+cat > /etc/systemd/system/disable-thp.service <<EOF
+[Unit]
+Description=Disable Transparent Huge Pages
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c "echo never > /sys/kernel/mm/transparent_hugepage/enabled && echo never > /sys/kernel/mm/transparent_hugepage/defrag"
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl enable disable-thp.service
+
+echo "✅ OS tuning complete. Reboot recommended."
+</code></pre>
+
+<h2 id="swap-設定">Swap 設定建議</h2>
+
+<p>三選一，按建議度排序：</p>
+
+<ol>
+  <li><strong>完全關閉 swap</strong>（最佳）— <code>swapoff -a</code> + 移除 <code>/etc/fstab</code> 的 swap entry</li>
+  <li>啟用 <code>bootstrap.memory_lock: true</code>（mlockall）</li>
+  <li>降低 <code>vm.swappiness</code> 到 1（盡量避免使用 swap）</li>
+</ol>
+
+<p>不要做：保留 default swappiness 60。在記憶體壓力下 OS 會把 ES heap 部分換到磁碟，下次 GC 時整個叢集會看似掛掉。</p>
+
+<h2 id="ntp-時間同步">NTP / 時間同步</h2>
+
+<p>分散式系統對時間敏感（特別是 cluster state 的 versioning、ILM age 觸發、稽核日誌）。所有節點應啟用 NTP / chrony：</p>
+
+<pre><code class="language-bash"># RHEL/CentOS
+sudo systemctl enable --now chronyd
+chronyc sources
+
+# Ubuntu/Debian
+sudo systemctl enable --now systemd-timesyncd
+timedatectl status
+</code></pre>
+
+<h2 id="防火牆與-selinux">防火牆與 SELinux</h2>
+
+<h3 id="防火牆-port">防火牆 Port</h3>
+
+<p>節點間：<strong>9300/tcp</strong>（transport）<br>
+HTTP/REST：<strong>9200/tcp</strong></p>
+
+<pre><code class="language-bash"># firewalld（RHEL）
+sudo firewall-cmd --permanent --zone=internal --add-port=9300/tcp
+sudo firewall-cmd --permanent --zone=internal --add-port=9200/tcp
+sudo firewall-cmd --reload
+
+# ufw（Ubuntu）
+sudo ufw allow from 10.0.0.0/24 to any port 9300 proto tcp
+sudo ufw allow from 10.0.0.0/24 to any port 9200 proto tcp
+</code></pre>
+
+<h3 id="selinux">SELinux</h3>
+
+<p>一般情況 ES 與 SELinux 相容。若遇到 AVC denied，可調整：</p>
+
+<pre><code class="language-bash"># 檢查 audit log
+sudo ausearch -m avc -ts recent | grep elasticsearch
+
+# 暫時改為 permissive 排查
+sudo setenforce 0
+
+# 確認問題後撰寫專屬 policy
+sudo audit2allow -a -M elasticsearch-custom
+sudo semodule -i elasticsearch-custom.pp
+</code></pre>
+
+<h2 id="預估規模工具">預估規模工具</h2>
+
+<ul>
+  <li><a href="https://elastic-sizer.elastic.co/" target="_blank" rel="noopener">Elastic Cloud Sizer</a> — 互動式估算工具，可用於 self-managed 規劃參考</li>
+  <li><strong>經驗公式</strong>：每日資料量 ÷ shard 平均大小（30 GB）= shards 數；每節點 shards 數 ÷ 20 = 所需 heap GB</li>
+</ul>
+
+<h2 id="本章重點回顧">本章重點回顧</h2>
+
+<ul>
+  <li>記憶體比 CPU 重要：<strong>heap ≤ 50% RAM</strong>，且 <strong>heap ≤ 31 GB</strong></li>
+  <li>儲存：Hot tier 用本地 NVMe SSD；不要用 NFS、不要用 RAID 1/5/6</li>
+  <li>網路：節點間建議 10 GbE 以上、低延遲</li>
+  <li>強烈建議使用<strong>內建 JDK</strong>，不要安裝第三方 Java agent</li>
+  <li>當 <code>network.host</code> 不是 loopback 時，自動進入 <strong>Production Mode</strong> 並強制執行 bootstrap checks</li>
+  <li>核心 OS 調整：<strong>vm.max_map_count ≥ 262144</strong>、<strong>file descriptors ≥ 65535</strong>、關閉 swap、關閉 THP</li>
+  <li>所有節點都要時間同步（NTP / chrony）</li>
+  <li>開放 9200（HTTP）與 9300（transport）port</li>
+</ul>
+
+<h2 id="下章預告">下章預告</h2>
+
+<p>下一章開始實戰安裝。<strong>CH 07 · Linux/macOS（tar.gz）安裝</strong>會手把手帶你完成首次部署，並驗證所有 bootstrap checks。</p>
+
+<h2 id="延伸閱讀">延伸閱讀</h2>
+
+<ul>
+  <li><a href="https://www.elastic.co/support/matrix" target="_blank" rel="noopener">Elastic Support Matrix</a></li>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/deploy/self-managed/bootstrap-checks" target="_blank" rel="noopener">Bootstrap checks</a></li>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/production-guidance/elasticsearch-in-production-environments" target="_blank" rel="noopener">Run Elasticsearch in production</a></li>
+</ul>
+
+<nav class="bottom-nav"><a class="prev" href="ch05-read-write-flow.html"><span class="nav-label">← 上一章</span><span class="nav-title">讀寫流程</span></a><a class="next" href="ch07-install-linux-macos.html"><span class="nav-label">下一章 →</span><span class="nav-title">Linux/macOS 安裝</span></a></nav>
+</main>
+<aside class="toc">
+  <div class="toc-title">本章目錄</div>
+  <ul></ul>
+</aside>
+</div>
+<footer>
+  <p>Elasticsearch Self-Managed 完整教學文件 · 基於 Elastic Stack 9.x（最新 9.3.4）<br>
+  資料來源：<a href="https://www.elastic.co/docs" target="_blank" rel="noopener">Elastic 官方文件</a> · 最後更新：2026-05</p>
+</footer>
+</body>
+</html>

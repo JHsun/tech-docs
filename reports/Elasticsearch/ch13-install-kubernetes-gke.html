@@ -1,0 +1,1364 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="ECK + GKE 生產級部署、PD-SSD、Workload Identity、GCS snapshot">
+<title>CH 13 · Google GKE 部署</title>
+<style>
+/* ============================================================
+   JHsun TechDocs — Unified Design Token Layer
+   v1.0 · Calm Teal (hue 200° / chroma 0.11)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+
+  --color-success:        #16a34a;
+  --color-success-soft:   #dcfce7;
+  --color-warning:        #d97706;
+  --color-warning-soft:   #fef3c7;
+  --color-danger:         #dc2626;
+  --color-danger-soft:    #fee2e2;
+  --color-info:           #0891b2;
+  --color-info-soft:      #cffafe;
+  --color-neutral-accent: #7c3aed;
+
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+
+  --font-mono:       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:       "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif:      "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  32px;
+  --text-3xl:  44px;
+  --text-4xl:  64px;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+
+  --container-narrow: 720px;
+  --container-wide:   1280px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+
+:root[data-theme="dark"] {
+  --color-success:        #4ade80;
+  --color-success-soft:   oklch(0.30 0.08 145);
+  --color-warning:        #fbbf24;
+  --color-warning-soft:   oklch(0.32 0.10 70);
+  --color-danger:         #f87171;
+  --color-danger-soft:    oklch(0.32 0.10 27);
+  --color-info:           #22d3ee;
+  --color-info-soft:      oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.16 0.008 50);
+  --bg-surface:     oklch(0.20 0.009 50);
+  --bg-muted:       oklch(0.23 0.010 50);
+  --bg-code:        oklch(0.18 0.009 50);
+  --border-soft:    oklch(0.28 0.010 50);
+  --border-mid:     oklch(0.36 0.012 50);
+  --text-primary:   oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted:     oklch(0.58 0.007 60);
+
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+
+/* ============== Chapter shared styles ============== */
+* { box-sizing: border-box; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+@media (min-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 240px; gap: var(--space-7); }
+}
+main { min-width: 0; padding: var(--space-6) 0; }
+main.prose { max-width: var(--container-narrow); margin: 0 auto; }
+
+/* Top navigation */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: color-mix(in oklch, var(--bg-canvas) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.topbar-inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.brand {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-primary-text);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+.nav-links { display: flex; gap: var(--space-2); margin-left: auto; align-items: center; }
+.nav-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  transition: all 0.15s;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--bg-muted); }
+.nav-links a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Theme toggle button */
+[data-theme-toggle] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  transition: all 0.15s;
+}
+[data-theme-toggle]:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.theme-icon { font-size: var(--text-base); }
+
+/* Headings */
+h1, h2, h3, h4 {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  line-height: 1.3;
+  margin-top: var(--space-7);
+  margin-bottom: var(--space-4);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+h1 { font-size: var(--text-3xl); margin-top: var(--space-5); }
+h2 { font-size: var(--text-2xl); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-soft); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-md); color: var(--text-secondary); }
+
+p { margin: var(--space-4) 0; color: var(--text-primary); }
+
+/* Inline code */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+  border: 1px solid var(--border-soft);
+}
+
+/* Code block */
+.code-wrap {
+  position: relative;
+  margin: var(--space-4) 0;
+}
+.code-wrap > .code-lang {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.code-wrap > .copy-btn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 4px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  transition: all 0.15s;
+  opacity: 0;
+}
+.code-wrap:hover > .copy-btn { opacity: 1; }
+.code-wrap > .copy-btn:hover {
+  background: var(--color-primary);
+  color: var(--bg-canvas);
+  border-color: var(--color-primary);
+}
+.code-wrap > .copy-btn.copied {
+  background: var(--color-success);
+  color: white;
+  border-color: var(--color-success);
+  opacity: 1;
+}
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-7) var(--space-4) var(--space-4);
+  overflow-x: auto;
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  margin: 0;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: var(--text-primary);
+  font-size: inherit;
+}
+
+/* Lists */
+ul, ol { padding-left: var(--space-6); }
+li { margin: var(--space-2) 0; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: var(--space-4) 0; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+th, td {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+}
+th { background: var(--bg-muted); font-weight: 600; color: var(--text-primary); }
+tr:last-child td { border-bottom: none; }
+
+/* Callouts */
+.callout {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  border-left: 4px solid var(--color-info);
+  background: var(--color-info-soft);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+.callout.warning { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.danger  { border-color: var(--color-danger);  background: var(--color-danger-soft); }
+.callout.success { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout strong { display: block; margin-bottom: var(--space-2); }
+:root[data-theme="dark"] .callout { color: var(--text-primary); }
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: 999px;
+  margin-right: var(--space-1);
+  letter-spacing: 0.02em;
+}
+.badge.beginner { background: var(--color-success-soft); color: var(--color-success); }
+.badge.developer { background: var(--color-info-soft); color: var(--color-info); }
+.badge.operator { background: var(--color-warning-soft); color: var(--color-warning); }
+.badge.advanced { background: var(--color-primary-soft); color: var(--color-primary-text); }
+:root[data-theme="dark"] .badge { filter: brightness(1.1); }
+
+/* Chapter meta */
+.chapter-meta {
+  margin: var(--space-4) 0 var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.chapter-meta .meta-row { margin: var(--space-1) 0; }
+.chapter-meta .meta-label {
+  display: inline-block;
+  width: 70px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* TOC sidebar */
+.toc {
+  position: sticky;
+  top: 80px;
+  align-self: start;
+  font-size: var(--text-sm);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  padding: var(--space-4) 0;
+  display: none;
+}
+@media (min-width: 1100px) {
+  .toc { display: block; }
+}
+.toc-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.toc ul { list-style: none; padding-left: 0; margin: 0; }
+.toc li { margin: 0; }
+.toc a {
+  display: block;
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-left: 2px solid var(--border-soft);
+  transition: all 0.15s;
+  line-height: 1.5;
+}
+.toc a:hover { color: var(--color-primary); border-left-color: var(--color-primary); }
+.toc a.toc-h3 { padding-left: var(--space-5); font-size: 0.92em; color: var(--text-muted); }
+
+/* Bottom nav */
+.bottom-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  margin-top: var(--space-8);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.bottom-nav a {
+  flex: 1;
+  min-width: 200px;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.bottom-nav a:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.bottom-nav .nav-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.bottom-nav .nav-title { font-weight: 600; color: var(--text-primary); }
+.bottom-nav a.next { text-align: right; }
+.bottom-nav a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Footer */
+footer {
+  text-align: center;
+  padding: var(--space-7) var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  border-top: 1px solid var(--border-soft);
+  margin-top: var(--space-8);
+}
+footer a { color: var(--color-primary); text-decoration: none; }
+
+/* Index page specific */
+.hero {
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+  background: linear-gradient(135deg, var(--color-primary-soft) 0%, var(--bg-canvas) 100%);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: var(--space-7);
+}
+.hero h1 {
+  font-size: var(--text-4xl);
+  margin: 0 0 var(--space-4);
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.02em;
+}
+.hero p { font-size: var(--text-md); color: var(--text-secondary); max-width: 720px; margin: 0 auto; }
+.hero .meta {
+  margin-top: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.path-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  margin: var(--space-6) 0;
+}
+@media (min-width: 768px) { .path-grid { grid-template-columns: repeat(3, 1fr); } }
+.path-card {
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  transition: all 0.2s;
+}
+.path-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-md); }
+.path-card .path-icon { font-size: 32px; display: block; margin-bottom: var(--space-3); }
+.path-card h3 { margin: 0 0 var(--space-2); font-size: var(--text-lg); }
+.path-card .path-flow {
+  margin-top: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.part {
+  margin: var(--space-7) 0;
+}
+.part-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--color-primary);
+}
+.part-header .part-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.part-header h2 { margin: 0; border: none; padding: 0; }
+
+.chapter-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+@media (min-width: 700px)  { .chapter-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1100px) { .chapter-grid { grid-template-columns: repeat(3, 1fr); } }
+.chapter-card {
+  display: block;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.chapter-card:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  transform: translateY(-1px);
+}
+.chapter-card .ch-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+.chapter-card .ch-title {
+  display: block;
+  margin: var(--space-2) 0;
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+.chapter-card .ch-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--space-2);
+}
+.chapter-card .ch-badges { font-size: 11px; }
+
+
+/* Mermaid container */
+.mermaid-wrap {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-wrap .mermaid {
+  display: inline-block;
+  min-width: 100%;
+}
+.mermaid-caption {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+/* Hide raw mermaid source until rendered */
+.mermaid:not([data-processed="true"]) {
+  visibility: hidden;
+  min-height: 1em;
+}
+
+</style>
+<script>
+/* JHsun TechDocs — Theme toggle v1.0 */
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+
+</script>
+<script>
+
+// Copy-to-clipboard for all <pre> blocks
+(function () {
+  function init() {
+    document.querySelectorAll('main pre').forEach(function (pre) {
+      if (pre.parentElement.classList.contains('code-wrap')) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'code-wrap';
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
+      const lang = pre.querySelector('code')?.className.match(/language-(\w+)/)?.[1];
+      if (lang) {
+        const tag = document.createElement('span');
+        tag.className = 'code-lang';
+        tag.textContent = lang;
+        wrap.appendChild(tag);
+      }
+      const btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.type = 'button';
+      btn.textContent = '📋 複製';
+      btn.addEventListener('click', function () {
+        const text = pre.innerText;
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(text).then(success).catch(fallback);
+        } else {
+          fallback();
+        }
+        function success() {
+          btn.textContent = '✓ 已複製';
+          btn.classList.add('copied');
+          setTimeout(function () { btn.textContent = '📋 複製'; btn.classList.remove('copied'); }, 1800);
+        }
+        function fallback() {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); success(); } catch (_) {}
+          document.body.removeChild(ta);
+        }
+      });
+      wrap.appendChild(btn);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+// Auto-build TOC from h2/h3 in <main>
+(function () {
+  function init() {
+    const toc = document.querySelector('.toc ul');
+    if (!toc) return;
+    const headings = document.querySelectorAll('main h2, main h3');
+    headings.forEach(function (h) {
+      if (!h.id) {
+        h.id = h.textContent.trim().toLowerCase()
+          .replace(/[^\w\u4e00-\u9fff\s-]/g, '')
+          .replace(/\s+/g, '-');
+      }
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = '#' + h.id;
+      a.textContent = h.textContent;
+      a.className = 'toc-' + h.tagName.toLowerCase();
+      li.appendChild(a);
+      toc.appendChild(li);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+
+// Mermaid initialization with theme sync
+(function () {
+  function getMermaidTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default';
+  }
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    const cs = getComputedStyle(document.documentElement);
+    return {
+      startOnLoad: false,
+      theme: isDark ? 'dark' : 'default',
+      themeVariables: {
+        fontFamily: cs.getPropertyValue('--font-sans').trim() || 'DM Sans, sans-serif',
+        fontSize: '14px',
+        primaryColor: isDark ? '#1e3a4a' : '#e0f2fe',
+        primaryTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        primaryBorderColor: isDark ? '#5fb3d4' : '#0891b2',
+        lineColor: isDark ? '#7aa3b8' : '#475569',
+        secondaryColor: isDark ? '#2a3f4f' : '#f1f5f9',
+        tertiaryColor: isDark ? '#1a2530' : '#fafafa',
+        background: isDark ? '#1e2a35' : '#ffffff',
+        mainBkg: isDark ? '#243441' : '#ecfeff',
+        secondBkg: isDark ? '#1a2530' : '#f8fafc',
+        nodeBorder: isDark ? '#5fb3d4' : '#0891b2',
+        clusterBkg: isDark ? '#1a2530' : '#f1f5f9',
+        clusterBorder: isDark ? '#3a5260' : '#cbd5e1',
+        defaultLinkColor: isDark ? '#7aa3b8' : '#475569',
+        titleColor: isDark ? '#e6f2f8' : '#0f172a',
+        edgeLabelBackground: isDark ? '#243441' : '#ffffff',
+        actorBkg: isDark ? '#243441' : '#ecfeff',
+        actorBorder: isDark ? '#5fb3d4' : '#0891b2',
+        actorTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        actorLineColor: isDark ? '#5fb3d4' : '#0891b2',
+        signalColor: isDark ? '#7aa3b8' : '#334155',
+        signalTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        labelBoxBkgColor: isDark ? '#1a2530' : '#fef3c7',
+        labelBoxBorderColor: isDark ? '#a89060' : '#d97706',
+        labelTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        loopTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        noteBkgColor: isDark ? '#3a4f3a' : '#fef3c7',
+        noteBorderColor: isDark ? '#86c598' : '#d97706',
+        noteTextColor: isDark ? '#e6f2f8' : '#0f172a',
+      },
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true, showSequenceNumbers: false, mirrorActors: true, bottomMarginAdj: 10 },
+    };
+  }
+
+  let renderCounter = 0;
+  async function renderAll() {
+    if (typeof mermaid === 'undefined') return;
+    renderCounter++;
+    const myCounter = renderCounter;
+    mermaid.initialize(getMermaidConfig());
+    const blocks = document.querySelectorAll('.mermaid');
+    for (const el of blocks) {
+      // restore source if already rendered
+      if (el.dataset.source) el.innerHTML = el.dataset.source;
+      else el.dataset.source = el.innerHTML;
+      el.removeAttribute('data-processed');
+    }
+    if (myCounter !== renderCounter) return;
+    try {
+      await mermaid.run({ querySelector: '.mermaid' });
+    } catch (e) { console.warn('Mermaid render error', e); }
+  }
+
+  function init() {
+    renderAll();
+    window.addEventListener('jhsun:theme-changed', renderAll);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="ch00-elasticsearch-index.html">ES Self-Managed Docs</a>
+    <nav class="nav-links">
+      <a href="ch12-install-kubernetes-eks.html" aria-label="上一章">← 上一章</a>
+      <a href="ch00-elasticsearch-index.html" aria-label="回首頁">首頁</a>
+      <a href="ch14-install-kubernetes-aks.html" aria-label="下一章">下一章 →</a>
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </nav>
+  </div>
+</header>
+<div class="layout">
+<main class="prose">
+
+<h1>CH 13 · Google GKE 部署</h1>
+
+<div class="chapter-meta">
+  <div class="meta-row"><span class="meta-label">適合對象</span>
+    <span class="badge operator">🔴 維運者</span>
+    <span class="badge advanced">⚡ 進階</span>
+  </div>
+  <div class="meta-row"><span class="meta-label">閱讀時間</span> 約 28 分鐘</div>
+  <div class="meta-row"><span class="meta-label">前置知識</span> CH 11 · ECK Operator、GCP 基礎</div>
+  <div class="meta-row"><span class="meta-label">本章目標</span> 在 GKE 上部署生產級 ES、整合 PD-SSD、Workload Identity、GCS snapshot repository</div>
+</div>
+
+<h2 id="gke-vs-autopilot">GKE Standard vs Autopilot</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>特性</th><th>Standard</th><th>Autopilot</th></tr></thead>
+  <tbody>
+    <tr><td>節點管理</td><td>使用者管理 node pools</td><td>Google 完全託管</td></tr>
+    <tr><td>計費</td><td>按 VM 規格</td><td>按 Pod 資源用量</td></tr>
+    <tr><td>節點調校</td><td>可自由 sysctl、kernel 參數</td><td>受限</td></tr>
+    <tr><td>可裝 DaemonSet</td><td>可</td><td>受限（少數 system 用）</td></tr>
+    <tr><td>適合 ES？</td><td>✅ 推薦</td><td>⚠️ 可用但有限制</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout warning">
+  <strong>⚠️ Autopilot 上的 ES 限制</strong>
+  Autopilot 不允許 privileged init container 修改 sysctl，必須改用 <code>node.store.allow_mmap: false</code>（會犧牲效能），或設 <code>spec.podTemplate.spec.securityContext.sysctls</code> 但只支援 <a href="https://kubernetes.io/docs/tasks/administer-cluster/sysctl-cluster/#safe-and-unsafe-sysctls" target="_blank" rel="noopener">safe sysctls</a>，<code>vm.max_map_count</code> 不在其中。
+  <br>結論：<strong>生產用 GKE Standard</strong>。
+</div>
+
+<h2 id="step-1-建立-gke">Step 1：建立 GKE Standard 叢集</h2>
+
+<pre><code class="language-bash">PROJECT_ID=my-project
+CLUSTER_NAME=elastic-prod
+REGION=asia-east1
+
+# 建立 regional 叢集（master 跨 3 zones，比 zonal 高可用）
+gcloud container clusters create $CLUSTER_NAME \
+  --project=$PROJECT_ID \
+  --region=$REGION \
+  --release-channel=stable \
+  --cluster-version=1.31 \
+  --num-nodes=1 \
+  --machine-type=e2-medium \
+  --workload-pool=$PROJECT_ID.svc.id.goog \
+  --enable-ip-alias \
+  --network=default \
+  --subnetwork=default \
+  --enable-shielded-nodes \
+  --shielded-secure-boot
+
+# 取得 kubeconfig
+gcloud container clusters get-credentials $CLUSTER_NAME --region $REGION
+</code></pre>
+
+<h3 id="加入專屬-node-pools">加入 Elasticsearch 專屬 node pools</h3>
+
+<pre><code class="language-bash"># Master node pool（小型、跨 3 zones）
+gcloud container node-pools create master-pool \
+  --cluster=$CLUSTER_NAME \
+  --region=$REGION \
+  --node-locations=$REGION-a,$REGION-b,$REGION-c \
+  --num-nodes=1 \
+  --machine-type=e2-standard-4 \
+  --disk-type=pd-ssd \
+  --disk-size=50 \
+  --node-labels=role=elasticsearch-master \
+  --node-taints=dedicated=elasticsearch-master:NoSchedule \
+  --workload-metadata=GKE_METADATA \
+  --enable-autoupgrade \
+  --enable-autorepair
+
+# Hot data node pool
+gcloud container node-pools create data-hot-pool \
+  --cluster=$CLUSTER_NAME \
+  --region=$REGION \
+  --node-locations=$REGION-a,$REGION-b,$REGION-c \
+  --num-nodes=1 \
+  --machine-type=n2-highmem-16 \
+  --disk-type=pd-ssd \
+  --disk-size=200 \
+  --node-labels=role=elasticsearch-data-hot \
+  --node-taints=dedicated=elasticsearch-data-hot:NoSchedule \
+  --workload-metadata=GKE_METADATA \
+  --enable-autoscaling \
+  --min-nodes=1 \
+  --max-nodes=3 \
+  --enable-autoupgrade \
+  --enable-autorepair
+</code></pre>
+
+<h3 id="machine-type-選擇">GCP machine type 選擇</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>類型</th><th>適用</th><th>備註</th></tr></thead>
+  <tbody>
+    <tr><td>n2-highmem-16</td><td>Hot data（推薦）</td><td>16 vCPU, 128 GB RAM</td></tr>
+    <tr><td>n2d-highmem-16</td><td>Hot data（AMD，省 10-20%）</td><td>同等規格更便宜</td></tr>
+    <tr><td>t2a-standard-16</td><td>ARM64（最便宜）</td><td>Ampere Altra，需 ES image arm64</td></tr>
+    <tr><td>c3-highmem-22</td><td>新世代 Intel</td><td>更高 IPC，價錢較高</td></tr>
+    <tr><td>e2-standard-4</td><td>Master nodes</td><td>共享 CPU，便宜</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="step-2-pd-storage">Step 2：Persistent Disk 與 StorageClass</h2>
+
+<h3 id="pd-types">GCP Persistent Disk 類型</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>類型</th><th>IOPS（最高）</th><th>適用</th></tr></thead>
+  <tbody>
+    <tr><td>pd-standard（HDD）</td><td>≈ 0.75 read / 1.5 write per GB</td><td>不適合 ES</td></tr>
+    <tr><td>pd-balanced</td><td>15K read / 15K write</td><td>Warm tier</td></tr>
+    <tr><td>pd-ssd</td><td>30K read / 30K write</td><td>Hot tier 預設選</td></tr>
+    <tr><td>pd-extreme</td><td>120K（依容量）</td><td>超高 IO 需求</td></tr>
+    <tr><td>hyperdisk-extreme</td><td>350K</td><td>新世代極致 IO；僅部分 machine series 支援</td></tr>
+    <tr><td>hyperdisk-balanced</td><td>160K</td><td>新世代平衡型</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 id="storageclass-pd-ssd">StorageClass 設定</h3>
+
+<pre><code class="language-yaml">apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: pd-ssd-elastic
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: pd.csi.storage.gke.io
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Retain
+parameters:
+  type: pd-ssd
+  replication-type: none   # 單 zone；ES 已透過 replicas 提供冗餘
+  disk-encryption-kms-key: projects/PROJECT/locations/REGION/keyRings/RING/cryptoKeys/KEY  # 可選 CMEK
+</code></pre>
+
+<p>Hyperdisk 範例（更新世代）：</p>
+
+<pre><code class="language-yaml">apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: hyperdisk-balanced-elastic
+provisioner: pd.csi.storage.gke.io
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+parameters:
+  type: hyperdisk-balanced
+  provisioned-iops-on-create: "10000"
+  provisioned-throughput-on-create: "180Mi"
+</code></pre>
+
+<h2 id="step-3-eck-install">Step 3：安裝 ECK Operator</h2>
+
+<pre><code class="language-bash">kubectl create -f https://download.elastic.co/downloads/eck/3.3.2/crds.yaml
+kubectl apply -f https://download.elastic.co/downloads/eck/3.3.2/operator.yaml
+</code></pre>
+
+<h2 id="step-4-deploy-es">Step 4：部署 Elasticsearch</h2>
+
+<pre><code class="language-yaml">apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: production
+  namespace: elastic
+spec:
+  version: 9.3.4
+  nodeSets:
+
+    - name: master
+      count: 3
+      config:
+        node.roles: ["master"]
+        xpack.ml.enabled: false
+      zoneAwareness:
+        topologyKey: topology.kubernetes.io/zone
+      podTemplate:
+        spec:
+          tolerations:
+            - key: dedicated
+              value: elasticsearch-master
+              effect: NoSchedule
+          nodeSelector:
+            role: elasticsearch-master
+          initContainers:
+            - name: sysctl
+              securityContext: { privileged: true, runAsUser: 0 }
+              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+          containers:
+            - name: elasticsearch
+              env:
+                - name: ES_JAVA_OPTS
+                  value: "-Xms2g -Xmx2g"
+              resources:
+                requests: { memory: 4Gi, cpu: 1 }
+                limits:   { memory: 4Gi, cpu: 2 }
+      volumeClaimTemplates:
+        - metadata: { name: elasticsearch-data }
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources: { requests: { storage: 50Gi } }
+            storageClassName: pd-ssd-elastic
+
+    - name: data-hot
+      count: 3
+      config:
+        node.roles: ["data_hot", "data_content", "ingest"]
+      zoneAwareness:
+        topologyKey: topology.kubernetes.io/zone
+      podTemplate:
+        spec:
+          serviceAccountName: elasticsearch-snapshot   # 後文 Workload Identity 設定
+          tolerations:
+            - key: dedicated
+              value: elasticsearch-data-hot
+              effect: NoSchedule
+          nodeSelector:
+            role: elasticsearch-data-hot
+          initContainers:
+            - name: sysctl
+              securityContext: { privileged: true, runAsUser: 0 }
+              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+          containers:
+            - name: elasticsearch
+              env:
+                - name: ES_JAVA_OPTS
+                  value: "-Xms16g -Xmx16g"
+              resources:
+                requests: { memory: 32Gi, cpu: 4 }
+                limits:   { memory: 32Gi, cpu: 8 }
+      volumeClaimTemplates:
+        - metadata: { name: elasticsearch-data }
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources: { requests: { storage: 1Ti } }
+            storageClassName: pd-ssd-elastic
+</code></pre>
+
+<h2 id="step-5-workload-identity">Step 5：Workload Identity（替代 SA Key）</h2>
+
+<p>Workload Identity 讓 K8s ServiceAccount 對應到 GCP IAM Service Account，<strong>無需把 GCP SA key 嵌進 Secret</strong>。</p>
+
+<h3 id="wi-step-1">建立 GCP Service Account</h3>
+
+<pre><code class="language-bash">PROJECT_ID=my-project
+GSA_NAME=elasticsearch-snapshot
+KSA_NAME=elasticsearch-snapshot
+KSA_NAMESPACE=elastic
+
+# 建立 GCP Service Account
+gcloud iam service-accounts create $GSA_NAME \
+  --project=$PROJECT_ID \
+  --display-name="Elasticsearch Snapshot SA"
+
+# 給 GCS 權限
+gsutil iam ch \
+  serviceAccount:${GSA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com:roles/storage.objectAdmin \
+  gs://elastic-prod-snapshots
+</code></pre>
+
+<h3 id="wi-step-2">建立 K8s ServiceAccount 並綁定</h3>
+
+<pre><code class="language-bash">kubectl create namespace $KSA_NAMESPACE
+kubectl create serviceaccount $KSA_NAME -n $KSA_NAMESPACE
+
+# 允許 K8s SA 模擬（impersonate）GCP SA
+gcloud iam service-accounts add-iam-policy-binding \
+  ${GSA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com \
+  --role=roles/iam.workloadIdentityUser \
+  --member="serviceAccount:${PROJECT_ID}.svc.id.goog[${KSA_NAMESPACE}/${KSA_NAME}]"
+
+# 註解 K8s SA 指向 GCP SA
+kubectl annotate serviceaccount $KSA_NAME \
+  -n $KSA_NAMESPACE \
+  iam.gke.io/gcp-service-account=${GSA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com
+</code></pre>
+
+<h3 id="wi-step-3">驗證 Workload Identity</h3>
+
+<pre><code class="language-bash">kubectl run -it \
+  --image=google/cloud-sdk:slim \
+  --serviceaccount=$KSA_NAME \
+  -n $KSA_NAMESPACE \
+  --rm wi-test -- \
+  gcloud auth list
+
+# 應該顯示 GSA：elasticsearch-snapshot@PROJECT.iam.gserviceaccount.com
+</code></pre>
+
+<h2 id="step-6-gcs-snapshot">Step 6：GCS Snapshot Repository</h2>
+
+<h3 id="gcs-bucket-create">建立 GCS bucket</h3>
+
+<pre><code class="language-bash">gsutil mb -p $PROJECT_ID -l $REGION -b on gs://elastic-prod-snapshots
+
+# 啟用 versioning 與 lifecycle
+gsutil versioning set on gs://elastic-prod-snapshots
+
+cat > lifecycle.json << EOF
+{
+  "lifecycle": {
+    "rule": [
+      {
+        "action": { "type": "SetStorageClass", "storageClass": "NEARLINE" },
+        "condition": { "age": 30 }
+      },
+      {
+        "action": { "type": "SetStorageClass", "storageClass": "COLDLINE" },
+        "condition": { "age": 90 }
+      }
+    ]
+  }
+}
+EOF
+gsutil lifecycle set lifecycle.json gs://elastic-prod-snapshots
+</code></pre>
+
+<h3 id="register-gcs-repo">註冊 GCS repository</h3>
+
+<pre><code class="language-bash">PASSWORD=$(kubectl get secret production-es-elastic-user -n elastic \
+  -o go-template='{{.data.elastic | base64decode}}')
+
+kubectl exec -it production-es-data-hot-0 -n elastic -- \
+  curl -k -u elastic:$PASSWORD -X PUT "https://localhost:9200/_snapshot/gcs_repo" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "type": "gcs",
+    "settings": {
+      "bucket": "elastic-prod-snapshots",
+      "base_path": "production-cluster"
+    }
+  }'
+
+# 驗證
+kubectl exec -it production-es-data-hot-0 -n elastic -- \
+  curl -k -u elastic:$PASSWORD -X POST "https://localhost:9200/_snapshot/gcs_repo/_verify"
+</code></pre>
+
+<div class="callout success">
+  <strong>✅ 不需要 keystore</strong>
+  傳統 GCS 整合需要把 service account key JSON 放進 elasticsearch-keystore。透過 Workload Identity，<strong>完全免去 key 管理</strong>，安全性大幅提升。
+</div>
+
+<h2 id="step-7-暴露-kibana">Step 7：用 GCP Load Balancer 暴露 Kibana</h2>
+
+<p>GKE 的內建 Ingress controller 會自動建立 Cloud Load Balancer（HTTP(S) LB）。</p>
+
+<h3 id="kibana-deploy">部署 Kibana</h3>
+
+<pre><code class="language-yaml">---
+apiVersion: kibana.k8s.elastic.co/v1
+kind: Kibana
+metadata:
+  name: production
+  namespace: elastic
+spec:
+  version: 9.3.4
+  count: 2
+  elasticsearchRef:
+    name: production
+  http:
+    tls:
+      selfSignedCertificate:
+        disabled: true
+    service:
+      spec:
+        type: NodePort
+---
+# Managed Certificate（GCP 自動申請的免費 SSL）
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: kibana-cert
+  namespace: elastic
+spec:
+  domains:
+    - kibana.example.com
+---
+# BackendConfig（health check 設定）
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: kibana-backend
+  namespace: elastic
+spec:
+  healthCheck:
+    requestPath: /
+    port: 5601
+    type: HTTP
+  timeoutSec: 30
+  connectionDraining:
+    drainingTimeoutSec: 60
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kibana
+  namespace: elastic
+  annotations:
+    kubernetes.io/ingress.class: gce
+    networking.gke.io/managed-certificates: kibana-cert
+    kubernetes.io/ingress.allow-http: "false"
+    kubernetes.io/ingress.global-static-ip-name: kibana-ip
+spec:
+  rules:
+    - host: kibana.example.com
+      http:
+        paths:
+          - path: /*
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: production-kb-http
+                port:
+                  number: 5601
+</code></pre>
+
+<h3 id="static-ip">事先準備靜態 IP</h3>
+
+<pre><code class="language-bash">gcloud compute addresses create kibana-ip --global
+gcloud compute addresses describe kibana-ip --global
+# 把回傳的 IP 加入 Cloud DNS A record 對應 kibana.example.com
+</code></pre>
+
+<h2 id="internal-lb">內部 Load Balancer（VPC 內存取）</h2>
+
+<p>若不需公網暴露，改用 Internal LB：</p>
+
+<pre><code class="language-yaml">apiVersion: v1
+kind: Service
+metadata:
+  name: production-es-internal
+  namespace: elastic
+  annotations:
+    networking.gke.io/load-balancer-type: "Internal"
+    networking.gke.io/internal-load-balancer-allow-global-access: "true"
+spec:
+  type: LoadBalancer
+  selector:
+    elasticsearch.k8s.elastic.co/cluster-name: production
+    elasticsearch.k8s.elastic.co/node-data: "true"
+  ports:
+    - name: https
+      port: 9200
+      targetPort: 9200
+</code></pre>
+
+<h2 id="zone-vs-region">Zonal vs Regional 叢集選擇</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>類型</th><th>Master HA</th><th>費用</th><th>建議</th></tr></thead>
+  <tbody>
+    <tr><td>Zonal</td><td>單 zone master</td><td>低</td><td>非生產 / DR site</td></tr>
+    <tr><td>Multi-zonal</td><td>單 zone master，跨 zone workers</td><td>中</td><td>過渡階段</td></tr>
+    <tr><td>Regional</td><td>3 zones master</td><td>高（master 收費）</td><td>✅ 生產建議</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="cost-optimization">費用優化</h2>
+
+<ul>
+  <li><strong>Committed Use Discount</strong>：1 年 CUD 省約 25%；3 年省約 50%</li>
+  <li><strong>Custom Machine Type</strong>：精準匹配 ES 需求（如 16 vCPU + 64 GB RAM 的客製規格）</li>
+  <li><strong>Tau (T2A/T2D) instances</strong>：較 N2 便宜 30-40%；T2A 是 ARM</li>
+  <li><strong>Spot VMs</strong>：⚠️ ES 資料節點不建議用，但可用於 ML inference 節點</li>
+  <li><strong>GCS lifecycle</strong>：snapshot 30 天後轉 Nearline、90 天 Coldline、365 天 Archive</li>
+  <li><strong>跨 zone 流量</strong>：同 region 不同 zone $0.01/GB；考慮 single-zone deployment for dev</li>
+</ul>
+
+<h2 id="觀測性整合">Cloud Monitoring 整合</h2>
+
+<pre><code class="language-bash"># GKE 預設啟用 Cloud Monitoring
+# 部署 Metricbeat 把 ES metrics 推到 Cloud Monitoring
+helm install metricbeat elastic/metricbeat \
+  --set daemonset.enabled=true \
+  --set elasticsearch.host=https://production-es-http:9200 \
+  --set extraEnvs[0].name=GOOGLE_APPLICATION_CREDENTIALS \
+  --set extraEnvs[0].value=/var/run/secrets/google/key.json
+</code></pre>
+
+<p>更佳做法：用 Elastic Agent + Fleet（CH 60），所有遙測流向 Elasticsearch 自身。</p>
+
+<h2 id="常見問題-gke">GKE 上常見問題</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>症狀</th><th>處理</th></tr></thead>
+  <tbody>
+    <tr><td>PD 跨 zone 無法 mount</td><td>StorageClass 設 <code>WaitForFirstConsumer</code> + 不要設 <code>replication-type: regional-pd</code> 在 ES（已有 replicas）</td></tr>
+    <tr><td>Workload Identity 無效</td><td>檢查 node pool <code>--workload-metadata=GKE_METADATA</code></td></tr>
+    <tr><td>GCS snapshot 認證失敗</td><td>確認 GSA 有 <code>storage.objectAdmin</code>，IAM binding 對應到正確的 K8s namespace/SA</td></tr>
+    <tr><td>Ingress 顯示 502</td><td>BackendConfig 的 healthCheck path 與實際路徑不一致</td></tr>
+    <tr><td>節點升級導致 pods evict</td><td>設定 PodDisruptionBudget；ECK 3.x 預設會建</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="本章重點回顧">本章重點回顧</h2>
+
+<ul>
+  <li>生產用 GKE Standard + Regional cluster；Autopilot 對 ES 限制太多</li>
+  <li>Master pool 用 e2-standard-4，data hot 用 n2-highmem-16 或 t2a/t2d ARM 替代</li>
+  <li>儲存：<strong>pd-ssd</strong> 為主流，極致效能用 <strong>hyperdisk-extreme</strong>；不要設 <code>regional-pd</code></li>
+  <li>node pool 必須加 <code>--workload-metadata=GKE_METADATA</code> 才能用 Workload Identity</li>
+  <li>用 <strong>Workload Identity</strong> 取代 SA key，安全且管理簡單</li>
+  <li>GCS snapshot 配上 lifecycle 自動轉 Nearline/Coldline，極大降本</li>
+  <li>Kibana 用 GCP HTTP(S) LB + ManagedCertificate 自動處理 TLS</li>
+  <li>跨 zone 流量收費，但 multi-zone 對高可用必要</li>
+</ul>
+
+<h2 id="延伸閱讀">延伸閱讀</h2>
+
+<ul>
+  <li><a href="https://cloud.google.com/kubernetes-engine/docs" target="_blank" rel="noopener">GKE Documentation</a></li>
+  <li><a href="https://cloud.google.com/kubernetes-engine/docs/how-to/workload-identity" target="_blank" rel="noopener">GKE Workload Identity</a></li>
+  <li><a href="https://cloud.google.com/compute/docs/disks/hyperdisks" target="_blank" rel="noopener">Hyperdisk</a></li>
+</ul>
+
+<nav class="bottom-nav"><a class="prev" href="ch12-install-kubernetes-eks.html"><span class="nav-label">← 上一章</span><span class="nav-title">AWS EKS 部署</span></a><a class="next" href="ch14-install-kubernetes-aks.html"><span class="nav-label">下一章 →</span><span class="nav-title">Azure AKS 部署</span></a></nav>
+</main>
+<aside class="toc">
+  <div class="toc-title">本章目錄</div>
+  <ul></ul>
+</aside>
+</div>
+<footer>
+  <p>Elasticsearch Self-Managed 完整教學文件 · 基於 Elastic Stack 9.x（最新 9.3.4）<br>
+  資料來源：<a href="https://www.elastic.co/docs" target="_blank" rel="noopener">Elastic 官方文件</a> · 最後更新：2026-05</p>
+</footer>
+</body>
+</html>

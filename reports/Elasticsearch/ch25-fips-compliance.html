@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Elasticsearch FIPS 140-2/140-3、加密 at-rest、HIPAA/PCI-DSS/SOC 2/GDPR">
+<title>CH 25 · FIPS 與合規</title>
+<style>
+/* ============================================================
+   JHsun TechDocs — Unified Design Token Layer
+   v1.0 · Calm Teal (hue 200° / chroma 0.11)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+
+  --color-success:        #16a34a;
+  --color-success-soft:   #dcfce7;
+  --color-warning:        #d97706;
+  --color-warning-soft:   #fef3c7;
+  --color-danger:         #dc2626;
+  --color-danger-soft:    #fee2e2;
+  --color-info:           #0891b2;
+  --color-info-soft:      #cffafe;
+  --color-neutral-accent: #7c3aed;
+
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+
+  --font-mono:       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:       "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif:      "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  32px;
+  --text-3xl:  44px;
+  --text-4xl:  64px;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+
+  --container-narrow: 720px;
+  --container-wide:   1280px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+
+:root[data-theme="dark"] {
+  --color-success:        #4ade80;
+  --color-success-soft:   oklch(0.30 0.08 145);
+  --color-warning:        #fbbf24;
+  --color-warning-soft:   oklch(0.32 0.10 70);
+  --color-danger:         #f87171;
+  --color-danger-soft:    oklch(0.32 0.10 27);
+  --color-info:           #22d3ee;
+  --color-info-soft:      oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.16 0.008 50);
+  --bg-surface:     oklch(0.20 0.009 50);
+  --bg-muted:       oklch(0.23 0.010 50);
+  --bg-code:        oklch(0.18 0.009 50);
+  --border-soft:    oklch(0.28 0.010 50);
+  --border-mid:     oklch(0.36 0.012 50);
+  --text-primary:   oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted:     oklch(0.58 0.007 60);
+
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+
+/* ============== Chapter shared styles ============== */
+* { box-sizing: border-box; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+@media (min-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 240px; gap: var(--space-7); }
+}
+main { min-width: 0; padding: var(--space-6) 0; }
+main.prose { max-width: var(--container-narrow); margin: 0 auto; }
+
+/* Top navigation */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: color-mix(in oklch, var(--bg-canvas) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.topbar-inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.brand {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-primary-text);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+.nav-links { display: flex; gap: var(--space-2); margin-left: auto; align-items: center; }
+.nav-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  transition: all 0.15s;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--bg-muted); }
+.nav-links a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Theme toggle button */
+[data-theme-toggle] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  transition: all 0.15s;
+}
+[data-theme-toggle]:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.theme-icon { font-size: var(--text-base); }
+
+/* Headings */
+h1, h2, h3, h4 {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  line-height: 1.3;
+  margin-top: var(--space-7);
+  margin-bottom: var(--space-4);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+h1 { font-size: var(--text-3xl); margin-top: var(--space-5); }
+h2 { font-size: var(--text-2xl); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-soft); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-md); color: var(--text-secondary); }
+
+p { margin: var(--space-4) 0; color: var(--text-primary); }
+
+/* Inline code */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+  border: 1px solid var(--border-soft);
+}
+
+/* Code block */
+.code-wrap {
+  position: relative;
+  margin: var(--space-4) 0;
+}
+.code-wrap > .code-lang {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.code-wrap > .copy-btn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 4px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  transition: all 0.15s;
+  opacity: 0;
+}
+.code-wrap:hover > .copy-btn { opacity: 1; }
+.code-wrap > .copy-btn:hover {
+  background: var(--color-primary);
+  color: var(--bg-canvas);
+  border-color: var(--color-primary);
+}
+.code-wrap > .copy-btn.copied {
+  background: var(--color-success);
+  color: white;
+  border-color: var(--color-success);
+  opacity: 1;
+}
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-7) var(--space-4) var(--space-4);
+  overflow-x: auto;
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  margin: 0;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: var(--text-primary);
+  font-size: inherit;
+}
+
+/* Lists */
+ul, ol { padding-left: var(--space-6); }
+li { margin: var(--space-2) 0; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: var(--space-4) 0; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+th, td {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+}
+th { background: var(--bg-muted); font-weight: 600; color: var(--text-primary); }
+tr:last-child td { border-bottom: none; }
+
+/* Callouts */
+.callout {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  border-left: 4px solid var(--color-info);
+  background: var(--color-info-soft);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+.callout.warning { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.danger  { border-color: var(--color-danger);  background: var(--color-danger-soft); }
+.callout.success { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout strong { display: block; margin-bottom: var(--space-2); }
+:root[data-theme="dark"] .callout { color: var(--text-primary); }
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: 999px;
+  margin-right: var(--space-1);
+  letter-spacing: 0.02em;
+}
+.badge.beginner { background: var(--color-success-soft); color: var(--color-success); }
+.badge.developer { background: var(--color-info-soft); color: var(--color-info); }
+.badge.operator { background: var(--color-warning-soft); color: var(--color-warning); }
+.badge.advanced { background: var(--color-primary-soft); color: var(--color-primary-text); }
+:root[data-theme="dark"] .badge { filter: brightness(1.1); }
+
+/* Chapter meta */
+.chapter-meta {
+  margin: var(--space-4) 0 var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.chapter-meta .meta-row { margin: var(--space-1) 0; }
+.chapter-meta .meta-label {
+  display: inline-block;
+  width: 70px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* TOC sidebar */
+.toc {
+  position: sticky;
+  top: 80px;
+  align-self: start;
+  font-size: var(--text-sm);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  padding: var(--space-4) 0;
+  display: none;
+}
+@media (min-width: 1100px) {
+  .toc { display: block; }
+}
+.toc-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.toc ul { list-style: none; padding-left: 0; margin: 0; }
+.toc li { margin: 0; }
+.toc a {
+  display: block;
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-left: 2px solid var(--border-soft);
+  transition: all 0.15s;
+  line-height: 1.5;
+}
+.toc a:hover { color: var(--color-primary); border-left-color: var(--color-primary); }
+.toc a.toc-h3 { padding-left: var(--space-5); font-size: 0.92em; color: var(--text-muted); }
+
+/* Bottom nav */
+.bottom-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  margin-top: var(--space-8);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.bottom-nav a {
+  flex: 1;
+  min-width: 200px;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.bottom-nav a:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.bottom-nav .nav-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.bottom-nav .nav-title { font-weight: 600; color: var(--text-primary); }
+.bottom-nav a.next { text-align: right; }
+.bottom-nav a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Footer */
+footer {
+  text-align: center;
+  padding: var(--space-7) var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  border-top: 1px solid var(--border-soft);
+  margin-top: var(--space-8);
+}
+footer a { color: var(--color-primary); text-decoration: none; }
+
+/* Index page specific */
+.hero {
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+  background: linear-gradient(135deg, var(--color-primary-soft) 0%, var(--bg-canvas) 100%);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: var(--space-7);
+}
+.hero h1 {
+  font-size: var(--text-4xl);
+  margin: 0 0 var(--space-4);
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.02em;
+}
+.hero p { font-size: var(--text-md); color: var(--text-secondary); max-width: 720px; margin: 0 auto; }
+.hero .meta {
+  margin-top: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.path-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  margin: var(--space-6) 0;
+}
+@media (min-width: 768px) { .path-grid { grid-template-columns: repeat(3, 1fr); } }
+.path-card {
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  transition: all 0.2s;
+}
+.path-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-md); }
+.path-card .path-icon { font-size: 32px; display: block; margin-bottom: var(--space-3); }
+.path-card h3 { margin: 0 0 var(--space-2); font-size: var(--text-lg); }
+.path-card .path-flow {
+  margin-top: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.part {
+  margin: var(--space-7) 0;
+}
+.part-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--color-primary);
+}
+.part-header .part-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.part-header h2 { margin: 0; border: none; padding: 0; }
+
+.chapter-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+@media (min-width: 700px)  { .chapter-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1100px) { .chapter-grid { grid-template-columns: repeat(3, 1fr); } }
+.chapter-card {
+  display: block;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.chapter-card:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  transform: translateY(-1px);
+}
+.chapter-card .ch-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+.chapter-card .ch-title {
+  display: block;
+  margin: var(--space-2) 0;
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+.chapter-card .ch-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--space-2);
+}
+.chapter-card .ch-badges { font-size: 11px; }
+
+
+/* Mermaid container */
+.mermaid-wrap {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-wrap .mermaid {
+  display: inline-block;
+  min-width: 100%;
+}
+.mermaid-caption {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+/* Hide raw mermaid source until rendered */
+.mermaid:not([data-processed="true"]) {
+  visibility: hidden;
+  min-height: 1em;
+}
+
+</style>
+<script>
+/* JHsun TechDocs — Theme toggle v1.0 */
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+
+</script>
+<script>
+
+// Copy-to-clipboard for all <pre> blocks
+(function () {
+  function init() {
+    document.querySelectorAll('main pre').forEach(function (pre) {
+      if (pre.parentElement.classList.contains('code-wrap')) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'code-wrap';
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
+      const lang = pre.querySelector('code')?.className.match(/language-(\w+)/)?.[1];
+      if (lang) {
+        const tag = document.createElement('span');
+        tag.className = 'code-lang';
+        tag.textContent = lang;
+        wrap.appendChild(tag);
+      }
+      const btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.type = 'button';
+      btn.textContent = '📋 複製';
+      btn.addEventListener('click', function () {
+        const text = pre.innerText;
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(text).then(success).catch(fallback);
+        } else {
+          fallback();
+        }
+        function success() {
+          btn.textContent = '✓ 已複製';
+          btn.classList.add('copied');
+          setTimeout(function () { btn.textContent = '📋 複製'; btn.classList.remove('copied'); }, 1800);
+        }
+        function fallback() {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); success(); } catch (_) {}
+          document.body.removeChild(ta);
+        }
+      });
+      wrap.appendChild(btn);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+// Auto-build TOC from h2/h3 in <main>
+(function () {
+  function init() {
+    const toc = document.querySelector('.toc ul');
+    if (!toc) return;
+    const headings = document.querySelectorAll('main h2, main h3');
+    headings.forEach(function (h) {
+      if (!h.id) {
+        h.id = h.textContent.trim().toLowerCase()
+          .replace(/[^\w\u4e00-\u9fff\s-]/g, '')
+          .replace(/\s+/g, '-');
+      }
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = '#' + h.id;
+      a.textContent = h.textContent;
+      a.className = 'toc-' + h.tagName.toLowerCase();
+      li.appendChild(a);
+      toc.appendChild(li);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+
+// Mermaid initialization with theme sync
+(function () {
+  function getMermaidTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default';
+  }
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    const cs = getComputedStyle(document.documentElement);
+    return {
+      startOnLoad: false,
+      theme: isDark ? 'dark' : 'default',
+      themeVariables: {
+        fontFamily: cs.getPropertyValue('--font-sans').trim() || 'DM Sans, sans-serif',
+        fontSize: '14px',
+        primaryColor: isDark ? '#1e3a4a' : '#e0f2fe',
+        primaryTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        primaryBorderColor: isDark ? '#5fb3d4' : '#0891b2',
+        lineColor: isDark ? '#7aa3b8' : '#475569',
+        secondaryColor: isDark ? '#2a3f4f' : '#f1f5f9',
+        tertiaryColor: isDark ? '#1a2530' : '#fafafa',
+        background: isDark ? '#1e2a35' : '#ffffff',
+        mainBkg: isDark ? '#243441' : '#ecfeff',
+        secondBkg: isDark ? '#1a2530' : '#f8fafc',
+        nodeBorder: isDark ? '#5fb3d4' : '#0891b2',
+        clusterBkg: isDark ? '#1a2530' : '#f1f5f9',
+        clusterBorder: isDark ? '#3a5260' : '#cbd5e1',
+        defaultLinkColor: isDark ? '#7aa3b8' : '#475569',
+        titleColor: isDark ? '#e6f2f8' : '#0f172a',
+        edgeLabelBackground: isDark ? '#243441' : '#ffffff',
+        actorBkg: isDark ? '#243441' : '#ecfeff',
+        actorBorder: isDark ? '#5fb3d4' : '#0891b2',
+        actorTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        actorLineColor: isDark ? '#5fb3d4' : '#0891b2',
+        signalColor: isDark ? '#7aa3b8' : '#334155',
+        signalTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        labelBoxBkgColor: isDark ? '#1a2530' : '#fef3c7',
+        labelBoxBorderColor: isDark ? '#a89060' : '#d97706',
+        labelTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        loopTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        noteBkgColor: isDark ? '#3a4f3a' : '#fef3c7',
+        noteBorderColor: isDark ? '#86c598' : '#d97706',
+        noteTextColor: isDark ? '#e6f2f8' : '#0f172a',
+      },
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true, showSequenceNumbers: false, mirrorActors: true, bottomMarginAdj: 10 },
+    };
+  }
+
+  let renderCounter = 0;
+  async function renderAll() {
+    if (typeof mermaid === 'undefined') return;
+    renderCounter++;
+    const myCounter = renderCounter;
+    mermaid.initialize(getMermaidConfig());
+    const blocks = document.querySelectorAll('.mermaid');
+    for (const el of blocks) {
+      // restore source if already rendered
+      if (el.dataset.source) el.innerHTML = el.dataset.source;
+      else el.dataset.source = el.innerHTML;
+      el.removeAttribute('data-processed');
+    }
+    if (myCounter !== renderCounter) return;
+    try {
+      await mermaid.run({ querySelector: '.mermaid' });
+    } catch (e) { console.warn('Mermaid render error', e); }
+  }
+
+  function init() {
+    renderAll();
+    window.addEventListener('jhsun:theme-changed', renderAll);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="ch00-elasticsearch-index.html">ES Self-Managed Docs</a>
+    <nav class="nav-links">
+      <a href="ch24-audit-logging.html" aria-label="上一章">← 上一章</a>
+      <a href="ch00-elasticsearch-index.html" aria-label="回首頁">首頁</a>
+      <a href="ch26-data-streams.html" aria-label="下一章">下一章 →</a>
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </nav>
+  </div>
+</header>
+<div class="layout">
+<main class="prose">
+
+<h1>CH 25 · FIPS 與合規</h1>
+
+<div class="chapter-meta">
+  <div class="meta-row"><span class="meta-label">適合對象</span>
+    <span class="badge operator">🔴 維運者</span>
+    <span class="badge advanced">⚡ 進階</span>
+  </div>
+  <div class="meta-row"><span class="meta-label">閱讀時間</span> 約 25 分鐘</div>
+  <div class="meta-row"><span class="meta-label">前置知識</span> CH 19 TLS、CH 20-24 安全章節</div>
+  <div class="meta-row"><span class="meta-label">本章目標</span> FIPS 140-2/140-3 啟用、加密 at-rest、合規架構（HIPAA、SOC 2、PCI-DSS）、私有部署</div>
+</div>
+
+<h2 id="什麼是-fips">什麼是 FIPS？</h2>
+
+<p><strong>FIPS（Federal Information Processing Standards）</strong> 140-2 / 140-3 是美國 NIST 訂的密碼學模組驗證標準：</p>
+
+<ul>
+  <li>規範允許的<strong>密碼演算法、金鑰長度、雜湊函式</strong></li>
+  <li>美國聯邦政府、軍方、醫療、金融常要求 FIPS-validated 的密碼模組</li>
+  <li>140-2 是廣泛採用的版本；140-3 自 2022 起成為新標準（過渡期至 2026 年）</li>
+</ul>
+
+<div class="callout warning">
+  <strong>⚠️ FIPS mode 是嚴格的限制，不是更安全的「升級版」</strong>
+  啟用 FIPS 後某些功能會受限：
+  <ul>
+    <li>禁用部分 cipher suites（如 ChaCha20）</li>
+    <li>禁用 BCRYPT（必須改用 PBKDF2）</li>
+    <li>限制 key derivation 與 random number generation</li>
+    <li>不建議在沒有合規需求時啟用</li>
+  </ul>
+</div>
+
+<h2 id="fips-架構">FIPS 模式架構</h2>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TB
+    subgraph Standard["🔵 標準 ES"]
+      JDK1["Bundled JDK<br/>(OpenJDK)"]
+      JCE1["Default JCE<br/>(SunJCE)"]
+      ES1["Elasticsearch<br/>BCRYPT, AES, etc"]
+    end
+
+    subgraph FIPS["🔒 FIPS Mode ES"]
+      JDK2["Oracle JDK 17+<br/>(FIPS-supported)"]
+      BC["Bouncy Castle<br/>BCJSSE FIPS Provider"]
+      ES2["Elasticsearch<br/>PBKDF2_STRETCH, FIPS ciphers only"]
+    end
+
+    Standard --- VS{"vs"}
+    VS --- FIPS
+
+    classDef std fill:#cffafe,stroke:#0891b2,color:#0f172a
+    classDef fips fill:#fed7aa,stroke:#ea580c,color:#0f172a,stroke-width:2px
+    classDef vs fill:#f3e8ff,stroke:#7c3aed,color:#0f172a
+    class JDK1,JCE1,ES1 std
+    class JDK2,BC,ES2 fips
+    class VS vs
+</pre>
+<div class="mermaid-caption">圖 25-1：標準 ES vs FIPS mode 架構差異</div>
+</div>
+
+<h2 id="fips-prerequisites">FIPS Mode 必要條件</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>項目</th><th>要求</th></tr></thead>
+  <tbody>
+    <tr><td>JDK</td><td>Oracle JDK 17+（不能用 bundled OpenJDK）</td></tr>
+    <tr><td>JSSE Provider</td><td>Bouncy Castle BCJSSE FIPS Provider</td></tr>
+    <tr><td>Crypto Provider</td><td>Bouncy Castle BC-FIPS（FIPS 140-2 validated）</td></tr>
+    <tr><td>Password Hash</td><td>PBKDF2_STRETCH（不能用 BCRYPT）</td></tr>
+    <tr><td>Subscription</td><td>Platinum 以上</td></tr>
+    <tr><td>OS</td><td>Linux x86_64（FIPS-validated kernel 較理想）</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="fips-image">FIPS Image（最簡單方式）</h2>
+
+<p>Elastic 提供 FIPS-ready Docker image，已預裝 Oracle JDK 與 Bouncy Castle：</p>
+
+<pre><code class="language-bash">docker pull docker.elastic.co/elasticsearch/elasticsearch-fips:9.3.4
+</code></pre>
+
+<p>用法與一般 image 相同，只是底層 Java 與 crypto provider 已換好。</p>
+
+<h2 id="fips-manual-setup">手動設定 FIPS Mode</h2>
+
+<h3 id="step-1-jdk">Step 1：安裝 Oracle JDK 17+</h3>
+
+<pre><code class="language-bash"># 從 Oracle 下載並安裝（接受授權）
+sudo rpm -ivh jdk-17_linux-x64_bin.rpm
+# 或 tar.gz：
+sudo tar -xzf jdk-17_linux-x64_bin.tar.gz -C /opt
+</code></pre>
+
+<h3 id="step-2-bouncy-castle">Step 2：下載 Bouncy Castle FIPS jars</h3>
+
+<p>從 <a href="https://www.bouncycastle.org/fips-java" target="_blank" rel="noopener">bouncycastle.org/fips-java</a> 下載：</p>
+
+<ul>
+  <li><code>bc-fips-1.0.2.x.jar</code>（Crypto provider）</li>
+  <li><code>bctls-fips-1.0.x.x.jar</code>（TLS provider）</li>
+</ul>
+
+<p>放入 Java security extensions 目錄：</p>
+
+<pre><code class="language-bash"># 放入 Oracle JDK 的 lib/ext（或自訂位置然後加 -classpath）
+sudo cp bc-fips-1.0.2.5.jar /opt/jdk-17/lib/
+sudo cp bctls-fips-1.0.18.jar /opt/jdk-17/lib/
+</code></pre>
+
+<h3 id="step-3-java-security">Step 3：修改 java.security</h3>
+
+<p>編輯 <code>$JAVA_HOME/conf/security/java.security</code>，把 BC FIPS providers 設為前兩個：</p>
+
+<pre><code class="language-properties">security.provider.1=org.bouncycastle.jcajce.provider.BouncyCastleFipsProvider
+security.provider.2=org.bouncycastle.jsse.provider.BouncyCastleJsseProvider fips:BCFIPS
+security.provider.3=SUN
+security.provider.4=SunJSSE
+# ... 其餘標準 provider
+</code></pre>
+
+<h3 id="step-4-jvm-options">Step 4：jvm.options 啟用 FIPS</h3>
+
+<pre><code class="language-properties"># /etc/elasticsearch/jvm.options.d/fips.options
+-Dorg.bouncycastle.fips.approved_only=true
+-Djava.security.policy=/etc/elasticsearch/fips.policy
+</code></pre>
+
+<p><code>fips.policy</code> 檔案內容：</p>
+
+<pre><code class="language-text">grant {
+    permission java.security.SecurityPermission "putProviderProperty.BCFIPS";
+    permission java.security.SecurityPermission "putProviderProperty.BCJSSE";
+};
+</code></pre>
+
+<h3 id="step-5-es-yaml">Step 5：elasticsearch.yml 啟用 FIPS mode</h3>
+
+<pre><code class="language-yaml">xpack.security.fips_mode.enabled: true
+
+# 必要：使用 PBKDF2 而非 BCRYPT
+xpack.security.authc.password_hashing.algorithm: pbkdf2_stretch_1000000
+
+# API key 也要 FIPS 相容
+xpack.security.authc.api_key.hashing.algorithm: pbkdf2_stretch
+
+# Cache hash 也用 PBKDF2
+xpack.security.authc.realms.native.native1.cache.hash_algo: pbkdf2_stretch
+</code></pre>
+
+<h3 id="step-6-reset-passwords">Step 6：重設所有 user 密碼</h3>
+
+<p>啟用 FIPS 前以 BCRYPT 雜湊的密碼<strong>無法在 FIPS mode 下驗證</strong>。必須全部重設：</p>
+
+<pre><code class="language-bash">sudo bin/elasticsearch-reset-password -u elastic
+sudo bin/elasticsearch-reset-password -u kibana_system
+# ... 對所有 reserved + native user
+</code></pre>
+
+<h2 id="fips-restrictions">FIPS Mode 限制</h2>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>限制</th><th>影響</th></tr></thead>
+  <tbody>
+    <tr><td>Cipher：禁用 ChaCha20、3DES、RC4</td><td>必須使用 AES-GCM、AES-CBC（with HMAC）</td></tr>
+    <tr><td>Hash：禁用 MD5、SHA-1（用於簽章）</td><td>SAML / OIDC IdP 必須支援 SHA-256+</td></tr>
+    <tr><td>Password：BCRYPT 禁用</td><td>必須用 PBKDF2_STRETCH</td></tr>
+    <tr><td>RSA key 必須 ≥ 2048 bits</td><td>1024 bit 憑證需更新</td></tr>
+    <tr><td>EC key：限制曲線</td><td>使用 P-256 / P-384 / P-521</td></tr>
+    <tr><td>TLS：限制 TLS 1.2+</td><td>禁用 TLS 1.0 / 1.1（本來也應禁）</td></tr>
+    <tr><td>不能用 PKCS#12 keystore（部分情境）</td><td>改用 BCFKS 格式</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 id="convert-keystore">轉換 keystore 為 BCFKS</h3>
+
+<pre><code class="language-bash">keytool -importkeystore \
+  -srckeystore transport.p12 -srcstoretype PKCS12 \
+  -destkeystore transport.bcfks -deststoretype BCFKS \
+  -providerclass org.bouncycastle.jcajce.provider.BouncyCastleFipsProvider \
+  -providerpath /opt/jdk-17/lib/bc-fips-1.0.2.5.jar
+</code></pre>
+
+<p>並在 yml 設：</p>
+
+<pre><code class="language-yaml">xpack.security.transport.ssl.keystore.type: BCFKS
+xpack.security.transport.ssl.keystore.path: certs/transport.bcfks
+</code></pre>
+
+<h2 id="encryption-at-rest">加密 At-Rest（靜態資料加密）</h2>
+
+<p>ES 本身<strong>不</strong>提供應用層的 at-rest 加密，必須在<strong>儲存層</strong>處理：</p>
+
+<h3 id="dm-crypt-luks">Linux dm-crypt / LUKS（自管硬碟）</h3>
+
+<pre><code class="language-bash"># 建立加密 partition
+sudo cryptsetup luksFormat /dev/sdb1
+sudo cryptsetup luksOpen /dev/sdb1 es-data
+sudo mkfs.ext4 /dev/mapper/es-data
+sudo mount /dev/mapper/es-data /var/lib/elasticsearch
+</code></pre>
+
+<p>金鑰管理可整合 LUKS + TPM 或 Vault。</p>
+
+<h3 id="cloud-encryption">雲端 KMS-backed encryption</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>雲端</th><th>EBS / Volume 加密</th><th>Snapshot 加密</th></tr></thead>
+  <tbody>
+    <tr><td>AWS</td><td>EBS 啟用 encryption + KMS CMK</td><td>S3 啟用 SSE-KMS</td></tr>
+    <tr><td>GCP</td><td>Persistent Disk 預設加密 + CMEK</td><td>GCS encryption keys</td></tr>
+    <tr><td>Azure</td><td>Disk Encryption + Key Vault</td><td>Storage Account encryption</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3 id="snapshot-加密">Snapshot 額外加密</h3>
+
+<p>Repository 寫入前自行加密（使用 ES 內建 client-side encryption 或 AWS KMS encryption SDK）。詳見 CH 47。</p>
+
+<h2 id="network-isolation">網路隔離（合規必備）</h2>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart LR
+    Internet["🌐 Internet"]
+    LB["🔒 Load Balancer<br/>(Public, 限定 IP)"]
+    VPC["🏢 VPC / VNet"]
+    subgraph Private["🔐 Private Subnet"]
+      ES1["ES Node 1"]
+      ES2["ES Node 2"]
+      ES3["ES Node 3"]
+      KB["Kibana"]
+    end
+    Endpoint["🪝 VPC Endpoint<br/>(S3 / KMS)"]
+    KMS["☁️ KMS"]
+
+    Internet --> LB
+    LB --> VPC
+    VPC --> Private
+    ES1 --> Endpoint
+    Endpoint --> KMS
+
+    classDef public fill:#fee2e2,stroke:#dc2626,color:#0f172a
+    classDef private fill:#dcfce7,stroke:#16a34a,color:#0f172a
+    classDef gateway fill:#cffafe,stroke:#0891b2,color:#0f172a
+    class Internet,LB public
+    class ES1,ES2,ES3,KB,Private,VPC private
+    class Endpoint,KMS gateway
+</pre>
+<div class="mermaid-caption">圖 25-2：合規場景的網路隔離架構</div>
+</div>
+
+<p>關鍵原則：</p>
+
+<ul>
+  <li>ES 節點僅在<strong>私有子網路</strong>，無 public IP</li>
+  <li>Kibana 透過 LB / 反向代理對外，限定 IP whitelist 或 VPN/Zero Trust</li>
+  <li>S3 / KMS 用 <strong>VPC Endpoint</strong> 走私網，不繞 Internet</li>
+  <li>跨叢集（CCS/CCR）用 VPC peering 或 Transit Gateway / Cloud Interconnect</li>
+</ul>
+
+<h2 id="hipaa-arch">合規場景 1：HIPAA（醫療）</h2>
+
+<h3 id="hipaa-checklist">HIPAA 對 Elasticsearch 的要求</h3>
+
+<ul>
+  <li>☐ 加密 in-transit：TLS 1.2+ 全程</li>
+  <li>☐ 加密 at-rest：硬碟 / EBS 加密 + KMS</li>
+  <li>☐ Authentication：MFA（透過 SAML/OIDC IdP）</li>
+  <li>☐ Authorization：least privilege RBAC，DLS 限制只看 patient 自己的記錄</li>
+  <li>☐ Audit：所有 access 紀錄至少 6 年</li>
+  <li>☐ Backup & DR：snapshot 加密 + 跨 region 複製</li>
+  <li>☐ Vendor BAA：與 Elastic / 雲端 provider 簽 Business Associate Agreement</li>
+  <li>☐ Network：私有部署，無 public endpoint</li>
+</ul>
+
+<h2 id="soc2-arch">合規場景 2：SOC 2</h2>
+
+<ul>
+  <li>☐ Audit log 集中收集 + 1 年以上保留</li>
+  <li>☐ Change management：所有 security setting 變更走 PR + 審核</li>
+  <li>☐ Access review：每季 review user/role</li>
+  <li>☐ MFA 必須對所有人類 user 啟用</li>
+  <li>☐ Incident response plan：定期演練</li>
+  <li>☐ Vendor 風險管理：列入 Elastic 與雲端供應商</li>
+</ul>
+
+<h2 id="pci-arch">合規場景 3：PCI-DSS（信用卡）</h2>
+
+<ul>
+  <li>☐ 不要在 ES 儲存信用卡完整 PAN（請 tokenize）</li>
+  <li>☐ 若必須儲存，欄位需 encrypted（用 ingest pipeline 在寫入前加密）</li>
+  <li>☐ FIPS-validated cryptography（建議啟用 FIPS mode）</li>
+  <li>☐ Audit log 保留 ≥ 1 年（其中 3 個月可即時查詢）</li>
+  <li>☐ 季度 vulnerability scan + 年度 penetration test</li>
+  <li>☐ Strong cryptography：TLS 1.2+，AES-128+，禁用 SSLv3</li>
+</ul>
+
+<h2 id="gdpr">合規場景 4：GDPR</h2>
+
+<ul>
+  <li>☐ Data minimization：只儲存必要 PII，用 ingest pipeline 過濾</li>
+  <li>☐ Pseudonymization：將 user_id 雜湊化（用 fingerprint processor）</li>
+  <li>☐ 「被遺忘權」：能依 user_id 刪除所有相關文件（用 delete by query）</li>
+  <li>☐ 資料居住地：ES cluster 部署在歐洲 region</li>
+  <li>☐ DPA（Data Processing Agreement）與雲端供應商簽</li>
+</ul>
+
+<h2 id="hardening-checklist">最終 Hardening Checklist</h2>
+
+<h3 id="network">網路</h3>
+<ul>
+  <li>☐ ES 不暴露 public Internet（VPC private subnet only）</li>
+  <li>☐ Security Group 僅允許必要 port（9200/9300）來自必要來源</li>
+  <li>☐ Kibana 對外用 reverse proxy + WAF</li>
+  <li>☐ 跨叢集走 VPC Endpoint / Peering</li>
+</ul>
+
+<h3 id="access">存取</h3>
+<ul>
+  <li>☐ <code>elastic</code> superuser 僅 emergency 使用，平時走 MFA SSO</li>
+  <li>☐ 所有 service 用獨立 API key + 最小權限</li>
+  <li>☐ 用 SAML/OIDC + IdP 強制 MFA</li>
+  <li>☐ Role mapping 走 group，不直接綁 user</li>
+</ul>
+
+<h3 id="data">資料</h3>
+<ul>
+  <li>☐ TLS 1.2+ 全程（transport + HTTP）</li>
+  <li>☐ 硬碟 / EBS 加密 + KMS</li>
+  <li>☐ Snapshot 加密 + 跨 region 複製</li>
+  <li>☐ 敏感欄位 FLS 限制存取</li>
+  <li>☐ 多租戶用 DLS + Kibana spaces 區隔</li>
+</ul>
+
+<h3 id="audit">稽核</h3>
+<ul>
+  <li>☐ Audit log 啟用 + 集中到獨立 audit cluster</li>
+  <li>☐ Watcher 設定關鍵告警</li>
+  <li>☐ Audit log 保留期符合合規</li>
+  <li>☐ 紀錄 ILM、role、user 變更（security_config_change）</li>
+</ul>
+
+<h3 id="ops">維運</h3>
+<ul>
+  <li>☐ JVM heap 100% memory_lock</li>
+  <li>☐ Bootstrap checks 全通過</li>
+  <li>☐ 跨 AZ replica（HA）</li>
+  <li>☐ Snapshot 自動化 + 定期還原驗證</li>
+  <li>☐ Stack Monitoring 啟用，警報已測試</li>
+</ul>
+
+<h2 id="本章重點回顧">本章重點回顧</h2>
+
+<ul>
+  <li>FIPS 140-2/140-3 是密碼學模組的合規標準，不等於「更安全」</li>
+  <li>啟用 FIPS 需 Oracle JDK + Bouncy Castle FIPS provider；最簡單用 elasticsearch-fips Docker image</li>
+  <li>FIPS 必須用 <strong>PBKDF2_STRETCH</strong> 取代 BCRYPT；切換前要重設所有 user 密碼</li>
+  <li>FIPS 限制 cipher、hash、key size；某些 keystore 格式需轉 BCFKS</li>
+  <li>At-rest 加密要在<strong>儲存層</strong>實作（dm-crypt、EBS 加密、KMS）</li>
+  <li>合規架構通用要素：私有網路、TLS 全程、MFA、最小權限 RBAC、audit log 長期保留</li>
+  <li>HIPAA、PCI-DSS、SOC 2、GDPR 各有額外要求（保留期、加密強度、資料居住地）</li>
+</ul>
+
+<h2 id="延伸閱讀">延伸閱讀</h2>
+
+<ul>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/security/configure-elasticsearch-fips-mode" target="_blank" rel="noopener">Configuring Elasticsearch for FIPS 140-2</a></li>
+  <li><a href="https://www.elastic.co/security/standards-and-certifications" target="_blank" rel="noopener">Elastic certifications & compliance</a></li>
+  <li><a href="https://csrc.nist.gov/Projects/cryptographic-module-validation-program/Standards" target="_blank" rel="noopener">NIST FIPS 140-3 Standard</a></li>
+</ul>
+
+<nav class="bottom-nav"><a class="prev" href="ch24-audit-logging.html"><span class="nav-label">← 上一章</span><span class="nav-title">稽核日誌</span></a><a class="next" href="ch26-data-streams.html"><span class="nav-label">下一章 →</span><span class="nav-title">Data Streams 與資料管理</span></a></nav>
+</main>
+<aside class="toc">
+  <div class="toc-title">本章目錄</div>
+  <ul></ul>
+</aside>
+</div>
+<footer>
+  <p>Elasticsearch Self-Managed 完整教學文件 · 基於 Elastic Stack 9.x（最新 9.3.4）<br>
+  資料來源：<a href="https://www.elastic.co/docs" target="_blank" rel="noopener">Elastic 官方文件</a> · 最後更新：2026-05</p>
+</footer>
+</body>
+</html>

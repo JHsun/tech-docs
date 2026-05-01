@@ -1,0 +1,1340 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="建立 CA、產節點/HTTP 憑證、Transport TLS、HTTP TLS、憑證輪替">
+<title>CH 19 · TLS/SSL 加密通訊</title>
+<style>
+/* ============================================================
+   JHsun TechDocs — Unified Design Token Layer
+   v1.0 · Calm Teal (hue 200° / chroma 0.11)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+
+  --color-success:        #16a34a;
+  --color-success-soft:   #dcfce7;
+  --color-warning:        #d97706;
+  --color-warning-soft:   #fef3c7;
+  --color-danger:         #dc2626;
+  --color-danger-soft:    #fee2e2;
+  --color-info:           #0891b2;
+  --color-info-soft:      #cffafe;
+  --color-neutral-accent: #7c3aed;
+
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+
+  --font-mono:       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:       "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif:      "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  32px;
+  --text-3xl:  44px;
+  --text-4xl:  64px;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+
+  --container-narrow: 720px;
+  --container-wide:   1280px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+
+:root[data-theme="dark"] {
+  --color-success:        #4ade80;
+  --color-success-soft:   oklch(0.30 0.08 145);
+  --color-warning:        #fbbf24;
+  --color-warning-soft:   oklch(0.32 0.10 70);
+  --color-danger:         #f87171;
+  --color-danger-soft:    oklch(0.32 0.10 27);
+  --color-info:           #22d3ee;
+  --color-info-soft:      oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.16 0.008 50);
+  --bg-surface:     oklch(0.20 0.009 50);
+  --bg-muted:       oklch(0.23 0.010 50);
+  --bg-code:        oklch(0.18 0.009 50);
+  --border-soft:    oklch(0.28 0.010 50);
+  --border-mid:     oklch(0.36 0.012 50);
+  --text-primary:   oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted:     oklch(0.58 0.007 60);
+
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+
+/* ============== Chapter shared styles ============== */
+* { box-sizing: border-box; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+@media (min-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 240px; gap: var(--space-7); }
+}
+main { min-width: 0; padding: var(--space-6) 0; }
+main.prose { max-width: var(--container-narrow); margin: 0 auto; }
+
+/* Top navigation */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: color-mix(in oklch, var(--bg-canvas) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.topbar-inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.brand {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-primary-text);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+.nav-links { display: flex; gap: var(--space-2); margin-left: auto; align-items: center; }
+.nav-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  transition: all 0.15s;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--bg-muted); }
+.nav-links a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Theme toggle button */
+[data-theme-toggle] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  transition: all 0.15s;
+}
+[data-theme-toggle]:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.theme-icon { font-size: var(--text-base); }
+
+/* Headings */
+h1, h2, h3, h4 {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  line-height: 1.3;
+  margin-top: var(--space-7);
+  margin-bottom: var(--space-4);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+h1 { font-size: var(--text-3xl); margin-top: var(--space-5); }
+h2 { font-size: var(--text-2xl); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-soft); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-md); color: var(--text-secondary); }
+
+p { margin: var(--space-4) 0; color: var(--text-primary); }
+
+/* Inline code */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+  border: 1px solid var(--border-soft);
+}
+
+/* Code block */
+.code-wrap {
+  position: relative;
+  margin: var(--space-4) 0;
+}
+.code-wrap > .code-lang {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.code-wrap > .copy-btn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 4px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  transition: all 0.15s;
+  opacity: 0;
+}
+.code-wrap:hover > .copy-btn { opacity: 1; }
+.code-wrap > .copy-btn:hover {
+  background: var(--color-primary);
+  color: var(--bg-canvas);
+  border-color: var(--color-primary);
+}
+.code-wrap > .copy-btn.copied {
+  background: var(--color-success);
+  color: white;
+  border-color: var(--color-success);
+  opacity: 1;
+}
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-7) var(--space-4) var(--space-4);
+  overflow-x: auto;
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  margin: 0;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: var(--text-primary);
+  font-size: inherit;
+}
+
+/* Lists */
+ul, ol { padding-left: var(--space-6); }
+li { margin: var(--space-2) 0; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: var(--space-4) 0; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+th, td {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+}
+th { background: var(--bg-muted); font-weight: 600; color: var(--text-primary); }
+tr:last-child td { border-bottom: none; }
+
+/* Callouts */
+.callout {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  border-left: 4px solid var(--color-info);
+  background: var(--color-info-soft);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+.callout.warning { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.danger  { border-color: var(--color-danger);  background: var(--color-danger-soft); }
+.callout.success { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout strong { display: block; margin-bottom: var(--space-2); }
+:root[data-theme="dark"] .callout { color: var(--text-primary); }
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: 999px;
+  margin-right: var(--space-1);
+  letter-spacing: 0.02em;
+}
+.badge.beginner { background: var(--color-success-soft); color: var(--color-success); }
+.badge.developer { background: var(--color-info-soft); color: var(--color-info); }
+.badge.operator { background: var(--color-warning-soft); color: var(--color-warning); }
+.badge.advanced { background: var(--color-primary-soft); color: var(--color-primary-text); }
+:root[data-theme="dark"] .badge { filter: brightness(1.1); }
+
+/* Chapter meta */
+.chapter-meta {
+  margin: var(--space-4) 0 var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.chapter-meta .meta-row { margin: var(--space-1) 0; }
+.chapter-meta .meta-label {
+  display: inline-block;
+  width: 70px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* TOC sidebar */
+.toc {
+  position: sticky;
+  top: 80px;
+  align-self: start;
+  font-size: var(--text-sm);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  padding: var(--space-4) 0;
+  display: none;
+}
+@media (min-width: 1100px) {
+  .toc { display: block; }
+}
+.toc-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.toc ul { list-style: none; padding-left: 0; margin: 0; }
+.toc li { margin: 0; }
+.toc a {
+  display: block;
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-left: 2px solid var(--border-soft);
+  transition: all 0.15s;
+  line-height: 1.5;
+}
+.toc a:hover { color: var(--color-primary); border-left-color: var(--color-primary); }
+.toc a.toc-h3 { padding-left: var(--space-5); font-size: 0.92em; color: var(--text-muted); }
+
+/* Bottom nav */
+.bottom-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  margin-top: var(--space-8);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.bottom-nav a {
+  flex: 1;
+  min-width: 200px;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.bottom-nav a:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.bottom-nav .nav-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.bottom-nav .nav-title { font-weight: 600; color: var(--text-primary); }
+.bottom-nav a.next { text-align: right; }
+.bottom-nav a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Footer */
+footer {
+  text-align: center;
+  padding: var(--space-7) var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  border-top: 1px solid var(--border-soft);
+  margin-top: var(--space-8);
+}
+footer a { color: var(--color-primary); text-decoration: none; }
+
+/* Index page specific */
+.hero {
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+  background: linear-gradient(135deg, var(--color-primary-soft) 0%, var(--bg-canvas) 100%);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: var(--space-7);
+}
+.hero h1 {
+  font-size: var(--text-4xl);
+  margin: 0 0 var(--space-4);
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.02em;
+}
+.hero p { font-size: var(--text-md); color: var(--text-secondary); max-width: 720px; margin: 0 auto; }
+.hero .meta {
+  margin-top: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.path-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  margin: var(--space-6) 0;
+}
+@media (min-width: 768px) { .path-grid { grid-template-columns: repeat(3, 1fr); } }
+.path-card {
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  transition: all 0.2s;
+}
+.path-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-md); }
+.path-card .path-icon { font-size: 32px; display: block; margin-bottom: var(--space-3); }
+.path-card h3 { margin: 0 0 var(--space-2); font-size: var(--text-lg); }
+.path-card .path-flow {
+  margin-top: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.part {
+  margin: var(--space-7) 0;
+}
+.part-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--color-primary);
+}
+.part-header .part-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.part-header h2 { margin: 0; border: none; padding: 0; }
+
+.chapter-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+@media (min-width: 700px)  { .chapter-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1100px) { .chapter-grid { grid-template-columns: repeat(3, 1fr); } }
+.chapter-card {
+  display: block;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.chapter-card:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  transform: translateY(-1px);
+}
+.chapter-card .ch-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+.chapter-card .ch-title {
+  display: block;
+  margin: var(--space-2) 0;
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+.chapter-card .ch-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--space-2);
+}
+.chapter-card .ch-badges { font-size: 11px; }
+
+
+/* Mermaid container */
+.mermaid-wrap {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-wrap .mermaid {
+  display: inline-block;
+  min-width: 100%;
+}
+.mermaid-caption {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+/* Hide raw mermaid source until rendered */
+.mermaid:not([data-processed="true"]) {
+  visibility: hidden;
+  min-height: 1em;
+}
+
+</style>
+<script>
+/* JHsun TechDocs — Theme toggle v1.0 */
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+
+</script>
+<script>
+
+// Copy-to-clipboard for all <pre> blocks
+(function () {
+  function init() {
+    document.querySelectorAll('main pre').forEach(function (pre) {
+      if (pre.parentElement.classList.contains('code-wrap')) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'code-wrap';
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
+      const lang = pre.querySelector('code')?.className.match(/language-(\w+)/)?.[1];
+      if (lang) {
+        const tag = document.createElement('span');
+        tag.className = 'code-lang';
+        tag.textContent = lang;
+        wrap.appendChild(tag);
+      }
+      const btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.type = 'button';
+      btn.textContent = '📋 複製';
+      btn.addEventListener('click', function () {
+        const text = pre.innerText;
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(text).then(success).catch(fallback);
+        } else {
+          fallback();
+        }
+        function success() {
+          btn.textContent = '✓ 已複製';
+          btn.classList.add('copied');
+          setTimeout(function () { btn.textContent = '📋 複製'; btn.classList.remove('copied'); }, 1800);
+        }
+        function fallback() {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); success(); } catch (_) {}
+          document.body.removeChild(ta);
+        }
+      });
+      wrap.appendChild(btn);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+// Auto-build TOC from h2/h3 in <main>
+(function () {
+  function init() {
+    const toc = document.querySelector('.toc ul');
+    if (!toc) return;
+    const headings = document.querySelectorAll('main h2, main h3');
+    headings.forEach(function (h) {
+      if (!h.id) {
+        h.id = h.textContent.trim().toLowerCase()
+          .replace(/[^\w\u4e00-\u9fff\s-]/g, '')
+          .replace(/\s+/g, '-');
+      }
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = '#' + h.id;
+      a.textContent = h.textContent;
+      a.className = 'toc-' + h.tagName.toLowerCase();
+      li.appendChild(a);
+      toc.appendChild(li);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+
+// Mermaid initialization with theme sync
+(function () {
+  function getMermaidTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default';
+  }
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    const cs = getComputedStyle(document.documentElement);
+    return {
+      startOnLoad: false,
+      theme: isDark ? 'dark' : 'default',
+      themeVariables: {
+        fontFamily: cs.getPropertyValue('--font-sans').trim() || 'DM Sans, sans-serif',
+        fontSize: '14px',
+        primaryColor: isDark ? '#1e3a4a' : '#e0f2fe',
+        primaryTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        primaryBorderColor: isDark ? '#5fb3d4' : '#0891b2',
+        lineColor: isDark ? '#7aa3b8' : '#475569',
+        secondaryColor: isDark ? '#2a3f4f' : '#f1f5f9',
+        tertiaryColor: isDark ? '#1a2530' : '#fafafa',
+        background: isDark ? '#1e2a35' : '#ffffff',
+        mainBkg: isDark ? '#243441' : '#ecfeff',
+        secondBkg: isDark ? '#1a2530' : '#f8fafc',
+        nodeBorder: isDark ? '#5fb3d4' : '#0891b2',
+        clusterBkg: isDark ? '#1a2530' : '#f1f5f9',
+        clusterBorder: isDark ? '#3a5260' : '#cbd5e1',
+        defaultLinkColor: isDark ? '#7aa3b8' : '#475569',
+        titleColor: isDark ? '#e6f2f8' : '#0f172a',
+        edgeLabelBackground: isDark ? '#243441' : '#ffffff',
+        actorBkg: isDark ? '#243441' : '#ecfeff',
+        actorBorder: isDark ? '#5fb3d4' : '#0891b2',
+        actorTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        actorLineColor: isDark ? '#5fb3d4' : '#0891b2',
+        signalColor: isDark ? '#7aa3b8' : '#334155',
+        signalTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        labelBoxBkgColor: isDark ? '#1a2530' : '#fef3c7',
+        labelBoxBorderColor: isDark ? '#a89060' : '#d97706',
+        labelTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        loopTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        noteBkgColor: isDark ? '#3a4f3a' : '#fef3c7',
+        noteBorderColor: isDark ? '#86c598' : '#d97706',
+        noteTextColor: isDark ? '#e6f2f8' : '#0f172a',
+      },
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true, showSequenceNumbers: false, mirrorActors: true, bottomMarginAdj: 10 },
+    };
+  }
+
+  let renderCounter = 0;
+  async function renderAll() {
+    if (typeof mermaid === 'undefined') return;
+    renderCounter++;
+    const myCounter = renderCounter;
+    mermaid.initialize(getMermaidConfig());
+    const blocks = document.querySelectorAll('.mermaid');
+    for (const el of blocks) {
+      // restore source if already rendered
+      if (el.dataset.source) el.innerHTML = el.dataset.source;
+      else el.dataset.source = el.innerHTML;
+      el.removeAttribute('data-processed');
+    }
+    if (myCounter !== renderCounter) return;
+    try {
+      await mermaid.run({ querySelector: '.mermaid' });
+    } catch (e) { console.warn('Mermaid render error', e); }
+  }
+
+  function init() {
+    renderAll();
+    window.addEventListener('jhsun:theme-changed', renderAll);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="ch00-elasticsearch-index.html">ES Self-Managed Docs</a>
+    <nav class="nav-links">
+      <a href="ch18-jvm-tuning.html" aria-label="上一章">← 上一章</a>
+      <a href="ch00-elasticsearch-index.html" aria-label="回首頁">首頁</a>
+      <a href="ch20-authentication.html" aria-label="下一章">下一章 →</a>
+      <button data-theme-toggle aria-label="切換主題"></button>
+    </nav>
+  </div>
+</header>
+<div class="layout">
+<main class="prose">
+
+<h1>CH 19 · TLS/SSL 加密通訊</h1>
+
+<div class="chapter-meta">
+  <div class="meta-row"><span class="meta-label">適合對象</span>
+    <span class="badge operator">🔴 維運者</span>
+    <span class="badge advanced">⚡ 進階</span>
+  </div>
+  <div class="meta-row"><span class="meta-label">閱讀時間</span> 約 30 分鐘</div>
+  <div class="meta-row"><span class="meta-label">前置知識</span> CH 06、CH 17、TLS/PKI 基礎</div>
+  <div class="meta-row"><span class="meta-label">本章目標</span> 建立 CA、產生節點/客戶端憑證、設定 transport TLS、HTTP TLS、憑證輪替、用 elasticsearch-certutil 與自有 CA</div>
+</div>
+
+<h2 id="兩個-tls-層">Elasticsearch 的兩個 TLS 層</h2>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TB
+    Client["📱 Client<br/>curl / Kibana / Logstash<br/>SDK"]
+
+    subgraph Cluster["🌐 Elasticsearch Cluster"]
+      direction LR
+      N1["Node 1"]
+      N2["Node 2"]
+      N3["Node 3"]
+    end
+
+    Client -.HTTPS<br/>port 9200<br/>HTTP TLS Layer.-> N1
+    N1 -.mutual TLS<br/>port 9300<br/>Transport TLS Layer.-> N2
+    N2 -.mutual TLS<br/>port 9300.-> N3
+    N1 -.mutual TLS<br/>port 9300.-> N3
+
+    classDef client fill:#fef3c7,stroke:#d97706,color:#0f172a
+    classDef node fill:#cffafe,stroke:#0891b2,color:#0f172a,stroke-width:2px
+    class Client client
+    class N1,N2,N3 node
+</pre>
+<div class="mermaid-caption">圖 19-1：HTTP TLS（外部）與 Transport TLS（節點間）兩個獨立的加密層</div>
+</div>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>層</th><th>Port</th><th>用途</th><th>必要性</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Transport TLS</strong></td><td>9300</td><td>節點之間互傳 cluster state、shard data、search/index 廣播</td><td><strong>多節點叢集必須</strong>（mutual TLS）</td></tr>
+    <tr><td><strong>HTTP TLS</strong></td><td>9200</td><td>客戶端 REST API（瀏覽器、curl、SDK）</td><td>強烈建議啟用</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout warning">
+  <strong>⚠️ Production mode 必須啟用 transport TLS</strong>
+  Elasticsearch 9.x 在 production mode（network.host 非 loopback）下，<strong>沒設定 transport TLS 會拒絕啟動</strong>。
+</div>
+
+<h2 id="兩種設定方式">兩種設定方式</h2>
+
+<ol>
+  <li><strong>自動安全設定（Auto-config）</strong>—— 首次啟動自動產生（CH 07 提過）。最簡單，適合單機測試與一般環境</li>
+  <li><strong>手動設定</strong>—— 自己產 CA、自己控制憑證有效期、可整合企業 PKI。生產環境推薦</li>
+</ol>
+
+<h2 id="auto-config-簡述">自動安全設定（Auto-config）回顧</h2>
+
+<p>tar.gz / 套件首次啟動時：</p>
+
+<ol>
+  <li>產生 CA（私鑰存於 keystore）</li>
+  <li>產生 transport 與 HTTP 憑證</li>
+  <li>更新 elasticsearch.yml 啟用 TLS</li>
+  <li>產生 elastic 使用者密碼與 enrollment tokens</li>
+</ol>
+
+<p>檔案位置：<code>$ES_PATH_CONF/certs/</code></p>
+
+<p>適合場景：開發、測試、單機 PoC。</p>
+
+<p>不適合：你需要全控憑證有效期、與企業 PKI 整合、跨叢集共享 CA、要把 CA 部署給多個 Beat / Logstash 節點。</p>
+
+<h2 id="手動設定總覽">手動設定總覽</h2>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TB
+    A["① 用 elasticsearch-certutil<br/>產生 CA"] --> B["② 用 CA 簽發節點 transport 憑證<br/>(.p12 格式，含全部節點)"]
+    B --> C["③ 用 CA 簽發 HTTP 憑證<br/>(per-node，含 hostname/SAN)"]
+    C --> D["④ 部署憑證到各節點<br/>config/certs/"]
+    D --> E["⑤ 用 keystore 存憑證密碼"]
+    E --> F["⑥ 更新 elasticsearch.yml"]
+    F --> G["⑦ Rolling restart 套用"]
+    G --> H["⑧ 設定 Kibana / Logstash / Beats<br/>信任 CA"]
+
+    classDef step fill:#e0f2fe,stroke:#0284c7,color:#0f172a
+    classDef done fill:#dcfce7,stroke:#16a34a,color:#0f172a,stroke-width:2px
+    class A,B,C,D,E,F,G step
+    class H done
+</pre>
+<div class="mermaid-caption">圖 19-2：手動 TLS 設定的完整流程</div>
+</div>
+
+<h2 id="step-1-產-ca">Step 1：產生 CA</h2>
+
+<p>用 ES bundled 的 <code>elasticsearch-certutil</code> 工具：</p>
+
+<pre><code class="language-bash">cd /usr/share/elasticsearch
+
+# 互動式（提示密碼）
+sudo bin/elasticsearch-certutil ca
+
+# 批次（給密碼）
+sudo bin/elasticsearch-certutil ca \
+  --out /etc/elasticsearch/certs/elastic-stack-ca.p12 \
+  --pass "ChangeMeCApassword" \
+  --days 3650
+</code></pre>
+
+<p>輸出：</p>
+<ul>
+  <li><code>elastic-stack-ca.p12</code>：PKCS#12 格式，內含 CA 私鑰 + 公鑰</li>
+  <li><strong>放到安全的地方並備份</strong>。CA 私鑰外洩 = 整個 ES PKI 失效</li>
+</ul>
+
+<h3 id="從-pem-取出-ca">取出 PEM 格式 CA cert</h3>
+
+<p>給 Kibana / Beats / 外部 client 用：</p>
+
+<pre><code class="language-bash">openssl pkcs12 -in /etc/elasticsearch/certs/elastic-stack-ca.p12 \
+  -clcerts -nokeys \
+  -out /etc/elasticsearch/certs/ca.crt \
+  -passin pass:ChangeMeCApassword
+</code></pre>
+
+<h2 id="step-2-transport-cert">Step 2：產生 Transport 憑證</h2>
+
+<p>Transport 用 mutual TLS，所有節點通常用<strong>同一份憑證</strong>（包含 wildcard 或所有 hostname）：</p>
+
+<pre><code class="language-bash">sudo bin/elasticsearch-certutil cert \
+  --ca /etc/elasticsearch/certs/elastic-stack-ca.p12 \
+  --ca-pass "ChangeMeCApassword" \
+  --out /etc/elasticsearch/certs/transport.p12 \
+  --pass "ChangeMeTransportPassword" \
+  --days 730
+</code></pre>
+
+<h3 id="per-node-transport-選擇性">Per-node Transport 憑證（更嚴格）</h3>
+
+<p>建立 <code>instances.yml</code>：</p>
+
+<pre><code class="language-yaml">instances:
+  - name: "es-node-1"
+    dns: ["es-node-1.internal", "es-node-1"]
+    ip:  ["10.0.1.10"]
+  - name: "es-node-2"
+    dns: ["es-node-2.internal", "es-node-2"]
+    ip:  ["10.0.1.11"]
+  - name: "es-node-3"
+    dns: ["es-node-3.internal", "es-node-3"]
+    ip:  ["10.0.1.12"]
+</code></pre>
+
+<pre><code class="language-bash">sudo bin/elasticsearch-certutil cert \
+  --ca /etc/elasticsearch/certs/elastic-stack-ca.p12 \
+  --ca-pass "ChangeMeCApassword" \
+  --in /etc/elasticsearch/certs/instances.yml \
+  --out /etc/elasticsearch/certs/transport-bundle.zip \
+  --pem
+</code></pre>
+
+<p>解壓後得到每節點的 .crt + .key + ca.crt。</p>
+
+<h2 id="step-3-http-cert">Step 3：產生 HTTP 憑證</h2>
+
+<p>HTTP 用<strong>單向 TLS</strong>（client 驗證 server），通常需要 hostname / SAN 對應：</p>
+
+<pre><code class="language-bash">sudo bin/elasticsearch-certutil http
+</code></pre>
+
+<p>互動式問答（重點回答）：</p>
+
+<ul>
+  <li>Generate a CSR? → <code>n</code></li>
+  <li>Use an existing CA? → <code>y</code></li>
+  <li>CA Path: → <code>/etc/elasticsearch/certs/elastic-stack-ca.p12</code></li>
+  <li>CA password: → 你的 CA 密碼</li>
+  <li>Validity: → <code>730d</code>（2 年）</li>
+  <li>Generate one certificate per node? → <code>y</code></li>
+  <li>輸入每節點 hostname/IP（為 SAN 用）</li>
+  <li>Key passphrase → 設一個密碼或留空</li>
+</ul>
+
+<p>輸出：<code>elasticsearch-ssl-http.zip</code>，內含 <code>elasticsearch/</code> 與 <code>kibana/</code> 兩個目錄。</p>
+
+<h2 id="step-4-deploy-certs">Step 4：部署到各節點</h2>
+
+<pre><code class="language-bash"># 在 master 上產完所有憑證後，scp 到其他節點
+for host in es-node-2 es-node-3; do
+  sudo scp /etc/elasticsearch/certs/transport.p12 $host:/etc/elasticsearch/certs/
+  sudo scp /etc/elasticsearch/certs/ca.crt        $host:/etc/elasticsearch/certs/
+done
+
+# 在每個節點上：
+sudo chown -R root:elasticsearch /etc/elasticsearch/certs
+sudo chmod 750 /etc/elasticsearch/certs
+sudo chmod 640 /etc/elasticsearch/certs/*
+</code></pre>
+
+<h2 id="step-5-keystore-passwords">Step 5：用 keystore 存憑證密碼</h2>
+
+<p>不要把密碼明文寫在 yml：</p>
+
+<pre><code class="language-bash">sudo /usr/share/elasticsearch/bin/elasticsearch-keystore add \
+  xpack.security.transport.ssl.keystore.secure_password
+# 提示輸入：ChangeMeTransportPassword
+
+sudo /usr/share/elasticsearch/bin/elasticsearch-keystore add \
+  xpack.security.transport.ssl.truststore.secure_password
+# 提示輸入：ChangeMeTransportPassword
+
+sudo /usr/share/elasticsearch/bin/elasticsearch-keystore add \
+  xpack.security.http.ssl.keystore.secure_password
+# 提示輸入：HTTP keystore 密碼
+</code></pre>
+
+<h2 id="step-6-update-yml">Step 6：更新 elasticsearch.yml</h2>
+
+<p>每個節點的 <code>elasticsearch.yml</code> 加入：</p>
+
+<pre><code class="language-yaml"># ─── Security 啟用 ──────────────────────────
+xpack.security.enabled: true
+
+# ─── Transport TLS（節點間 mutual TLS）─────
+xpack.security.transport.ssl.enabled: true
+xpack.security.transport.ssl.verification_mode: certificate
+xpack.security.transport.ssl.client_authentication: required
+xpack.security.transport.ssl.keystore.path: certs/transport.p12
+xpack.security.transport.ssl.truststore.path: certs/transport.p12
+# 密碼存於 keystore（上一步）
+
+# ─── HTTP TLS（外部連線）──────────────────
+xpack.security.http.ssl.enabled: true
+xpack.security.http.ssl.keystore.path: certs/http.p12
+# 密碼存於 keystore
+</code></pre>
+
+<h3 id="verification-mode">verification_mode 三種模式</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>模式</th><th>檢查內容</th><th>適用</th></tr></thead>
+  <tbody>
+    <tr><td><code>full</code></td><td>CA 有效 + hostname 比對</td><td>per-node 憑證、嚴格環境</td></tr>
+    <tr><td><code>certificate</code></td><td>只檢查 CA 有效</td><td>共用 cluster 憑證（最常用）</td></tr>
+    <tr><td><code>none</code></td><td>不檢查（不建議）</td><td>—</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="step-7-restart">Step 7：Rolling Restart</h2>
+
+<pre><code class="language-bash"># 一個一個節點重啟
+sudo systemctl restart elasticsearch
+
+# 觀察
+sudo journalctl -u elasticsearch -f
+# 找到：
+# [INFO ][o.e.x.s.SecurityFeatureSet] [es-node-1] cluster security has been enabled
+# [INFO ][o.e.t.TransportService    ] [es-node-1] publish_address {10.0.1.10:9300}, ssl=true
+</code></pre>
+
+<h2 id="step-8-verify">Step 8：驗證</h2>
+
+<pre><code class="language-bash"># 用 CA 驗證
+curl --cacert /etc/elasticsearch/certs/ca.crt \
+  -u elastic:xxx \
+  https://es-node-1.internal:9200/
+
+# 看 cluster 中所有節點 TLS 狀態
+curl --cacert ca.crt -u elastic:xxx \
+  https://es-node-1.internal:9200/_ssl/certificates?pretty
+</code></pre>
+
+<p>輸出範例：</p>
+
+<pre><code class="language-json">[
+  {
+    "path": "certs/transport.p12",
+    "format": "PKCS12",
+    "alias": "instance",
+    "subject_dn": "CN=instance",
+    "expiry": "2028-04-15T...",
+    "has_private_key": true
+  }
+]
+</code></pre>
+
+<h2 id="使用自有-ca">使用自有企業 CA</h2>
+
+<p>大型企業通常有 enterprise PKI（如 Microsoft AD CS、HashiCorp Vault PKI、Smallstep）。流程：</p>
+
+<h3 id="step-1-產生-csr">Step 1：產生 CSR</h3>
+
+<pre><code class="language-bash">sudo bin/elasticsearch-certutil http
+# 互動式，這次回答 'y' to "Generate a CSR"
+</code></pre>
+
+<p>輸出 <code>http.csr</code> 與 <code>http.key</code>。</p>
+
+<h3 id="step-2-csr-簽名">Step 2：交給企業 CA 簽</h3>
+
+<p>把 .csr 交給 CA team 簽署，得到 <code>http.crt</code> 與 ca chain。</p>
+
+<h3 id="step-3-使用-pem">Step 3：用 PEM 直接設定</h3>
+
+<pre><code class="language-yaml">xpack.security.http.ssl.enabled: true
+xpack.security.http.ssl.key:                certs/http.key
+xpack.security.http.ssl.certificate:        certs/http.crt
+xpack.security.http.ssl.certificate_authorities: ["certs/enterprise-ca-chain.crt"]
+
+xpack.security.transport.ssl.enabled: true
+xpack.security.transport.ssl.verification_mode: certificate
+xpack.security.transport.ssl.key:                certs/transport.key
+xpack.security.transport.ssl.certificate:        certs/transport.crt
+xpack.security.transport.ssl.certificate_authorities: ["certs/enterprise-ca-chain.crt"]
+</code></pre>
+
+<p>HTTP key 密碼也存 keystore：</p>
+
+<pre><code class="language-bash">sudo /usr/share/elasticsearch/bin/elasticsearch-keystore add \
+  xpack.security.http.ssl.secure_key_passphrase
+</code></pre>
+
+<h2 id="憑證輪替-rotation">憑證輪替（不停機）</h2>
+
+<div class="callout success">
+  <strong>✅ ES 自動偵測憑證更新</strong>
+  Elasticsearch 監控所有 TLS 相關的檔案。當你<strong>更新檔案</strong>時，ES 會自動 reload，無需重啟。但要注意：
+  <ul>
+    <li>新憑證必須由<strong>同一個 CA</strong>簽發</li>
+    <li>檔名與路徑要保持一致（直接 overwrite，不要改名再 symlink）</li>
+    <li>建議先 reload 一個節點驗證再推全部</li>
+  </ul>
+</div>
+
+<h3 id="rotation-步驟">操作步驟</h3>
+
+<pre><code class="language-bash"># 1. 檢查目前憑證有效期
+curl --cacert ca.crt -u elastic:xxx \
+  https://localhost:9200/_ssl/certificates?pretty | jq '.[]|{path,expiry}'
+
+# 2. 用同一 CA 產新憑證（如將 730 天）
+sudo bin/elasticsearch-certutil cert \
+  --ca /etc/elasticsearch/certs/elastic-stack-ca.p12 \
+  --ca-pass "xxx" \
+  --out /tmp/transport-new.p12 \
+  --pass "ChangeMeTransportPassword" \
+  --days 730
+
+# 3. 替換舊憑證
+sudo cp /tmp/transport-new.p12 /etc/elasticsearch/certs/transport.p12
+sudo chown root:elasticsearch /etc/elasticsearch/certs/transport.p12
+sudo chmod 640 /etc/elasticsearch/certs/transport.p12
+
+# 4. 在 log 觀察 reload（無需 restart！）
+sudo tail -f /var/log/elasticsearch/*.log | grep -i 'reload\|tls\|ssl'
+# 應看到 "reloaded SSL configuration"
+
+# 5. 驗證新憑證有效期
+curl --cacert ca.crt -u elastic:xxx \
+  https://localhost:9200/_ssl/certificates?pretty
+</code></pre>
+
+<h2 id="ca-輪替">CA 輪替（更高難度）</h2>
+
+<p>當需要換 CA（例如舊 CA 過期、CA 私鑰外洩）：</p>
+
+<ol>
+  <li>產生新 CA</li>
+  <li>用新 CA 產生新節點憑證</li>
+  <li>把<strong>新舊兩個 CA 都加入 truststore</strong></li>
+  <li>Rolling restart 讓所有節點同時信任兩個 CA</li>
+  <li>把節點憑證逐步替換為新 CA 簽的</li>
+  <li>確認所有節點與 client 都用新憑證後，從 truststore 移除舊 CA</li>
+</ol>
+
+<pre><code class="language-yaml"># 過渡期 yml
+xpack.security.transport.ssl.certificate_authorities:
+  - "certs/old-ca.crt"
+  - "certs/new-ca.crt"
+</code></pre>
+
+<h2 id="kibana-tls">Kibana 連 ES 的 TLS</h2>
+
+<p>Kibana 必須信任 ES 的 CA。<code>kibana.yml</code>：</p>
+
+<pre><code class="language-yaml"># ── Kibana → ES（client 端，信任 ES 的 CA）──
+elasticsearch.hosts: ["https://es-node-1.internal:9200"]
+elasticsearch.ssl.certificateAuthorities: [ "/etc/kibana/certs/ca.crt" ]
+elasticsearch.ssl.verificationMode: full
+
+# ── Kibana 對外 HTTPS（server 端，自己也是 HTTPS）──
+server.ssl.enabled: true
+server.ssl.certificate: /etc/kibana/certs/kibana.crt
+server.ssl.key:         /etc/kibana/certs/kibana.key
+</code></pre>
+
+<h2 id="beats-logstash-tls">Beats / Logstash 連 ES 的 TLS</h2>
+
+<h3 id="filebeat">Filebeat</h3>
+
+<pre><code class="language-yaml">output.elasticsearch:
+  hosts: ["https://es-node-1.internal:9200"]
+  username: "filebeat_writer"
+  password: "${ES_PWD}"
+  ssl.certificate_authorities: ["/etc/filebeat/ca.crt"]
+  ssl.verification_mode: full
+</code></pre>
+
+<h3 id="logstash">Logstash</h3>
+
+<pre><code class="language-ruby">output {
+  elasticsearch {
+    hosts => ["https://es-node-1.internal:9200"]
+    user => "logstash_writer"
+    password => "${ES_PWD}"
+    ssl_enabled => true
+    ssl_certificate_authorities => "/etc/logstash/ca.crt"
+    ssl_verification_mode => "full"
+  }
+}
+</code></pre>
+
+<h2 id="疑難排解">疑難排解</h2>
+
+<h3 id="error-pkix-path">錯誤 1：PKIX path validation failed</h3>
+
+<pre><code class="language-text">javax.net.ssl.SSLHandshakeException: PKIX path validation failed: 
+java.security.cert.CertPathValidatorException: validity check failed
+</code></pre>
+
+<p>原因：憑證過期，或 client 不信任 CA。</p>
+
+<pre><code class="language-bash"># 檢查憑證有效期
+openssl x509 -in /etc/elasticsearch/certs/http.crt -noout -dates
+
+# 從 .p12 取出
+keytool -list -v -keystore /etc/elasticsearch/certs/transport.p12 -storepass xxx
+</code></pre>
+
+<h3 id="error-hostname">錯誤 2：hostname verification failed</h3>
+
+<pre><code class="language-text">No subject alternative DNS name matching node-1.example.com found.
+</code></pre>
+
+<p>原因：憑證 SAN 沒包含這個 hostname。</p>
+
+<pre><code class="language-bash"># 看憑證 SAN
+openssl x509 -in /etc/elasticsearch/certs/http.crt -noout -text | grep -A1 "Subject Alternative Name"
+# 應有 DNS:node-1.example.com
+</code></pre>
+
+<p>處理：用正確 hostname 連線；或調整 verification mode 為 <code>certificate</code>；或重新簽發含正確 SAN 的憑證。</p>
+
+<h3 id="error-cipher">錯誤 3：no cipher suites in common</h3>
+
+<p>client / server 支援的 cipher 不交集。檢查：</p>
+
+<pre><code class="language-bash">openssl s_client -connect node1:9200 -showcerts -tls1_2
+</code></pre>
+
+<h2 id="加密套件">加密套件（cipher suites）與 TLS 版本</h2>
+
+<p>9.x 預設啟用 TLSv1.3 與 TLSv1.2。如要限制：</p>
+
+<pre><code class="language-yaml">xpack.security.transport.ssl.supported_protocols: [ "TLSv1.3", "TLSv1.2" ]
+xpack.security.http.ssl.supported_protocols:      [ "TLSv1.3", "TLSv1.2" ]
+
+xpack.security.http.ssl.cipher_suites:
+  - "TLS_AES_256_GCM_SHA384"
+  - "TLS_CHACHA20_POLY1305_SHA256"
+  - "TLS_AES_128_GCM_SHA256"
+  - "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+  - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+</code></pre>
+
+<h2 id="本章重點回顧">本章重點回顧</h2>
+
+<ul>
+  <li>ES 有兩個 TLS 層：<strong>Transport（9300，mutual TLS）與 HTTP（9200，server TLS）</strong></li>
+  <li>Production mode 必須啟用 transport TLS 才能啟動</li>
+  <li>用 <code>elasticsearch-certutil</code> 三步驟：產 CA → 產 transport cert → 產 HTTP cert</li>
+  <li>所有憑證密碼放 <strong>elasticsearch-keystore</strong>，不要明文於 yml</li>
+  <li>verification_mode 通常用 <code>certificate</code>（共用 cluster 憑證）；嚴格環境用 <code>full</code></li>
+  <li>ES <strong>自動 reload TLS 檔案</strong>，憑證輪替不需重啟</li>
+  <li>CA 輪替策略：truststore 暫時同時信任新舊 CA，再逐步替換 cert</li>
+  <li>Kibana / Beats / Logstash 必須<strong>信任同一個 CA</strong>才能連線</li>
+</ul>
+
+<h2 id="延伸閱讀">延伸閱讀</h2>
+
+<ul>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/security/set-up-basic-security" target="_blank" rel="noopener">Set up basic security</a></li>
+  <li><a href="https://www.elastic.co/docs/deploy-manage/security/set-up-basic-security-plus-https" target="_blank" rel="noopener">Set up HTTPS</a></li>
+  <li><a href="https://www.elastic.co/docs/reference/elasticsearch/command-line-tools/certutil" target="_blank" rel="noopener">elasticsearch-certutil reference</a></li>
+</ul>
+
+<nav class="bottom-nav"><a class="prev" href="ch18-jvm-tuning.html"><span class="nav-label">← 上一章</span><span class="nav-title">JVM 調校</span></a><a class="next" href="ch20-authentication.html"><span class="nav-label">下一章 →</span><span class="nav-title">使用者認證與內建使用者</span></a></nav>
+</main>
+<aside class="toc">
+  <div class="toc-title">本章目錄</div>
+  <ul></ul>
+</aside>
+</div>
+<footer>
+  <p>Elasticsearch Self-Managed 完整教學文件 · 基於 Elastic Stack 9.x（最新 9.3.4）<br>
+  資料來源：<a href="https://www.elastic.co/docs" target="_blank" rel="noopener">Elastic 官方文件</a> · 最後更新：2026-05</p>
+</footer>
+</body>
+</html>
