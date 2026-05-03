@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch14 · Recording Rules | Prometheus / Alertmanager / Grafana 完整教學</title>
+<style>
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --text-3xl: 44px;
+  --text-4xl: 64px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+  --container-narrow: 720px;
+  --container-wide: 1280px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80;
+  --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24;
+  --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171;
+  --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee;
+  --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  padding: 0;
+}
+.top-nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-soft);
+  padding: var(--space-3) var(--space-5);
+  display: flex; justify-content: space-between; align-items: center;
+  backdrop-filter: blur(8px);
+}
+.nav-links { display: flex; gap: var(--space-3); align-items: center; }
+.nav-links a {
+  color: var(--text-secondary); text-decoration: none;
+  font-size: var(--text-sm); padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm); transition: all 0.2s ease;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--color-primary-soft); }
+.nav-links a.disabled { color: var(--text-muted); cursor: not-allowed; pointer-events: none; }
+button[data-theme-toggle] {
+  background: var(--bg-muted); color: var(--text-primary);
+  border: 1px solid var(--border-soft);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+  cursor: pointer; font-size: var(--text-sm);
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-sans); transition: all 0.2s ease;
+}
+button[data-theme-toggle]:hover { background: var(--color-primary-soft); border-color: var(--color-primary); }
+.theme-icon { font-size: var(--text-md); }
+main { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-7) var(--space-5); }
+@media (min-width: 1024px) { main { max-width: 880px; } }
+.chapter-meta {
+  font-size: var(--text-sm); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: var(--space-3); font-family: var(--font-mono);
+}
+h1 {
+  font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 700;
+  line-height: 1.15; margin: 0 0 var(--space-4);
+  color: var(--text-primary); letter-spacing: -0.02em;
+}
+.subtitle {
+  font-size: var(--text-md); color: var(--text-secondary);
+  margin-bottom: var(--space-7); font-style: italic;
+  border-left: 3px solid var(--color-primary); padding-left: var(--space-4);
+}
+h2 {
+  font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600;
+  margin-top: var(--space-8); margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2); border-bottom: 2px solid var(--border-soft);
+  color: var(--text-primary);
+}
+h3 { font-size: var(--text-xl); font-weight: 600; margin-top: var(--space-6); margin-bottom: var(--space-3); color: var(--text-primary); }
+h4 { font-size: var(--text-md); font-weight: 600; margin-top: var(--space-5); margin-bottom: var(--space-2); color: var(--text-primary); }
+p { margin: var(--space-3) 0; }
+strong { color: var(--text-primary); font-weight: 600; }
+em { color: var(--text-secondary); }
+a {
+  color: var(--color-primary-text); text-decoration: underline;
+  text-decoration-color: var(--color-primary-soft);
+  text-underline-offset: 3px; transition: all 0.2s ease;
+}
+a:hover { color: var(--color-primary-hover); text-decoration-color: var(--color-primary); }
+code {
+  font-family: var(--font-mono); font-size: 0.92em;
+  background: var(--bg-code); padding: 0.15em 0.4em;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-soft);
+  color: var(--color-primary-text);
+}
+pre {
+  background: var(--bg-code); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  overflow-x: auto; font-size: var(--text-sm); line-height: 1.6;
+  margin: var(--space-4) 0;
+}
+pre code { background: transparent; border: none; padding: 0; color: var(--text-primary); }
+.callout {
+  margin: var(--space-5) 0; padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md); border-left: 4px solid;
+}
+.callout-title {
+  font-weight: 600; margin-bottom: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.callout.info { background: var(--color-info-soft); border-color: var(--color-info); }
+.callout.info .callout-title { color: var(--color-info); }
+.callout.success { background: var(--color-success-soft); border-color: var(--color-success); }
+.callout.success .callout-title { color: var(--color-success); }
+.callout.warning { background: var(--color-warning-soft); border-color: var(--color-warning); }
+.callout.warning .callout-title { color: var(--color-warning); }
+.callout.danger { background: var(--color-danger-soft); border-color: var(--color-danger); }
+.callout.danger .callout-title { color: var(--color-danger); }
+table {
+  width: 100%; border-collapse: collapse; margin: var(--space-5) 0;
+  font-size: var(--text-sm); background: var(--bg-surface);
+  border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-sm);
+}
+th, td { text-align: left; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); }
+th {
+  background: var(--bg-muted); font-weight: 600; color: var(--text-primary);
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg-muted); }
+ul, ol { padding-left: var(--space-5); margin: var(--space-3) 0; }
+li { margin: var(--space-2) 0; }
+li::marker { color: var(--color-primary); }
+.toc {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4) var(--space-5);
+  margin: var(--space-5) 0;
+}
+.toc-title {
+  font-weight: 600; font-size: var(--text-sm);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted); margin-bottom: var(--space-3);
+}
+.toc ul { list-style: none; padding-left: 0; }
+.toc li { margin: var(--space-1) 0; }
+.toc a { text-decoration: none; }
+.toc ul ul { padding-left: var(--space-4); }
+.card-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4); margin: var(--space-5) 0;
+}
+.card {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  transition: all 0.2s ease;
+}
+.card:hover { box-shadow: var(--shadow-md); border-color: var(--color-primary); transform: translateY(-2px); }
+.card-num { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-primary); font-weight: 600; }
+.card-title { font-weight: 600; font-size: var(--text-base); margin: var(--space-2) 0; color: var(--text-primary); }
+.card-desc { font-size: var(--text-sm); color: var(--text-secondary); }
+.mermaid {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-5);
+  margin: var(--space-5) 0; text-align: center; overflow-x: auto;
+}
+.footer-nav {
+  display: flex; justify-content: space-between;
+  margin-top: var(--space-8); padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft); gap: var(--space-3);
+}
+.footer-nav a {
+  flex: 1; padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); text-decoration: none;
+  color: var(--text-primary); transition: all 0.2s ease;
+}
+.footer-nav a:hover { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.footer-nav .nav-direction {
+  font-size: var(--text-xs); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.footer-nav .nav-title { font-weight: 600; margin-top: var(--space-1); }
+.footer-nav .next { text-align: right; }
+.footer-nav a.disabled { opacity: 0.4; pointer-events: none; }
+.tag {
+  display: inline-block; padding: 0.1em 0.6em; font-size: var(--text-xs);
+  border-radius: var(--radius-sm); font-family: var(--font-mono);
+  background: var(--bg-muted); color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+}
+.tag.primary { background: var(--color-primary-soft); color: var(--color-primary-text); border-color: var(--color-primary); }
+@media print { .top-nav, .footer-nav, button[data-theme-toggle] { display: none; } }
+</style>
+</head>
+<body>
+
+<nav class="top-nav">
+  <div class="nav-links">
+    <a href="ch13-Prometheus-promql-real-world.html">← 上一章</a>
+    <a href="ch00-Overview-learning-path.html">📚 目錄</a>
+    <a href="ch15-Prometheus-alerting-rules.html">下一章 →</a>
+  </div>
+  <button data-theme-toggle aria-label="Toggle theme"></button>
+</nav>
+
+<main>
+  <div class="chapter-meta">Chapter 14 · Recording Rules</div>
+  <h1>Recording Rules：把昂貴查詢預先算好</h1>
+  <p class="subtitle">
+    Recording rules 把複雜或常用的 PromQL 查詢「預先計算」並存成新的 time series。
+    一個好的 recording rule 體系能讓 dashboard 載入快 10-100 倍、降低 Prometheus CPU 壓力、
+    並讓 alerting 更穩定。本章從語法到命名規範到實戰範例，一次教完。
+  </p>
+
+  <div class="toc">
+    <div class="toc-title">本章內容</div>
+    <ul>
+      <li><a href="#section-1">§ 1. 為什麼需要 Recording Rules</a></li>
+      <li><a href="#section-2">§ 2. 基本語法與 group 結構</a></li>
+      <li><a href="#section-3">§ 3. 命名規範：level:metric:operations</a></li>
+      <li><a href="#section-4">§ 4. 評估頻率（interval）的選擇</a></li>
+      <li><a href="#section-5">§ 5. Group 內的順序與依賴</a></li>
+      <li><a href="#section-6">§ 6. 實戰範例：分層 SLI/SLO</a></li>
+      <li><a href="#section-7">§ 7. 監控 Recording Rules 自身</a></li>
+      <li><a href="#section-8">§ 8. 用 promtool 驗證與測試</a></li>
+      <li><a href="#section-9">§ 9. 常見陷阱與最佳實踐</a></li>
+    </ul>
+  </div>
+
+  <h2 id="section-1">§ 1. 為什麼需要 Recording Rules</h2>
+
+  <p>Recording rule 解決三個核心問題：</p>
+
+  <table>
+    <thead>
+      <tr><th>問題</th><th>沒有 recording rule</th><th>有 recording rule</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Dashboard 慢</td>
+        <td>每次刷新都重算複雜 query（30 秒以上）</td>
+        <td>查預算好的 series，毫秒級回應</td>
+      </tr>
+      <tr>
+        <td>Alerting 不穩</td>
+        <td>Alert 依賴複雜計算，evaluation 超時</td>
+        <td>Alert 引用簡單的 recording 結果</td>
+      </tr>
+      <tr>
+        <td>多 dashboard 重複算</td>
+        <td>同一個查詢在 10 個 panel 算 10 次</td>
+        <td>算 1 次，10 個 panel 共用</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>1.1 性能影響的數字感</h3>
+
+  <div class="callout info">
+    <div class="callout-title">ℹ️ 真實案例的差距</div>
+    <p>
+      一個跨 100 個 service、按 path / region / le 聚合的 P99 latency 查詢：<br>
+      • 直接查：每次掃 5 億 sample，CPU 30s+，記憶體 8GB+<br>
+      • 用 recording rule（每 30s 算一次）：dashboard 查 50ms，記憶體幾 MB<br>
+      <strong>性能差距可達數百倍</strong>。
+    </p>
+  </div>
+
+  <h3>1.2 Recording rules 是「物化 view」</h3>
+
+  <p>
+    類似 SQL 資料庫的 materialized view 概念：把昂貴的 join/aggregation 預先算好存起來。
+    每隔固定時間（預設 1 分鐘）重新計算一次，結果作為新的 time series 存入 TSDB。
+  </p>
+
+  <div class="mermaid">
+graph LR
+    SRC[原始 metrics<br/>http_requests_total]
+    RR[Recording Rule<br/>每 30s 評估一次]
+    NEW[新 time series<br/>service:requests:rate5m]
+    DASH[Dashboard / Alert]
+
+    SRC --> RR
+    RR --> NEW
+    NEW --> DASH
+</div>
+
+  <h2 id="section-2">§ 2. 基本語法與 group 結構</h2>
+
+  <h3>2.1 最簡單的 rule file</h3>
+
+  <pre><code># /etc/prometheus/rules/recording.yml
+groups:
+  - name: example
+    interval: 30s
+    rules:
+      - record: code:prometheus_http_requests_total:sum
+        expr: sum by (code)(prometheus_http_requests_total)</code></pre>
+
+  <p>並在 <code>prometheus.yml</code> 裡引用：</p>
+
+  <pre><code>rule_files:
+  - "rules/recording.yml"
+  - "rules/alerts/*.yml"</code></pre>
+
+  <h3>2.2 完整的 group 結構</h3>
+
+  <pre><code>groups:
+  - name: <group_name>                # 必填，檔案內唯一
+    interval: <duration>              # 此 group 的執行間隔，預設 = global.evaluation_interval
+    limit: <int>                      # 此 group 每條 rule 最多產生多少 series（0 = 無上限）
+    query_offset: <duration>          # 評估時間往後推（用於 HA 場景）
+    labels:                           # 加在所有此 group 結果上的 label
+      team: platform
+
+    rules:
+      - record: <metric_name>         # 新 metric 名稱
+        expr: <PromQL>                # 要計算的表達式
+        labels:                       # 加在此 rule 結果上的 label
+          severity: info</code></pre>
+
+  <h3>2.3 多個 group 範例</h3>
+
+  <pre><code>groups:
+  # Group 1：每 30 秒算一次的常用聚合
+  - name: common_aggregations
+    interval: 30s
+    rules:
+      - record: service:requests:rate5m
+        expr: sum by (service)(rate(http_requests_total[5m]))
+
+      - record: service:errors:rate5m
+        expr: sum by (service)(rate(http_requests_total{status=~"5.."}[5m]))
+
+  # Group 2：每 1 分鐘算一次的 SLO 計算
+  - name: slo_calculations
+    interval: 1m
+    rules:
+      - record: service:availability:ratio5m
+        expr: |
+          sum by (service)(rate(http_requests_total{status!~"5.."}[5m]))
+          /
+          sum by (service)(rate(http_requests_total[5m]))
+
+  # Group 3：每 5 分鐘算一次的長窗口
+  - name: long_window_aggregations
+    interval: 5m
+    rules:
+      - record: service:requests:rate30d
+        expr: sum by (service)(rate(http_requests_total[30d]))</code></pre>
+
+  <h2 id="section-3">§ 3. 命名規範：level:metric:operations</h2>
+
+  <p>
+    Prometheus 官方推薦的命名規範（必背）：<strong><code>level:metric:operations</code></strong>，
+    用<strong>兩個冒號</strong>分成三段。
+  </p>
+
+  <h3>3.1 三段語意</h3>
+
+  <table>
+    <thead>
+      <tr><th>段</th><th>意義</th><th>範例</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>level</strong></td><td>聚合層級（保留了哪些 label）</td><td><code>instance</code> / <code>job</code> / <code>service</code> / <code>cluster</code></td></tr>
+      <tr><td><strong>metric</strong></td><td>原始 metric 名稱（去除後綴）</td><td><code>node_cpu</code> / <code>http_requests</code></td></tr>
+      <tr><td><strong>operations</strong></td><td>對 metric 做的操作</td><td><code>rate5m</code> / <code>avg_rate5m</code> / <code>p99</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>3.2 命名範例對照</h3>
+
+  <table>
+    <thead>
+      <tr><th>Recording rule 名稱</th><th>對應 expr 的意思</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>instance:node_cpu:avg_rate5m</code></td><td>每 instance 的 CPU 5 分鐘平均 rate</td></tr>
+      <tr><td><code>job:http_requests:rate5m</code></td><td>每 job 的請求 5 分鐘 rate</td></tr>
+      <tr><td><code>service:request_duration_seconds:p99_5m</code></td><td>每 service 的 P99 延遲</td></tr>
+      <tr><td><code>cluster:cpu_usage:avg_rate5m</code></td><td>整個 cluster 的 CPU 平均</td></tr>
+      <tr><td><code>code:prometheus_http_requests_total:sum</code></td><td>按 code 加總的 HTTP 請求</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 為什麼這個慣例重要？</div>
+    <p>
+      看 metric 名稱就能猜到「它是怎麼算的」、「保留了哪些 label」、「適合用在什麼場景」。
+      這對<strong>跨團隊協作</strong>非常重要。當有人看到 <code>service:request_duration:p99_5m</code>，
+      能立刻理解：「按 service 分組、5 分鐘窗口、99 分位的延遲」。
+    </p>
+  </div>
+
+  <h3>3.3 Counter 的後綴慣例</h3>
+
+  <p>對 counter 做了 <code>rate</code> 後，原本的 <code>_total</code> 後綴<strong>必須去掉</strong>：</p>
+
+  <pre><code># ✅ 對：去掉 _total（因為已經不是累積值了）
+- record: service:http_requests:rate5m
+  expr: sum by (service)(rate(http_requests_total[5m]))
+
+# ❌ 錯：誤導後續使用者以為這是 counter
+- record: service:http_requests_total:rate5m</code></pre>
+
+  <h2 id="section-4">§ 4. 評估頻率（interval）的選擇</h2>
+
+  <h3>4.1 預設行為</h3>
+
+  <p>
+    若 group 沒有自訂 <code>interval</code>，會使用 <code>global.evaluation_interval</code>（預設 1 分鐘）。
+  </p>
+
+  <pre><code>global:
+  evaluation_interval: 15s   # 全域預設：每 15s 評估一次所有 rule</code></pre>
+
+  <h3>4.2 不同 interval 的取捨</h3>
+
+  <table>
+    <thead>
+      <tr><th>Interval</th><th>適用</th><th>權衡</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>15s</td><td>關鍵服務的核心指標</td><td>CPU 高，但反應快</td></tr>
+      <tr><td>30s</td><td>大多數 SLI 與 dashboard</td><td>業界主流</td></tr>
+      <tr><td>1m</td><td>非關鍵的長期趨勢</td><td>節省 CPU</td></tr>
+      <tr><td>5m+</td><td>跨日/週的長窗口聚合</td><td>大幅節省，但偵測延遲大</td></tr>
+    </tbody>
+  </table>
+
+  <h3>4.3 規則：interval 應 <= 1/4 的 range</h3>
+
+  <p>
+    若 expr 用 <code>[5m]</code>，interval 不應超過 <code>5m / 4 = 75s</code>。
+    否則同一個 sample 會被多次納入相鄰 evaluation 的計算（不影響結果，但浪費 CPU）。
+  </p>
+
+  <p>更嚴重的反例：</p>
+
+  <pre><code># interval 太大，跟 range 一樣！
+- name: bad
+  interval: 5m
+  rules:
+    - record: x:rate5m
+      expr: rate(x_total[5m])
+# 每 5 分鐘算一次，每次只算「過去 5 分鐘」 — sample 邊界對齊不上，數值會抖</code></pre>
+
+  <h2 id="section-5">§ 5. Group 內的順序與依賴</h2>
+
+  <h3>5.1 同 group 內：依序執行</h3>
+
+  <p>
+    <strong>同一個 group 內的 rules 是<u>循序</u>執行的</strong>。
+    這代表後面的 rule 可以引用前面 rule 的輸出。
+  </p>
+
+  <pre><code>groups:
+  - name: with_dependencies
+    interval: 30s
+    rules:
+      # Step 1：先算分母
+      - record: service:requests:rate5m
+        expr: sum by (service)(rate(http_requests_total[5m]))
+
+      # Step 2：再算分子
+      - record: service:errors:rate5m
+        expr: sum by (service)(rate(http_requests_total{status=~"5.."}[5m]))
+
+      # Step 3：用前面兩個結果算錯誤率
+      - record: service:error_ratio:rate5m
+        expr: service:errors:rate5m / service:requests:rate5m</code></pre>
+
+  <h3>5.2 不同 group：並行執行（v2.50+）</h3>
+
+  <p>
+    Prometheus 從 v2.50 起，<strong>不同 group 之間可以並行執行</strong>，前提是它們之間沒有依賴。
+    啟用方式：<code>--rules.alert.resend-delay</code> 加上 <code>concurrent-rule-eval-limit</code>。
+  </p>
+
+  <pre><code>prometheus \
+  --enable-feature=concurrent-rule-eval \
+  --rules.max-concurrent-rule-evals=4</code></pre>
+
+  <h3>5.3 跨 group 引用要小心</h3>
+
+  <pre><code># Group A 算結果
+- name: groupA
+  interval: 30s
+  rules:
+    - record: A:value
+      expr: ...
+
+# Group B 引用 Group A 的結果
+- name: groupB
+  interval: 30s
+  rules:
+    - record: B:value
+      expr: A:value * 2</code></pre>
+
+  <p>
+    這沒問題，但要注意：<strong>Group B 看到的 A:value 可能是「上一輪」的結果</strong>，
+    最多落後 1 個 interval。對精確要求高的計算，把它們放在<strong>同一個 group</strong>。
+  </p>
+
+  <h2 id="section-6">§ 6. 實戰範例：分層 SLI/SLO</h2>
+
+  <p>下面是一個生產級的「分層 SLO」recording rule 體系：</p>
+
+  <pre><code># /etc/prometheus/rules/slo_recording.yml
+groups:
+  # ===== 層 1：基礎聚合 =====
+  - name: slo_base
+    interval: 30s
+    rules:
+      # 各時窗的請求 rate
+      - record: service:http_requests:rate5m
+        expr: sum by (service)(rate(http_requests_total[5m]))
+      - record: service:http_requests:rate30m
+        expr: sum by (service)(rate(http_requests_total[30m]))
+      - record: service:http_requests:rate1h
+        expr: sum by (service)(rate(http_requests_total[1h]))
+      - record: service:http_requests:rate6h
+        expr: sum by (service)(rate(http_requests_total[6h]))
+      - record: service:http_requests:rate1d
+        expr: sum by (service)(rate(http_requests_total[1d]))
+
+      # 各時窗的錯誤 rate
+      - record: service:http_errors:rate5m
+        expr: sum by (service)(rate(http_requests_total{status=~"5.."}[5m]))
+      - record: service:http_errors:rate30m
+        expr: sum by (service)(rate(http_requests_total{status=~"5.."}[30m]))
+      - record: service:http_errors:rate1h
+        expr: sum by (service)(rate(http_requests_total{status=~"5.."}[1h]))
+      - record: service:http_errors:rate6h
+        expr: sum by (service)(rate(http_requests_total{status=~"5.."}[6h]))
+      - record: service:http_errors:rate1d
+        expr: sum by (service)(rate(http_requests_total{status=~"5.."}[1d]))
+
+  # ===== 層 2：錯誤率 =====
+  - name: slo_error_ratio
+    interval: 30s
+    rules:
+      - record: service:error_ratio:5m
+        expr: service:http_errors:rate5m / service:http_requests:rate5m
+      - record: service:error_ratio:30m
+        expr: service:http_errors:rate30m / service:http_requests:rate30m
+      - record: service:error_ratio:1h
+        expr: service:http_errors:rate1h / service:http_requests:rate1h
+      - record: service:error_ratio:6h
+        expr: service:http_errors:rate6h / service:http_requests:rate6h
+      - record: service:error_ratio:1d
+        expr: service:http_errors:rate1d / service:http_requests:rate1d
+
+  # ===== 層 3：燒率（burn rate）=====
+  # 假設 SLO=99.9% → 預算=0.001
+  - name: slo_burn_rate
+    interval: 30s
+    labels:
+      slo_target: "0.999"
+    rules:
+      - record: service:burn_rate:5m
+        expr: service:error_ratio:5m / 0.001
+      - record: service:burn_rate:30m
+        expr: service:error_ratio:30m / 0.001
+      - record: service:burn_rate:1h
+        expr: service:error_ratio:1h / 0.001
+      - record: service:burn_rate:6h
+        expr: service:error_ratio:6h / 0.001
+
+  # ===== 層 4：延遲分位數 =====
+  - name: slo_latency
+    interval: 30s
+    rules:
+      - record: service:request_duration:p50_5m
+        expr: |
+          histogram_quantile(0.50,
+            sum by (service, le)(rate(http_request_duration_seconds_bucket[5m])))
+      - record: service:request_duration:p90_5m
+        expr: |
+          histogram_quantile(0.90,
+            sum by (service, le)(rate(http_request_duration_seconds_bucket[5m])))
+      - record: service:request_duration:p99_5m
+        expr: |
+          histogram_quantile(0.99,
+            sum by (service, le)(rate(http_request_duration_seconds_bucket[5m])))</code></pre>
+
+  <p>
+    有了這套 recording rules，後續的 dashboard 與 alert 就可以直接寫
+    <code>service:burn_rate:5m</code>、<code>service:request_duration:p99_5m</code>，
+    完全不用重複那一大段 PromQL。
+  </p>
+
+  <h2 id="section-7">§ 7. 監控 Recording Rules 自身</h2>
+
+  <p>Recording rule 自己也會出問題（評估失敗、超時、產生太多 series）。Prometheus 提供以下 metric：</p>
+
+  <table>
+    <thead>
+      <tr><th>Metric</th><th>意義</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>prometheus_rule_evaluation_duration_seconds</code></td><td>每條 rule 評估耗時</td></tr>
+      <tr><td><code>prometheus_rule_evaluations_total</code></td><td>累積評估次數</td></tr>
+      <tr><td><code>prometheus_rule_evaluation_failures_total</code></td><td>累積評估失敗次數</td></tr>
+      <tr><td><code>prometheus_rule_group_iterations_missed_total</code></td><td>跳過的評估次數（rule 太慢來不及）</td></tr>
+      <tr><td><code>prometheus_rule_group_iterations_total</code></td><td>應執行的總次數</td></tr>
+      <tr><td><code>prometheus_rule_group_duration_seconds</code></td><td>每個 group 的總耗時</td></tr>
+      <tr><td><code>prometheus_rule_group_last_duration_seconds</code></td><td>最近一次評估耗時</td></tr>
+    </tbody>
+  </table>
+
+  <h3>7.1 必設的告警</h3>
+
+  <pre><code>- alert: PrometheusRuleEvaluationFailures
+  expr: rate(prometheus_rule_evaluation_failures_total[5m]) > 0
+  for: 5m
+  annotations:
+    summary: "Prometheus rule evaluation failing"
+    description: "{{ $value }} failures/sec"
+
+- alert: PrometheusRuleEvaluationSlow
+  expr: |
+    prometheus_rule_group_last_duration_seconds
+    > prometheus_rule_group_interval_seconds
+  for: 10m
+  annotations:
+    summary: "Rule group {{ $labels.rule_group }} taking longer than its interval"</code></pre>
+
+  <h2 id="section-8">§ 8. 用 promtool 驗證與測試</h2>
+
+  <h3>8.1 語法檢查</h3>
+
+  <pre><code># 驗證單個檔案
+promtool check rules /etc/prometheus/rules/recording.yml
+
+# 批次驗證
+promtool check rules /etc/prometheus/rules/*.yml
+
+# 驗證主設定 + 引用的 rules
+promtool check config /etc/prometheus/prometheus.yml</code></pre>
+
+  <h3>8.2 規則測試（unit test）</h3>
+
+  <p>Prometheus 提供 <code>promtool test rules</code> 做單元測試：</p>
+
+  <pre><code># tests/recording_test.yml
+rule_files:
+  - /etc/prometheus/rules/recording.yml
+
+evaluation_interval: 30s
+
+tests:
+  - interval: 30s
+    input_series:
+      - series: 'http_requests_total{service="api", status="500"}'
+        values: '0+10x10'                    # 0, 10, 20, 30, ... 100（每 30s +10）
+      - series: 'http_requests_total{service="api", status="200"}'
+        values: '0+90x10'                    # 0, 90, 180, ...
+
+    promql_expr_test:
+      - expr: service:error_ratio:5m{service="api"}
+        eval_time: 5m
+        exp_samples:
+          - labels: '{service="api"}'
+            value: 0.1                        # 10/(10+90) = 0.1</code></pre>
+
+  <p>執行：</p>
+
+  <pre><code>promtool test rules tests/recording_test.yml</code></pre>
+
+  <h2 id="section-9">§ 9. 常見陷阱與最佳實踐</h2>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 陷阱 1：用 <code>by</code> 而非 <code>without</code></div>
+    <p>
+      官方建議使用 <code>without</code>，這樣加了新 label 不用改 query。但若您明確要過濾掉除某些 label 外的所有東西，用 <code>by</code> 更明確。<br>
+      <strong>看情境抉擇</strong>，但團隊應統一風格。
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 陷阱 2：Counter 後綴沒去掉 <code>_total</code></div>
+    <p>
+      <code>service:http_requests_total:rate5m</code> 會誤導使用者以為這還是 counter。
+      Recording rule 的結果是 gauge（已不再累積），名稱不該帶 <code>_total</code>。
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 陷阱 3：在 alerting rule 直接用昂貴 expr</div>
+    <p>
+      Alert evaluation 會被 rule_group_iterations_missed 卡住。
+      把昂貴 expr 拆成 recording rule，alert 只引用結果。
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 陷阱 4：高基數爆炸</div>
+    <p>
+      Recording rule 的結果是新 series。若您的 expr 保留太多 label（例如 <code>by (service, instance, path)</code>），
+      可能新增百萬條 series。<strong>用 <code>limit</code> 設上限</strong>：
+    </p>
+    <pre><code>groups:
+  - name: high_cardinality_warning
+    limit: 10000     # 此 group 每條 rule 最多 10k series
+    rules: ...</code></pre>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 陷阱 5：在 group 中引用「自己」</div>
+    <p>
+      <code>service:request_rate:rate5m</code> 引用 <code>service:request_rate</code>（同 group 中早於它的 rule）OK。
+      但循環引用會在重新載入時被 Prometheus reject。
+    </p>
+  </div>
+
+  <div class="callout success">
+    <div class="callout-title">✅ Best Practices 總結</div>
+    <ol>
+      <li><strong>命名遵守 <code>level:metric:operations</code></strong>（業界共通）</li>
+      <li><strong>Counter 計算結果去掉 <code>_total</code> 後綴</strong></li>
+      <li><strong>分層設計</strong>：基礎聚合 → 比率 → 燒率 → SLO</li>
+      <li><strong>Interval 配合 range</strong>：interval ≤ range/4</li>
+      <li><strong>Long-window rules 用更長 interval</strong>：<code>[1d]</code> 用 <code>interval: 5m</code></li>
+      <li><strong>同一邏輯放同 group</strong>：依賴 rule 寫一起</li>
+      <li><strong>用 <code>limit</code> 防 cardinality 爆炸</strong></li>
+      <li><strong>用 promtool 驗證 + 單元測試</strong></li>
+      <li><strong>監控 rule 自身的健康</strong>：<code>prometheus_rule_evaluation_failures_total</code></li>
+      <li><strong>版本控管 + Code Review</strong>：rules 檔案放 Git</li>
+    </ol>
+  </div>
+
+  <h2>📚 延伸閱讀</h2>
+
+  <ul>
+    <li><a href="https://prometheus.io/docs/prometheus/latest/configuration/recording_rules/" target="_blank" rel="noopener">Recording Rules 設定（官方）</a></li>
+    <li><a href="https://prometheus.io/docs/practices/rules/" target="_blank" rel="noopener">Recording Rule Best Practices（官方）</a></li>
+    <li><a href="https://prometheus.io/docs/prometheus/latest/configuration/unit_testing_rules/" target="_blank" rel="noopener">Unit Testing for Rules（官方）</a></li>
+    <li><a href="https://github.com/kubernetes-monitoring/kubernetes-mixin" target="_blank" rel="noopener">kubernetes-mixin（業界 K8s 監控標準的 recording rules 集合）</a></li>
+  </ul>
+
+  <h2>✅ 本章重點摘要</h2>
+
+  <div class="callout success">
+    <div class="callout-title">30 秒回顧</div>
+    <ul>
+      <li>Recording rule = 物化 view，<strong>把昂貴 PromQL 預先算好</strong></li>
+      <li>命名規範：<code>level:metric:operations</code>（兩個冒號分三段）</li>
+      <li>Counter 算 rate 後<strong>去掉 <code>_total</code></strong></li>
+      <li>Interval 應 ≤ range/4；範例：<code>[5m]</code> rate 用 30s interval</li>
+      <li><strong>同 group 循序執行</strong>，後面可引用前面結果；不同 group 可並行（v2.50+）</li>
+      <li>分層設計：base → ratio → burn rate → SLO</li>
+      <li>必設防爆：<code>limit: 10000</code></li>
+      <li>監控自身：<code>prometheus_rule_evaluation_failures_total</code> 與 <code>iterations_missed</code></li>
+      <li>用 <code>promtool check rules</code> + <code>promtool test rules</code> 驗證 / 單元測試</li>
+    </ul>
+  </div>
+
+  <h2>📝 練習題</h2>
+
+  <ol>
+    <li>請為下列查詢命名（用 <code>level:metric:operations</code> 規範）：
+      <pre><code>sum by (cluster, namespace) (rate(container_cpu_usage_seconds_total[5m]))</code></pre>
+    </li>
+    <li>下面這條 recording rule 的 interval 設定是否合理？為什麼？
+      <pre><code>- name: bad_interval
+  interval: 5m
+  rules:
+    - record: x:rate5m
+      expr: rate(x_total[5m])</code></pre>
+    </li>
+    <li>請設計一組 recording rules（至少 4 條），預先計算<strong>「按 K8s namespace 與 deployment 聚合的記憶體使用率」</strong>，並寫對應的 alerting rule。</li>
+    <li>解釋：為什麼推薦用 <code>without</code> 而不是 <code>by</code>？舉一個 <code>without</code> 比較好的情境。</li>
+    <li>您 Prometheus 啟動後 <code>prometheus_rule_group_iterations_missed_total</code> 一直增加。請列出三個排查步驟。</li>
+  </ol>
+
+  <nav class="footer-nav">
+    <a href="ch13-Prometheus-promql-real-world.html">
+      <div class="nav-direction">← 上一章</div>
+      <div class="nav-title">Ch 13 · PromQL 實戰</div>
+    </a>
+    <a class="next" href="ch15-Prometheus-alerting-rules.html">
+      <div class="nav-direction">下一章 →</div>
+      <div class="nav-title">Ch 15 · Alerting Rules</div>
+    </a>
+  </nav>
+
+</main>
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else { init(); }
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  // Calm Teal hue 200° 設計色系 → mermaid themeVariables 對齊 tokens.css
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    return {
+      startOnLoad: false,
+      securityLevel: 'loose',
+      fontFamily: 'DM Sans, Inter, Noto Sans TC, sans-serif',
+      theme: 'base',
+      themeVariables: isDark ? {
+        background: '#2a2520',
+        primaryColor: '#1f3a4a',
+        primaryTextColor: '#e8e6e1',
+        primaryBorderColor: '#5a8499',
+        lineColor: '#7a8a8f',
+        secondaryColor: '#2d3a32',
+        tertiaryColor: '#3a3528',
+        nodeBorder: '#5a8499',
+        clusterBkg: '#252523',
+        clusterBorder: '#4a4944',
+        edgeLabelBackground: '#2a2520',
+        textColor: '#e8e6e1',
+      } : {
+        background: '#fdfcfa',
+        primaryColor: '#cffafe',
+        primaryTextColor: '#1a1a18',
+        primaryBorderColor: '#0891b2',
+        lineColor: '#4a6873',
+        secondaryColor: '#dcfce7',
+        tertiaryColor: '#fef3c7',
+        nodeBorder: '#0891b2',
+        clusterBkg: '#f5f3ee',
+        clusterBorder: '#d4d2cd',
+        edgeLabelBackground: '#fdfcfa',
+        textColor: '#1a1a18',
+      },
+    };
+  }
+  mermaid.initialize(getMermaidConfig());
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => mermaid.run());
+  } else {
+    mermaid.run();
+  }
+  window.addEventListener('jhsun:theme-changed', () => {
+    document.querySelectorAll('.mermaid').forEach(el => {
+      const code = el.dataset.source || el.textContent;
+      if (!el.dataset.source) el.dataset.source = code;
+      el.removeAttribute('data-processed');
+      el.innerHTML = el.dataset.source;
+    });
+    mermaid.initialize(getMermaidConfig());
+    mermaid.run();
+  });
+</script>
+</body>
+</html>

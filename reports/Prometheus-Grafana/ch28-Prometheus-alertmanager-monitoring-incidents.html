@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch28 · Alertmanager 自監控與 Incident Tools 整合 | Prometheus / Alertmanager / Grafana 完整教學</title>
+<style>
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --text-3xl: 44px;
+  --text-4xl: 64px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+  --container-narrow: 720px;
+  --container-wide: 1280px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80;
+  --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24;
+  --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171;
+  --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee;
+  --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  padding: 0;
+}
+.top-nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-soft);
+  padding: var(--space-3) var(--space-5);
+  display: flex; justify-content: space-between; align-items: center;
+  backdrop-filter: blur(8px);
+}
+.nav-links { display: flex; gap: var(--space-3); align-items: center; }
+.nav-links a {
+  color: var(--text-secondary); text-decoration: none;
+  font-size: var(--text-sm); padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm); transition: all 0.2s ease;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--color-primary-soft); }
+.nav-links a.disabled { color: var(--text-muted); cursor: not-allowed; pointer-events: none; }
+button[data-theme-toggle] {
+  background: var(--bg-muted); color: var(--text-primary);
+  border: 1px solid var(--border-soft);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+  cursor: pointer; font-size: var(--text-sm);
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-sans); transition: all 0.2s ease;
+}
+button[data-theme-toggle]:hover { background: var(--color-primary-soft); border-color: var(--color-primary); }
+.theme-icon { font-size: var(--text-md); }
+main { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-7) var(--space-5); }
+@media (min-width: 1024px) { main { max-width: 880px; } }
+.chapter-meta {
+  font-size: var(--text-sm); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: var(--space-3); font-family: var(--font-mono);
+}
+h1 {
+  font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 700;
+  line-height: 1.15; margin: 0 0 var(--space-4);
+  color: var(--text-primary); letter-spacing: -0.02em;
+}
+.subtitle {
+  font-size: var(--text-md); color: var(--text-secondary);
+  margin-bottom: var(--space-7); font-style: italic;
+  border-left: 3px solid var(--color-primary); padding-left: var(--space-4);
+}
+h2 {
+  font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600;
+  margin-top: var(--space-8); margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2); border-bottom: 2px solid var(--border-soft);
+  color: var(--text-primary);
+}
+h3 { font-size: var(--text-xl); font-weight: 600; margin-top: var(--space-6); margin-bottom: var(--space-3); color: var(--text-primary); }
+h4 { font-size: var(--text-md); font-weight: 600; margin-top: var(--space-5); margin-bottom: var(--space-2); color: var(--text-primary); }
+p { margin: var(--space-3) 0; }
+strong { color: var(--text-primary); font-weight: 600; }
+em { color: var(--text-secondary); }
+a {
+  color: var(--color-primary-text); text-decoration: underline;
+  text-decoration-color: var(--color-primary-soft);
+  text-underline-offset: 3px; transition: all 0.2s ease;
+}
+a:hover { color: var(--color-primary-hover); text-decoration-color: var(--color-primary); }
+code {
+  font-family: var(--font-mono); font-size: 0.92em;
+  background: var(--bg-code); padding: 0.15em 0.4em;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-soft);
+  color: var(--color-primary-text);
+}
+pre {
+  background: var(--bg-code); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  overflow-x: auto; font-size: var(--text-sm); line-height: 1.6;
+  margin: var(--space-4) 0;
+}
+pre code { background: transparent; border: none; padding: 0; color: var(--text-primary); }
+.callout {
+  margin: var(--space-5) 0; padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md); border-left: 4px solid;
+}
+.callout-title {
+  font-weight: 600; margin-bottom: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.callout.info { background: var(--color-info-soft); border-color: var(--color-info); }
+.callout.info .callout-title { color: var(--color-info); }
+.callout.success { background: var(--color-success-soft); border-color: var(--color-success); }
+.callout.success .callout-title { color: var(--color-success); }
+.callout.warning { background: var(--color-warning-soft); border-color: var(--color-warning); }
+.callout.warning .callout-title { color: var(--color-warning); }
+.callout.danger { background: var(--color-danger-soft); border-color: var(--color-danger); }
+.callout.danger .callout-title { color: var(--color-danger); }
+table {
+  width: 100%; border-collapse: collapse; margin: var(--space-5) 0;
+  font-size: var(--text-sm); background: var(--bg-surface);
+  border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-sm);
+}
+th, td { text-align: left; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); }
+th {
+  background: var(--bg-muted); font-weight: 600; color: var(--text-primary);
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg-muted); }
+ul, ol { padding-left: var(--space-5); margin: var(--space-3) 0; }
+li { margin: var(--space-2) 0; }
+li::marker { color: var(--color-primary); }
+.toc {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4) var(--space-5);
+  margin: var(--space-5) 0;
+}
+.toc-title {
+  font-weight: 600; font-size: var(--text-sm);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted); margin-bottom: var(--space-3);
+}
+.toc ul { list-style: none; padding-left: 0; }
+.toc li { margin: var(--space-1) 0; }
+.toc a { text-decoration: none; }
+.toc ul ul { padding-left: var(--space-4); }
+.card-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4); margin: var(--space-5) 0;
+}
+.card {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  transition: all 0.2s ease;
+}
+.card:hover { box-shadow: var(--shadow-md); border-color: var(--color-primary); transform: translateY(-2px); }
+.card-num { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-primary); font-weight: 600; }
+.card-title { font-weight: 600; font-size: var(--text-base); margin: var(--space-2) 0; color: var(--text-primary); }
+.card-desc { font-size: var(--text-sm); color: var(--text-secondary); }
+.mermaid {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-5);
+  margin: var(--space-5) 0; text-align: center; overflow-x: auto;
+}
+.footer-nav {
+  display: flex; justify-content: space-between;
+  margin-top: var(--space-8); padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft); gap: var(--space-3);
+}
+.footer-nav a {
+  flex: 1; padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); text-decoration: none;
+  color: var(--text-primary); transition: all 0.2s ease;
+}
+.footer-nav a:hover { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.footer-nav .nav-direction {
+  font-size: var(--text-xs); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.footer-nav .nav-title { font-weight: 600; margin-top: var(--space-1); }
+.footer-nav .next { text-align: right; }
+.footer-nav a.disabled { opacity: 0.4; pointer-events: none; }
+.tag {
+  display: inline-block; padding: 0.1em 0.6em; font-size: var(--text-xs);
+  border-radius: var(--radius-sm); font-family: var(--font-mono);
+  background: var(--bg-muted); color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+}
+.tag.primary { background: var(--color-primary-soft); color: var(--color-primary-text); border-color: var(--color-primary); }
+@media print { .top-nav, .footer-nav, button[data-theme-toggle] { display: none; } }
+</style>
+</head>
+<body>
+
+<nav class="top-nav">
+  <div class="nav-links">
+    <a href="ch27-Prometheus-alertmanager-advanced.html">← 上一章</a>
+    <a href="ch00-Overview-learning-path.html">📚 目錄</a>
+    <a href="ch29-Grafana-concepts-and-ecosystem.html">下一章 →</a>
+  </div>
+  <button data-theme-toggle aria-label="Toggle theme"></button>
+</nav>
+
+<main>
+  <div class="chapter-meta">Chapter 28 · 監控自身 + Incident Tools</div>
+  <h1>Alertmanager 自監控與 Incident Tools 整合</h1>
+  <p class="subtitle">
+    Alertmanager 是您的「告警基礎設施」——若它自己掛了，您不會收到任何告警。本章涵蓋 self-monitoring
+    必設的 alert、與業界主流的 incident management 工具整合：PagerDuty、Grafana OnCall、incident.io、FireHydrant。
+    這是 Part 2 Alertmanager 的收官。
+  </p>
+
+  <div class="toc">
+    <div class="toc-title">本章內容</div>
+    <ul>
+      <li><a href="#section-1">§ 1. 為什麼需要監控告警系統自己</a></li>
+      <li><a href="#section-2">§ 2. Prometheus 端的自監控</a></li>
+      <li><a href="#section-3">§ 3. Alertmanager 端的自監控</a></li>
+      <li><a href="#section-4">§ 4. 「Watchdog Alert」機制</a></li>
+      <li><a href="#section-5">§ 5. Dead Man's Switch（外部監控）</a></li>
+      <li><a href="#section-6">§ 6. Incident Tools 全景</a></li>
+      <li><a href="#section-7">§ 7. PagerDuty 完整整合</a></li>
+      <li><a href="#section-8">§ 8. Grafana OnCall</a></li>
+      <li><a href="#section-9">§ 9. incident.io / FireHydrant</a></li>
+      <li><a href="#section-10">§ 10. Incident response 工作流</a></li>
+    </ul>
+  </div>
+
+  <h2 id="section-1">§ 1. 為什麼需要監控告警系統自己</h2>
+
+  <div class="callout danger">
+    <div class="callout-title">🚨 你的告警系統壞了，誰告訴你？</div>
+    <p>
+      想像：Alertmanager 進入死循環無法發通知，<strong>但您看不到任何 alert</strong>。
+      第二天您接到客戶電話：「為什麼我們的服務掛了 10 小時你們不知道？」<br>
+      告警系統的可靠性 = 整體可靠性的<strong>上限</strong>。
+    </p>
+  </div>
+
+  <h3>1.1 三層監控</h3>
+
+  <p>完整的告警基礎設施需要三層觀察：</p>
+
+  <table>
+    <thead>
+      <tr><th>層</th><th>觀察什麼</th><th>機制</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>內部 metrics</strong></td>
+        <td>Prometheus / AM 自己暴露的 metric</td>
+        <td>另一個 Prometheus 抓 + alert</td>
+      </tr>
+      <tr>
+        <td><strong>Watchdog Alert</strong></td>
+        <td>定期 firing 的測試 alert，驗證整個 pipeline</td>
+        <td>內部</td>
+      </tr>
+      <tr>
+        <td><strong>Dead Man's Switch</strong></td>
+        <td>外部系統定期 receive AM 通知，沒收到就警告</td>
+        <td>第三方（PagerDuty Heartbeat 等）</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="section-2">§ 2. Prometheus 端的自監控</h2>
+
+  <p>Prometheus 自己暴露大量 metric，最關鍵的告警相關：</p>
+
+  <h3>2.1 Prometheus 必設告警</h3>
+
+  <pre><code>groups:
+  - name: prometheus_self
+    rules:
+      # 1. Prometheus 自己掛了（最高優先）
+      - alert: PrometheusDown
+        expr: up{job="prometheus"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus instance {{ $labels.instance }} is down"
+
+      # 2. 重新載入設定失敗
+      - alert: PrometheusConfigReloadFailed
+        expr: prometheus_config_last_reload_successful == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus config reload failed"
+          description: "Last reload was unsuccessful. Check syntax."
+
+      # 3. 評估 rule 失敗
+      - alert: PrometheusRuleEvaluationFailures
+        expr: rate(prometheus_rule_evaluation_failures_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+
+      # 4. Rule 評估超時（rule 太重 / Prometheus 太忙）
+      - alert: PrometheusRuleGroupSlow
+        expr: |
+          prometheus_rule_group_last_duration_seconds
+          > prometheus_rule_group_interval_seconds
+        for: 15m
+        labels:
+          severity: warning
+
+      # 5. 通知 AM 失敗（連不上 / queue 滿）
+      - alert: PrometheusNotificationsToAlertmanagerFailing
+        expr: rate(prometheus_notifications_errors_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus failing to send alerts to Alertmanager"
+
+      # 6. 找不到 Alertmanager（discovery 失敗）
+      - alert: PrometheusAlertmanagerDiscoveryFailing
+        expr: rate(prometheus_notifications_dropped_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+
+      # 7. TSDB compaction 失敗（會導致磁碟爆）
+      - alert: PrometheusTSDBCompactionFailing
+        expr: rate(prometheus_tsdb_compactions_failed_total[2h]) > 0
+        for: 1h
+        labels:
+          severity: warning
+
+      # 8. Scrape 失敗率高
+      - alert: PrometheusTargetScrapeFailing
+        expr: |
+          sum by (job) (rate(prometheus_target_scrapes_sample_out_of_order_total[5m]))
+          > 0
+        for: 15m</code></pre>
+
+  <h2 id="section-3">§ 3. Alertmanager 端的自監控</h2>
+
+  <h3>3.1 Alertmanager 必設告警</h3>
+
+  <pre><code>groups:
+  - name: alertmanager_self
+    rules:
+      # 1. AM 自己掛了
+      - alert: AlertmanagerDown
+        expr: up{job="alertmanager"} == 0
+        for: 5m
+        labels:
+          severity: critical
+
+      # 2. Cluster 退化（副本數不對）
+      - alert: AlertmanagerClusterDegraded
+        expr: |
+          alertmanager_cluster_members
+          != on() count(up{job="alertmanager"} == 1)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AM cluster has {{ $value }} members, expected 3"
+
+      # 3. 設定載入失敗
+      - alert: AlertmanagerConfigInconsistent
+        expr: count by (service) (alertmanager_config_hash) != 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "AM cluster has inconsistent config"
+
+      # 4. 通知失敗
+      - alert: AlertmanagerNotificationsFailing
+        expr: |
+          rate(alertmanager_notifications_failed_total[5m])
+          / rate(alertmanager_notifications_total[5m])
+          > 0.1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $value | humanizePercentage }} notifications failing on {{ $labels.integration }}"
+
+      # 5. 通知延遲高
+      - alert: AlertmanagerNotificationsHighLatency
+        expr: |
+          histogram_quantile(0.99,
+            rate(alertmanager_notification_latency_seconds_bucket[5m])
+          ) > 30
+        for: 15m
+        labels:
+          severity: warning
+
+      # 6. Cluster gossip 不健康
+      - alert: AlertmanagerClusterPeersFailed
+        expr: alertmanager_cluster_failed_peers > 0
+        for: 10m
+        labels:
+          severity: warning
+
+      # 7. 接收太多 alert（可能有問題）
+      - alert: AlertmanagerAlertFloodingDetected
+        expr: rate(alertmanager_alerts_received_total[5m]) > 100
+        for: 15m
+        labels:
+          severity: warning</code></pre>
+
+  <h3>3.2 觀察的關鍵 metrics</h3>
+
+  <pre><code># 整體流量
+rate(alertmanager_alerts_received_total[5m])
+rate(alertmanager_notifications_total[5m])
+
+# 每個 receiver / integration 的延遲
+histogram_quantile(0.99,
+  rate(alertmanager_notification_latency_seconds_bucket[5m])
+)
+
+# Cluster 狀態
+alertmanager_cluster_members
+alertmanager_cluster_health_score      # 0=healthy, &gt;0=有問題
+
+# Silence 狀況
+alertmanager_silences{state="active"}
+
+# 設定 hash（cluster 所有 AM 應該一樣）
+alertmanager_config_hash</code></pre>
+
+  <h2 id="section-4">§ 4. 「Watchdog Alert」機制</h2>
+
+  <h3>4.1 概念</h3>
+
+  <p>
+    一條<strong>永遠 firing</strong> 的測試 alert，定期透過整個 pipeline。
+    如果某天您<strong>沒收到</strong> watchdog 通知，代表 pipeline 某環節壞了。
+  </p>
+
+  <h3>4.2 設定 Watchdog</h3>
+
+  <pre><code># Prometheus alerting rule
+- alert: Watchdog
+  annotations:
+    summary: |
+      This is a watchdog meant to ensure the alerting pipeline is functional.
+      You should always have this alert firing.
+  expr: vector(1)            # 永遠 = 1（永遠 firing）
+  labels:
+    severity: none</code></pre>
+
+  <p>用 <code>vector(1)</code> 這個 trick 讓 expr 永遠回傳值。</p>
+
+  <h3>4.3 Alertmanager 路由</h3>
+
+  <pre><code>route:
+  routes:
+    # Watchdog 走特殊 receiver
+    - matchers:
+        - alertname = "Watchdog"
+      receiver: 'watchdog'
+      group_wait: 0s
+      group_interval: 15s     # 每 15 秒就重發
+      repeat_interval: 15s    # 持續通知
+
+receivers:
+  - name: 'watchdog'
+    webhook_configs:
+      - url: 'https://heartbeat.example.com/alertmanager-watchdog'
+        send_resolved: false</code></pre>
+
+  <h3>4.4 Watchdog 接收端</h3>
+
+  <p>
+    您需要一個服務接收 watchdog webhook，並追蹤「最後收到的時間」。
+    若超過 N 分鐘沒收到，觸發外部告警（例如 PagerDuty heartbeat）。
+  </p>
+
+  <pre><code># 簡易實作（Python）
+from flask import Flask, request
+import time
+
+app = Flask(__name__)
+last_received = {"timestamp": 0}
+
+@app.route('/alertmanager-watchdog', methods=['POST'])
+def watchdog():
+    last_received["timestamp"] = time.time()
+    return 'OK', 200
+
+@app.route('/health')
+def health():
+    age = time.time() - last_received["timestamp"]
+    if age > 300:    # 超過 5 分鐘沒收到
+        return f"Watchdog stale: {age}s ago", 503
+    return f"OK: {age}s ago", 200</code></pre>
+
+  <p>用另一個監控（如 BetterUptime / Pingdom）打 <code>/health</code>，503 時通知。</p>
+
+  <h2 id="section-5">§ 5. Dead Man's Switch（外部監控）</h2>
+
+  <p>
+    更高層次的保險：用<strong>第三方</strong>服務驗證 AM pipeline。
+    如果整個內部監控掛了（IaaS 出問題、DC 斷電），第三方仍能告訴您。
+  </p>
+
+  <h3>5.1 PagerDuty Heartbeat</h3>
+
+  <pre><code># Watchdog receiver 改成發到 PagerDuty Heartbeat URL
+receivers:
+  - name: 'pd-heartbeat'
+    webhook_configs:
+      - url: 'https://events.pagerduty.com/v2/enqueue'
+        send_resolved: false
+        http_config:
+          # 用 PagerDuty 的 Heartbeat integration key
+        # 但通常更簡單的是直接 HTTP POST：
+      - url: 'https://heartbeat.example.com/<your-heartbeat-id>'</code></pre>
+
+  <p>PD 設定：建立一個「Heartbeat」服務，預期每分鐘收到一次 ping。沒收到就 page on-call。</p>
+
+  <h3>5.2 第三方 Dead Man's Switch 服務</h3>
+
+  <ul>
+    <li><a href="https://deadmanssnitch.com/" target="_blank" rel="noopener">Dead Man's Snitch</a></li>
+    <li><a href="https://healthchecks.io/" target="_blank" rel="noopener">Healthchecks.io</a>（開源 + SaaS）</li>
+    <li>PagerDuty 內建的 Heartbeat</li>
+    <li>Grafana Cloud 的 Synthetic Monitoring</li>
+  </ul>
+
+  <h3>5.3 完整自監控架構</h3>
+
+  <div class="mermaid">
+graph TB
+    subgraph Internal["內部"]
+        PROM[Prometheus]
+        AM[Alertmanager]
+        WATCHDOG[Watchdog Alert<br/>vector·1·]
+        WBR[Watchdog Receiver]
+
+        PROM --> WATCHDOG
+        WATCHDOG --> AM
+        AM --> WBR
+    end
+
+    subgraph External["外部 · 第三方"]
+        DMS[Dead Man's Switch<br/>healthchecks.io 等]
+        ON_CALL[On-call · SMS]
+    end
+
+    WBR -- HTTP ping<br/>每分鐘 --> DMS
+    DMS -- N 分鐘沒收到 --> ON_CALL
+</div>
+
+  <h2 id="section-6">§ 6. Incident Tools 全景</h2>
+
+  <p>
+    Alertmanager 把通知<strong>送出去</strong>，但接下來呢？
+    Incident Management 工具處理「<strong>告警變成事件後的工作流</strong>」：誰值班、escalation、post-mortem。
+  </p>
+
+  <h3>6.1 三類工具</h3>
+
+  <table>
+    <thead>
+      <tr><th>類別</th><th>核心能力</th><th>代表</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>傳統 Paging</strong></td>
+        <td>On-call schedule、escalation、SMS/電話</td>
+        <td>PagerDuty、OpsGenie、VictorOps</td>
+      </tr>
+      <tr>
+        <td><strong>Modern Incident Response</strong></td>
+        <td>整合 Slack 工作流、自動 status page、post-mortem</td>
+        <td>incident.io、FireHydrant、Rootly</td>
+      </tr>
+      <tr>
+        <td><strong>OSS / Self-Hosted</strong></td>
+        <td>類似上述但開源</td>
+        <td>Grafana OnCall、Cachet</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>6.2 對照表</h3>
+
+  <table>
+    <thead>
+      <tr><th>工具</th><th>類型</th><th>適用</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>PagerDuty</strong></td><td>Paging（最成熟）</td><td>需要 enterprise SLA</td></tr>
+      <tr><td><strong>OpsGenie</strong></td><td>Paging（Atlassian）</td><td>已用 Atlassian 全家桶</td></tr>
+      <tr><td><strong>Grafana OnCall</strong></td><td>OSS Paging</td><td>已用 Grafana stack</td></tr>
+      <tr><td><strong>incident.io</strong></td><td>Modern incident response</td><td>追求 Slack 工作流</td></tr>
+      <tr><td><strong>FireHydrant</strong></td><td>Modern</td><td>需要 status page + retro</td></tr>
+      <tr><td><strong>Rootly</strong></td><td>Modern</td><td>類似 incident.io</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="section-7">§ 7. PagerDuty 完整整合</h2>
+
+  <h3>7.1 PD 的核心概念</h3>
+
+  <ul>
+    <li><strong>Service</strong>：一個被監控的對象（一個 AM routing_key 對應一個 service）</li>
+    <li><strong>Escalation Policy</strong>：第 1 個 on-call 沒 ack？升級到下一個</li>
+    <li><strong>Schedule</strong>：誰這週值班</li>
+    <li><strong>Incident</strong>：alert firing 後產生的事件</li>
+    <li><strong>Notification Rule</strong>：on-call 自己設定如何被通知（SMS / email / call）</li>
+  </ul>
+
+  <h3>7.2 Escalation Policy 範例</h3>
+
+  <pre><code>Step 1 (0 分):  通知 primary on-call (SMS)
+Step 2 (5 分):  若沒 ack，加上 secondary on-call (電話)
+Step 3 (15 分): 加上 manager (電話 + email)
+Step 4 (30 分): 加上整個 team (Slack channel)</code></pre>
+
+  <h3>7.3 Alert → PD → Incident 流程</h3>
+
+  <div class="mermaid">
+sequenceDiagram
+    participant P as Prometheus
+    participant A as Alertmanager
+    participant PD as PagerDuty
+    participant ON as On-call
+
+    P->>A: alert firing
+    A->>PD: POST events API<br/>(routing_key)
+    PD->>PD: 建立 Incident
+    PD->>ON: SMS · App push
+    ON->>PD: Acknowledge
+    PD->>PD: 標記 Acknowledged
+    Note over PD,ON: 處理問題中...
+    P->>A: alert resolved
+    A->>PD: POST events API<br/>(event_action=resolve)
+    PD->>PD: Auto-Resolve Incident
+</div>
+
+  <h3>7.4 PD-Slack 雙向整合</h3>
+
+  <p>PD 在 Slack 中能：</p>
+
+  <ul>
+    <li>自動發訊息到 channel：「@alice has been paged for HighErrorRate」</li>
+    <li>讓人在 Slack 中 ack / resolve（按按鈕）</li>
+    <li>建立 Slack channel 給 incident 討論用</li>
+  </ul>
+
+  <p>設定：在 PagerDuty 安裝 Slack integration、為 service 啟用 Slack updates。</p>
+
+  <h3>7.5 PagerDuty Routing 進階</h3>
+
+  <p>同一個 service 可以有多個 integration（routing key）：</p>
+
+  <pre><code># Critical 走 PD-Critical 服務
+receivers:
+  - name: 'pd-critical'
+    pagerduty_configs:
+      - routing_key: '<critical-key>'
+
+  - name: 'pd-warning'
+    pagerduty_configs:
+      - routing_key: '<warning-key>'
+
+  - name: 'pd-database-team'
+    pagerduty_configs:
+      - routing_key: '<dba-key>'</code></pre>
+
+  <p>每個 routing_key 對應不同 PD service，可有<strong>各自的 escalation policy</strong>（critical 立即電話、warning 隔 30 分才升級）。</p>
+
+  <h2 id="section-8">§ 8. Grafana OnCall</h2>
+
+  <p>
+    <strong>Grafana OnCall</strong> 是 Grafana Labs 在 2022 年開源的 on-call management（基於 Amixr 收購）。
+    特色：免費、自架、跟 Grafana 深度整合。
+  </p>
+
+  <h3>8.1 主要能力</h3>
+
+  <ul>
+    <li>On-call schedule（rotation、override、shadow）</li>
+    <li>Escalation policy</li>
+    <li>多通知 channel（Slack、Telegram、Mobile App、Phone Call、SMS）</li>
+    <li>跟 Grafana datasource 整合（直接從 panel 觸發）</li>
+    <li>整合 Alertmanager（webhook receiver）</li>
+  </ul>
+
+  <h3>8.2 從 Alertmanager 接 Grafana OnCall</h3>
+
+  <pre><code># Alertmanager
+receivers:
+  - name: 'grafana-oncall'
+    webhook_configs:
+      - url: 'https://oncall.grafana.com/integrations/v1/alertmanager/<key>/'
+        send_resolved: true</code></pre>
+
+  <p>Grafana OnCall 收到 webhook 後，按其內建 escalation policy 通知 on-call。</p>
+
+  <h3>8.3 何時選 Grafana OnCall vs PagerDuty</h3>
+
+  <table>
+    <thead>
+      <tr><th>面向</th><th>Grafana OnCall</th><th>PagerDuty</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>價格</td><td>免費（OSS）/ 含在 Grafana Cloud</td><td>$21+/user/month</td></tr>
+      <tr><td>成熟度</td><td>2022 起，仍快速演進</td><td>10+ 年成熟</td></tr>
+      <tr><td>Mobile App</td><td>有但較陽春</td><td>業界最佳</td></tr>
+      <tr><td>Phone Call</td><td>需付費供應商（Twilio）</td><td>內建</td></tr>
+      <tr><td>已用 Grafana</td><td>★★★ 最好</td><td>仍可整合</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="section-9">§ 9. incident.io / FireHydrant</h2>
+
+  <p>
+    這兩個是「modern incident response」工具。它們<strong>不取代 PagerDuty</strong>，
+    而是處理「page 之後」的工作流——尤其是 Slack-centric 的事件管理。
+  </p>
+
+  <h3>9.1 incident.io 工作流範例</h3>
+
+  <ol>
+    <li>PD page 主 on-call</li>
+    <li>主 on-call 在 Slack 打 <code>/incident declare</code></li>
+    <li>incident.io 自動建一個 Slack channel <code>#inc-2026-05-02-api-down</code></li>
+    <li>Channel 中有 incident.io bot：<code>/inc severity major</code>、<code>/inc role assign commander @alice</code></li>
+    <li>自動更新 status page（顯示給 customer）</li>
+    <li>事件解決後，bot 自動：通知 stakeholder、產生 timeline、開啟 retrospective doc</li>
+  </ol>
+
+  <h3>9.2 與 Alertmanager 整合</h3>
+
+  <pre><code># 用 webhook 把 alert 送進 incident.io（產生 incident）
+receivers:
+  - name: 'incident-io'
+    webhook_configs:
+      - url: 'https://api.incident.io/v2/integrations/alertmanager/your-alert-source-id'
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /etc/alertmanager/secrets/incident-io-token
+        send_resolved: true</code></pre>
+
+  <h3>9.3 為什麼這類工具流行？</h3>
+
+  <p>
+    傳統 PD 解決「叫醒 on-call」，但 incident response 涉及更多——溝通、status update、post-mortem。
+    Modern tools 把這些<strong>標準化到 Slack 工作流</strong>，減少 incident 處理的人工成本。
+  </p>
+
+  <h2 id="section-10">§ 10. Incident response 工作流</h2>
+
+  <h3>10.1 完整端到端流程</h3>
+
+  <div class="mermaid">
+graph TB
+    PROM[Prometheus<br/>檢測指標異常]
+    AM[Alertmanager<br/>分組 · 路由]
+
+    SLACK[Slack channel<br/>通知 + 討論]
+    PD[PagerDuty<br/>page on-call]
+    INC[incident.io<br/>建立 incident]
+
+    ENG[On-call Engineer]
+    SP[Status Page<br/>對外溝通]
+    RM[Retrospective<br/>事後檢討]
+
+    PROM --> AM
+    AM --> SLACK
+    AM --> PD
+    AM --> INC
+
+    PD --> ENG
+    INC --> SLACK
+    INC --> SP
+    ENG --> SP
+
+    INC --> RM
+</div>
+
+  <h3>10.2 Severity 與工具對應</h3>
+
+  <table>
+    <thead>
+      <tr><th>Severity</th><th>動作</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>SEV-1（嚴重）</strong></td>
+        <td>PD page + Slack #incidents + incident.io 自動建 channel + 自動更新 status page</td>
+      </tr>
+      <tr>
+        <td><strong>SEV-2（重要）</strong></td>
+        <td>PD page + Slack channel</td>
+      </tr>
+      <tr>
+        <td><strong>SEV-3（警告）</strong></td>
+        <td>Slack 通知（不 page）</td>
+      </tr>
+      <tr>
+        <td><strong>SEV-4（資訊）</strong></td>
+        <td>只記錄到 dashboard，不通知</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>10.3 從 Alert 觸發整套工作流的範例設定</h3>
+
+  <pre><code>route:
+  receiver: 'default'
+
+  routes:
+    # SEV-1：page + Slack + incident.io
+    - matchers:
+        - severity = "critical"
+      group_wait: 10s
+      repeat_interval: 1h
+
+      routes:
+        # 同時送多個系統，全部 continue
+        - matchers: ['severity = "critical"']
+          receiver: 'pd-critical'
+          continue: true
+        - matchers: ['severity = "critical"']
+          receiver: 'slack-incidents'
+          continue: true
+        - matchers: ['severity = "critical"']
+          receiver: 'incident-io'
+
+    # SEV-2/3：只通知，不 page
+    - matchers:
+        - severity =~ "warning|info"
+      receiver: 'slack-team-{{ .CommonLabels.team }}'</code></pre>
+
+  <h3>10.4 Post-Mortem 文化</h3>
+
+  <p>每個 SEV-1/2 事件都該寫 post-mortem：</p>
+
+  <ul>
+    <li><strong>What happened</strong>：時間軸、影響範圍</li>
+    <li><strong>Root cause</strong>：5 Whys 分析</li>
+    <li><strong>Detection</strong>：怎麼發現的？花了多久？</li>
+    <li><strong>Resolution</strong>：怎麼修的？</li>
+    <li><strong>Action items</strong>：避免再次發生</li>
+    <li><strong>Lessons learned</strong></li>
+  </ul>
+
+  <p>incident.io / FireHydrant 都會自動產生 post-mortem template + timeline。</p>
+
+  <h2>📚 延伸閱讀</h2>
+
+  <ul>
+    <li><a href="https://prometheus.io/docs/prometheus/latest/management_api/" target="_blank" rel="noopener">Prometheus Self-Monitoring metrics</a></li>
+    <li><a href="https://github.com/prometheus-community/prometheus-self-monitoring" target="_blank" rel="noopener">Prometheus self-monitoring rules（社群）</a></li>
+    <li><a href="https://www.pagerduty.com/blog/" target="_blank" rel="noopener">PagerDuty Engineering Blog</a></li>
+    <li><a href="https://grafana.com/docs/oncall/latest/" target="_blank" rel="noopener">Grafana OnCall 文件</a></li>
+    <li><a href="https://incident.io/guide/incident-management" target="_blank" rel="noopener">incident.io: Incident Management Guide</a></li>
+    <li><a href="https://sre.google/sre-book/postmortem-culture/" target="_blank" rel="noopener">Google SRE Book: Postmortem Culture</a></li>
+  </ul>
+
+  <h2>✅ 本章重點摘要</h2>
+
+  <div class="callout success">
+    <div class="callout-title">30 秒回顧</div>
+    <ul>
+      <li>三層自監控：<strong>內部 metrics + Watchdog Alert + Dead Man's Switch（外部）</strong></li>
+      <li>Prometheus 必設告警：down / config reload / rule eval / notification 失敗</li>
+      <li>Alertmanager 必設告警：down / cluster degraded / config inconsistent / notification failed</li>
+      <li><strong>Watchdog</strong>：永遠 firing 的 alert（用 <code>vector(1)</code>）+ webhook receiver 確認 pipeline 通</li>
+      <li><strong>Dead Man's Switch</strong>：第三方服務（PD Heartbeat / healthchecks.io）監控 watchdog</li>
+      <li>Incident tools 三類：傳統 paging（PD/OpsGenie）、modern（incident.io）、OSS（Grafana OnCall）</li>
+      <li>PagerDuty 核心：Service + Escalation Policy + Schedule</li>
+      <li><strong>Grafana OnCall</strong>：免費 OSS 替代 PD，Grafana 環境的好選擇</li>
+      <li><strong>incident.io / FireHydrant</strong>：管「page 之後」的 Slack 工作流 + status page + post-mortem</li>
+      <li>SEV-1 工作流：PD page + Slack + 自動 incident channel + status page</li>
+    </ul>
+  </div>
+
+  <h2>📝 練習題</h2>
+
+  <ol>
+    <li>請為您的 Prometheus 與 Alertmanager 寫至少 6 條 self-monitoring alert，每條都要 severity 與 description。</li>
+    <li>解釋 Watchdog Alert 與 Dead Man's Switch 的差別。為什麼兩者都需要？</li>
+    <li>實作一個簡單的 Watchdog receiver server（Python/Go），追蹤最後收到時間並暴露 health endpoint。</li>
+    <li>下面情境選擇哪個 incident tool？(a) 5 人新創、預算極緊、已用 Grafana；(b) 200 人公司、追求 Slack 工作流；(c) 1000 人企業、需要嚴格 SLA。</li>
+    <li>設計一個 SEV-1 完整工作流：從 alert firing 到 post-mortem 完成，每一步用什麼工具、誰負責？</li>
+  </ol>
+
+  <nav class="footer-nav">
+    <a href="ch27-Prometheus-alertmanager-advanced.html">
+      <div class="nav-direction">← 上一章</div>
+      <div class="nav-title">Ch 27 · Alertmanager 進階</div>
+    </a>
+    <a class="next" href="ch29-Grafana-concepts-and-ecosystem.html">
+      <div class="nav-direction">下一章 →</div>
+      <div class="nav-title">Ch 29 · Grafana OSS 概念</div>
+    </a>
+  </nav>
+
+</main>
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else { init(); }
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  // Calm Teal hue 200° 設計色系 → mermaid themeVariables 對齊 tokens.css
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    return {
+      startOnLoad: false,
+      securityLevel: 'loose',
+      fontFamily: 'DM Sans, Inter, Noto Sans TC, sans-serif',
+      theme: 'base',
+      themeVariables: isDark ? {
+        background: '#2a2520',
+        primaryColor: '#1f3a4a',
+        primaryTextColor: '#e8e6e1',
+        primaryBorderColor: '#5a8499',
+        lineColor: '#7a8a8f',
+        secondaryColor: '#2d3a32',
+        tertiaryColor: '#3a3528',
+        nodeBorder: '#5a8499',
+        clusterBkg: '#252523',
+        clusterBorder: '#4a4944',
+        edgeLabelBackground: '#2a2520',
+        textColor: '#e8e6e1',
+      } : {
+        background: '#fdfcfa',
+        primaryColor: '#cffafe',
+        primaryTextColor: '#1a1a18',
+        primaryBorderColor: '#0891b2',
+        lineColor: '#4a6873',
+        secondaryColor: '#dcfce7',
+        tertiaryColor: '#fef3c7',
+        nodeBorder: '#0891b2',
+        clusterBkg: '#f5f3ee',
+        clusterBorder: '#d4d2cd',
+        edgeLabelBackground: '#fdfcfa',
+        textColor: '#1a1a18',
+      },
+    };
+  }
+  mermaid.initialize(getMermaidConfig());
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => mermaid.run());
+  } else {
+    mermaid.run();
+  }
+  window.addEventListener('jhsun:theme-changed', () => {
+    document.querySelectorAll('.mermaid').forEach(el => {
+      const code = el.dataset.source || el.textContent;
+      if (!el.dataset.source) el.dataset.source = code;
+      el.removeAttribute('data-processed');
+      el.innerHTML = el.dataset.source;
+    });
+    mermaid.initialize(getMermaidConfig());
+    mermaid.run();
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch17 · Federation 與 Remote Storage | Prometheus / Alertmanager / Grafana 完整教學</title>
+<style>
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --text-3xl: 44px;
+  --text-4xl: 64px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+  --container-narrow: 720px;
+  --container-wide: 1280px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80;
+  --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24;
+  --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171;
+  --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee;
+  --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  padding: 0;
+}
+.top-nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-soft);
+  padding: var(--space-3) var(--space-5);
+  display: flex; justify-content: space-between; align-items: center;
+  backdrop-filter: blur(8px);
+}
+.nav-links { display: flex; gap: var(--space-3); align-items: center; }
+.nav-links a {
+  color: var(--text-secondary); text-decoration: none;
+  font-size: var(--text-sm); padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm); transition: all 0.2s ease;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--color-primary-soft); }
+.nav-links a.disabled { color: var(--text-muted); cursor: not-allowed; pointer-events: none; }
+button[data-theme-toggle] {
+  background: var(--bg-muted); color: var(--text-primary);
+  border: 1px solid var(--border-soft);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+  cursor: pointer; font-size: var(--text-sm);
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-sans); transition: all 0.2s ease;
+}
+button[data-theme-toggle]:hover { background: var(--color-primary-soft); border-color: var(--color-primary); }
+.theme-icon { font-size: var(--text-md); }
+main { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-7) var(--space-5); }
+@media (min-width: 1024px) { main { max-width: 880px; } }
+.chapter-meta {
+  font-size: var(--text-sm); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: var(--space-3); font-family: var(--font-mono);
+}
+h1 {
+  font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 700;
+  line-height: 1.15; margin: 0 0 var(--space-4);
+  color: var(--text-primary); letter-spacing: -0.02em;
+}
+.subtitle {
+  font-size: var(--text-md); color: var(--text-secondary);
+  margin-bottom: var(--space-7); font-style: italic;
+  border-left: 3px solid var(--color-primary); padding-left: var(--space-4);
+}
+h2 {
+  font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600;
+  margin-top: var(--space-8); margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2); border-bottom: 2px solid var(--border-soft);
+  color: var(--text-primary);
+}
+h3 { font-size: var(--text-xl); font-weight: 600; margin-top: var(--space-6); margin-bottom: var(--space-3); color: var(--text-primary); }
+h4 { font-size: var(--text-md); font-weight: 600; margin-top: var(--space-5); margin-bottom: var(--space-2); color: var(--text-primary); }
+p { margin: var(--space-3) 0; }
+strong { color: var(--text-primary); font-weight: 600; }
+em { color: var(--text-secondary); }
+a {
+  color: var(--color-primary-text); text-decoration: underline;
+  text-decoration-color: var(--color-primary-soft);
+  text-underline-offset: 3px; transition: all 0.2s ease;
+}
+a:hover { color: var(--color-primary-hover); text-decoration-color: var(--color-primary); }
+code {
+  font-family: var(--font-mono); font-size: 0.92em;
+  background: var(--bg-code); padding: 0.15em 0.4em;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-soft);
+  color: var(--color-primary-text);
+}
+pre {
+  background: var(--bg-code); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  overflow-x: auto; font-size: var(--text-sm); line-height: 1.6;
+  margin: var(--space-4) 0;
+}
+pre code { background: transparent; border: none; padding: 0; color: var(--text-primary); }
+.callout {
+  margin: var(--space-5) 0; padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md); border-left: 4px solid;
+}
+.callout-title {
+  font-weight: 600; margin-bottom: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.callout.info { background: var(--color-info-soft); border-color: var(--color-info); }
+.callout.info .callout-title { color: var(--color-info); }
+.callout.success { background: var(--color-success-soft); border-color: var(--color-success); }
+.callout.success .callout-title { color: var(--color-success); }
+.callout.warning { background: var(--color-warning-soft); border-color: var(--color-warning); }
+.callout.warning .callout-title { color: var(--color-warning); }
+.callout.danger { background: var(--color-danger-soft); border-color: var(--color-danger); }
+.callout.danger .callout-title { color: var(--color-danger); }
+table {
+  width: 100%; border-collapse: collapse; margin: var(--space-5) 0;
+  font-size: var(--text-sm); background: var(--bg-surface);
+  border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-sm);
+}
+th, td { text-align: left; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); }
+th {
+  background: var(--bg-muted); font-weight: 600; color: var(--text-primary);
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg-muted); }
+ul, ol { padding-left: var(--space-5); margin: var(--space-3) 0; }
+li { margin: var(--space-2) 0; }
+li::marker { color: var(--color-primary); }
+.toc {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4) var(--space-5);
+  margin: var(--space-5) 0;
+}
+.toc-title {
+  font-weight: 600; font-size: var(--text-sm);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted); margin-bottom: var(--space-3);
+}
+.toc ul { list-style: none; padding-left: 0; }
+.toc li { margin: var(--space-1) 0; }
+.toc a { text-decoration: none; }
+.toc ul ul { padding-left: var(--space-4); }
+.card-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4); margin: var(--space-5) 0;
+}
+.card {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  transition: all 0.2s ease;
+}
+.card:hover { box-shadow: var(--shadow-md); border-color: var(--color-primary); transform: translateY(-2px); }
+.card-num { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-primary); font-weight: 600; }
+.card-title { font-weight: 600; font-size: var(--text-base); margin: var(--space-2) 0; color: var(--text-primary); }
+.card-desc { font-size: var(--text-sm); color: var(--text-secondary); }
+.mermaid {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-5);
+  margin: var(--space-5) 0; text-align: center; overflow-x: auto;
+}
+.footer-nav {
+  display: flex; justify-content: space-between;
+  margin-top: var(--space-8); padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft); gap: var(--space-3);
+}
+.footer-nav a {
+  flex: 1; padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); text-decoration: none;
+  color: var(--text-primary); transition: all 0.2s ease;
+}
+.footer-nav a:hover { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.footer-nav .nav-direction {
+  font-size: var(--text-xs); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.footer-nav .nav-title { font-weight: 600; margin-top: var(--space-1); }
+.footer-nav .next { text-align: right; }
+.footer-nav a.disabled { opacity: 0.4; pointer-events: none; }
+.tag {
+  display: inline-block; padding: 0.1em 0.6em; font-size: var(--text-xs);
+  border-radius: var(--radius-sm); font-family: var(--font-mono);
+  background: var(--bg-muted); color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+}
+.tag.primary { background: var(--color-primary-soft); color: var(--color-primary-text); border-color: var(--color-primary); }
+@media print { .top-nav, .footer-nav, button[data-theme-toggle] { display: none; } }
+</style>
+</head>
+<body>
+
+<nav class="top-nav">
+  <div class="nav-links">
+    <a href="ch16-Prometheus-storage-tsdb.html">← 上一章</a>
+    <a href="ch00-Overview-learning-path.html">📚 目錄</a>
+    <a href="ch18-Prometheus-exporters-survey.html">下一章 →</a>
+  </div>
+  <button data-theme-toggle aria-label="Toggle theme"></button>
+</nav>
+
+<main>
+  <div class="chapter-meta">Chapter 17 · Federation / Remote Storage</div>
+  <h1>Federation 與 Remote Storage 全攻略</h1>
+  <p class="subtitle">
+    單一 Prometheus 在 ~10M active series 後就會吃力。
+    解決方案有兩條路：<strong>Federation</strong>（讓多個 Prometheus 形成階層）
+    與 <strong>Remote Storage</strong>（把資料推到 Mimir/Thanos/VictoriaMetrics 等長期儲存）。
+    本章教您兩者的時機、架構、設定與選型。
+  </p>
+
+  <div class="toc">
+    <div class="toc-title">本章內容</div>
+    <ul>
+      <li><a href="#section-1">§ 1. 為什麼單機 Prometheus 不夠</a></li>
+      <li><a href="#section-2">§ 2. Federation 概念與兩種模式</a></li>
+      <li><a href="#section-3">§ 3. Hierarchical Federation 設定</a></li>
+      <li><a href="#section-4">§ 4. Cross-Service Federation</a></li>
+      <li><a href="#section-5">§ 5. Federation 的限制</a></li>
+      <li><a href="#section-6">§ 6. Remote Write：架構與運作</a></li>
+      <li><a href="#section-7">§ 7. Remote Write 設定深度</a></li>
+      <li><a href="#section-8">§ 8. Remote Read 與其替代</a></li>
+      <li><a href="#section-9">§ 9. 長期儲存方案選型</a></li>
+      <li><a href="#section-10">§ 10. 整合範例：Prometheus + Mimir</a></li>
+      <li><a href="#section-11">§ 11. 常見問題與最佳實踐</a></li>
+    </ul>
+  </div>
+
+  <h2 id="section-1">§ 1. 為什麼單機 Prometheus 不夠</h2>
+
+  <p>單一 Prometheus 達到以下情境就需要擴展：</p>
+
+  <table>
+    <thead>
+      <tr><th>瓶頸</th><th>典型門檻</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Active series</td><td>單機 ~10M（取決於 RAM）</td></tr>
+      <tr><td>Ingestion rate</td><td>~1M samples/sec（單核）</td></tr>
+      <tr><td>磁碟 retention</td><td>本地 30-60 天就吃掉 TB 級磁碟</td></tr>
+      <tr><td>查詢效能</td><td>跨 30+ 天查詢開始痛苦</td></tr>
+      <tr><td>HA 需求</td><td>單實例 = 單點故障</td></tr>
+      <tr><td>多租戶</td><td>原生不支援</td></tr>
+    </tbody>
+  </table>
+
+  <h3>1.1 兩條擴展路線</h3>
+
+  <table>
+    <thead>
+      <tr><th>方案</th><th>適用</th><th>複雜度</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Federation</strong></td>
+        <td>跨 Prometheus 集中查 / 跨 cluster 看總覽</td>
+        <td>★★（純 Prometheus 即可）</td>
+      </tr>
+      <tr>
+        <td><strong>Remote Storage</strong></td>
+        <td>長期儲存、HA、多租戶、超大規模</td>
+        <td>★★★（要部署 Mimir/Thanos）</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="section-2">§ 2. Federation 概念與兩種模式</h2>
+
+  <p>
+    Federation 的核心：<strong>讓一個 Prometheus 從另一個 Prometheus 抓 metric</strong>。
+    它就像「Prometheus 之間的 scraping」，使用特殊的 <code>/federate</code> endpoint。
+  </p>
+
+  <h3>2.1 兩種典型模式</h3>
+
+  <h4>模式 A：Hierarchical（階層式）</h4>
+
+  <p>多個 cluster-level Prometheus → 一個 global Prometheus。</p>
+
+  <div class="mermaid">
+graph TB
+    subgraph Cluster1["Cluster TW"]
+        P1[Prometheus TW<br/>抓本地 targets]
+    end
+    subgraph Cluster2["Cluster JP"]
+        P2[Prometheus JP<br/>抓本地 targets]
+    end
+    subgraph Cluster3["Cluster US"]
+        P3[Prometheus US<br/>抓本地 targets]
+    end
+    GLOBAL[Global Prometheus<br/>用 federation 抓<br/>各 cluster 的彙整]
+
+    P1 -. /federate .-> GLOBAL
+    P2 -. /federate .-> GLOBAL
+    P3 -. /federate .-> GLOBAL
+
+    GLOBAL --> G[Grafana<br/>跨 cluster dashboard]
+</div>
+
+  <h4>模式 B：Cross-Service（跨服務）</h4>
+
+  <p>一個 Prometheus 從另一個拿特定 metric（同等級）。少見，多被 Mimir/Thanos 取代。</p>
+
+  <h2 id="section-3">§ 3. Hierarchical Federation 設定</h2>
+
+  <h3>3.1 Source Prometheus（被抓的）</h3>
+
+  <p>不需要特別設定，<code>/federate</code> endpoint 預設啟用。但<strong>強烈建議用 recording rules 預先聚合</strong>：</p>
+
+  <pre><code># cluster-level Prometheus 的 recording rules
+groups:
+  - name: federation_aggregations
+    interval: 30s
+    rules:
+      # 聚合掉高基數 label，只保留 cluster/job 級別
+      - record: cluster_job:http_requests:rate5m
+        expr: sum by (cluster, job, status)(rate(http_requests_total[5m]))
+
+      - record: cluster_job:cpu_usage:avg
+        expr: avg by (cluster, job)(rate(node_cpu_seconds_total{mode!="idle"}[5m]))</code></pre>
+
+  <h3>3.2 Global Prometheus（拉取者）</h3>
+
+  <pre><code># global prometheus.yml
+scrape_configs:
+  - job_name: 'federate'
+    scrape_interval: 30s
+    honor_labels: true             # ← 必設！保留 source 的 job/instance label
+    metrics_path: '/federate'
+
+    params:
+      'match[]':                   # 要拉哪些 series
+        - '{__name__=~"cluster_job:.+"}'      # 只拉 recording rule 結果
+        - '{__name__="up", job="prometheus"}' # 拉 up metric
+        - '{job="kubernetes-cadvisor"}'       # 整個 job
+
+    static_configs:
+      - targets:
+          - 'prometheus-tw.example.com:9090'
+        labels:
+          source_cluster: tw
+      - targets:
+          - 'prometheus-jp.example.com:9090'
+        labels:
+          source_cluster: jp</code></pre>
+
+  <h3>3.3 重要設定解析</h3>
+
+  <table>
+    <thead>
+      <tr><th>設定</th><th>意義</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>honor_labels: true</code></td>
+        <td>關鍵！保留 source Prometheus 已經設好的 job/instance label，否則會被改成 <code>exported_job</code></td>
+      </tr>
+      <tr>
+        <td><code>match[]</code></td>
+        <td>用 PromQL selector 語法挑選要拉的 series；<strong>務必精確</strong>，不要 <code>{__name__=~".+"}</code> 全拉</td>
+      </tr>
+      <tr>
+        <td><code>scrape_interval</code></td>
+        <td>建議大於 source 的 interval（例：source 15s、federation 30s）</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>3.4 測試 federation endpoint</h3>
+
+  <pre><code># 直接用 curl 看 source Prometheus 會吐什麼
+curl -G http://prometheus-tw.example.com:9090/federate \
+  --data-urlencode 'match[]={__name__=~"cluster_job:.+"}' \
+  --data-urlencode 'match[]={job="prometheus"}'</code></pre>
+
+  <h2 id="section-4">§ 4. Cross-Service Federation</h2>
+
+  <p>
+    某個服務的 Prometheus 想看「另一個服務的某個 metric」（少見，但偶爾用於跨團隊整合）：
+  </p>
+
+  <pre><code># Service A 的 Prometheus 拉 Service B 的特定 metric
+scrape_configs:
+  - job_name: 'service-b-shared-metrics'
+    honor_labels: true
+    metrics_path: '/federate'
+    params:
+      'match[]':
+        - '{__name__="b_service_health_score"}'
+        - '{__name__="b_service_cost_per_request"}'
+    static_configs:
+      - targets: ['prometheus-service-b:9090']</code></pre>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ Cross-Service Federation 通常不是好主意</div>
+    <p>
+      它建立服務間耦合（B Prometheus 掛了 A 也少了資料）。<br>
+      更好的做法是<strong>共用一個 remote storage</strong>，所有服務寫入同個後端，所有 Grafana 從那查。
+    </p>
+  </div>
+
+  <h2 id="section-5">§ 5. Federation 的限制</h2>
+
+  <p>Federation 看似簡單，但有以下重要限制：</p>
+
+  <div class="callout danger">
+    <div class="callout-title">🚨 Federation 的 5 個天生限制</div>
+    <ol>
+      <li>
+        <strong>不能傳遞所有資料</strong>：每個 federation request 預設限制 <code>--web.max-connections</code>，
+        且整個 response 是一個 HTTP body，太大會失敗。實務上單次能拉 5-10 萬條 series 已是上限。
+      </li>
+      <li>
+        <strong>會有採樣對齊問題</strong>：global Prometheus 每 30s 抓一次，若 source 是 15s 採樣，會「跳格」遺失資料點。
+      </li>
+      <li>
+        <strong>不適合「拉所有 raw data」</strong>：應只拉 recording rule 結果，不要拉原始 metric。
+      </li>
+      <li>
+        <strong>HA 不友善</strong>：兩個 global Prometheus 各自做一份 federation，重複計算。
+      </li>
+      <li>
+        <strong>查詢仍受限於 global Prometheus 容量</strong>：如果 global 也撐不住，問題沒解。
+      </li>
+    </ol>
+  </div>
+
+  <p>
+    這些限制讓 federation 適合「<strong>跨 cluster 看 summary dashboard</strong>」，
+    不適合「全公司統一存儲查詢平台」（後者該用 remote storage）。
+  </p>
+
+  <h2 id="section-6">§ 6. Remote Write：架構與運作</h2>
+
+  <h3>6.1 概念圖</h3>
+
+  <div class="mermaid">
+graph LR
+    subgraph PromCluster["每個 Prometheus 實例"]
+        SCRAPE[Scrape]
+        TSDB[本地 TSDB<br/>retention 短期 ~7d]
+        QUEUE[Remote Write Queue<br/>記憶體佇列]
+        SCRAPE --> TSDB
+        TSDB --> QUEUE
+    end
+
+    subgraph LongTerm["長期儲存"]
+        LB[Load Balancer]
+        BACKEND[Mimir / Thanos /<br/>VictoriaMetrics /<br/>Cortex]
+        LB --> BACKEND
+    end
+
+    QUEUE -- HTTP POST<br/>protobuf+snappy --> LB
+    BACKEND --> GRAFANA[Grafana<br/>查歷史]
+</div>
+
+  <h3>6.2 運作流程</h3>
+
+  <ol>
+    <li>Prometheus 把 sample 寫入本地 TSDB（保留短期，例 7 天）</li>
+    <li>同時，每個 sample 進入記憶體中的 remote write queue</li>
+    <li>Queue 按 batch 累積 sample（預設 500 個或 5 秒）</li>
+    <li>批次 protobuf 編碼 + Snappy 壓縮，HTTP POST 到後端</li>
+    <li>後端回 200 = 成功；429 = 限流（Prometheus 退避重試）；其他錯誤 = 重試或丟棄</li>
+  </ol>
+
+  <h3>6.3 與 Federation 的差別</h3>
+
+  <table>
+    <thead>
+      <tr><th>面向</th><th>Federation</th><th>Remote Write</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>方向</td><td>Pull（global 主動拉）</td><td>Push（Prometheus 主動推）</td></tr>
+      <tr><td>頻率</td><td>定期（30s 一次）</td><td>串流（持續推）</td></tr>
+      <tr><td>資料量</td><td>受限於 HTTP response</td><td>無上限（按佇列調配）</td></tr>
+      <tr><td>後端</td><td>必須是另一個 Prometheus</td><td>任何相容 Remote Write API 的服務</td></tr>
+      <tr><td>長期儲存</td><td>不適合</td><td>主要用途</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="section-7">§ 7. Remote Write 設定深度</h2>
+
+  <h3>7.1 完整設定範例</h3>
+
+  <pre><code>remote_write:
+  - url: 'https://mimir.example.com/api/v1/push'
+    name: 'mimir-prod'
+    remote_timeout: 30s
+
+    # 多租戶（Mimir/Cortex）
+    headers:
+      X-Scope-OrgID: 'tenant-platform'
+
+    # 認證
+    basic_auth:
+      username: 'prometheus'
+      password_file: '/etc/prometheus/secrets/mimir-pass'
+
+    # TLS
+    tls_config:
+      ca_file: '/etc/prometheus/ca.pem'
+      insecure_skip_verify: false
+
+    # 過濾要送的 series
+    write_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'go_(gc|memstats)_.*'
+        action: drop
+
+    # 佇列調校（很重要！）
+    queue_config:
+      capacity: 10000              # 記憶體中佇列大小
+      max_shards: 30               # 並發送出的 shard 數
+      min_shards: 1
+      max_samples_per_send: 2000   # 一次 batch 多少 sample
+      batch_send_deadline: 5s      # 多久強制 flush
+      min_backoff: 30ms
+      max_backoff: 5s
+      retry_on_http_429: true      # 429 時重試（建議啟用）
+
+    # 啟用 RW 2.0（v2.50+ experimental）
+    protobuf_message: 'io.prometheus.write.v2.Request'</code></pre>
+
+  <h3>7.2 Queue 調校關鍵參數</h3>
+
+  <table>
+    <thead>
+      <tr><th>參數</th><th>預設</th><th>調整時機</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>capacity</code></td>
+        <td>10000</td>
+        <td>後端慢時加大避免 sample 丟失</td>
+      </tr>
+      <tr>
+        <td><code>max_shards</code></td>
+        <td>50</td>
+        <td>送不過去時自動加 shard，吞吐瓶頸時上調</td>
+      </tr>
+      <tr>
+        <td><code>max_samples_per_send</code></td>
+        <td>2000</td>
+        <td>後端能吃多大 batch（Mimir 預設 5000 OK）</td>
+      </tr>
+      <tr>
+        <td><code>batch_send_deadline</code></td>
+        <td>5s</td>
+        <td>低延遲場景縮短，高吞吐場景拉長</td>
+      </tr>
+      <tr>
+        <td><code>retry_on_http_429</code></td>
+        <td>false</td>
+        <td>建議開（後端限流時自動退避）</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>7.3 監控 Remote Write</h3>
+
+  <pre><code># 佇列中等待 sample 數
+prometheus_remote_storage_samples_pending
+
+# 已成功送出
+rate(prometheus_remote_storage_samples_sent_total[5m])
+
+# 失敗
+rate(prometheus_remote_storage_samples_failed_total[5m])
+
+# 重試
+rate(prometheus_remote_storage_samples_retried_total[5m])
+
+# 丟棄（佇列爆滿時）
+rate(prometheus_remote_storage_samples_dropped_total[5m])
+
+# 當前 shard 數
+prometheus_remote_storage_shards
+
+# 與後端連線健康
+prometheus_remote_storage_string_interner_zero_reference_releases_total
+
+# 端到端延遲（送出時間 vs sample 產生時間）
+prometheus_remote_storage_queue_highest_sent_timestamp_seconds
+- prometheus_remote_storage_queue_oldest_unsent_timestamp_seconds</code></pre>
+
+  <h3>7.4 Remote Write 1.0 vs 2.0</h3>
+
+  <table>
+    <thead>
+      <tr><th>面向</th><th>RW 1.0</th><th>RW 2.0（v2.50+）</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>狀態</td><td>穩定</td><td>Experimental（仍演進）</td></tr>
+      <tr><td>Native Histogram</td><td>需 client 啟用</td><td>原生支援</td></tr>
+      <tr><td>Metadata（Help / Type）</td><td>單獨送（延遲幾秒）</td><td>內嵌每筆 series（即時）</td></tr>
+      <tr><td>Created Timestamp</td><td>不支援</td><td>支援（counter reset 偵測更準）</td></tr>
+      <tr><td>Exemplars</td><td>支援（v2.30+）</td><td>原生支援</td></tr>
+      <tr><td>後端支援</td><td>所有主流</td><td>Mimir 2.11+、VictoriaMetrics、Thanos receive 2.0+</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="section-8">§ 8. Remote Read 與其替代</h2>
+
+  <h3>8.1 Remote Read 是什麼</h3>
+
+  <p>
+    讓 Prometheus 在執行 PromQL 時，<strong>除了讀本地 TSDB，也讀遠端後端</strong>，
+    把結果合併回給使用者：
+  </p>
+
+  <pre><code>remote_read:
+  - url: 'https://mimir.example.com/prometheus/api/v1/read'
+    name: 'mimir-historical'
+
+    # true = 連本地有的時段也查（讓兩邊資料校驗）
+    # false = 只查本地沒有的舊資料（推薦）
+    read_recent: false
+
+    headers:
+      X-Scope-OrgID: 'tenant-platform'</code></pre>
+
+  <h3>8.2 為什麼很少人用 Remote Read</h3>
+
+  <ul>
+    <li>每次查詢都要送網路請求，延遲大</li>
+    <li>後端要支援 remote read API（不是所有都支援）</li>
+    <li>資料量大時會把 Prometheus 拖垮</li>
+  </ul>
+
+  <h3>8.3 更好的替代：Grafana 多 datasource</h3>
+
+  <p>實務上 99% 採用：</p>
+
+  <ul>
+    <li>Prometheus 本地保留 7 天（快速 dashboard）</li>
+    <li>Mimir 保留 1 年（歷史查詢）</li>
+    <li>Grafana 設兩個 datasource，用 mixed datasource 或變數切換</li>
+  </ul>
+
+  <h3>8.4 直接全查 Mimir/Thanos</h3>
+
+  <p>
+    或者更激進：所有 dashboard 直接查 Mimir，本地 Prometheus 只負責 ingestion + remote_write。
+    Grafana 看的查詢都從 Mimir querier 來，不再用 Prometheus 查。
+  </p>
+
+  <h2 id="section-9">§ 9. 長期儲存方案選型</h2>
+
+  <p>主流方案對比（2026 年現狀）：</p>
+
+  <table>
+    <thead>
+      <tr><th>方案</th><th>架構</th><th>強項</th><th>弱項</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Thanos</strong></td>
+        <td>Sidecar / Receive，物件儲存</td>
+        <td>沿用 Prometheus 原生 TSDB；輕量起步；社群成熟</td>
+        <td>查詢延遲較高；多 component 部署複雜</td>
+      </tr>
+      <tr>
+        <td><strong>Grafana Mimir</strong></td>
+        <td>Push-only，物件儲存 + cache</td>
+        <td>真正 horizontal scale；多租戶；查詢快</td>
+        <td>需要更多元件（11+ services）；運維成本高</td>
+      </tr>
+      <tr>
+        <td><strong>VictoriaMetrics</strong></td>
+        <td>單 binary 或 cluster</td>
+        <td>單 binary 部署最簡；高效；高壓縮</td>
+        <td>非 100% Prometheus 相容（PromQL extensions）</td>
+      </tr>
+      <tr>
+        <td><strong>Cortex</strong></td>
+        <td>類似 Mimir（Mimir 從這 fork）</td>
+        <td>原始多租戶 Prometheus solution</td>
+        <td>開發已停滯，建議遷至 Mimir</td>
+      </tr>
+      <tr>
+        <td><strong>Prometheus 原生</strong></td>
+        <td>Federation</td>
+        <td>無新元件；簡單</td>
+        <td>規模上限低</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>9.1 選型決策矩陣</h3>
+
+  <table>
+    <thead>
+      <tr><th>需求</th><th>推薦</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>單組織單 cluster，&lt; 10M series</td><td>Federation 或單機 Prometheus</td></tr>
+      <tr><td>單組織多 cluster，1-100M series</td><td><strong>Thanos</strong>（最易落地）</td></tr>
+      <tr><td>多租戶 / 多事業群 / 100M+ series</td><td><strong>Mimir</strong></td></tr>
+      <tr><td>追求極簡部署 / 成本敏感</td><td><strong>VictoriaMetrics</strong></td></tr>
+      <tr><td>已有 Cortex 部署</td><td>規劃遷移到 Mimir</td></tr>
+      <tr><td>用 Grafana Cloud</td><td>使用其 hosted Mimir</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="section-10">§ 10. 整合範例：Prometheus + Mimir</h2>
+
+  <h3>10.1 部署架構</h3>
+
+  <pre><code>┌─────────────────────────────────────────┐
+│ K8s Cluster                              │
+│                                          │
+│  ┌──────────┐    ┌──────────┐           │
+│  │ Prom-1   │    │ Prom-2   │  (HA pair)│
+│  │ replica=0│    │ replica=1│           │
+│  └────┬─────┘    └────┬─────┘           │
+│       │ remote_write  │                  │
+│       └───────┬───────┘                  │
+│               ↓                          │
+│  ┌─────────────────────────────────────┐│
+│  │ Mimir Distributor (LB)              ││
+│  └─────────────┬───────────────────────┘│
+│  ┌─────────────┴────┬──────────┬──────┐│
+│  │ Ingester        │ Ingester │ ...  ││
+│  └────────┬─────────┴─────┬────┴──────┘│
+│           ↓                ↓            │
+│  ┌────────────────────────────────────┐│
+│  │ Object Storage (S3 / GCS / Azure)  ││
+│  └────────────────────────────────────┘│
+│                                          │
+│  Grafana ←→ Mimir Querier ←→ Storage    │
+└─────────────────────────────────────────┘</code></pre>
+
+  <h3>10.2 兩個 HA Prometheus 設定</h3>
+
+  <pre><code># Prometheus 1
+global:
+  external_labels:
+    cluster: 'production-tw'
+    replica: 'prom-1'
+
+remote_write:
+  - url: 'http://mimir-distributor:8080/api/v1/push'
+    name: 'mimir'
+    headers:
+      X-Scope-OrgID: 'team-platform'
+    queue_config:
+      max_shards: 50
+      max_samples_per_send: 2000
+
+# Prometheus 2（一樣，只改 replica）
+global:
+  external_labels:
+    cluster: 'production-tw'
+    replica: 'prom-2'</code></pre>
+
+  <h3>10.3 Mimir 端的 dedup</h3>
+
+  <p>
+    Mimir 透過 <code>-distributor.ha-tracker.enabled=true</code> 啟用 HA tracker，
+    它會根據 <code>cluster</code> + <code>replica</code> label 自動 dedup：
+    每個 cluster 的某時段只接受一個 replica 的資料。
+  </p>
+
+  <pre><code># mimir.yaml
+distributor:
+  ha_tracker:
+    enable_ha_tracker: true
+    kvstore:
+      store: memberlist
+
+limits:
+  ha_cluster_label: cluster
+  ha_replica_label: replica
+  accept_ha_samples: true</code></pre>
+
+  <h3>10.4 Grafana 端</h3>
+
+  <pre><code># 直接設一個 Prometheus datasource，URL 指向 Mimir querier
+# datasource type 仍是 "Prometheus"（Mimir 完整相容 Prometheus API）
+- name: Mimir
+  type: prometheus
+  url: http://mimir-querier:8080/prometheus
+  jsonData:
+    httpHeaderName1: 'X-Scope-OrgID'
+  secureJsonData:
+    httpHeaderValue1: 'team-platform'</code></pre>
+
+  <h2 id="section-11">§ 11. 常見問題與最佳實踐</h2>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 問題 1：Remote Write 跟不上 ingestion</div>
+    <p>
+      症狀：<code>prometheus_remote_storage_samples_pending</code> 一直成長，<code>samples_dropped_total</code> 開始增加。<br>
+      解法：<br>
+      • 加 <code>max_shards</code> 與 <code>max_samples_per_send</code><br>
+      • 用 <code>write_relabel_configs</code> drop 掉不重要的 metric<br>
+      • 後端擴容（Mimir distributor / VictoriaMetrics）
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 問題 2：Federation 拉不到完整資料</div>
+    <p>
+      症狀：global Prometheus 有些 series 缺資料點。<br>
+      原因：response 太大被截斷、scrape_timeout 不夠。<br>
+      解法：<br>
+      • 縮小 <code>match[]</code> 範圍（只拉 recording rule 結果）<br>
+      • 加大 <code>scrape_timeout</code><br>
+      • 拆成多個 federation job 並行
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 問題 3：HA dedup 沒生效</div>
+    <p>
+      症狀：Mimir 中看到雙倍 sample。<br>
+      檢查：<br>
+      • 兩個 Prometheus 是否設了不同 <code>replica</code> label？<br>
+      • Mimir HA tracker 是否啟用？<br>
+      • <code>cluster</code> label 是否一致？
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 問題 4：Tenant 互相看到對方資料</div>
+    <p>
+      症狀：A 團隊查到 B 團隊的 metric。<br>
+      原因：<code>X-Scope-OrgID</code> header 沒設或設錯。<br>
+      解法：每個 Prometheus 的 remote_write 都要設專屬 <code>X-Scope-OrgID</code>，
+      Grafana datasource 同樣要帶該 header。
+    </p>
+  </div>
+
+  <div class="callout success">
+    <div class="callout-title">✅ Best Practices 總結</div>
+    <ol>
+      <li><strong>本地 Prometheus 短期 retention（7-15 天）</strong>，長期靠遠端</li>
+      <li><strong>Federation 只拉 recording rule 結果</strong>，不拉原始 metric</li>
+      <li><strong>Federation 必設 <code>honor_labels: true</code></strong></li>
+      <li><strong>Remote Write 必設 <code>retry_on_http_429: true</code></strong></li>
+      <li><strong>Remote Write 用 <code>write_relabel_configs</code> 過濾</strong>節省成本</li>
+      <li><strong>HA pair 用 <code>cluster</code> + <code>replica</code> external_labels</strong></li>
+      <li><strong>監控 remote write 健康</strong>：pending、failed、shards、end-to-end latency</li>
+      <li><strong>選 Mimir 或 Thanos 看規模</strong>：Mimir 高規模、Thanos 易起步</li>
+      <li><strong>VictoriaMetrics 是部署最簡的選擇</strong></li>
+      <li><strong>Grafana 設多 datasource</strong>，本地查近期、遠端查歷史</li>
+    </ol>
+  </div>
+
+  <h2>📚 延伸閱讀</h2>
+
+  <ul>
+    <li><a href="https://prometheus.io/docs/prometheus/latest/federation/" target="_blank" rel="noopener">Federation（官方）</a></li>
+    <li><a href="https://prometheus.io/docs/practices/remote_write/" target="_blank" rel="noopener">Remote Write Best Practices（官方）</a></li>
+    <li><a href="https://thanos.io/tip/thanos/getting-started.md/" target="_blank" rel="noopener">Thanos 入門</a></li>
+    <li><a href="https://grafana.com/docs/mimir/latest/" target="_blank" rel="noopener">Grafana Mimir 文件</a></li>
+    <li><a href="https://docs.victoriametrics.com/" target="_blank" rel="noopener">VictoriaMetrics 文件</a></li>
+  </ul>
+
+  <h2>✅ 本章重點摘要</h2>
+
+  <div class="callout success">
+    <div class="callout-title">30 秒回顧</div>
+    <ul>
+      <li>單 Prometheus 上限約 <strong>10M active series</strong>，超過要擴展</li>
+      <li>兩條路：<strong>Federation</strong>（簡單但有限）或 <strong>Remote Storage</strong>（強大）</li>
+      <li>Federation 必須：<strong><code>honor_labels: true</code></strong> + 用 recording rule 預先聚合 + 精確的 <code>match[]</code></li>
+      <li>Federation 限制：HTTP body 上限、跳格採樣、不適合 raw data</li>
+      <li>Remote Write 是 push 模型，串流批次傳送，後端可選 Mimir/Thanos/VM</li>
+      <li>Queue 調校：<code>max_shards</code> / <code>max_samples_per_send</code> / <code>retry_on_http_429</code></li>
+      <li>RW 2.0（v2.50+ experimental）：原生 native histogram、metadata 內嵌、Created Timestamp</li>
+      <li>Remote Read 很少用，<strong>Grafana 多 datasource 是主流方案</strong></li>
+      <li>選型：Thanos 易起步、Mimir 高規模多租戶、VictoriaMetrics 最簡</li>
+      <li>HA：用 <code>cluster</code> + <code>replica</code> external_labels，Mimir HA tracker dedup</li>
+    </ul>
+  </div>
+
+  <h2>📝 練習題</h2>
+
+  <ol>
+    <li>請寫一個 federation 設定：global Prometheus 從 3 個 cluster Prometheus 拉所有 <code>job:.+</code> 的 recording rule。</li>
+    <li>解釋為什麼 federation 的 <code>match[]</code> 不應該寫成 <code>{__name__=~".+"}</code>？會發生什麼事？</li>
+    <li>您的 Prometheus 開了 remote_write 後 CPU 高於以往 50%，<code>prometheus_remote_storage_samples_pending</code> 一直在 5000 左右。請列出三個診斷與優化步驟。</li>
+    <li>解釋 Mimir 的 HA tracker 如何 dedup，需要 Prometheus 這邊做什麼設定？</li>
+    <li>您要為一個 50 個 service、5 個團隊、共用一套監控的組織選擇長期儲存方案，請推薦並說明理由。</li>
+  </ol>
+
+  <nav class="footer-nav">
+    <a href="ch16-Prometheus-storage-tsdb.html">
+      <div class="nav-direction">← 上一章</div>
+      <div class="nav-title">Ch 16 · Storage 深度</div>
+    </a>
+    <a class="next" href="ch18-Prometheus-exporters-survey.html">
+      <div class="nav-direction">下一章 →</div>
+      <div class="nav-title">Ch 18 · Exporters 全景</div>
+    </a>
+  </nav>
+
+</main>
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else { init(); }
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  // Calm Teal hue 200° 設計色系 → mermaid themeVariables 對齊 tokens.css
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    return {
+      startOnLoad: false,
+      securityLevel: 'loose',
+      fontFamily: 'DM Sans, Inter, Noto Sans TC, sans-serif',
+      theme: 'base',
+      themeVariables: isDark ? {
+        background: '#2a2520',
+        primaryColor: '#1f3a4a',
+        primaryTextColor: '#e8e6e1',
+        primaryBorderColor: '#5a8499',
+        lineColor: '#7a8a8f',
+        secondaryColor: '#2d3a32',
+        tertiaryColor: '#3a3528',
+        nodeBorder: '#5a8499',
+        clusterBkg: '#252523',
+        clusterBorder: '#4a4944',
+        edgeLabelBackground: '#2a2520',
+        textColor: '#e8e6e1',
+      } : {
+        background: '#fdfcfa',
+        primaryColor: '#cffafe',
+        primaryTextColor: '#1a1a18',
+        primaryBorderColor: '#0891b2',
+        lineColor: '#4a6873',
+        secondaryColor: '#dcfce7',
+        tertiaryColor: '#fef3c7',
+        nodeBorder: '#0891b2',
+        clusterBkg: '#f5f3ee',
+        clusterBorder: '#d4d2cd',
+        edgeLabelBackground: '#fdfcfa',
+        textColor: '#1a1a18',
+      },
+    };
+  }
+  mermaid.initialize(getMermaidConfig());
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => mermaid.run());
+  } else {
+    mermaid.run();
+  }
+  window.addEventListener('jhsun:theme-changed', () => {
+    document.querySelectorAll('.mermaid').forEach(el => {
+      const code = el.dataset.source || el.textContent;
+      if (!el.dataset.source) el.dataset.source = code;
+      el.removeAttribute('data-processed');
+      el.innerHTML = el.dataset.source;
+    });
+    mermaid.initialize(getMermaidConfig());
+    mermaid.run();
+  });
+</script>
+</body>
+</html>

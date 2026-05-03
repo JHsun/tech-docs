@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch10 · Relabeling 深度解析 | Prometheus / Alertmanager / Grafana 完整教學</title>
+<style>
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --text-3xl: 44px;
+  --text-4xl: 64px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+  --container-narrow: 720px;
+  --container-wide: 1280px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80;
+  --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24;
+  --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171;
+  --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee;
+  --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  padding: 0;
+}
+.top-nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-soft);
+  padding: var(--space-3) var(--space-5);
+  display: flex; justify-content: space-between; align-items: center;
+  backdrop-filter: blur(8px);
+}
+.nav-links { display: flex; gap: var(--space-3); align-items: center; }
+.nav-links a {
+  color: var(--text-secondary); text-decoration: none;
+  font-size: var(--text-sm); padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm); transition: all 0.2s ease;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--color-primary-soft); }
+.nav-links a.disabled { color: var(--text-muted); cursor: not-allowed; pointer-events: none; }
+button[data-theme-toggle] {
+  background: var(--bg-muted); color: var(--text-primary);
+  border: 1px solid var(--border-soft);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+  cursor: pointer; font-size: var(--text-sm);
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-sans); transition: all 0.2s ease;
+}
+button[data-theme-toggle]:hover { background: var(--color-primary-soft); border-color: var(--color-primary); }
+.theme-icon { font-size: var(--text-md); }
+main { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-7) var(--space-5); }
+@media (min-width: 1024px) { main { max-width: 880px; } }
+.chapter-meta {
+  font-size: var(--text-sm); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: var(--space-3); font-family: var(--font-mono);
+}
+h1 {
+  font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 700;
+  line-height: 1.15; margin: 0 0 var(--space-4);
+  color: var(--text-primary); letter-spacing: -0.02em;
+}
+.subtitle {
+  font-size: var(--text-md); color: var(--text-secondary);
+  margin-bottom: var(--space-7); font-style: italic;
+  border-left: 3px solid var(--color-primary); padding-left: var(--space-4);
+}
+h2 {
+  font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600;
+  margin-top: var(--space-8); margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2); border-bottom: 2px solid var(--border-soft);
+  color: var(--text-primary);
+}
+h3 { font-size: var(--text-xl); font-weight: 600; margin-top: var(--space-6); margin-bottom: var(--space-3); color: var(--text-primary); }
+h4 { font-size: var(--text-md); font-weight: 600; margin-top: var(--space-5); margin-bottom: var(--space-2); color: var(--text-primary); }
+p { margin: var(--space-3) 0; }
+strong { color: var(--text-primary); font-weight: 600; }
+em { color: var(--text-secondary); }
+a {
+  color: var(--color-primary-text); text-decoration: underline;
+  text-decoration-color: var(--color-primary-soft);
+  text-underline-offset: 3px; transition: all 0.2s ease;
+}
+a:hover { color: var(--color-primary-hover); text-decoration-color: var(--color-primary); }
+code {
+  font-family: var(--font-mono); font-size: 0.92em;
+  background: var(--bg-code); padding: 0.15em 0.4em;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-soft);
+  color: var(--color-primary-text);
+}
+pre {
+  background: var(--bg-code); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  overflow-x: auto; font-size: var(--text-sm); line-height: 1.6;
+  margin: var(--space-4) 0;
+}
+pre code { background: transparent; border: none; padding: 0; color: var(--text-primary); }
+.callout {
+  margin: var(--space-5) 0; padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md); border-left: 4px solid;
+}
+.callout-title {
+  font-weight: 600; margin-bottom: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.callout.info { background: var(--color-info-soft); border-color: var(--color-info); }
+.callout.info .callout-title { color: var(--color-info); }
+.callout.success { background: var(--color-success-soft); border-color: var(--color-success); }
+.callout.success .callout-title { color: var(--color-success); }
+.callout.warning { background: var(--color-warning-soft); border-color: var(--color-warning); }
+.callout.warning .callout-title { color: var(--color-warning); }
+.callout.danger { background: var(--color-danger-soft); border-color: var(--color-danger); }
+.callout.danger .callout-title { color: var(--color-danger); }
+table {
+  width: 100%; border-collapse: collapse; margin: var(--space-5) 0;
+  font-size: var(--text-sm); background: var(--bg-surface);
+  border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-sm);
+}
+th, td { text-align: left; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); }
+th {
+  background: var(--bg-muted); font-weight: 600; color: var(--text-primary);
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg-muted); }
+ul, ol { padding-left: var(--space-5); margin: var(--space-3) 0; }
+li { margin: var(--space-2) 0; }
+li::marker { color: var(--color-primary); }
+.toc {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4) var(--space-5);
+  margin: var(--space-5) 0;
+}
+.toc-title {
+  font-weight: 600; font-size: var(--text-sm);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted); margin-bottom: var(--space-3);
+}
+.toc ul { list-style: none; padding-left: 0; }
+.toc li { margin: var(--space-1) 0; }
+.toc a { text-decoration: none; }
+.toc ul ul { padding-left: var(--space-4); }
+.card-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4); margin: var(--space-5) 0;
+}
+.card {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  transition: all 0.2s ease;
+}
+.card:hover { box-shadow: var(--shadow-md); border-color: var(--color-primary); transform: translateY(-2px); }
+.card-num { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-primary); font-weight: 600; }
+.card-title { font-weight: 600; font-size: var(--text-base); margin: var(--space-2) 0; color: var(--text-primary); }
+.card-desc { font-size: var(--text-sm); color: var(--text-secondary); }
+.mermaid {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-5);
+  margin: var(--space-5) 0; text-align: center; overflow-x: auto;
+}
+.footer-nav {
+  display: flex; justify-content: space-between;
+  margin-top: var(--space-8); padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft); gap: var(--space-3);
+}
+.footer-nav a {
+  flex: 1; padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); text-decoration: none;
+  color: var(--text-primary); transition: all 0.2s ease;
+}
+.footer-nav a:hover { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.footer-nav .nav-direction {
+  font-size: var(--text-xs); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.footer-nav .nav-title { font-weight: 600; margin-top: var(--space-1); }
+.footer-nav .next { text-align: right; }
+.footer-nav a.disabled { opacity: 0.4; pointer-events: none; }
+.tag {
+  display: inline-block; padding: 0.1em 0.6em; font-size: var(--text-xs);
+  border-radius: var(--radius-sm); font-family: var(--font-mono);
+  background: var(--bg-muted); color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+}
+.tag.primary { background: var(--color-primary-soft); color: var(--color-primary-text); border-color: var(--color-primary); }
+@media print { .top-nav, .footer-nav, button[data-theme-toggle] { display: none; } }
+</style>
+</head>
+<body>
+
+<nav class="top-nav">
+  <div class="nav-links">
+    <a href="ch09-Prometheus-service-discovery.html">← 上一章</a>
+    <a href="ch00-Overview-learning-path.html">📚 目錄</a>
+    <a href="ch11-Prometheus-promql-basics.html">下一章 →</a>
+  </div>
+  <button data-theme-toggle aria-label="Toggle theme"></button>
+</nav>
+
+<main>
+  <div class="chapter-meta">Chapter 10 · Relabeling</div>
+  <h1>Relabeling 深度解析</h1>
+  <p class="subtitle">
+    Relabeling 是 Prometheus 最強大也最讓新手困惑的功能。它能在 scrape 前後改寫 label、過濾 target、
+    甚至完全改變 metric 樣貌。學會 relabeling 等於拿到 Prometheus 的瑞士刀。
+    本章把所有 actions 一次講清楚，附上實戰範例與 debug 流程。
+  </p>
+
+  <div class="toc">
+    <div class="toc-title">本章內容</div>
+    <ul>
+      <li><a href="#section-1">§ 1. Relabeling 在哪裡發生？</a></li>
+      <li><a href="#section-2">§ 2. 一條 relabel rule 的解剖</a></li>
+      <li><a href="#section-3">§ 3. 所有 8 種 actions 詳解</a></li>
+      <li><a href="#section-4">§ 4. relabel_configs vs metric_relabel_configs</a></li>
+      <li><a href="#section-5">§ 5. 實戰範例：K8s 環境</a></li>
+      <li><a href="#section-6">§ 6. 實戰範例：高基數消除</a></li>
+      <li><a href="#section-7">§ 7. write_relabel_configs 與 alert_relabel_configs</a></li>
+      <li><a href="#section-8">§ 8. Debug 與測試方法</a></li>
+      <li><a href="#section-9">§ 9. 常見陷阱與最佳實踐</a></li>
+    </ul>
+  </div>
+
+  <h2 id="section-1">§ 1. Relabeling 在哪裡發生？</h2>
+
+  <p>
+    Relabeling 在 Prometheus 的資料流中有<strong>四個</strong>不同的位置。理解這四個位置的差異，
+    是學好 relabeling 的關鍵。
+  </p>
+
+  <div class="mermaid">
+graph TB
+    SD[Service Discovery<br/>__meta_* labels]
+    R1[relabel_configs<br/>1. 過濾 / 改寫 target]
+    SCRAPE[HTTP GET /metrics]
+    R2[metric_relabel_configs<br/>2. 過濾 / 改寫 sample 的 label]
+    TSDB[(TSDB<br/>本地儲存)]
+    R3[write_relabel_configs<br/>3. 過濾要送往 remote_write 的資料]
+    RW[Remote Write 後端]
+    RULES[Alerting Rules]
+    R4[alert_relabel_configs<br/>4. 改寫送往 Alertmanager 的 alert]
+    AM[Alertmanager]
+
+    SD --> R1
+    R1 --> SCRAPE
+    SCRAPE --> R2
+    R2 --> TSDB
+    TSDB --> R3
+    R3 --> RW
+    TSDB --> RULES
+    RULES --> R4
+    R4 --> AM
+</div>
+
+  <table>
+    <thead>
+      <tr><th>位置</th><th>處理對象</th><th>典型用途</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>relabel_configs</code></td>
+        <td>Target（含 meta labels）</td>
+        <td>過濾 target、修改 <code>__address__</code>、把 meta 升格成正式 label</td>
+      </tr>
+      <tr>
+        <td><code>metric_relabel_configs</code></td>
+        <td>Scrape 進來的每個 sample</td>
+        <td>丟掉特定 metric、清理 high-cardinality label</td>
+      </tr>
+      <tr>
+        <td><code>write_relabel_configs</code></td>
+        <td>送往 remote_write 的 sample</td>
+        <td>選擇性外送（本地保留、後端只收子集）</td>
+      </tr>
+      <tr>
+        <td><code>alert_relabel_configs</code></td>
+        <td>送往 Alertmanager 的 alert</td>
+        <td>移除 replica label、加注 cluster 等</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="section-2">§ 2. 一條 relabel rule 的解剖</h2>
+
+  <p>每條 rule 是一個 YAML 物件，最完整的形式：</p>
+
+  <pre><code>- source_labels: [<labelname>, ...]   # 要讀的 label（可多個，會用分隔符串接）
+  separator: ;                          # 串接分隔符，預設 ";"
+  regex: '<expr>'                       # 正則表達式，預設 ".*"
+  modulus: <int>                        # hash modulus（用於 hashmod action）
+  target_label: <labelname>             # 要寫入的 label 名（部分 action 用）
+  replacement: '<expr>'                 # 要寫入的值（可參考 capture group $1）
+  action: <action_type>                 # 預設 "replace"</code></pre>
+
+  <h3>2.1 流程：每條 rule 怎麼跑？</h3>
+
+  <ol>
+    <li>讀取 <code>source_labels</code> 列出的 label 值</li>
+    <li>用 <code>separator</code>（預設 <code>;</code>）串接成一個字串</li>
+    <li>把這個字串去比對 <code>regex</code></li>
+    <li>根據 <code>action</code> 決定接下來怎麼處理</li>
+    <li>若觸發了 keep/drop，target/sample 就被丟掉，後面的 rule 不會跑</li>
+  </ol>
+
+  <h3>2.2 為什麼要 source_labels 是陣列？</h3>
+
+  <p>因為很多時候你需要組合多個 label 才能做出判斷。例如：</p>
+
+  <pre><code># 取出 __address__ 的 host 和 annotation 中的 port，組合成新 __address__
+- source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+  regex: '([^:]+)(?::\d+)?;(\d+)'
+  replacement: '$1:$2'
+  target_label: __address__</code></pre>
+
+  <p>
+    這條規則的作用是：把 <code>__address__</code>（例如 <code>10.0.0.1:9090</code>）
+    和 annotation 上的自訂 port（例如 <code>8080</code>）組合，
+    最終產生 <code>10.0.0.1:8080</code> 寫入 <code>__address__</code>。
+  </p>
+
+  <h2 id="section-3">§ 3. 所有 8 種 actions 詳解</h2>
+
+  <h3>3.1 <code>replace</code>（預設）</h3>
+
+  <p>用 regex 比對 source_labels，把符合的部分用 replacement 替換後寫入 target_label。</p>
+
+  <pre><code># 從 __address__ 抽出 hostname，寫入 instance label
+- source_labels: [__address__]
+  regex: '([^:]+)(?::\d+)?'
+  replacement: '$1'
+  target_label: instance
+  action: replace      # 可省略</code></pre>
+
+  <p><strong>關鍵行為</strong>：</p>
+
+  <ul>
+    <li>若 regex <strong>不匹配</strong>，這條 rule 不做任何事（不是錯誤）</li>
+    <li>若 regex 匹配，target_label 會被設成 replacement 的值（含 capture group $1, $2...）</li>
+    <li>replacement 預設是 <code>$1</code></li>
+    <li>regex 預設是 <code>.*</code>（永遠匹配整個字串）</li>
+  </ul>
+
+  <h3>3.2 <code>keep</code></h3>
+
+  <p>只保留 regex 匹配的 target / sample，其他丟掉。</p>
+
+  <pre><code># 只保留 annotation prometheus.io/scrape="true" 的 pod
+- source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+  regex: 'true'
+  action: keep</code></pre>
+
+  <h3>3.3 <code>drop</code></h3>
+
+  <p>跟 keep 相反，丟掉匹配的 target / sample。</p>
+
+  <pre><code># 丟掉所有 go_* 與 prometheus_* metrics
+- source_labels: [__name__]
+  regex: '(go_|prometheus_).*'
+  action: drop</code></pre>
+
+  <h3>3.4 <code>keepequal</code> 與 <code>dropequal</code>（v2.41+）</h3>
+
+  <p>不用 regex，而是直接比較兩個 label 是否相等：</p>
+
+  <pre><code># 只保留 instance == node 的 target（K8s endpoint role 常見）
+- source_labels: [__meta_kubernetes_pod_node_name]
+  target_label: __tmp_node
+- source_labels: [instance, __tmp_node]
+  action: keepequal     # 兩值相等才保留
+  target_label: instance</code></pre>
+
+  <p>
+    注意：<code>keepequal</code> / <code>dropequal</code> 比 regex 高效，因為不用編譯正則。
+    用法：比較 <code>source_labels</code> 串接後的值 vs <code>target_label</code> 的值。
+  </p>
+
+  <h3>3.5 <code>labelmap</code></h3>
+
+  <p>批次重新命名 label。常用於把所有 K8s pod label 一次升格：</p>
+
+  <pre><code># __meta_kubernetes_pod_label_app  -->  app
+# __meta_kubernetes_pod_label_team -->  team
+# __meta_kubernetes_pod_label_xxx  -->  xxx
+- regex: '__meta_kubernetes_pod_label_(.+)'
+  action: labelmap</code></pre>
+
+  <p>用 capture group 取得新 label 名稱。要小心：所有匹配的 label 都會被批次處理。</p>
+
+  <h3>3.6 <code>labeldrop</code></h3>
+
+  <p>移除符合 regex 的 label：</p>
+
+  <pre><code># 移除所有 __ 開頭的「假 meta」label（這些其實在 scrape 後就會被移除，舉例用）
+- regex: 'pod_template_hash|controller-revision-hash'
+  action: labeldrop</code></pre>
+
+  <h3>3.7 <code>labelkeep</code></h3>
+
+  <p>只保留符合 regex 的 label，其他全砍：</p>
+
+  <pre><code># 只保留 __ 開頭與 instance / job 三類，其他都砍
+- regex: '__.*|instance|job'
+  action: labelkeep</code></pre>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ labelkeep 的危險性</div>
+    <p>
+      <code>labelkeep</code> 用錯會把<strong>必要的內部 label 也砍掉</strong>，例如 <code>__address__</code>，
+      導致 target 無法被抓。建議優先用 <code>labeldrop</code> 點名移除特定 label。
+    </p>
+  </div>
+
+  <h3>3.8 <code>hashmod</code></h3>
+
+  <p>對 source_labels 的值做 hash，取餘數寫入 target_label。常用於水平分片：</p>
+
+  <pre><code># 把 1000 個 target 分到 4 個 Prometheus 各抓 250 個
+- source_labels: [__address__]
+  modulus: 4
+  target_label: __tmp_hash
+  action: hashmod
+- source_labels: [__tmp_hash]
+  regex: '0'              # 這個 Prometheus 只抓 hash%4==0 的 target
+  action: keep</code></pre>
+
+  <p>用法：先用 <code>hashmod</code> 算出 0-3 的數字寫入暫存 label，再用 <code>keep</code> 過濾。</p>
+
+  <h3>3.9 <code>uppercase</code> / <code>lowercase</code>（v2.36+）</h3>
+
+  <pre><code># 把 environment label 全轉小寫
+- source_labels: [__meta_consul_tag_env]
+  target_label: environment
+  action: lowercase</code></pre>
+
+  <h3>3.10 完整 action 對照表</h3>
+
+  <table>
+    <thead>
+      <tr><th>Action</th><th>用途</th><th>需要欄位</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>replace</code></td><td>寫入 / 改寫 label（最常用）</td><td>source_labels, target_label, replacement, regex</td></tr>
+      <tr><td><code>keep</code></td><td>只保留匹配的</td><td>source_labels, regex</td></tr>
+      <tr><td><code>drop</code></td><td>丟掉匹配的</td><td>source_labels, regex</td></tr>
+      <tr><td><code>keepequal</code></td><td>兩 label 相等才保留</td><td>source_labels, target_label</td></tr>
+      <tr><td><code>dropequal</code></td><td>兩 label 相等就丟</td><td>source_labels, target_label</td></tr>
+      <tr><td><code>labelmap</code></td><td>批次改名</td><td>regex</td></tr>
+      <tr><td><code>labeldrop</code></td><td>移除符合的 label</td><td>regex</td></tr>
+      <tr><td><code>labelkeep</code></td><td>只保留符合的 label</td><td>regex</td></tr>
+      <tr><td><code>hashmod</code></td><td>分片用</td><td>source_labels, modulus, target_label</td></tr>
+      <tr><td><code>uppercase</code> / <code>lowercase</code></td><td>大小寫轉換</td><td>source_labels, target_label</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="section-4">§ 4. relabel_configs vs metric_relabel_configs</h2>
+
+  <p>兩者語法相同，但作用對象與時機不同：</p>
+
+  <table>
+    <thead>
+      <tr><th>面向</th><th>relabel_configs</th><th>metric_relabel_configs</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>時機</td><td><strong>Scrape 之前</strong></td><td><strong>Scrape 之後</strong></td></tr>
+      <tr><td>作用對象</td><td>每個 target（一次）</td><td>scrape 進來的每個 sample（多次）</td></tr>
+      <tr><td>可改寫</td><td><code>__address__</code>、<code>__metrics_path__</code>、<code>__scheme__</code> 等內部 label</td><td>無法改寫上述（已 scrape 完）</td></tr>
+      <tr><td>能用的 label</td><td>所有 SD meta label（<code>__meta_*</code>）</td><td>scrape 進來的 metric label（無 meta）</td></tr>
+      <tr><td>典型用途</td><td>選擇要抓誰、改寫抓取地址</td><td>過濾 metric、清理高基數 label</td></tr>
+    </tbody>
+  </table>
+
+  <h3>4.1 一個錯誤示範</h3>
+
+  <div class="callout danger">
+    <div class="callout-title">🚨 常見誤用</div>
+    <p>很多新手把這條規則放錯位置：</p>
+    <pre><code>- source_labels: [__meta_kubernetes_pod_label_app]
+  target_label: app
+  action: replace</code></pre>
+    <p>
+      這條規則用了 <code>__meta_kubernetes_*</code>，必須放在 <strong><code>relabel_configs</code></strong>。
+      若放在 <code>metric_relabel_configs</code> 會完全沒效果（因為 scrape 後 meta label 已被清除）。
+    </p>
+  </div>
+
+  <h2 id="section-5">§ 5. 實戰範例：K8s 環境</h2>
+
+  <h3>5.1 抓取所有有 annotation 的 Pod 的完整範例</h3>
+
+  <pre><code>scrape_configs:
+  - job_name: 'kubernetes-pods'
+    kubernetes_sd_configs:
+      - role: pod
+
+    relabel_configs:
+      # 1. 只保留 annotation prometheus.io/scrape=true
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+
+      # 2. 自訂 metrics_path（從 annotation）
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+
+      # 3. 自訂 port（從 annotation 覆寫）
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+
+      # 4. 把所有 K8s pod label 一次升格
+      - regex: '__meta_kubernetes_pod_label_(.+)'
+        action: labelmap
+
+      # 5. 加入 namespace label
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+
+      # 6. 加入 pod 名稱
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: kubernetes_pod_name
+
+      # 7. 加入 node 名稱
+      - source_labels: [__meta_kubernetes_pod_node_name]
+        action: replace
+        target_label: kubernetes_node
+
+    metric_relabel_configs:
+      # 8. 丟掉 cAdvisor 的高基數 metric
+      - source_labels: [__name__]
+        regex: 'container_tasks_state|container_memory_failures_total'
+        action: drop
+
+      # 9. 移除特定 high-cardinality label
+      - regex: 'pod_template_hash|controller_revision_hash'
+        action: labeldrop</code></pre>
+
+  <h3>5.2 對應的 Pod annotation 範例</h3>
+
+  <pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: my-app
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/custom-metrics"
+  labels:
+    app: my-app
+    team: platform</code></pre>
+
+  <h2 id="section-6">§ 6. 實戰範例：高基數消除</h2>
+
+  <p>當您發現某個 metric 拖垮 Prometheus 時，metric_relabel_configs 是急救工具：</p>
+
+  <h3>6.1 找出兇手</h3>
+
+  <pre><code># 在 Prometheus UI 跑這段，找出 series 數最多的 metric
+topk(20, count by (__name__)({__name__=~".+"}))
+
+# 找出某 metric 的高基數 label
+topk(20, count by (path) (http_requests_total))</code></pre>
+
+  <h3>6.2 緊急止血策略</h3>
+
+  <pre><code>scrape_configs:
+  - job_name: 'misbehaving-app'
+    static_configs:
+      - targets: ['app:9100']
+
+    metric_relabel_configs:
+      # 策略 1：丟掉整個高基數 metric
+      - source_labels: [__name__]
+        regex: 'http_request_duration_microseconds_(bucket|sum|count)'
+        action: drop
+
+      # 策略 2：保留 metric，但砍掉問題 label
+      - regex: 'user_id|request_id|session_id'
+        action: labeldrop
+
+      # 策略 3：把 high-cardinality URL 正規化（/users/123 -> /users/:id）
+      - source_labels: [path]
+        regex: '/users/\d+'
+        replacement: '/users/:id'
+        target_label: path
+      - source_labels: [path]
+        regex: '/orders/[a-f0-9-]+'
+        replacement: '/orders/:uuid'
+        target_label: path</code></pre>
+
+  <h2 id="section-7">§ 7. write_relabel_configs 與 alert_relabel_configs</h2>
+
+  <h3>7.1 write_relabel_configs：選擇性外送</h3>
+
+  <p>典型情境：本地保留所有資料，但只把關鍵 metric 送到遠端長期儲存（節省成本）：</p>
+
+  <pre><code>remote_write:
+  - url: 'https://mimir.example.com/api/v1/push'
+    write_relabel_configs:
+      # 不送 Go runtime metrics（本地能查就好）
+      - source_labels: [__name__]
+        regex: 'go_(gc|memstats|goroutines).*'
+        action: drop
+
+      # 不送 process metrics
+      - source_labels: [__name__]
+        regex: 'process_.*'
+        action: drop
+
+      # 移除高基數 label 後再送
+      - regex: 'pod_template_hash'
+        action: labeldrop</code></pre>
+
+  <h3>7.2 alert_relabel_configs：改寫 alert</h3>
+
+  <p>HA 部署時最常見的需求 — 移除 replica label 讓 Alertmanager 能去重：</p>
+
+  <pre><code>alerting:
+  alert_relabel_configs:
+    - regex: 'replica'
+      action: labeldrop
+
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager-1:9093', 'alertmanager-2:9093']</code></pre>
+
+  <p>另一個常見用法 — 強制加上 cluster label：</p>
+
+  <pre><code>alerting:
+  alert_relabel_configs:
+    - target_label: cluster
+      replacement: 'production-tw'
+      action: replace</code></pre>
+
+  <h2 id="section-8">§ 8. Debug 與測試方法</h2>
+
+  <h3>8.1 用 Web UI 看 target 的 labels</h3>
+
+  <p>瀏覽 <code>http://prometheus:9090/targets</code>，點任一 target 旁的「Show more」，可看到：</p>
+
+  <ul>
+    <li><strong>Discovered Labels</strong>：SD 給的所有 meta labels</li>
+    <li><strong>Target Labels</strong>：經過 relabel_configs 後保留下來的 label</li>
+  </ul>
+
+  <p>這是<strong>最直接</strong>的 debug 方法。看不到預期的 label？對照兩欄就知道哪一條 rule 出問題。</p>
+
+  <h3>8.2 用 promtool 驗證 config</h3>
+
+  <pre><code>promtool check config /etc/prometheus/prometheus.yml</code></pre>
+
+  <h3>8.3 用 Service Discovery API 看原始 meta</h3>
+
+  <pre><code>curl http://localhost:9090/api/v1/targets/metadata
+curl http://localhost:9090/api/v1/targets | jq</code></pre>
+
+  <h3>8.4 增加暫存 label 觀察中間狀態</h3>
+
+  <p>當 relabel 出錯找不到原因時，把中間結果寫到一個暫存 label 觀察：</p>
+
+  <pre><code>relabel_configs:
+  # 把組合後的字串保存到 __tmp_debug 看看
+  - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+    separator: ';'
+    target_label: __tmp_debug
+    action: replace
+
+  # 之後實際的 rule
+  - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+    regex: ([^:]+)(?::\d+)?;(\d+)
+    replacement: $1:$2
+    target_label: __address__</code></pre>
+
+  <p>
+    在 <code>/targets</code> 頁面就能看到 <code>__tmp_debug</code> 的值，確認 separator 和 source_labels 的組合是否符合預期。
+    Debug 完記得移除暫存 label（或用 labeldrop）。
+  </p>
+
+  <h3>8.5 Relabel testing 工具</h3>
+
+  <p>社群有些線上工具可以測試 relabel 規則：</p>
+
+  <ul>
+    <li><strong>promtool tsdb dump</strong>：把已存的 series 倒出來看 labels</li>
+    <li><strong>relabeler</strong>（社群工具）：給定 input labels 與 rules，模擬輸出</li>
+    <li><strong>Grafana Cloud Relabeler</strong>：圖形化的 relabel 試算</li>
+  </ul>
+
+  <h2 id="section-9">§ 9. 常見陷阱與最佳實踐</h2>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 陷阱 1：忘記 regex 是「整體匹配」</div>
+    <p>
+      Prometheus 的 regex 是<strong>整體錨定</strong>的（implicitly anchored），
+      也就是 <code>regex: 'foo'</code> 等同於 <code>^foo$</code>。<br>
+      要部分匹配，請寫 <code>.*foo.*</code>。
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 陷阱 2：rule 的順序很重要</div>
+    <p>
+      rules 是<strong>按順序執行</strong>的。一個 keep / drop 把 target 過濾掉後，後面的 rule 都不會跑。<br>
+      建議順序：<strong>過濾 → 改寫 address/path → 升格 meta label → 微調 → metric 層級過濾</strong>。
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 陷阱 3：target_label 名稱有特殊字元</div>
+    <p>
+      target_label 必須符合 <code>[a-zA-Z_][a-zA-Z0-9_]*</code>。
+      若您從 K8s annotation 動態提取 label 名（用 capture group），結果可能含 <code>.</code> 或 <code>-</code>，會被 Prometheus reject。<br>
+      解法：先用 replace 把特殊字元換成 <code>_</code>。
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 陷阱 4：把 metric_relabel_configs 當 relabel_configs 用</div>
+    <p>
+      您不能在 metric_relabel_configs 裡引用 <code>__meta_*</code> 或改寫 <code>__address__</code>。
+      Scrape 完成後這些都已不存在 / 已凍結。
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 陷阱 5：忘記內部 label 必須以 __ 開頭</div>
+    <p>
+      像 <code>__address__</code>、<code>__metrics_path__</code>、<code>__scheme__</code> 等是<strong>內部 label</strong>，
+      它們在 scrape 時被使用，scrape 完成後自動移除。<br>
+      若您寫 <code>target_label: address</code>（沒有底線），它會變成正式 label，且不會影響 scrape 行為。
+    </p>
+  </div>
+
+  <div class="callout success">
+    <div class="callout-title">✅ Best Practices 總結</div>
+    <ol>
+      <li><strong>先過濾，再改寫</strong>：keep / drop 放在前面減少後續處理量</li>
+      <li><strong>用 labelmap 批次升格 K8s label</strong>：比一條一條 replace 簡潔</li>
+      <li><strong>暫存 label 用 <code>__tmp_</code> 前綴</strong>：方便辨識，最後 labeldrop</li>
+      <li><strong>regex 加上 anchors 思考</strong>：部分匹配記得加 <code>.*</code></li>
+      <li><strong>每個 scrape_config 都該設 sample_limit</strong>：搭配 metric_relabel_configs 防 OOM</li>
+      <li><strong>K8s 用 ServiceMonitor / PodMonitor</strong>：別自己手寫 K8s SD relabel</li>
+      <li><strong>Debug 時看 /targets 頁面對照 Discovered/Target Labels</strong>：90% 的問題能直接看出</li>
+      <li><strong>HA 部署一定要用 alert_relabel_configs 移除 replica</strong>：否則 AM 無法去重</li>
+    </ol>
+  </div>
+
+  <h2>📚 延伸閱讀</h2>
+
+  <ul>
+    <li><a href="https://prometheus.io/docs/prometheus/latest/configuration/configuration/#relabel_config" target="_blank" rel="noopener">官方 relabel_config 完整參考</a></li>
+    <li><a href="https://promlabs.com/blog/2021/02/19/advanced-service-discovery-in-prometheus" target="_blank" rel="noopener">PromLabs: Advanced Service Discovery & Relabeling</a></li>
+    <li><a href="https://grafana.com/blog/2022/03/21/how-relabeling-in-prometheus-works/" target="_blank" rel="noopener">Grafana: How relabeling in Prometheus works</a></li>
+    <li><a href="https://prometheus.io/docs/prometheus/latest/configuration/configuration/#metric_relabel_configs" target="_blank" rel="noopener">metric_relabel_configs 官方</a></li>
+  </ul>
+
+  <h2>✅ 本章重點摘要</h2>
+
+  <div class="callout success">
+    <div class="callout-title">30 秒回顧</div>
+    <ul>
+      <li>四個 relabel 位置：<code>relabel_configs</code>（target 級）、<code>metric_relabel_configs</code>（sample 級）、<code>write_relabel_configs</code>（remote write）、<code>alert_relabel_configs</code>（送往 AM）</li>
+      <li>10 種 actions：<strong>replace / keep / drop / keepequal / dropequal / labelmap / labeldrop / labelkeep / hashmod / uppercase / lowercase</strong></li>
+      <li>每條 rule 流程：讀 source_labels → separator 串接 → 比 regex → 套 action</li>
+      <li>regex 是<strong>整體錨定</strong>的，部分匹配要 <code>.*xxx.*</code></li>
+      <li><code>__</code> 開頭的是內部 label，scrape 後消失（除非升格）</li>
+      <li>K8s 環境用 <code>labelmap</code> 一次升格所有 pod label</li>
+      <li>Debug 第一站：<strong><code>/targets</code> 頁面對照 Discovered Labels vs Target Labels</strong></li>
+      <li>HA 部署的兩個必備：<code>alert_relabel_configs</code> 移除 replica + 連線所有 AM 不用 LB</li>
+      <li>Remote Write 成本控制用 <code>write_relabel_configs</code>，本地保留全部、後端只收子集</li>
+    </ul>
+  </div>
+
+  <h2>📝 練習題</h2>
+
+  <ol>
+    <li>請寫 relabel 規則：把 K8s pod 的 label <code>environment</code> 升格為 Prometheus label，但只升格 production / staging 的 pod，development 不抓。</li>
+    <li>下面的規則為什麼<strong>不會</strong>過濾任何 target？請修正：
+      <pre><code>- source_labels: [__meta_consul_tag]
+  regex: 'monitoring'
+  action: keep</code></pre>
+    </li>
+    <li>您發現 <code>http_requests_total</code> 因為 <code>request_id</code> 與 <code>user_id</code> label 已產生 200 萬條 series。請寫出 metric_relabel_configs 緊急止血。</li>
+    <li>請說明 <code>relabel_configs</code> 與 <code>metric_relabel_configs</code> 的三個關鍵差別。</li>
+    <li>HA 部署兩台 Prometheus 為什麼一定要設 <code>alert_relabel_configs</code> 移除 <code>replica</code>？不設會發生什麼事？</li>
+  </ol>
+
+  <nav class="footer-nav">
+    <a href="ch09-Prometheus-service-discovery.html">
+      <div class="nav-direction">← 上一章</div>
+      <div class="nav-title">Ch 09 · Service Discovery</div>
+    </a>
+    <a class="next" href="ch11-Prometheus-promql-basics.html">
+      <div class="nav-direction">下一章 →</div>
+      <div class="nav-title">Ch 11 · PromQL 基礎</div>
+    </a>
+  </nav>
+
+</main>
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else { init(); }
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  // Calm Teal hue 200° 設計色系 → mermaid themeVariables 對齊 tokens.css
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    return {
+      startOnLoad: false,
+      securityLevel: 'loose',
+      fontFamily: 'DM Sans, Inter, Noto Sans TC, sans-serif',
+      theme: 'base',
+      themeVariables: isDark ? {
+        background: '#2a2520',
+        primaryColor: '#1f3a4a',
+        primaryTextColor: '#e8e6e1',
+        primaryBorderColor: '#5a8499',
+        lineColor: '#7a8a8f',
+        secondaryColor: '#2d3a32',
+        tertiaryColor: '#3a3528',
+        nodeBorder: '#5a8499',
+        clusterBkg: '#252523',
+        clusterBorder: '#4a4944',
+        edgeLabelBackground: '#2a2520',
+        textColor: '#e8e6e1',
+      } : {
+        background: '#fdfcfa',
+        primaryColor: '#cffafe',
+        primaryTextColor: '#1a1a18',
+        primaryBorderColor: '#0891b2',
+        lineColor: '#4a6873',
+        secondaryColor: '#dcfce7',
+        tertiaryColor: '#fef3c7',
+        nodeBorder: '#0891b2',
+        clusterBkg: '#f5f3ee',
+        clusterBorder: '#d4d2cd',
+        edgeLabelBackground: '#fdfcfa',
+        textColor: '#1a1a18',
+      },
+    };
+  }
+  mermaid.initialize(getMermaidConfig());
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => mermaid.run());
+  } else {
+    mermaid.run();
+  }
+  window.addEventListener('jhsun:theme-changed', () => {
+    document.querySelectorAll('.mermaid').forEach(el => {
+      const code = el.dataset.source || el.textContent;
+      if (!el.dataset.source) el.dataset.source = code;
+      el.removeAttribute('data-processed');
+      el.innerHTML = el.dataset.source;
+    });
+    mermaid.initialize(getMermaidConfig());
+    mermaid.run();
+  });
+</script>
+</body>
+</html>

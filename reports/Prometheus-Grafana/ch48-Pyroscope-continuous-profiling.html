@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch48 · Pyroscope Continuous Profiling | Prometheus / Alertmanager / Grafana 完整教學</title>
+<style>
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --text-3xl: 44px;
+  --text-4xl: 64px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+  --container-narrow: 720px;
+  --container-wide: 1280px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80;
+  --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24;
+  --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171;
+  --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee;
+  --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  padding: 0;
+}
+.top-nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-soft);
+  padding: var(--space-3) var(--space-5);
+  display: flex; justify-content: space-between; align-items: center;
+  backdrop-filter: blur(8px);
+}
+.nav-links { display: flex; gap: var(--space-3); align-items: center; }
+.nav-links a {
+  color: var(--text-secondary); text-decoration: none;
+  font-size: var(--text-sm); padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm); transition: all 0.2s ease;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--color-primary-soft); }
+.nav-links a.disabled { color: var(--text-muted); cursor: not-allowed; pointer-events: none; }
+button[data-theme-toggle] {
+  background: var(--bg-muted); color: var(--text-primary);
+  border: 1px solid var(--border-soft);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+  cursor: pointer; font-size: var(--text-sm);
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-sans); transition: all 0.2s ease;
+}
+button[data-theme-toggle]:hover { background: var(--color-primary-soft); border-color: var(--color-primary); }
+.theme-icon { font-size: var(--text-md); }
+main { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-7) var(--space-5); }
+@media (min-width: 1024px) { main { max-width: 880px; } }
+.chapter-meta {
+  font-size: var(--text-sm); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: var(--space-3); font-family: var(--font-mono);
+}
+h1 {
+  font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 700;
+  line-height: 1.15; margin: 0 0 var(--space-4);
+  color: var(--text-primary); letter-spacing: -0.02em;
+}
+.subtitle {
+  font-size: var(--text-md); color: var(--text-secondary);
+  margin-bottom: var(--space-7); font-style: italic;
+  border-left: 3px solid var(--color-primary); padding-left: var(--space-4);
+}
+h2 {
+  font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600;
+  margin-top: var(--space-8); margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2); border-bottom: 2px solid var(--border-soft);
+  color: var(--text-primary);
+}
+h3 { font-size: var(--text-xl); font-weight: 600; margin-top: var(--space-6); margin-bottom: var(--space-3); color: var(--text-primary); }
+h4 { font-size: var(--text-md); font-weight: 600; margin-top: var(--space-5); margin-bottom: var(--space-2); color: var(--text-primary); }
+p { margin: var(--space-3) 0; }
+strong { color: var(--text-primary); font-weight: 600; }
+em { color: var(--text-secondary); }
+a {
+  color: var(--color-primary-text); text-decoration: underline;
+  text-decoration-color: var(--color-primary-soft);
+  text-underline-offset: 3px; transition: all 0.2s ease;
+}
+a:hover { color: var(--color-primary-hover); text-decoration-color: var(--color-primary); }
+code {
+  font-family: var(--font-mono); font-size: 0.92em;
+  background: var(--bg-code); padding: 0.15em 0.4em;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-soft);
+  color: var(--color-primary-text);
+}
+pre {
+  background: var(--bg-code); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  overflow-x: auto; font-size: var(--text-sm); line-height: 1.6;
+  margin: var(--space-4) 0;
+}
+pre code { background: transparent; border: none; padding: 0; color: var(--text-primary); }
+.callout {
+  margin: var(--space-5) 0; padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md); border-left: 4px solid;
+}
+.callout-title {
+  font-weight: 600; margin-bottom: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.callout.info { background: var(--color-info-soft); border-color: var(--color-info); }
+.callout.info .callout-title { color: var(--color-info); }
+.callout.success { background: var(--color-success-soft); border-color: var(--color-success); }
+.callout.success .callout-title { color: var(--color-success); }
+.callout.warning { background: var(--color-warning-soft); border-color: var(--color-warning); }
+.callout.warning .callout-title { color: var(--color-warning); }
+.callout.danger { background: var(--color-danger-soft); border-color: var(--color-danger); }
+.callout.danger .callout-title { color: var(--color-danger); }
+table {
+  width: 100%; border-collapse: collapse; margin: var(--space-5) 0;
+  font-size: var(--text-sm); background: var(--bg-surface);
+  border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-sm);
+}
+th, td { text-align: left; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); }
+th {
+  background: var(--bg-muted); font-weight: 600; color: var(--text-primary);
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg-muted); }
+ul, ol { padding-left: var(--space-5); margin: var(--space-3) 0; }
+li { margin: var(--space-2) 0; }
+li::marker { color: var(--color-primary); }
+.toc {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4) var(--space-5);
+  margin: var(--space-5) 0;
+}
+.toc-title {
+  font-weight: 600; font-size: var(--text-sm);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted); margin-bottom: var(--space-3);
+}
+.toc ul { list-style: none; padding-left: 0; }
+.toc li { margin: var(--space-1) 0; }
+.toc a { text-decoration: none; }
+.toc ul ul { padding-left: var(--space-4); }
+.card-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4); margin: var(--space-5) 0;
+}
+.card {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  transition: all 0.2s ease;
+}
+.card:hover { box-shadow: var(--shadow-md); border-color: var(--color-primary); transform: translateY(-2px); }
+.card-num { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-primary); font-weight: 600; }
+.card-title { font-weight: 600; font-size: var(--text-base); margin: var(--space-2) 0; color: var(--text-primary); }
+.card-desc { font-size: var(--text-sm); color: var(--text-secondary); }
+.mermaid {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-5);
+  margin: var(--space-5) 0; text-align: center; overflow-x: auto;
+}
+.footer-nav {
+  display: flex; justify-content: space-between;
+  margin-top: var(--space-8); padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft); gap: var(--space-3);
+}
+.footer-nav a {
+  flex: 1; padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); text-decoration: none;
+  color: var(--text-primary); transition: all 0.2s ease;
+}
+.footer-nav a:hover { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.footer-nav .nav-direction {
+  font-size: var(--text-xs); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.footer-nav .nav-title { font-weight: 600; margin-top: var(--space-1); }
+.footer-nav .next { text-align: right; }
+.footer-nav a.disabled { opacity: 0.4; pointer-events: none; }
+.tag {
+  display: inline-block; padding: 0.1em 0.6em; font-size: var(--text-xs);
+  border-radius: var(--radius-sm); font-family: var(--font-mono);
+  background: var(--bg-muted); color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+}
+.tag.primary { background: var(--color-primary-soft); color: var(--color-primary-text); border-color: var(--color-primary); }
+@media print { .top-nav, .footer-nav, button[data-theme-toggle] { display: none; } }
+</style>
+</head>
+<body>
+
+<nav class="top-nav">
+  <div class="nav-links">
+    <a href="ch47-Mimir-scalable-prometheus.html">← 上一章</a>
+    <a href="ch00-Overview-learning-path.html">📚 目錄</a>
+    <a href="ch49-Overview-alloy-beyla.html">下一章 →</a>
+  </div>
+  <button data-theme-toggle aria-label="Toggle theme"></button>
+</nav>
+
+<main>
+  <div class="chapter-meta">Chapter 48 · Pyroscope Continuous Profiling</div>
+  <h1>Pyroscope：持續性能 Profiling</h1>
+  <p class="subtitle">
+    Grafana Stack 的「<strong>第四本柱</strong>」：profiling。傳統 metric / log / trace 告訴您「服務慢」、
+    「哪個 service 慢」、「哪個 request 慢」，但不告訴您「<strong>哪行 code 慢</strong>」。
+    Pyroscope 持續從 production 應用收集 CPU、記憶體 profile，讓您看到 function-level 的瓶頸。
+    本章涵蓋 profiling 概念、5 種 profile types、語言整合、Flame Graph、與 trace 整合。
+  </p>
+
+  <div class="toc">
+    <div class="toc-title">本章內容</div>
+    <ul>
+      <li><a href="#section-1">§ 1. 什麼是 Continuous Profiling</a></li>
+      <li><a href="#section-2">§ 2. Pyroscope 的位置</a></li>
+      <li><a href="#section-3">§ 3. 架構與元件</a></li>
+      <li><a href="#section-4">§ 4. 五種 Profile Types</a></li>
+      <li><a href="#section-5">§ 5. Flame Graph 解讀</a></li>
+      <li><a href="#section-6">§ 6. 語言 SDK 整合</a></li>
+      <li><a href="#section-7">§ 7. Auto-instrumentation（Alloy + eBPF）</a></li>
+      <li><a href="#section-8">§ 8. 與 Trace 整合</a></li>
+      <li><a href="#section-9">§ 9. 部署模式</a></li>
+      <li><a href="#section-10">§ 10. Production Best Practices</a></li>
+      <li><a href="#section-11">§ 11. 實戰：找一個 CPU bottleneck</a></li>
+    </ul>
+  </div>
+
+  <h2 id="section-1">§ 1. 什麼是 Continuous Profiling</h2>
+
+  <h3>1.1 從「event-based」到「continuous」</h3>
+
+  <p>傳統 profiling：</p>
+
+  <ul>
+    <li>本地 dev：用 <code>perf</code>、<code>pprof</code>、<code>Py-Spy</code> profile 一段時間</li>
+    <li>Production 慢時：手動 attach profiler，收 30 秒，下載分析</li>
+  </ul>
+
+  <p>痛點：<strong>需要重現問題、production 中緊急 attach 不方便</strong>。</p>
+
+  <p><strong>Continuous Profiling</strong>：持續低 overhead 收集 profile（每 10s 取 sample），24/7 production 都有。</p>
+
+  <h3>1.2 Profile 是什麼</h3>
+
+  <p>
+    Profile = 「<strong>採樣統計</strong>」。例：CPU profile 每 10ms 中斷一次，記下當前的 call stack。
+    跑 30 秒收 3000 個 sample，統計後就知道「<strong>哪些函式占了大部分時間</strong>」。
+  </p>
+
+  <h3>1.3 跟其他三本柱的關係</h3>
+
+  <table>
+    <thead>
+      <tr><th>訊號</th><th>回答的問題</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Metric</td><td>「服務有多慢？」（latency p99 = 800ms）</td></tr>
+      <tr><td>Log</td><td>「在處理什麼時慢？」（message: handling order 12345 slow）</td></tr>
+      <tr><td>Trace</td><td>「哪個 service 慢？哪個 span 占時間？」（payment-service 占 700ms）</td></tr>
+      <tr><td><strong>Profile</strong></td><td>「<strong>哪行 code 慢？</strong>」（jsonEncode 占 400ms，字串拼接占 200ms）</td></tr>
+    </tbody>
+  </table>
+
+  <p>Profile 是「<strong>把 trace 從 service 級下鑽到 function 級</strong>」。</p>
+
+  <h3>1.4 Continuous Profiling 帶來的改變</h3>
+
+  <ul>
+    <li>不需重現 → 直接看歷史 profile</li>
+    <li>「<strong>peak hour</strong>」自動有資料（用戶最多時的 profile）</li>
+    <li>對比 deploy 前後（<strong>regression detection</strong>）</li>
+    <li>跨 instance 統計（找全 fleet 的 hot path）</li>
+  </ul>
+
+  <h2 id="section-2">§ 2. Pyroscope 的位置</h2>
+
+  <h3>2.1 Pyroscope 歷史</h3>
+
+  <pre><code>2021: Pyroscope 公司成立
+2023: Grafana 收購 Pyroscope，與內部 Phlare 合併
+2024+: 統一名稱「Grafana Pyroscope」</code></pre>
+
+  <h3>2.2 為什麼跟 LGTM 整合</h3>
+
+  <p>
+    Pyroscope 設計刻意對齊 Loki / Tempo / Mimir：
+  </p>
+
+  <ul>
+    <li>同樣 multi-tenant 架構</li>
+    <li>同樣 horizontally scalable</li>
+    <li>同樣 object storage（S3 / GCS）</li>
+    <li>同樣 Distributor / Ingester / Querier 元件名</li>
+    <li>跟 Tempo trace 緊密整合（trace ↔ profile）</li>
+  </ul>
+
+  <h3>2.3 競爭對手對比</h3>
+
+  <table>
+    <thead>
+      <tr><th>方案</th><th>定位</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Pyroscope</strong></td><td>OSS、自架、跟 Grafana Stack 整合</td></tr>
+      <tr><td><strong>Datadog Continuous Profiler</strong></td><td>商業 SaaS、與 Datadog APM 整合</td></tr>
+      <tr><td><strong>Polar Signals Parca</strong></td><td>OSS、eBPF-first</td></tr>
+      <tr><td><strong>Cloud-native（GCP / AWS X-Ray Profiler）</strong></td><td>vendor-locked</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="section-3">§ 3. 架構與元件</h2>
+
+  <h3>3.1 元件架構</h3>
+
+  <div class="mermaid">
+graph LR
+    APP[Application<br/>+ Profiler SDK]
+    ALLOY[Alloy · eBPF]
+    DIST[Distributor]
+    INGEST[Ingester]
+    OBJ[(Object Storage)]
+    QUERIER[Querier]
+    STORE[Store Gateway]
+    COMP[Compactor]
+    GRAFANA[Grafana<br/>Pyroscope datasource]
+
+    APP -- pprof push --> DIST
+    ALLOY -- scrape · push --> DIST
+    DIST -- shards --> INGEST
+    INGEST -- flush --> OBJ
+    COMP --> OBJ
+
+    GRAFANA -- query --> QUERIER
+    QUERIER -- recent --> INGEST
+    QUERIER -- old --> STORE
+    STORE -- read --> OBJ
+</div>
+
+  <h3>3.2 元件職責</h3>
+
+  <p>跟 Mimir / Loki / Tempo 結構幾乎一致：</p>
+
+  <ul>
+    <li><strong>Distributor</strong>：接收 profile push（pprof 格式）、shard</li>
+    <li><strong>Ingester</strong>：記憶體 buffer + 定期 flush block</li>
+    <li><strong>Querier</strong>：執行查詢，從 ingester + store gateway 讀</li>
+    <li><strong>Store Gateway</strong>：從 object store 讀歷史資料</li>
+    <li><strong>Compactor</strong>：合併 block</li>
+  </ul>
+
+  <h3>3.3 Pprof 格式</h3>
+
+  <p>
+    Pyroscope 內部用 Google 的 <strong>pprof</strong> 格式（業界 de facto）。
+    所有支援的 SDK / Agent 都送 pprof：
+  </p>
+
+  <pre><code># pprof binary 格式（protobuf）
+samples: [
+  { stack: [main, runQuery, jsonEncode], value: 1234 },
+  { stack: [main, runQuery, dbQuery], value: 5678 },
+  ...
+]
+# value 單位依 profile type：CPU 是 nanoseconds、memory 是 bytes</code></pre>
+
+  <h2 id="section-4">§ 4. 五種 Profile Types</h2>
+
+  <h3>4.1 完整對照</h3>
+
+  <table>
+    <thead>
+      <tr><th>Type</th><th>看出</th><th>Overhead</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>CPU</strong></td>
+        <td>哪些函式吃 CPU</td>
+        <td>低（&lt; 1%）</td>
+      </tr>
+      <tr>
+        <td><strong>Memory: alloc_objects</strong></td>
+        <td>分配最多物件的函式</td>
+        <td>中</td>
+      </tr>
+      <tr>
+        <td><strong>Memory: alloc_space</strong></td>
+        <td>分配最多 bytes 的函式</td>
+        <td>中</td>
+      </tr>
+      <tr>
+        <td><strong>Memory: inuse_objects / inuse_space</strong></td>
+        <td>當下記憶體佔用最多的函式（Go GC 視角）</td>
+        <td>中</td>
+      </tr>
+      <tr>
+        <td><strong>Goroutine</strong>（Go only）</td>
+        <td>goroutine 數量、leak</td>
+        <td>低</td>
+      </tr>
+      <tr>
+        <td><strong>Block</strong>（Go only）</td>
+        <td>blocking call（mutex、channel）</td>
+        <td>中</td>
+      </tr>
+      <tr>
+        <td><strong>Mutex</strong>（Go only）</td>
+        <td>競爭 lock 的函式</td>
+        <td>中</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>4.2 CPU Profile 最常用</h3>
+
+  <p>
+    多數場景從 CPU 開始：「<strong>哪個函式 CPU 用最多</strong>」是最直覺的瓶頸發現方式。
+    其他 profile types 等懷疑特定問題（記憶體 leak、goroutine leak）時再看。
+  </p>
+
+  <h3>4.3 何時看其他類型</h3>
+
+  <table>
+    <thead>
+      <tr><th>症狀</th><th>看哪種 profile</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>CPU 高</td><td>CPU profile</td></tr>
+      <tr><td>OOM</td><td>Memory: inuse_space</td></tr>
+      <tr><td>GC pause 長</td><td>Memory: alloc_objects</td></tr>
+      <tr><td>Goroutine leak（Go）</td><td>Goroutine profile</td></tr>
+      <tr><td>Lock contention（Go）</td><td>Mutex / Block profile</td></tr>
+      <tr><td>網路 IO 等待</td><td>Block profile</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="section-5">§ 5. Flame Graph 解讀</h2>
+
+  <h3>5.1 Flame Graph 結構</h3>
+
+  <pre><code>          ┌──────────────────────────────┐
+高度       │ main (100%)                  │  ← 最底，全部時間
+（堆疊深度） │ ├──────────┬─────────┬──────│
+          │ │ runQuery │  parse  │ logs │
+          │ │  (60%)   │  (30%)  │ (10%)│
+          │ ├──┬──┬─┐  │ ┌──┬──┐│      │
+          │ │db│js│..│  │..│..││      │
+          │ └──┴──┴──┘  │  │  ││      │
+寬度 ∝ 時間佔比</code></pre>
+
+  <ul>
+    <li><strong>X 軸：佔比</strong>（不是時間順序！）</li>
+    <li><strong>Y 軸：堆疊深度</strong>（最底是 main，往上是被呼叫者）</li>
+    <li><strong>寬度 ∝ 該函式佔用的時間百分比</strong></li>
+    <li><strong>顏色</strong>：通常無語意，只是區分</li>
+  </ul>
+
+  <h3>5.2 解讀技巧</h3>
+
+  <div class="callout success">
+    <div class="callout-title">💡 找瓶頸的方法</div>
+    <ol>
+      <li>看 flame graph 中<strong>最寬的 leaf（樹頂葉子）</strong></li>
+      <li>該函式直接占用 CPU 最多</li>
+      <li>追溯它的 caller 路徑（往下看 stack）</li>
+      <li>判斷是否合理（<code>jsonEncode</code> 占 50%？合理嗎？）</li>
+    </ol>
+  </div>
+
+  <h3>5.3 Flame Graph vs Icicle Graph</h3>
+
+  <p>方向不同：</p>
+
+  <ul>
+    <li><strong>Flame</strong>：根在底，火焰向上燒（傳統）</li>
+    <li><strong>Icicle</strong>：根在頂，向下倒掛（Pyroscope 預設，新一代）</li>
+  </ul>
+
+  <p>內容相同，視覺方向反。Pyroscope UI 都支援切換。</p>
+
+  <h3>5.4 Pyroscope UI 功能</h3>
+
+  <ul>
+    <li><strong>Search</strong>：在 flame graph 中找特定函式名</li>
+    <li><strong>Diff</strong>：兩個時間段的 flame graph 差異（找 regression）</li>
+    <li><strong>Single view</strong>：單一 flame graph</li>
+    <li><strong>Comparison</strong>：左右並列比</li>
+    <li><strong>Sandwich view</strong>：選一個函式，看誰呼叫它（caller）+ 它呼叫誰（callee）</li>
+  </ul>
+
+  <h2 id="section-6">§ 6. 語言 SDK 整合</h2>
+
+  <h3>6.1 支援語言</h3>
+
+  <table>
+    <thead>
+      <tr><th>語言</th><th>套件</th><th>支援 profile types</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Go</strong></td><td><code>pyroscope-go</code></td><td>所有</td></tr>
+      <tr><td><strong>Java</strong></td><td><code>pyroscope-java</code> (async-profiler)</td><td>CPU、alloc</td></tr>
+      <tr><td><strong>Python</strong></td><td><code>pyroscope-io</code></td><td>CPU</td></tr>
+      <tr><td><strong>Ruby</strong></td><td><code>pyroscope</code> gem</td><td>CPU、alloc</td></tr>
+      <tr><td><strong>Node.js</strong></td><td><code>@pyroscope/nodejs</code></td><td>CPU、heap</td></tr>
+      <tr><td><strong>.NET</strong></td><td><code>Pyroscope</code> NuGet</td><td>CPU、alloc</td></tr>
+      <tr><td><strong>Rust</strong></td><td><code>pyroscope</code> crate</td><td>CPU</td></tr>
+      <tr><td><strong>PHP</strong></td><td><code>pyroscope</code> extension</td><td>CPU</td></tr>
+    </tbody>
+  </table>
+
+  <h3>6.2 Go 整合範例</h3>
+
+  <pre><code>// main.go
+package main
+
+import (
+    "github.com/grafana/pyroscope-go"
+)
+
+func main() {
+    pyroscope.Start(pyroscope.Config{
+        ApplicationName: "myapp",
+
+        // 連到 Pyroscope server
+        ServerAddress: "http://pyroscope:4040",
+
+        // 啟用哪些 profile
+        ProfileTypes: []pyroscope.ProfileType{
+            pyroscope.ProfileCPU,
+            pyroscope.ProfileAllocObjects,
+            pyroscope.ProfileAllocSpace,
+            pyroscope.ProfileInuseObjects,
+            pyroscope.ProfileInuseSpace,
+        },
+
+        // Tags（會變成 label）
+        Tags: map[string]string{
+            "region":  "us-east-1",
+            "version": "v1.2.3",
+        },
+    })
+
+    // 跑您的應用
+    runApp()
+}</code></pre>
+
+  <h3>6.3 Java 整合範例</h3>
+
+  <pre><code># 啟動時加 Java agent
+java -javaagent:pyroscope.jar \
+  -DPYROSCOPE_APPLICATION_NAME=myapp \
+  -DPYROSCOPE_SERVER_ADDRESS=http://pyroscope:4040 \
+  -DPYROSCOPE_PROFILER_EVENT=cpu \
+  -DPYROSCOPE_LABELS="region=us-east-1,version=v1.2.3" \
+  -jar myapp.jar</code></pre>
+
+  <h3>6.4 Python 整合</h3>
+
+  <pre><code>import pyroscope
+
+pyroscope.configure(
+    application_name="myapp",
+    server_address="http://pyroscope:4040",
+    tags={
+        "region": "us-east-1",
+        "version": "v1.2.3",
+    },
+)
+
+# 跑您的應用</code></pre>
+
+  <h3>6.5 Tags 與 Labels</h3>
+
+  <p>
+    Tags 在 Pyroscope 中變 label，用來篩選與分組（類似 Prometheus）。
+    常用 tag：<code>service</code>、<code>region</code>、<code>environment</code>、<code>version</code>。
+  </p>
+
+  <p>不要用 high-cardinality tag（user_id、request_id），跟 Loki 一樣會炸 cardinality。</p>
+
+  <h2 id="section-7">§ 7. Auto-instrumentation（Alloy + eBPF）</h2>
+
+  <h3>7.1 為什麼要 auto-instrumentation</h3>
+
+  <p>SDK 整合需要改 code，有些情境不方便：</p>
+
+  <ul>
+    <li>程式碼是別人的（廠商產品）</li>
+    <li>多語言混合（每個都改太麻煩）</li>
+    <li>沒有 SDK 支援的語言（Erlang、Elixir 等）</li>
+  </ul>
+
+  <h3>7.2 eBPF Profiling</h3>
+
+  <p>
+    用 Linux <strong>eBPF</strong>（kernel-level）取 profile，<strong>不用改 code、不用改執行檔</strong>，
+    只要把 profiler 放在同個 host / pod 就行。
+  </p>
+
+  <h3>7.3 Grafana Alloy 內建 eBPF Profiler</h3>
+
+  <pre><code>// alloy config.river
+pyroscope.ebpf "default" {
+    forward_to = [pyroscope.write.default.receiver]
+
+    // 自動發現 K8s pod
+    targets = discovery.kubernetes.pods.targets
+}
+
+pyroscope.write "default" {
+    endpoint {
+        url = "http://pyroscope:4040"
+    }
+}</code></pre>
+
+  <h3>7.4 K8s DaemonSet 部署</h3>
+
+  <pre><code>helm install alloy grafana/alloy \
+  --namespace observability \
+  --set 'controller.type=daemonset' \
+  -f alloy-values.yaml
+
+# alloy-values.yaml
+alloy:
+  # 給 eBPF 需要的權限
+  securityContext:
+    privileged: true
+  hostNetwork: true
+  hostPID: true
+  configMap:
+    create: true
+    content: |
+      # 上面 pyroscope.ebpf 設定...</code></pre>
+
+  <h3>7.5 eBPF 限制</h3>
+
+  <ul>
+    <li>Linux only（Windows 不行）</li>
+    <li>需要 kernel 4.18+（推薦 5.x+）</li>
+    <li>需要 privileged 權限（K8s 安全性考量）</li>
+    <li>跟 SDK 比，<strong>沒有 application-level context</strong>（trace_id、user 自訂 tag）</li>
+  </ul>
+
+  <h3>7.6 SDK vs eBPF 選擇</h3>
+
+  <table>
+    <thead>
+      <tr><th>選 SDK 當</th><th>選 eBPF 當</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>能改 code</td><td>code 不能改</td></tr>
+      <tr><td>需要 trace 整合</td><td>整 fleet 統一收</td></tr>
+      <tr><td>需要 tag 自訂</td><td>不需 application context</td></tr>
+      <tr><td>單一語言</td><td>多語言混合</td></tr>
+    </tbody>
+  </table>
+
+  <p>實務常組合：<strong>關鍵 service 用 SDK</strong>（精細）<strong>，其他 fleet 用 eBPF</strong>（廣度）。</p>
+
+  <h2 id="section-8">§ 8. 與 Trace 整合</h2>
+
+  <h3>8.1 Trace ↔ Profile</h3>
+
+  <p>
+    Pyroscope 與 Tempo 緊密整合：
+  </p>
+
+  <ul>
+    <li>Trace 的某個 slow span → 點 "<strong>Profile for span</strong>" → 開 Pyroscope，filter 到該時間段 + service</li>
+    <li>看到 flame graph 中 hot function</li>
+    <li>確認瓶頸到 function level</li>
+  </ul>
+
+  <h3>8.2 Span Profiling（v2.10+）</h3>
+
+  <p>
+    更新功能：每個 span 直接<strong>嵌入 profile data</strong>。Tempo trace 顯示 flame graph icon，
+    點選看該 span 的 profile（不只整個 service 的）。
+  </p>
+
+  <p>需要 SDK 啟用：</p>
+
+  <pre><code>// Go
+import "github.com/grafana/pyroscope-go/godeltaprof/http/pprof"
+
+// 把 trace 和 profile 連結
+profiler.Start(pyroscope.Config{
+    // ...
+    HTTPHeaders: map[string]string{
+        "X-Trace-ID": traceID,    // 自動關聯
+    },
+})</code></pre>
+
+  <h3>8.3 Tempo Datasource 設定</h3>
+
+  <pre><code># Ch 34 介紹過
+- name: Tempo
+  type: tempo
+  jsonData:
+    tracesToProfiles:
+      datasourceUid: pyroscope-prod
+      tags:
+        - { key: 'service.name', value: 'service_name' }
+      profileTypeId: 'process_cpu:cpu:nanoseconds:cpu:nanoseconds'
+      customQuery: false</code></pre>
+
+  <h3>8.4 Profile Type ID 格式</h3>
+
+  <pre><code>{name}:{sample_type}:{unit}:{period_type}:{period_unit}
+
+範例:
+process_cpu:cpu:nanoseconds:cpu:nanoseconds       # CPU
+memory:alloc_objects:count:space:bytes            # alloc objects
+memory:alloc_space:bytes:space:bytes              # alloc space
+memory:inuse_objects:count:space:bytes
+memory:inuse_space:bytes:space:bytes
+goroutine:goroutine:count:goroutine:count
+mutex:contentions:count:mutex:count
+mutex:delay:nanoseconds:mutex:count
+block:contentions:count:block:count
+block:delay:nanoseconds:block:count</code></pre>
+
+  <h3>8.5 整合 Profiles Drilldown</h3>
+
+  <p>
+    Ch 39 介紹的 <strong>Profiles Drilldown</strong> 自動列出所有 service，點選看 flame graph，
+    不用寫 query。最低門檻使用 Pyroscope。
+  </p>
+
+  <h2 id="section-9">§ 9. 部署模式</h2>
+
+  <h3>9.1 三種部署</h3>
+
+  <p>跟 Loki / Tempo / Mimir 一樣的 monolithic / read-write-backend / microservices。</p>
+
+  <h3>9.2 Helm 安裝（單一 binary）</h3>
+
+  <pre><code>helm repo add grafana https://grafana.github.io/helm-charts
+
+helm install pyroscope grafana/pyroscope \
+  --namespace pyroscope --create-namespace</code></pre>
+
+  <h3>9.3 Helm 安裝 Microservices</h3>
+
+  <pre><code>helm install pyroscope grafana/pyroscope-distributed \
+  --namespace pyroscope --create-namespace \
+  -f pyroscope-values.yaml
+
+# pyroscope-values.yaml
+pyroscope:
+  structuredConfig:
+    multitenancy_enabled: true
+    storage:
+      backend: s3
+      s3:
+        bucket_name: pyroscope-data
+        region: us-east-1
+
+distributor:
+  replicas: 3
+ingester:
+  replicas: 3
+  persistence:
+    size: 100Gi
+querier:
+  replicas: 2
+queryFrontend:
+  replicas: 2
+storeGateway:
+  replicas: 2
+compactor:
+  replicas: 1</code></pre>
+
+  <h3>9.4 Storage Sizing</h3>
+
+  <p>Profile 資料比 metric 大很多。粗估：</p>
+
+  <ul>
+    <li>每個 service 每天 ~1-5 GB（含 5 種 profile types）</li>
+    <li>100 services + 30 天 = ~300-500 GB</li>
+    <li>S3 成本 ~$10-30/月</li>
+  </ul>
+
+  <h2 id="section-10">§ 10. Production Best Practices</h2>
+
+  <h3>10.1 Profile Types 選擇</h3>
+
+  <ul>
+    <li><strong>必開</strong>：CPU profile（最有用、overhead 最低）</li>
+    <li><strong>看狀況</strong>：Memory profile（懷疑 OOM 或 GC 問題時）</li>
+    <li><strong>選擇性</strong>：Goroutine / Mutex / Block（深度 debug 用）</li>
+  </ul>
+
+  <h3>10.2 Sampling Rate</h3>
+
+  <pre><code>// 預設 100Hz（每 10ms 取 sample）
+// CPU 重的應用可降到 50Hz
+ProfileSampleRate: 50,</code></pre>
+
+  <h3>10.3 Cardinality 控制</h3>
+
+  <ul>
+    <li>不要把 user_id / request_id 當 tag</li>
+    <li>service 數 × tag values × profile types 不要爆</li>
+    <li>用 <code>limits.max_global_series_per_tenant</code> 限制</li>
+  </ul>
+
+  <h3>10.4 Retention</h3>
+
+  <pre><code>compactor:
+  block_retention: 720h    # 30 天
+
+# 短 retention 是 OK 的：
+# - profile 主要用於 debug（即時/近期）
+# - 7-14 天通常夠 regression detection</code></pre>
+
+  <h3>10.5 監控 Pyroscope 自身</h3>
+
+  <pre><code>必看 metrics：
+- pyroscope_distributor_received_bytes_total
+- pyroscope_ingester_blocks_total
+- pyroscope_ingester_memory_segments
+- pyroscope_querier_query_duration_seconds
+
+必設告警：
+- PyroscopeIngestionFailing
+- PyroscopeQuerierSlow
+- PyroscopeStorageGrowthHigh</code></pre>
+
+  <h3>10.6 Cost 控制</h3>
+
+  <ul>
+    <li>用 <strong>eBPF for the masses, SDK for critical</strong></li>
+    <li>Sample rate 預設 100Hz 通常 ok，不用更高</li>
+    <li>S3 Intelligent Tiering（profile 老資料很少看）</li>
+    <li>不要每個 service 都開所有 profile types</li>
+  </ul>
+
+  <h2 id="section-11">§ 11. 實戰：找一個 CPU bottleneck</h2>
+
+  <h3>11.1 場景</h3>
+
+  <p>「<code>api-service</code> CPU 使用率 80%，看 dashboard 沒明顯 spike，要找瓶頸。」</p>
+
+  <h3>11.2 用 Pyroscope</h3>
+
+  <ol>
+    <li>進 Grafana → Drilldown → Profiles</li>
+    <li>選 Pyroscope datasource</li>
+    <li>選 service: api-service</li>
+    <li>選 profile type: process_cpu:cpu:nanoseconds:cpu:nanoseconds</li>
+    <li>看 flame graph：</li>
+  </ol>
+
+  <pre><code>main (100%)
+└── http.handler (95%)
+    ├── parseRequest (15%)
+    ├── runBusinessLogic (30%)
+    │   └── jsonEncode (20%)         ← 占大量時間！
+    ├── databaseQuery (40%)
+    └── writeResponse (10%)</code></pre>
+
+  <h3>11.3 發現問題</h3>
+
+  <p>
+    <code>jsonEncode</code> 占 20% CPU，異常多。深入：點選 jsonEncode → 看它的 caller / callee。
+    發現是 nested struct 每次 marshal 重複 reflection。
+  </p>
+
+  <h3>11.4 對比 Diff</h3>
+
+  <p>修復後 deploy。用 Pyroscope <strong>Diff View</strong>：</p>
+
+  <ul>
+    <li>左：deploy 前一天的 profile</li>
+    <li>右：deploy 後當天的 profile</li>
+    <li>看到 jsonEncode 從 20% 降到 3%</li>
+    <li>整體 CPU 從 80% 降到 50%</li>
+  </ul>
+
+  <h3>11.5 與 Trace 配合</h3>
+
+  <p>還可從特定 slow trace 跳到 profile：</p>
+
+  <ol>
+    <li>Tempo 看到一個 trace P99 800ms</li>
+    <li>點該 span 的 "Profile for span"</li>
+    <li>Pyroscope 開啟，filter 到該時間段</li>
+    <li>看到 jsonEncode 占 40%（比平均更糟）</li>
+    <li>確認是 jsonEncode 的鍋</li>
+  </ol>
+
+  <h2>📚 延伸閱讀</h2>
+
+  <ul>
+    <li><a href="https://grafana.com/docs/pyroscope/latest/" target="_blank" rel="noopener">Pyroscope 官方文件</a></li>
+    <li><a href="https://grafana.com/docs/pyroscope/latest/configure-client/" target="_blank" rel="noopener">語言 SDK 設定指南</a></li>
+    <li><a href="https://grafana.com/docs/alloy/latest/reference/components/pyroscope/" target="_blank" rel="noopener">Alloy eBPF Profiler 元件</a></li>
+    <li><a href="https://www.brendangregg.com/flamegraphs.html" target="_blank" rel="noopener">Flame Graph 創始人 Brendan Gregg 的原始介紹</a></li>
+    <li><a href="https://github.com/google/pprof" target="_blank" rel="noopener">Google pprof 格式</a></li>
+  </ul>
+
+  <h2>✅ 本章重點摘要</h2>
+
+  <div class="callout success">
+    <div class="callout-title">30 秒回顧</div>
+    <ul>
+      <li>Continuous Profiling = <strong>持續低 overhead 收集 CPU/Memory profile</strong>，不必重現問題</li>
+      <li>Profile 回答「<strong>哪行 code 慢</strong>」（trace 是「哪個 service」）</li>
+      <li>Pyroscope = Grafana 收購（2023），與 Phlare 合併</li>
+      <li>架構與 Loki / Tempo / Mimir 高度一致：5 大元件 + object store</li>
+      <li>內部用 <strong>pprof 格式</strong>（Google 業界標準）</li>
+      <li>5 種 profile types：<strong>CPU（最常用）/ Memory（alloc/inuse）/ Goroutine / Block / Mutex</strong></li>
+      <li>Flame Graph：<strong>X 軸佔比、Y 軸堆疊深度、寬度 ∝ 時間</strong></li>
+      <li>找瓶頸：<strong>看最寬的 leaf node</strong></li>
+      <li>SDK 支援 8+ 語言（Go / Java / Python / Ruby / Node / .NET / Rust / PHP）</li>
+      <li>Auto-instrumentation：<strong>Grafana Alloy + eBPF</strong> = 不改 code</li>
+      <li>SDK vs eBPF：<strong>關鍵 service 用 SDK，廣度用 eBPF</strong></li>
+      <li>與 Tempo trace 整合：<strong>tracesToProfiles + Span Profiling</strong></li>
+      <li>Profiles Drilldown 提供 queryless 探索</li>
+      <li>Storage 成本低（30 天 100 services ~ $10-30/月）</li>
+      <li>Production 必做：CPU profile 優先、控制 cardinality、用 Diff View 找 regression</li>
+    </ul>
+  </div>
+
+  <h2>📝 練習題</h2>
+
+  <ol>
+    <li>解釋 Continuous Profiling 比傳統 ad-hoc profiling 好在哪？哪些情境傳統 profiling 不夠？</li>
+    <li>解讀以下 flame graph 描述：<code>main → http.handler (90%) → query (60%) → dbDriver.exec (50%)</code>。瓶頸在哪？</li>
+    <li>下面情境選 SDK 還是 eBPF？(a) 自己 Go service；(b) 廠商提供的 binary；(c) 多語言混合 fleet；(d) 需要 trace_id 關聯</li>
+    <li>解釋為什麼 user_id 不能當 Pyroscope tag？舉 cardinality 失控的具體例子。</li>
+    <li>實作 debug 流程：「<code>order-service</code> Memory 增長」。從哪個 profile type 開始？怎麼用 Diff View 確認 leak？</li>
+  </ol>
+
+  <nav class="footer-nav">
+    <a href="ch47-Mimir-scalable-prometheus.html">
+      <div class="nav-direction">← 上一章</div>
+      <div class="nav-title">Ch 47 · Mimir</div>
+    </a>
+    <a class="next" href="ch49-Overview-alloy-beyla.html">
+      <div class="nav-direction">下一章 →</div>
+      <div class="nav-title">Ch 49 · Alloy + Beyla</div>
+    </a>
+  </nav>
+
+</main>
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else { init(); }
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  // Calm Teal hue 200° 設計色系 → mermaid themeVariables 對齊 tokens.css
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    return {
+      startOnLoad: false,
+      securityLevel: 'loose',
+      fontFamily: 'DM Sans, Inter, Noto Sans TC, sans-serif',
+      theme: 'base',
+      themeVariables: isDark ? {
+        background: '#2a2520',
+        primaryColor: '#1f3a4a',
+        primaryTextColor: '#e8e6e1',
+        primaryBorderColor: '#5a8499',
+        lineColor: '#7a8a8f',
+        secondaryColor: '#2d3a32',
+        tertiaryColor: '#3a3528',
+        nodeBorder: '#5a8499',
+        clusterBkg: '#252523',
+        clusterBorder: '#4a4944',
+        edgeLabelBackground: '#2a2520',
+        textColor: '#e8e6e1',
+      } : {
+        background: '#fdfcfa',
+        primaryColor: '#cffafe',
+        primaryTextColor: '#1a1a18',
+        primaryBorderColor: '#0891b2',
+        lineColor: '#4a6873',
+        secondaryColor: '#dcfce7',
+        tertiaryColor: '#fef3c7',
+        nodeBorder: '#0891b2',
+        clusterBkg: '#f5f3ee',
+        clusterBorder: '#d4d2cd',
+        edgeLabelBackground: '#fdfcfa',
+        textColor: '#1a1a18',
+      },
+    };
+  }
+  mermaid.initialize(getMermaidConfig());
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => mermaid.run());
+  } else {
+    mermaid.run();
+  }
+  window.addEventListener('jhsun:theme-changed', () => {
+    document.querySelectorAll('.mermaid').forEach(el => {
+      const code = el.dataset.source || el.textContent;
+      if (!el.dataset.source) el.dataset.source = code;
+      el.removeAttribute('data-processed');
+      el.innerHTML = el.dataset.source;
+    });
+    mermaid.initialize(getMermaidConfig());
+    mermaid.run();
+  });
+</script>
+</body>
+</html>

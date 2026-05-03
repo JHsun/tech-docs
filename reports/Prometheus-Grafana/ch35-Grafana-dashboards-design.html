@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch35 · Dashboards 設計 | Prometheus / Alertmanager / Grafana 完整教學</title>
+<style>
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --text-3xl: 44px;
+  --text-4xl: 64px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+  --container-narrow: 720px;
+  --container-wide: 1280px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80;
+  --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24;
+  --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171;
+  --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee;
+  --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  padding: 0;
+}
+.top-nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-soft);
+  padding: var(--space-3) var(--space-5);
+  display: flex; justify-content: space-between; align-items: center;
+  backdrop-filter: blur(8px);
+}
+.nav-links { display: flex; gap: var(--space-3); align-items: center; }
+.nav-links a {
+  color: var(--text-secondary); text-decoration: none;
+  font-size: var(--text-sm); padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm); transition: all 0.2s ease;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--color-primary-soft); }
+.nav-links a.disabled { color: var(--text-muted); cursor: not-allowed; pointer-events: none; }
+button[data-theme-toggle] {
+  background: var(--bg-muted); color: var(--text-primary);
+  border: 1px solid var(--border-soft);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+  cursor: pointer; font-size: var(--text-sm);
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-sans); transition: all 0.2s ease;
+}
+button[data-theme-toggle]:hover { background: var(--color-primary-soft); border-color: var(--color-primary); }
+.theme-icon { font-size: var(--text-md); }
+main { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-7) var(--space-5); }
+@media (min-width: 1024px) { main { max-width: 880px; } }
+.chapter-meta {
+  font-size: var(--text-sm); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: var(--space-3); font-family: var(--font-mono);
+}
+h1 {
+  font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 700;
+  line-height: 1.15; margin: 0 0 var(--space-4);
+  color: var(--text-primary); letter-spacing: -0.02em;
+}
+.subtitle {
+  font-size: var(--text-md); color: var(--text-secondary);
+  margin-bottom: var(--space-7); font-style: italic;
+  border-left: 3px solid var(--color-primary); padding-left: var(--space-4);
+}
+h2 {
+  font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600;
+  margin-top: var(--space-8); margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2); border-bottom: 2px solid var(--border-soft);
+  color: var(--text-primary);
+}
+h3 { font-size: var(--text-xl); font-weight: 600; margin-top: var(--space-6); margin-bottom: var(--space-3); color: var(--text-primary); }
+h4 { font-size: var(--text-md); font-weight: 600; margin-top: var(--space-5); margin-bottom: var(--space-2); color: var(--text-primary); }
+p { margin: var(--space-3) 0; }
+strong { color: var(--text-primary); font-weight: 600; }
+em { color: var(--text-secondary); }
+a {
+  color: var(--color-primary-text); text-decoration: underline;
+  text-decoration-color: var(--color-primary-soft);
+  text-underline-offset: 3px; transition: all 0.2s ease;
+}
+a:hover { color: var(--color-primary-hover); text-decoration-color: var(--color-primary); }
+code {
+  font-family: var(--font-mono); font-size: 0.92em;
+  background: var(--bg-code); padding: 0.15em 0.4em;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-soft);
+  color: var(--color-primary-text);
+}
+pre {
+  background: var(--bg-code); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  overflow-x: auto; font-size: var(--text-sm); line-height: 1.6;
+  margin: var(--space-4) 0;
+}
+pre code { background: transparent; border: none; padding: 0; color: var(--text-primary); }
+.callout {
+  margin: var(--space-5) 0; padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md); border-left: 4px solid;
+}
+.callout-title {
+  font-weight: 600; margin-bottom: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.callout.info { background: var(--color-info-soft); border-color: var(--color-info); }
+.callout.info .callout-title { color: var(--color-info); }
+.callout.success { background: var(--color-success-soft); border-color: var(--color-success); }
+.callout.success .callout-title { color: var(--color-success); }
+.callout.warning { background: var(--color-warning-soft); border-color: var(--color-warning); }
+.callout.warning .callout-title { color: var(--color-warning); }
+.callout.danger { background: var(--color-danger-soft); border-color: var(--color-danger); }
+.callout.danger .callout-title { color: var(--color-danger); }
+table {
+  width: 100%; border-collapse: collapse; margin: var(--space-5) 0;
+  font-size: var(--text-sm); background: var(--bg-surface);
+  border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-sm);
+}
+th, td { text-align: left; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); }
+th {
+  background: var(--bg-muted); font-weight: 600; color: var(--text-primary);
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg-muted); }
+ul, ol { padding-left: var(--space-5); margin: var(--space-3) 0; }
+li { margin: var(--space-2) 0; }
+li::marker { color: var(--color-primary); }
+.toc {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4) var(--space-5);
+  margin: var(--space-5) 0;
+}
+.toc-title {
+  font-weight: 600; font-size: var(--text-sm);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted); margin-bottom: var(--space-3);
+}
+.toc ul { list-style: none; padding-left: 0; }
+.toc li { margin: var(--space-1) 0; }
+.toc a { text-decoration: none; }
+.toc ul ul { padding-left: var(--space-4); }
+.card-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4); margin: var(--space-5) 0;
+}
+.card {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  transition: all 0.2s ease;
+}
+.card:hover { box-shadow: var(--shadow-md); border-color: var(--color-primary); transform: translateY(-2px); }
+.card-num { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-primary); font-weight: 600; }
+.card-title { font-weight: 600; font-size: var(--text-base); margin: var(--space-2) 0; color: var(--text-primary); }
+.card-desc { font-size: var(--text-sm); color: var(--text-secondary); }
+.mermaid {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-5);
+  margin: var(--space-5) 0; text-align: center; overflow-x: auto;
+}
+.footer-nav {
+  display: flex; justify-content: space-between;
+  margin-top: var(--space-8); padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft); gap: var(--space-3);
+}
+.footer-nav a {
+  flex: 1; padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); text-decoration: none;
+  color: var(--text-primary); transition: all 0.2s ease;
+}
+.footer-nav a:hover { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.footer-nav .nav-direction {
+  font-size: var(--text-xs); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.footer-nav .nav-title { font-weight: 600; margin-top: var(--space-1); }
+.footer-nav .next { text-align: right; }
+.footer-nav a.disabled { opacity: 0.4; pointer-events: none; }
+.tag {
+  display: inline-block; padding: 0.1em 0.6em; font-size: var(--text-xs);
+  border-radius: var(--radius-sm); font-family: var(--font-mono);
+  background: var(--bg-muted); color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+}
+.tag.primary { background: var(--color-primary-soft); color: var(--color-primary-text); border-color: var(--color-primary); }
+@media print { .top-nav, .footer-nav, button[data-theme-toggle] { display: none; } }
+</style>
+</head>
+<body>
+
+<nav class="top-nav">
+  <div class="nav-links">
+    <a href="ch34-Grafana-data-sources.html">← 上一章</a>
+    <a href="ch00-Overview-learning-path.html">📚 目錄</a>
+    <a href="ch36-Grafana-panels-part1.html">下一章 →</a>
+  </div>
+  <button data-theme-toggle aria-label="Toggle theme"></button>
+</nav>
+
+<main>
+  <div class="chapter-meta">Chapter 35 · Dashboards 設計</div>
+  <h1>Dashboards 設計：Layout、Variables、Annotations、版本控管</h1>
+  <p class="subtitle">
+    Dashboard 不只是「把 panel 拼一起」。好的 dashboard 能讓 on-call 5 秒看出問題，
+    讓 PM 一眼看到業務指標，讓新人 30 秒上手 service。本章涵蓋 layout、variables、annotations、
+    links、版本控管，以及讓 dashboard 從「炫技」變成「有用」的設計原則。
+  </p>
+
+  <div class="toc">
+    <div class="toc-title">本章內容</div>
+    <ul>
+      <li><a href="#section-1">§ 1. 設計原則：Dashboard 為誰而設計</a></li>
+      <li><a href="#section-2">§ 2. Layout 與 Grid System</a></li>
+      <li><a href="#section-3">§ 3. Dynamic Dashboards（v12+）</a></li>
+      <li><a href="#section-4">§ 4. Variables 完整使用</a></li>
+      <li><a href="#section-5">§ 5. Variables 的進階技巧</a></li>
+      <li><a href="#section-6">§ 6. Annotations</a></li>
+      <li><a href="#section-7">§ 7. Dashboard Links 與 Panel Links</a></li>
+      <li><a href="#section-8">§ 8. Time Range 與 Refresh</a></li>
+      <li><a href="#section-9">§ 9. 版本控管與 JSON 結構</a></li>
+      <li><a href="#section-10">§ 10. RED / USE / Golden Signals 模板</a></li>
+      <li><a href="#section-11">§ 11. 設計反模式</a></li>
+    </ul>
+  </div>
+
+  <h2 id="section-1">§ 1. 設計原則：Dashboard 為誰而設計</h2>
+
+  <h3>1.1 三類 dashboard 對應三類使用者</h3>
+
+  <table>
+    <thead>
+      <tr><th>類型</th><th>讀者</th><th>目的</th><th>長度建議</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Service Overview</strong></td>
+        <td>On-call、SRE</td>
+        <td>5 秒看出 service 健康狀況</td>
+        <td>1 螢幕（不需 scroll）</td>
+      </tr>
+      <tr>
+        <td><strong>Deep Dive</strong></td>
+        <td>Engineer debugging</td>
+        <td>細節數據、各種維度切片</td>
+        <td>多螢幕、多 row</td>
+      </tr>
+      <tr>
+        <td><strong>Business / KPI</strong></td>
+        <td>PM、Manager、CEO</td>
+        <td>單一可量化的 KPI 與趨勢</td>
+        <td>1-2 螢幕，少 panel</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>1.2 黃金原則</h3>
+
+  <div class="callout success">
+    <div class="callout-title">✅ 設計核心</div>
+    <ol>
+      <li><strong>每個 dashboard 一個目的</strong>：能用一句話說清楚這個 dashboard 解決什麼問題</li>
+      <li><strong>最重要資訊放最上面</strong>：on-call 看一眼就知道 service 健康嗎</li>
+      <li><strong>Stat / Threshold 配色</strong>：紅 = 壞、綠 = 好，不要為了「色彩豐富」打破慣例</li>
+      <li><strong>Panel 最少化</strong>：刪掉「也許有用」的 panel，只留「一定有用」的</li>
+      <li><strong>連結要明確</strong>：每個 panel 要能跳到 deeper view（log、trace、exporter raw metric）</li>
+    </ol>
+  </div>
+
+  <h2 id="section-2">§ 2. Layout 與 Grid System</h2>
+
+  <h3>2.1 24 column grid</h3>
+
+  <p>Grafana 用 <strong>24 column grid</strong>。Panel 寬度是 1-24，typical：</p>
+
+  <table>
+    <thead>
+      <tr><th>寬度</th><th>用途</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>24</td><td>滿寬，row title 或關鍵 metric chart</td></tr>
+      <tr><td>12</td><td>左右並列</td></tr>
+      <tr><td>8</td><td>三欄</td></tr>
+      <tr><td>6</td><td>四欄（典型 stat 列）</td></tr>
+      <tr><td>4</td><td>六欄（小 stat）</td></tr>
+      <tr><td>3</td><td>八欄（icon-like）</td></tr>
+    </tbody>
+  </table>
+
+  <h3>2.2 經典 Layout 模板</h3>
+
+  <p><strong>Service Overview Layout</strong>（最常見）：</p>
+
+  <pre><code>第一列（高度 4）：4 個 stat panel（寬 6）
+  [QPS] [Errors] [P99 Latency] [Saturation]
+
+第二列（高度 8）：2 個 time series（寬 12）
+  [Request Rate trend]  [Error Rate trend]
+
+第三列（高度 8）：2 個 time series（寬 12）
+  [Latency Percentiles] [Resources]
+
+第四列（高度 6）：1 個 logs panel（寬 24）
+  [Recent Errors from Loki]</code></pre>
+
+  <h3>2.3 Row（垂直分區）</h3>
+
+  <p>Row 把相關 panel 群組起來，可以折疊：</p>
+
+  <pre><code>📊 Overview (collapsed/expanded)
+  └─ stat panels...
+
+📊 HTTP Layer
+  └─ request rate, errors, latency...
+
+📊 Database Layer
+  └─ query rate, slow queries...
+
+📊 Infrastructure
+  └─ CPU, memory, disk...</code></pre>
+
+  <p>Row 加 collapse + variable 控制：</p>
+
+  <pre><code>Row title: "Database - $instance"  ← 用 variable
+Repeat: "instance" variable        ← 每個 instance 一行</code></pre>
+
+  <h2 id="section-3">§ 3. Dynamic Dashboards（v12+）</h2>
+
+  <h3>3.1 三大新能力</h3>
+
+  <p>Grafana 12 引入 <strong>Dynamic Dashboards</strong>（experimental），帶來：</p>
+
+  <ul>
+    <li><strong>Tabs</strong>：水平分頁（之前只有 row）</li>
+    <li><strong>Conditional Rendering</strong>：根據 variable 顯示/隱藏 panel</li>
+    <li><strong>Auto-grid Layout</strong>：panel 自動調整大小填滿空間</li>
+  </ul>
+
+  <h3>3.2 Tabs 範例</h3>
+
+  <pre><code>Service Overview
+├── Tab: "Production" (visible by default)
+├── Tab: "Staging"
+└── Tab: "Development"
+
+每個 tab 有自己的 panel 集合
+切 tab 不重新載 dashboard，只切 view</code></pre>
+
+  <p>Tabs 適合：環境切換、地區切換、產品線切換。</p>
+
+  <h3>3.3 Conditional Rendering</h3>
+
+  <pre><code># 設定 panel 顯示條件
+Panel: "Loki Logs"
+  Show when: $datasource_type == "loki"
+
+Panel: "Database queries"
+  Show when: $service =~ ".*db.*"</code></pre>
+
+  <p>避免「給所有 service 用同個 dashboard」時 panel 過多 / 不適用的問題。</p>
+
+  <h3>3.4 Auto-grid</h3>
+
+  <p>傳統 grid 是手動拖拉設大小。Auto-grid 讓 Grafana 自動：</p>
+
+  <ul>
+    <li>每行最多 N 個 panel（您指定）</li>
+    <li>螢幕窄時自動換行</li>
+    <li>Panel 高度跟內容自適應</li>
+  </ul>
+
+  <h3>3.5 還在 experimental</h3>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ Dynamic Dashboards 是 experimental</div>
+    <p>
+      v12 引入但仍在 experimental。啟用後 dashboard 會自動轉為 v2 schema，
+      <strong>無法 rollback 到 v1</strong>。<br>
+      Production 等待 GA（預計 v13/v14）再用。Dev 環境可以試。
+    </p>
+  </div>
+
+  <h2 id="section-4">§ 4. Variables 完整使用</h2>
+
+  <h3>4.1 Variable 是什麼</h3>
+
+  <p>
+    Dashboard 頂部的下拉選單，讓您切換不同 instance/service/cluster 時，整個 dashboard 都跟著變。
+    Panel 用 <code>$variable</code> 引用其值。
+  </p>
+
+  <h3>4.2 Variable 類型</h3>
+
+  <table>
+    <thead>
+      <tr><th>類型</th><th>用途</th><th>範例</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Query</strong></td><td>從 datasource 動態取值</td><td><code>label_values(up, instance)</code></td></tr>
+      <tr><td><strong>Custom</strong></td><td>固定列表</td><td><code>production,staging,dev</code></td></tr>
+      <tr><td><strong>Constant</strong></td><td>固定常數（隱藏）</td><td>API key、租戶 ID</td></tr>
+      <tr><td><strong>Datasource</strong></td><td>選 datasource</td><td>切換多 Prometheus instance</td></tr>
+      <tr><td><strong>Interval</strong></td><td>時間 interval</td><td><code>1m,5m,1h</code></td></tr>
+      <tr><td><strong>Text Box</strong></td><td>使用者輸入</td><td>自訂搜尋字串</td></tr>
+      <tr><td><strong>Ad hoc filters</strong></td><td>動態加 label filter</td><td>不用改 query</td></tr>
+    </tbody>
+  </table>
+
+  <h3>4.3 Query Variable（最常用）</h3>
+
+  <pre><code>Variable name: instance
+Type: Query
+Datasource: Prometheus
+
+Query: label_values(node_uname_info, instance)
+Sort: Alphabetical (asc)
+
+Multi-value: ✅ (允許多選)
+Include All option: ✅
+Refresh: On Time Range Change</code></pre>
+
+  <h3>4.4 串聯 Variable（重要技巧）</h3>
+
+  <p>讓「選 cluster 後，instance 下拉只顯示該 cluster 的」：</p>
+
+  <pre><code>Variable 1: cluster
+  Query: label_values(node_uname_info, cluster)
+
+Variable 2: instance
+  Query: label_values(node_uname_info{cluster="$cluster"}, instance)
+                                              ^^^^^^^^^^^ 用上一個 variable</code></pre>
+
+  <p>這個機制讓 dashboard scale 到「上百個 cluster + 上萬個 instance」也仍然好用。</p>
+
+  <h3>4.5 Multi-value 與 All</h3>
+
+  <p>多選時，PromQL 自動展開為 regex：</p>
+
+  <pre><code>選擇了 alice, bob, carol 三個 instance：
+$instance => "alice|bob|carol"
+
+PromQL 中：
+up{instance="$instance"}     ❌ 只支援單值
+up{instance=~"$instance"}    ✅ regex 匹配</code></pre>
+
+  <p><strong>Multi-value variable 必須用 <code>=~</code></strong>。</p>
+
+  <h3>4.6 All option 處理</h3>
+
+  <p>當使用者選 "All"，您可能要：</p>
+
+  <pre><code># 選項 1：All 自動展開為所有具體值（預設）
+Custom all value: (留空)
+=> 變成 "alice|bob|carol"
+
+# 選項 2：用 .+ 匹配所有
+Custom all value: .+
+=> 變成 ".+"
+
+# Panel：up{instance=~"$instance"}</code></pre>
+
+  <h3>4.7 隱藏 Variable</h3>
+
+  <p>有些 variable 是「內部使用」，不想顯示給使用者：</p>
+
+  <ul>
+    <li><strong>Hide: Label</strong>：只隱藏 label，下拉仍可見</li>
+    <li><strong>Hide: Variable</strong>：完全隱藏</li>
+  </ul>
+
+  <h2 id="section-5">§ 5. Variables 的進階技巧</h2>
+
+  <h3>5.1 全域變數（內建）</h3>
+
+  <p>Grafana 提供一些預設變數，無需建立：</p>
+
+  <table>
+    <thead>
+      <tr><th>變數</th><th>意義</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>$__interval</code></td><td>Grafana 算出的最佳 interval（隨 time range 變）</td></tr>
+      <tr><td><code>$__rate_interval</code></td><td>Prometheus 推薦的 rate interval（v8+）</td></tr>
+      <tr><td><code>$__range</code></td><td>當前 time range 大小</td></tr>
+      <tr><td><code>$__from</code> / <code>$__to</code></td><td>當前 time range 起 / 訖（UNIX MS）</td></tr>
+      <tr><td><code>$__dashboard</code></td><td>Dashboard 名稱（v8+）</td></tr>
+      <tr><td><code>$__user</code></td><td>當前使用者名</td></tr>
+      <tr><td><code>$__org</code></td><td>當前 org</td></tr>
+    </tbody>
+  </table>
+
+  <h3>5.2 Variable Format</h3>
+
+  <p>同一個 variable 可以在不同地方有不同格式：</p>
+
+  <pre><code>$instance              # 預設（multi-value 為 a|b|c）
+${instance}            # 同上，明確分界
+${instance:csv}        # a,b,c
+${instance:json}       # ["a","b","c"]
+${instance:raw}        # 原始值（不 escape）
+${instance:doublequote} # "a","b","c"
+${instance:singlequote} # 'a','b','c'
+${instance:regex}      # 已 regex escape</code></pre>
+
+  <p>SQL query 中用 <code>:singlequote</code>：</p>
+
+  <pre><code>SELECT * FROM logs
+WHERE service IN (${instance:singlequote})</code></pre>
+
+  <h3>5.3 Variable 用於 Repeat Panel</h3>
+
+  <p>
+    強大功能：一個 panel 設定 <code>repeat: instance</code>，會自動複製成 N 個 panel（每個 instance 一個）。
+  </p>
+
+  <pre><code>Panel: "CPU Usage - $instance"
+  Repeat: instance variable
+  Direction: horizontal / vertical
+  Max per row: 4</code></pre>
+
+  <p>選 5 個 instance → 自動產生 5 個 panel。比手動建 5 個方便太多。</p>
+
+  <h3>5.4 Repeat Row</h3>
+
+  <p>Row 也能 repeat：「每個 instance 一個 row，row 內有 CPU、Memory、Disk」。</p>
+
+  <pre><code>Row: "Instance: $instance"
+  Repeat: instance variable
+
+  Panel 1: CPU Usage
+    expr: rate(node_cpu_seconds_total{instance="$instance"}[5m])
+  Panel 2: Memory
+    expr: node_memory_MemAvailable_bytes{instance="$instance"}</code></pre>
+
+  <h2 id="section-6">§ 6. Annotations</h2>
+
+  <h3>6.1 Annotations 是什麼</h3>
+
+  <p>
+    在 time series chart 上疊加「事件標記」（垂直線 / 區段），標示部署、incident、營運事件等。
+    幫助 correlate「出問題」與「發生了什麼」。
+  </p>
+
+  <h3>6.2 內建 Annotations</h3>
+
+  <p>每個 dashboard 預設有 "Annotations &amp; Alerts"，顯示 Grafana alert 觸發點。</p>
+
+  <h3>6.3 自訂 Annotations</h3>
+
+  <p>Dashboard settings → Annotations → New：</p>
+
+  <pre><code>Name: Deployments
+Datasource: Prometheus
+Query: deployment_total{cluster="$cluster"}
+Title: '{{ service }} v{{ version }}'
+Tags: deployment
+
+# 顯示為垂直線，hover 顯示 service / version</code></pre>
+
+  <h3>6.4 從 SQL 抓 Annotations</h3>
+
+  <pre><code>Datasource: PostgreSQL
+Query:
+SELECT
+  $__time(deployed_at),
+  service AS title,
+  CONCAT(service, ' deployed: ', version) AS text,
+  ARRAY['deployment', service] AS tags
+FROM deployments
+WHERE $__timeFilter(deployed_at);</code></pre>
+
+  <h3>6.5 從 Loki 抓事件</h3>
+
+  <pre><code>Datasource: Loki
+Query: {app="ci"} |= "Deployment success"
+Title: '{{ service }}'
+Tags: ci-deploy</code></pre>
+
+  <h3>6.6 手動加 annotation</h3>
+
+  <p>在 graph panel 上 Ctrl + Click（或拖一段時間區間），可以即時加 annotation。
+    用於 incident 時記錄「這時候開始處理」、「這時候 rollback」等。</p>
+
+  <h2 id="section-7">§ 7. Dashboard Links 與 Panel Links</h2>
+
+  <h3>7.1 Dashboard Links</h3>
+
+  <p>顯示在 dashboard 標題附近，跳到其他 dashboard 或外部 URL。</p>
+
+  <pre><code>Dashboard settings → Links
+
+類型 1: Dashboards (連到其他 dashboard)
+  Tags: ['production', 'service']  ← 自動列出帶這些 tag 的 dashboard
+
+類型 2: Link (外部 URL)
+  URL: https://wiki.example.com/runbooks
+  Title: Runbook</code></pre>
+
+  <h3>7.2 Panel Links</h3>
+
+  <p>每個 panel 可加自己的 links（hover panel title 時顯示）：</p>
+
+  <pre><code>Panel → Edit → Links → Add link
+
+Title: View raw metric in Prometheus
+URL: https://prometheus/graph?expr={query}&time={time}
+
+支援變數：
+${__series.name}          # series 名稱
+${__field.name}           # field 名稱
+${__value.numeric}        # 數值
+${__from}                 # time range 起
+${__to}                   # time range 訖
+$variable                 # 任何 dashboard variable</code></pre>
+
+  <h3>7.3 Data Links（最進階）</h3>
+
+  <p>
+    Panel 內每個 data point 都能有自己的 link。例：點擊 graph 上某個 series → 跳到該 service 的詳細 dashboard。
+  </p>
+
+  <pre><code>Panel → Edit → Data links → Add
+
+Title: View ${__series.labels.service} dashboard
+URL: /d/abc?var-service=${__series.labels.service}&from=${__from}&to=${__to}</code></pre>
+
+  <h2 id="section-8">§ 8. Time Range 與 Refresh</h2>
+
+  <h3>8.1 Time Range 控制</h3>
+
+  <p>右上角時間選擇器：</p>
+
+  <ul>
+    <li><strong>Quick ranges</strong>：Last 5m / 1h / 24h / 7d / 30d</li>
+    <li><strong>Absolute</strong>：精確時間範圍</li>
+    <li><strong>Refresh interval</strong>：自動 reload（off / 5s / 10s / 30s / 1m / 5m...）</li>
+    <li><strong>Time zone</strong>：dashboard / browser / UTC / 自訂</li>
+  </ul>
+
+  <h3>8.2 預設 Time Range</h3>
+
+  <p>Dashboard settings → Time options：</p>
+
+  <pre><code>Default time range: now-6h to now
+Default refresh: 30s
+Auto refresh intervals: 5s,10s,30s,1m,5m,15m,30s,1h,2h,1d
+Now delay: 1m       # 避免 query 「未來」（資料還沒進 Prometheus）</code></pre>
+
+  <h3>8.3 Now Delay 的重要性</h3>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ Prometheus 有 ingestion delay</div>
+    <p>
+      Prometheus scrape 後資料到查詢可用有 1-2 分鐘 delay。<br>
+      若 dashboard 查 <code>now()</code>，最新 1 分鐘的 panel 可能空白。<br>
+      設 <strong>Now delay = 1m</strong> 讓所有 query 都「往前 1 分鐘」，避免空白。
+    </p>
+  </div>
+
+  <h3>8.4 Panel 個別 Time Range</h3>
+
+  <p>Panel 可以覆蓋 dashboard time range（例：「永遠顯示過去 24h」）：</p>
+
+  <pre><code>Panel → Edit → Panel options → Override relative time
+Relative time: 24h</code></pre>
+
+  <p>適合：「Service Health History」類 panel 不被 dashboard zoom 影響。</p>
+
+  <h2 id="section-9">§ 9. 版本控管與 JSON 結構</h2>
+
+  <h3>9.1 Dashboard 是 JSON</h3>
+
+  <p>每個 dashboard 在 backend 都是一個 JSON 結構。Settings → JSON Model 可看 / 編輯：</p>
+
+  <pre><code>{
+  "uid": "abc123",
+  "title": "Service Overview",
+  "tags": ["production", "service"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 12,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [...]      // variables
+  },
+  "annotations": {
+    "list": [...]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request Rate",
+      "type": "timeseries",
+      "datasource": {...},
+      "targets": [...],   // queries
+      "fieldConfig": {...},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+    },
+    ...
+  ]
+}</code></pre>
+
+  <h3>9.2 內建版本歷史</h3>
+
+  <p>Dashboard → Settings → Versions：看每次改動的歷史，可一鍵 revert。</p>
+
+  <p>限制：只在 Grafana 內部，跨 Grafana instance 不能用。</p>
+
+  <h3>9.3 Git 版本控管（推薦）</h3>
+
+  <p>Production 應該把 dashboard JSON 放 Git：</p>
+
+  <pre><code># Provisioning 從目錄載入
+# /etc/grafana/provisioning/dashboards/default.yml
+apiVersion: 1
+providers:
+  - name: 'default'
+    folder: ''
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards
+
+# Git repo 結構：
+dashboards/
+├── production/
+│   ├── api-service.json
+│   ├── db-service.json
+│   └── ...
+├── staging/
+│   └── ...
+└── README.md</code></pre>
+
+  <h3>9.4 Grafana 12 的 Git Sync（GA）</h3>
+
+  <p>
+    Grafana 12 把 Git Sync GA。<strong>UI 直接連 GitHub repo</strong>，dashboard 變動走 PR：
+  </p>
+
+  <ol>
+    <li>到 Administration → Git Sync</li>
+    <li>連 GitHub（personal access token 或 GitHub App）</li>
+    <li>選 repo + branch + path</li>
+    <li>之後 dashboard 在 UI 改 → 提 PR → review/merge → 同步回 Grafana</li>
+  </ol>
+
+  <p>這結合了「UI 編輯方便」與「Git 版本控管」兩個優點。</p>
+
+  <h3>9.5 Terraform 管理 Dashboard</h3>
+
+  <pre><code>resource "grafana_dashboard" "api_service" {
+  config_json = file("${path.module}/dashboards/api-service.json")
+  folder      = grafana_folder.production.id
+}</code></pre>
+
+  <p>Part 4（Ch 42-44）詳述。</p>
+
+  <h2 id="section-10">§ 10. RED / USE / Golden Signals 模板</h2>
+
+  <h3>10.1 RED Method（適合 service / API）</h3>
+
+  <p><strong>R</strong>ate / <strong>E</strong>rrors / <strong>D</strong>uration</p>
+
+  <pre><code># Rate
+sum by (service) (rate(http_requests_total[5m]))
+
+# Errors
+sum by (service) (rate(http_requests_total{status=~"5.."}[5m]))
+  / sum by (service) (rate(http_requests_total[5m]))
+
+# Duration p99
+histogram_quantile(0.99,
+  sum by (service, le) (rate(http_request_duration_seconds_bucket[5m]))
+)</code></pre>
+
+  <h3>10.2 USE Method（適合 resource / 機器）</h3>
+
+  <p><strong>U</strong>tilization / <strong>S</strong>aturation / <strong>E</strong>rrors</p>
+
+  <pre><code># CPU Utilization
+1 - avg by (instance) (
+  rate(node_cpu_seconds_total{mode="idle"}[5m])
+)
+
+# CPU Saturation（runqueue / load）
+node_load1 / count by (instance) (node_cpu_seconds_total{mode="idle"})
+
+# Errors（disk / network）
+rate(node_disk_io_errors_total[5m])
+rate(node_network_transmit_errs_total[5m])</code></pre>
+
+  <h3>10.3 Four Golden Signals（Google SRE）</h3>
+
+  <ul>
+    <li><strong>Latency</strong>：請求響應時間</li>
+    <li><strong>Traffic</strong>：請求量</li>
+    <li><strong>Errors</strong>：錯誤率</li>
+    <li><strong>Saturation</strong>：資源飽和度</li>
+  </ul>
+
+  <h3>10.4 Service Overview 範例 Dashboard</h3>
+
+  <pre><code>📊 服務名: $service Overview
+
+[Stat] QPS               [Stat] Error %         [Stat] P99 (ms)        [Stat] Saturation
+   1.2K                     0.05%                  234                    47%
+
+[Time series 12wide]            [Time series 12wide]
+Request Rate by status           P50 / P95 / P99 latency
+                                 (latency percentiles overlay)
+
+[Time series 12wide]            [Time series 12wide]
+Top 10 endpoints                 Resource utilization
+                                 (CPU / Memory / DB connections)
+
+[Logs panel 24wide]
+Recent errors (Loki) — {app="$service", level="error"}</code></pre>
+
+  <h2 id="section-11">§ 11. 設計反模式</h2>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 反模式 1：「萬用 dashboard」</div>
+    <p>
+      把每個 metric 都放上去 → 有 50+ panel → 沒人看完。<br>
+      <strong>解</strong>：分多個 dashboard，每個一個 focus（service / resource / business）。
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 反模式 2：色彩濫用</div>
+    <p>
+      每個 panel 都用不同色彩、漸層、3D 效果 → 看起來炫，但難 scan。<br>
+      <strong>解</strong>：色彩要有意義（紅=壞、綠=好），其他用中性色。
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 反模式 3：沒有 threshold 的 stat panel</div>
+    <p>
+      Stat panel 只顯示數字 234，看不出「這算高還算低」。<br>
+      <strong>解</strong>：設 threshold（&lt; 200 綠 / 200-500 黃 / &gt; 500 紅）。
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 反模式 4：每個 panel 都有自己的 time range</div>
+    <p>
+      Panel A 看 1h、Panel B 看 24h、Panel C 看 5m → 對齊困難，無法 cross-correlate。<br>
+      <strong>解</strong>：除非有特殊原因，所有 panel 用 dashboard time range。
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 反模式 5：忘記 unit / format</div>
+    <p>
+      <code>request_duration_seconds</code> 顯示 0.000234，看了無感。<br>
+      <strong>解</strong>：設 panel unit = "Time/seconds (s)" 自動轉成 234µs。
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 反模式 6：「死掉」的 dashboard</div>
+    <p>
+      建好沒人改、沒人看，metric 名稱已過時、threshold 不對。<br>
+      <strong>解</strong>：每季 review、建 owner、淘汰沒在用的 dashboard。
+    </p>
+  </div>
+
+  <h2>📚 延伸閱讀</h2>
+
+  <ul>
+    <li><a href="https://grafana.com/docs/grafana/latest/dashboards/" target="_blank" rel="noopener">Grafana Dashboards 文件</a></li>
+    <li><a href="https://grafana.com/docs/grafana/latest/dashboards/variables/" target="_blank" rel="noopener">Variables 完整指南</a></li>
+    <li><a href="https://grafana.com/blog/2025/05/07/dynamic-dashboards-grafana-12/" target="_blank" rel="noopener">Dynamic Dashboards in Grafana 12</a></li>
+    <li><a href="https://grafana.com/docs/grafana/latest/dashboards/build-dashboards/best-practices/" target="_blank" rel="noopener">Dashboard Best Practices（官方）</a></li>
+    <li><a href="https://www.brendangregg.com/usemethod.html" target="_blank" rel="noopener">USE Method（Brendan Gregg）</a></li>
+  </ul>
+
+  <h2>✅ 本章重點摘要</h2>
+
+  <div class="callout success">
+    <div class="callout-title">30 秒回顧</div>
+    <ul>
+      <li>三類 dashboard：<strong>Service Overview / Deep Dive / Business KPI</strong>，各自為不同讀者設計</li>
+      <li>黃金原則：每個 dashboard 一個目的、最重要資訊在最上、紅綠 threshold、最少 panel</li>
+      <li>Grid: 24 column，常用寬度 24/12/8/6</li>
+      <li>Row 是垂直分區、Tabs（v12+）是水平分頁</li>
+      <li><strong>Dynamic Dashboards</strong>（v12 experimental）：Tabs / Conditional Rendering / Auto-grid</li>
+      <li>Variables 7 種類型，最常用 <strong>Query</strong>；多選用 <strong><code>=~</code></strong></li>
+      <li><strong>串聯 variable</strong>（cluster → instance）讓 dashboard 規模化</li>
+      <li><strong>Repeat Panel / Row</strong> 自動為每個 variable 值複製 panel</li>
+      <li>內建變數：<code>$__interval</code> / <code>$__rate_interval</code> / <code>$__from</code> / <code>$__to</code></li>
+      <li>Annotations 標記事件（部署、incident），可從 Prom / SQL / Loki 抓</li>
+      <li>Time Range：必設 <strong>Now delay = 1m</strong> 避開 ingestion delay</li>
+      <li>版本控管：Grafana 內建版本歷史 + <strong>Git Sync (v12 GA)</strong> + Terraform</li>
+      <li>標準模板：<strong>RED Method（service）/ USE Method（resource）/ Four Golden Signals</strong></li>
+      <li>反模式：萬用 dashboard、色彩濫用、無 threshold、各 panel 不同 time range、無 unit、死 dashboard</li>
+    </ul>
+  </div>
+
+  <h2>📝 練習題</h2>
+
+  <ol>
+    <li>為一個 web service 設計 RED Method dashboard：4 個 stat panel + 3 個 time series。畫出 layout。</li>
+    <li>解釋 multi-value variable 為什麼必用 <code>=~</code>？單值用 <code>=</code> 或 <code>=~</code> 有差別嗎？</li>
+    <li>實作串聯 variable：<code>$cluster → $namespace → $pod</code>，每層只顯示上層選定後的子集。</li>
+    <li>下面 dashboard 設計有什麼問題？怎麼改？
+      <pre><code>50 個 panel、每個用不同顏色、Time range 從 1h 到 30d 各 panel 不一樣、沒有 threshold、Stat panel 只顯示數字</code></pre>
+    </li>
+    <li>為團隊設計 dashboard 版本控管 SOP：用 Git、Terraform、還是 Git Sync？三者的取捨？</li>
+  </ol>
+
+  <nav class="footer-nav">
+    <a href="ch34-Grafana-data-sources.html">
+      <div class="nav-direction">← 上一章</div>
+      <div class="nav-title">Ch 34 · Data Sources</div>
+    </a>
+    <a class="next" href="ch36-Grafana-panels-part1.html">
+      <div class="nav-direction">下一章 →</div>
+      <div class="nav-title">Ch 36 · Panels 上篇</div>
+    </a>
+  </nav>
+
+</main>
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else { init(); }
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  // Calm Teal hue 200° 設計色系 → mermaid themeVariables 對齊 tokens.css
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    return {
+      startOnLoad: false,
+      securityLevel: 'loose',
+      fontFamily: 'DM Sans, Inter, Noto Sans TC, sans-serif',
+      theme: 'base',
+      themeVariables: isDark ? {
+        background: '#2a2520',
+        primaryColor: '#1f3a4a',
+        primaryTextColor: '#e8e6e1',
+        primaryBorderColor: '#5a8499',
+        lineColor: '#7a8a8f',
+        secondaryColor: '#2d3a32',
+        tertiaryColor: '#3a3528',
+        nodeBorder: '#5a8499',
+        clusterBkg: '#252523',
+        clusterBorder: '#4a4944',
+        edgeLabelBackground: '#2a2520',
+        textColor: '#e8e6e1',
+      } : {
+        background: '#fdfcfa',
+        primaryColor: '#cffafe',
+        primaryTextColor: '#1a1a18',
+        primaryBorderColor: '#0891b2',
+        lineColor: '#4a6873',
+        secondaryColor: '#dcfce7',
+        tertiaryColor: '#fef3c7',
+        nodeBorder: '#0891b2',
+        clusterBkg: '#f5f3ee',
+        clusterBorder: '#d4d2cd',
+        edgeLabelBackground: '#fdfcfa',
+        textColor: '#1a1a18',
+      },
+    };
+  }
+  mermaid.initialize(getMermaidConfig());
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => mermaid.run());
+  } else {
+    mermaid.run();
+  }
+  window.addEventListener('jhsun:theme-changed', () => {
+    document.querySelectorAll('.mermaid').forEach(el => {
+      const code = el.dataset.source || el.textContent;
+      if (!el.dataset.source) el.dataset.source = code;
+      el.removeAttribute('data-processed');
+      el.innerHTML = el.dataset.source;
+    });
+    mermaid.initialize(getMermaidConfig());
+    mermaid.run();
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,1987 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CheatSheet 10 · Snapshot & CCR | Elasticsearch Self-managed 速查表</title>
+<meta name="description" content="Repository、SLM、Searchable Snapshot、CCR follow / auto-follow / failover 速查">
+<style>
+/* ============================================================
+   JHsun TechDocs — Unified Design Token Layer
+   v1.0 · Calm Teal (hue 200° / chroma 0.11)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+
+  --color-success:        #16a34a;
+  --color-success-soft:   #dcfce7;
+  --color-warning:        #d97706;
+  --color-warning-soft:   #fef3c7;
+  --color-danger:         #dc2626;
+  --color-danger-soft:    #fee2e2;
+  --color-info:           #0891b2;
+  --color-info-soft:      #cffafe;
+  --color-neutral-accent: #7c3aed;
+
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+
+  --font-mono:       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:       "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif:      "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  32px;
+  --text-3xl:  44px;
+  --text-4xl:  64px;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+
+  --container-narrow: 720px;
+  --container-wide:   1280px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+
+:root[data-theme="dark"] {
+  --color-success:        #4ade80;
+  --color-success-soft:   oklch(0.30 0.08 145);
+  --color-warning:        #fbbf24;
+  --color-warning-soft:   oklch(0.32 0.10 70);
+  --color-danger:         #f87171;
+  --color-danger-soft:    oklch(0.32 0.10 27);
+  --color-info:           #22d3ee;
+  --color-info-soft:      oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.16 0.008 50);
+  --bg-surface:     oklch(0.20 0.009 50);
+  --bg-muted:       oklch(0.23 0.010 50);
+  --bg-code:        oklch(0.18 0.009 50);
+  --border-soft:    oklch(0.28 0.010 50);
+  --border-mid:     oklch(0.36 0.012 50);
+  --text-primary:   oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted:     oklch(0.58 0.007 60);
+
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+
+/* ============== Chapter shared styles ============== */
+* { box-sizing: border-box; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+@media (min-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 240px; gap: var(--space-7); }
+}
+main { min-width: 0; padding: var(--space-6) 0; }
+main.prose { max-width: var(--container-narrow); margin: 0 auto; }
+
+/* Top navigation */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: color-mix(in oklch, var(--bg-canvas) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.topbar-inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.brand {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-primary-text);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+.nav-links { display: flex; gap: var(--space-2); margin-left: auto; align-items: center; }
+.nav-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  transition: all 0.15s;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--bg-muted); }
+.nav-links a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Theme toggle button */
+[data-theme-toggle] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  transition: all 0.15s;
+}
+[data-theme-toggle]:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.theme-icon { font-size: var(--text-base); }
+
+/* Headings */
+h1, h2, h3, h4 {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  line-height: 1.3;
+  margin-top: var(--space-7);
+  margin-bottom: var(--space-4);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+h1 { font-size: var(--text-3xl); margin-top: var(--space-5); }
+h2 { font-size: var(--text-2xl); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-soft); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-md); color: var(--text-secondary); }
+
+p { margin: var(--space-4) 0; color: var(--text-primary); }
+
+/* Inline code */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+  border: 1px solid var(--border-soft);
+}
+
+/* Code block */
+.code-wrap {
+  position: relative;
+  margin: var(--space-4) 0;
+}
+.code-wrap > .code-lang {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.code-wrap > .copy-btn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 4px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  transition: all 0.15s;
+  opacity: 0;
+}
+.code-wrap:hover > .copy-btn { opacity: 1; }
+.code-wrap > .copy-btn:hover {
+  background: var(--color-primary);
+  color: var(--bg-canvas);
+  border-color: var(--color-primary);
+}
+.code-wrap > .copy-btn.copied {
+  background: var(--color-success);
+  color: white;
+  border-color: var(--color-success);
+  opacity: 1;
+}
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-7) var(--space-4) var(--space-4);
+  overflow-x: auto;
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  margin: 0;
+}
+pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: var(--text-primary);
+  font-size: inherit;
+}
+
+/* Lists */
+ul, ol { padding-left: var(--space-6); }
+li { margin: var(--space-2) 0; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: var(--space-4) 0; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+th, td {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+}
+th { background: var(--bg-muted); font-weight: 600; color: var(--text-primary); }
+tr:last-child td { border-bottom: none; }
+
+/* Callouts */
+.callout {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  border-left: 4px solid var(--color-info);
+  background: var(--color-info-soft);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+}
+.callout.warning { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.danger  { border-color: var(--color-danger);  background: var(--color-danger-soft); }
+.callout.success { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout strong { display: block; margin-bottom: var(--space-2); }
+:root[data-theme="dark"] .callout { color: var(--text-primary); }
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: 999px;
+  margin-right: var(--space-1);
+  letter-spacing: 0.02em;
+}
+.badge.beginner { background: var(--color-success-soft); color: var(--color-success); }
+.badge.developer { background: var(--color-info-soft); color: var(--color-info); }
+.badge.operator { background: var(--color-warning-soft); color: var(--color-warning); }
+.badge.advanced { background: var(--color-primary-soft); color: var(--color-primary-text); }
+:root[data-theme="dark"] .badge { filter: brightness(1.1); }
+
+/* Chapter meta */
+.chapter-meta {
+  margin: var(--space-4) 0 var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.chapter-meta .meta-row { margin: var(--space-1) 0; }
+.chapter-meta .meta-label {
+  display: inline-block;
+  width: 70px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* TOC sidebar */
+.toc {
+  position: sticky;
+  top: 80px;
+  align-self: start;
+  font-size: var(--text-sm);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  padding: var(--space-4) 0;
+  display: none;
+}
+@media (min-width: 1100px) {
+  .toc { display: block; }
+}
+.toc-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.toc ul { list-style: none; padding-left: 0; margin: 0; }
+.toc li { margin: 0; }
+.toc a {
+  display: block;
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-left: 2px solid var(--border-soft);
+  transition: all 0.15s;
+  line-height: 1.5;
+}
+.toc a:hover { color: var(--color-primary); border-left-color: var(--color-primary); }
+.toc a.toc-h3 { padding-left: var(--space-5); font-size: 0.92em; color: var(--text-muted); }
+
+/* Bottom nav */
+.bottom-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  margin-top: var(--space-8);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.bottom-nav a {
+  flex: 1;
+  min-width: 200px;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.bottom-nav a:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.bottom-nav .nav-label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.bottom-nav .nav-title { font-weight: 600; color: var(--text-primary); }
+.bottom-nav a.next { text-align: right; }
+.bottom-nav a.disabled { opacity: 0.35; pointer-events: none; }
+
+/* Footer */
+footer {
+  text-align: center;
+  padding: var(--space-7) var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  border-top: 1px solid var(--border-soft);
+  margin-top: var(--space-8);
+}
+footer a { color: var(--color-primary); text-decoration: none; }
+
+/* Index page specific */
+.hero {
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+  background: linear-gradient(135deg, var(--color-primary-soft) 0%, var(--bg-canvas) 100%);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: var(--space-7);
+}
+.hero h1 {
+  font-size: var(--text-4xl);
+  margin: 0 0 var(--space-4);
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.02em;
+}
+.hero p { font-size: var(--text-md); color: var(--text-secondary); max-width: 720px; margin: 0 auto; }
+.hero .meta {
+  margin-top: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.path-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  margin: var(--space-6) 0;
+}
+@media (min-width: 768px) { .path-grid { grid-template-columns: repeat(3, 1fr); } }
+.path-card {
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  transition: all 0.2s;
+}
+.path-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-md); }
+.path-card .path-icon { font-size: 32px; display: block; margin-bottom: var(--space-3); }
+.path-card h3 { margin: 0 0 var(--space-2); font-size: var(--text-lg); }
+.path-card .path-flow {
+  margin-top: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.part {
+  margin: var(--space-7) 0;
+}
+.part-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--color-primary);
+}
+.part-header .part-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.part-header h2 { margin: 0; border: none; padding: 0; }
+
+.chapter-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+@media (min-width: 700px)  { .chapter-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1100px) { .chapter-grid { grid-template-columns: repeat(3, 1fr); } }
+.chapter-card {
+  display: block;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+.chapter-card:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  transform: translateY(-1px);
+}
+.chapter-card .ch-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+.chapter-card .ch-title {
+  display: block;
+  margin: var(--space-2) 0;
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+.chapter-card .ch-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--space-2);
+}
+.chapter-card .ch-badges { font-size: 11px; }
+
+
+/* Mermaid container */
+.mermaid-wrap {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-wrap .mermaid {
+  display: inline-block;
+  min-width: 100%;
+}
+.mermaid-caption {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+/* Hide raw mermaid source until rendered */
+.mermaid:not([data-processed="true"]) {
+  visibility: hidden;
+  min-height: 1em;
+}
+
+
+/* === 速查表 layout === */
+.cs-meta {
+  display: grid;
+  gap: var(--space-3);
+  background: var(--bg-muted);
+  border-left: 4px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin: var(--space-5) 0 var(--space-6);
+}
+.cs-meta-row { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); align-items: baseline; }
+.cs-meta-label { font-weight: 700; color: var(--text-primary); min-width: 6em; }
+
+/* === 三欄速查表 === */
+.cs-table {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-1);
+  margin: var(--space-4) 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-surface);
+}
+.cs-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.cs-row:last-child { border-bottom: none; }
+.cs-row.header {
+  background: var(--bg-muted);
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.cs-row.header > div { padding: var(--space-2) var(--space-3); }
+
+.cs-row > div {
+  padding: var(--space-3);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+.cs-row > .cs-scenario { color: var(--text-primary); font-weight: 500; }
+.cs-row > .cs-cmd { background: color-mix(in oklch, var(--bg-muted) 50%, transparent); }
+.cs-row > .cs-cmd pre {
+  margin: 0;
+  padding: var(--space-2);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  overflow-x: auto;
+}
+.cs-row > .cs-cmd code { font-size: var(--text-xs); }
+.cs-row > .cs-note { color: var(--text-secondary); font-size: var(--text-sm); }
+
+@media (min-width: 1100px) {
+  .cs-row, .cs-row.header { grid-template-columns: 1.4fr 2.6fr 1.4fr; }
+  .cs-row > div { border-right: 1px solid var(--border-soft); }
+  .cs-row > div:last-child { border-right: none; }
+}
+@media (max-width: 1099px) {
+  .cs-row > .cs-scenario {
+    background: var(--bg-muted);
+    font-weight: 700;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .cs-row > .cs-scenario::before { content: "📌 "; }
+  .cs-row > .cs-cmd::before { content: "▶ 命令"; display: block; font-size: var(--text-xs); color: var(--text-tertiary); margin-bottom: var(--space-1); }
+  .cs-row > .cs-note::before { content: "💡 說明"; display: block; font-size: var(--text-xs); color: var(--text-tertiary); margin-bottom: var(--space-1); }
+}
+
+/* === 版本徽章 === */
+.badge-ver {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  padding: 0.1em 0.55em;
+  border-radius: var(--radius-pill);
+  font-size: 0.78em;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  margin-left: 0.4em;
+  vertical-align: middle;
+}
+.badge-ver.v9    { background: color-mix(in oklch, var(--color-success) 15%, transparent); color: var(--color-success); border: 1px solid color-mix(in oklch, var(--color-success) 40%, transparent); }
+.badge-ver.v9-1  { background: color-mix(in oklch, var(--color-info) 15%, transparent);    color: var(--color-info);    border: 1px solid color-mix(in oklch, var(--color-info) 40%, transparent); }
+.badge-ver.v9-2  { background: color-mix(in oklch, var(--color-info) 15%, transparent);    color: var(--color-info);    border: 1px solid color-mix(in oklch, var(--color-info) 40%, transparent); }
+.badge-ver.v9-3  { background: color-mix(in oklch, var(--color-warning) 15%, transparent); color: var(--color-warning); border: 1px solid color-mix(in oklch, var(--color-warning) 40%, transparent); }
+
+/* === 安全度標籤（dot） === */
+.safety {
+  display: inline-block;
+  width: 0.75em;
+  height: 0.75em;
+  border-radius: 50%;
+  vertical-align: middle;
+  margin-right: 0.35em;
+}
+.safety.safe   { background: var(--color-success); box-shadow: 0 0 0 2px color-mix(in oklch, var(--color-success) 25%, transparent); }
+.safety.warn   { background: var(--color-warning); box-shadow: 0 0 0 2px color-mix(in oklch, var(--color-warning) 25%, transparent); }
+.safety.danger { background: var(--color-danger);  box-shadow: 0 0 0 2px color-mix(in oklch, var(--color-danger)  25%, transparent); }
+
+.safety-legend {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  font-size: var(--text-sm);
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  background: var(--bg-muted);
+  border-radius: var(--radius-md);
+}
+
+/* === 互動式導覽 (索引頁專用) === */
+.cs-interactive {
+  background: linear-gradient(135deg,
+    color-mix(in oklch, var(--color-primary) 10%, var(--bg-surface)),
+    color-mix(in oklch, var(--color-info) 8%, var(--bg-surface)));
+  border: 2px solid var(--color-primary);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5) var(--space-6);
+  margin: var(--space-6) 0;
+}
+.cs-interactive h3 {
+  margin-top: 0;
+  font-size: var(--text-xl);
+  color: var(--color-primary-text);
+}
+.cs-interactive-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin: var(--space-3) 0;
+}
+.cs-interactive-row label { font-weight: 600; min-width: 7em; }
+.cs-interactive-row select {
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  font-family: inherit;
+  min-width: 18em;
+  cursor: pointer;
+}
+.cs-interactive-row select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-primary) 25%, transparent);
+}
+.cs-interactive-result {
+  background: var(--bg-canvas);
+  border: 1px dashed var(--border-mid);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  margin-top: var(--space-3);
+  min-height: 3em;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.cs-interactive-result.has-result {
+  background: color-mix(in oklch, var(--color-success) 8%, var(--bg-canvas));
+  border-style: solid;
+  border-color: var(--color-success);
+  color: var(--text-primary);
+}
+.cs-interactive-result a {
+  color: var(--color-primary-text);
+  font-weight: 600;
+}
+
+/* === Card grid (索引頁) === */
+.cs-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4);
+  margin: var(--space-5) 0;
+}
+.cs-card {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+}
+.cs-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--color-primary);
+}
+.cs-card-num {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  letter-spacing: 0.05em;
+}
+.cs-card-title {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--color-primary-text);
+  margin: var(--space-2) 0;
+}
+.cs-card-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  flex: 1;
+}
+.cs-card-tag {
+  display: inline-block;
+  margin-top: var(--space-3);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  background: var(--bg-muted);
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+}
+
+/* === 提示框（複用既有 callout） === */
+/* callout 已在 CHAPTER_CSS 中定義，這裡新增 cheatsheet 變體 */
+.callout-tip {
+  background: color-mix(in oklch, var(--color-info) 8%, var(--bg-surface));
+  border-left: 4px solid var(--color-info);
+  padding: var(--space-3) var(--space-4);
+  margin: var(--space-4) 0;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+.callout-tip strong { color: var(--color-info); }
+
+/* === 速查卡頂部章節指引 === */
+.cs-jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--bg-muted);
+  border-radius: var(--radius-md);
+  margin: var(--space-4) 0;
+  font-size: var(--text-sm);
+}
+.cs-jump-label {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-right: var(--space-2);
+}
+.cs-jump a {
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill);
+  color: var(--text-primary);
+  text-decoration: none;
+  transition: all 0.15s;
+}
+.cs-jump a:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary-text);
+  background: color-mix(in oklch, var(--color-primary) 8%, var(--bg-surface));
+}
+
+/* ============== Print 列印優化 ============== */
+@media print {
+  /* 隱藏互動元素 */
+  .topbar, aside.toc, .interactive-box, .cs-interactive,
+  .copy-btn, .bottom-nav, .nav-links, [data-theme-toggle] { display: none !important; }
+
+  /* 整體版面 */
+  body {
+    font-size: 9pt;
+    color: #000 !important;
+    background: #fff !important;
+    line-height: 1.4;
+  }
+  .layout { display: block; padding: 0; max-width: none; }
+  main, main.prose { max-width: none; padding: 0; margin: 0; }
+
+  /* 連結加 URL */
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 7pt;
+    color: #555;
+    word-break: break-all;
+  }
+  a[href^="#"]::after { content: ""; }
+
+  /* code 黑白配色 */
+  pre, code {
+    background: #f5f5f5 !important;
+    color: #000 !important;
+    border: 1px solid #ccc !important;
+  }
+  pre { font-size: 8pt; padding: 4pt; page-break-inside: avoid; }
+
+  /* 三欄速查表列印對齊 */
+  .cs-row, .cs-row.header { grid-template-columns: 1.2fr 2.5fr 1.3fr !important; }
+  .cs-row { page-break-inside: avoid; }
+  .cs-table { border: 1px solid #999 !important; }
+  .cs-row > div { border-right: 1px solid #999 !important; }
+  .cs-row.header { background: #ddd !important; }
+
+  /* 標題與分頁 */
+  h1 { font-size: 16pt; page-break-after: avoid; }
+  h2 { font-size: 12pt; page-break-after: avoid; margin-top: 12pt; }
+  h3 { font-size: 10pt; page-break-after: avoid; }
+
+  /* 速查卡 meta */
+  .cs-meta {
+    background: #f5f5f5 !important;
+    border-left: 2pt solid #000 !important;
+    padding: 4pt 6pt;
+    font-size: 8pt;
+  }
+
+  /* card grid 列印變一欄 */
+  .cs-cards { grid-template-columns: 1fr 1fr !important; gap: 4pt; }
+  .cs-card { border: 1px solid #999 !important; padding: 4pt; box-shadow: none !important; }
+
+  /* 安全度標籤保持 */
+  .safety { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .safety.safe { background: #2a8 !important; }
+  .safety.warn { background: #d80 !important; }
+  .safety.danger { background: #c33 !important; }
+
+  /* 版本徽章 */
+  .badge-ver { background: #eee !important; color: #000 !important; border-color: #999 !important; }
+}
+
+</style>
+<script>
+/* JHsun TechDocs — Theme toggle v1.0 */
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+
+</script>
+<script type="module" src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs"></script>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-inner">
+    <a href="ch00-CheatSheet-index.html" class="brand">📋 ES Self-managed CheatSheet</a>
+    <div class="nav-links">
+      <a href="ch09-CheatSheet-security.html" title="上一張：09 · Security">← 上一張</a>
+      <a href="ch00-CheatSheet-index.html">速查目錄</a>
+      <a href="../ch00-elasticsearch-index.html">回正書</a>
+      <a href="ch11-CheatSheet-troubleshooting-upgrade.html" title="下一張：11 · Troubleshooting & Upgrade">下一張 →</a>
+      <button data-theme-toggle aria-label="切換主題">
+        <span class="theme-icon-light">🌙</span>
+        <span class="theme-icon-dark">☀️</span>
+        <span class="theme-text">主題</span>
+      </button>
+    </div>
+  </div>
+</div>
+<div class="layout">
+<main class="prose">
+
+<h1>📋 CheatSheet 10 · Snapshot / SLM / CCR</h1>
+
+<div class="cs-meta">
+  <div class="cs-meta-row"><span class="cs-meta-label">適用對象</span> 🔴 維運者（DR / 備份 / 跨區複製）</div>
+  <div class="cs-meta-row"><span class="cs-meta-label">對應正書</span> <a href="../ch47-snapshot-restore.html">CH 47 snapshot</a> + <a href="../ch48-ccr.html">CH 48 CCR</a></div>
+  <div class="cs-meta-row"><span class="cs-meta-label">本卡覆蓋</span> Repository (S3/GCS/Azure/FS/HDFS)、SLM、Searchable Snapshot、CCR follow / auto-follow / failover SOP</div>
+</div>
+
+<div class="cs-jump">
+  <span class="cs-jump-label">🚀 快速跳轉：</span>
+  <a href="#repo">A. Repository</a>
+  <a href="#snapshot">B. Snapshot 操作</a>
+  <a href="#restore">C. Restore</a>
+  <a href="#slm">D. SLM Policy</a>
+  <a href="#cron">E. Cron 範本</a>
+  <a href="#searchable">F. Searchable Snapshot</a>
+  <a href="#ccr-setup">G. CCR Setup</a>
+  <a href="#ccr-follow">H. CCR Follow</a>
+  <a href="#failover">I. Failover SOP</a>
+  <a href="#dr">J. DR 策略</a>
+</div>
+
+<div class="safety-legend">
+  <span><span class="safety safe" title="safe"></span> <strong>安全</strong>：唯讀</span>
+  <span><span class="safety warn" title="warn"></span> <strong>注意</strong>：寫入 / 修改 repo / snapshot</span>
+  <span><span class="safety danger" title="danger"></span> <strong>危險</strong>：刪除 / failover</span>
+</div>
+
+<h2 id="repo">📦 A. Repository（S3 / GCS / Azure / FS / HDFS）</h2>
+
+<div class="cs-table">
+<div class="cs-row header"><div>情境</div><div>命令 / Code</div><div>說明</div></div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>S3 repository</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">PUT /_snapshot/s3_repo
+{
+  "type": "s3",
+  "settings": {
+    "bucket":          "my-es-snapshots",
+    "base_path":       "prod-cluster",
+    "region":          "us-east-1",
+    "compress":        true,
+    "chunk_size":      "1gb",
+    "max_restore_bytes_per_sec":  "200mb",
+    "max_snapshot_bytes_per_sec": "100mb"
+  }
+}</code></pre></div>
+<div class="cs-note">需先在 keystore 設 access_key + secret_key</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>S3 IAM Role 認證（建議）</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">PUT /_snapshot/s3_repo
+{
+  "type": "s3",
+  "settings": {
+    "bucket":   "my-es-snapshots",
+    "role_arn": "arn:aws:iam::123:role/es-snapshot-role"
+  }
+}</code></pre></div>
+<div class="cs-note">IRSA / IMDSv2 自動取憑證；不需 access key</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>GCS repository</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">PUT /_snapshot/gcs_repo
+{
+  "type": "gcs",
+  "settings": {
+    "bucket":     "my-es-snapshots",
+    "client":     "default",
+    "base_path":  "prod"
+  }
+}</code></pre></div>
+<div class="cs-note"><code>gcs.client.default.credentials_file</code> 在 keystore</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>Azure Blob</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">PUT /_snapshot/azure_repo
+{
+  "type": "azure",
+  "settings": {
+    "container":  "es-snapshots",
+    "client":     "default"
+  }
+}</code></pre></div>
+<div class="cs-note"><code>azure.client.default.account</code> + <code>key</code> 在 keystore</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>Local FS（測試）</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash"># elasticsearch.yml
+path.repo: [ "/mnt/snapshots" ]
+
+# API
+PUT /_snapshot/fs_repo
+{
+  "type": "fs",
+  "settings": {
+    "location":  "/mnt/snapshots/cluster1",
+    "compress":  true
+  }
+}</code></pre></div>
+<div class="cs-note"><code>path.repo</code> 必須在<strong>所有 master + data</strong> node 設定且可寫</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>HDFS repository</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">PUT /_snapshot/hdfs_repo
+{
+  "type": "hdfs",
+  "settings": {
+    "uri":   "hdfs://namenode:8020",
+    "path":  "/elasticsearch/snapshots"
+  }
+}</code></pre></div>
+<div class="cs-note">需安裝 repository-hdfs plugin</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety safe" title="safe"></span> <strong>看 repository</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">GET /_snapshot
+GET /_snapshot/s3_repo</code></pre></div>
+<div class="cs-note">列所有 / 單一 repo</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety safe" title="safe"></span> <strong>驗證 repository（重要！）</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">POST /_snapshot/s3_repo/_verify</code></pre></div>
+<div class="cs-note">檢查所有 node 是否能讀寫 repo</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety safe" title="safe"></span> <strong>檢查 repository 完整性</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">POST /_snapshot/s3_repo/_analyze?blob_count=10&amp;max_blob_size=1mb&amp;timeout=30s</code></pre></div>
+<div class="cs-note">深度檢查 repo 一致性（超大 repo 可能跑很久）</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety danger" title="danger"></span> <strong>清空 repository（謹慎）</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">POST /_snapshot/s3_repo/_cleanup</code></pre></div>
+<div class="cs-note">刪除孤兒 file（之前有 snapshot 被中斷時會留垃圾）</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety danger" title="danger"></span> <strong>刪除 repository</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">DELETE /_snapshot/s3_repo</code></pre></div>
+<div class="cs-note">只刪除 ES 對 repo 的引用；<strong>不刪 S3 上的資料</strong></div>
+</div>
+</div>
+
+<div class="callout-tip">
+  <strong>💡 速率限制建議</strong>
+  <ul>
+    <li><code>max_snapshot_bytes_per_sec</code>：100mb（避免影響 indexing）</li>
+    <li><code>max_restore_bytes_per_sec</code>：200mb（restore 通常不影響線上）</li>
+    <li><code>chunk_size</code>：1gb（小於就分片，平衡 retry 成本與並行）</li>
+  </ul>
+</div>
+
+<h2 id="snapshot">📸 B. Snapshot 操作</h2>
+
+<div class="cs-table">
+<div class="cs-row header"><div>情境</div><div>命令 / Code</div><div>說明</div></div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>建 snapshot（同步）</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">PUT /_snapshot/s3_repo/snap-2026-05-01
+{
+  "indices":             "logs-*,metrics-*",
+  "ignore_unavailable":  true,
+  "include_global_state": false,
+  "feature_states":      [ "kibana" ],
+  "metadata": {
+    "taken_by":   "alice",
+    "for":        "weekly_backup"
+  }
+}</code></pre></div>
+<div class="cs-note">預設會等完成。<code>include_global_state: false</code>（不要還原 cluster setting / role）</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>建 snapshot（非同步）</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">PUT /_snapshot/s3_repo/snap-2026-05-01?wait_for_completion=false
+{ "indices": "*" }</code></pre></div>
+<div class="cs-note"><code>wait_for_completion=false</code> 立即回傳，背景跑</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety safe" title="safe"></span> <strong>看 snapshot 列表</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">GET /_snapshot/s3_repo/_all
+GET /_snapshot/s3_repo/snap-*?sort=start_time&amp;order=desc</code></pre></div>
+<div class="cs-note">列出 / 排序</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety safe" title="safe"></span> <strong>看 snapshot 詳情</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">GET /_snapshot/s3_repo/snap-2026-05-01</code></pre></div>
+<div class="cs-note">看 indices、shard 數、size、duration、state</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety safe" title="safe"></span> <strong>看 snapshot 狀態（in-progress）</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">GET /_snapshot/s3_repo/snap-2026-05-01/_status</code></pre></div>
+<div class="cs-note">看每 shard 進度</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety safe" title="safe"></span> <strong>用 SLM filter 找 snapshots</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">GET /_snapshot/s3_repo/*?slm_policy_filter=daily-snap</code></pre></div>
+<div class="cs-note">找特定 SLM policy 建的 snapshot</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>Clone snapshot</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">PUT /_snapshot/s3_repo/snap-2026-05-01/_clone/snap-2026-05-01-archive
+{
+  "indices": "logs-2026-04-*"
+}</code></pre></div>
+<div class="cs-note">從現有 snapshot 複製出含特定 index 的新 snapshot（dedup）</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety danger" title="danger"></span> <strong>刪 snapshot</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">DELETE /_snapshot/s3_repo/snap-2026-05-01</code></pre></div>
+<div class="cs-note">不可逆。SLM 會自動依 retention 刪</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety danger" title="danger"></span> <strong>刪多筆 snapshot</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">DELETE /_snapshot/s3_repo/snap-2026-04-*</code></pre></div>
+<div class="cs-note">wildcard 批刪</div>
+</div>
+</div>
+
+<div class="callout warning">
+  <strong>⚠️ <code>include_global_state</code> 解讀</strong>
+  <ul>
+    <li><code>true</code>：snapshot 含 cluster setting + role / user + ILM policy + index template（重建 cluster 需要）</li>
+    <li><code>false</code>：只含 indices 資料（一般日常備份用這個就好）</li>
+    <li>建議：每月做一次 <code>true</code> 的全狀態備份；日常備份用 <code>false</code></li>
+  </ul>
+</div>
+
+<h2 id="restore">♻️ C. Restore 操作</h2>
+
+<div class="cs-table">
+<div class="cs-row header"><div>情境</div><div>命令 / Code</div><div>說明</div></div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>還原全部</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">POST /_snapshot/s3_repo/snap-2026-05-01/_restore
+{
+  "indices":              "*",
+  "ignore_unavailable":   true,
+  "include_global_state": false,
+  "include_aliases":      true
+}</code></pre></div>
+<div class="cs-note"><strong>目標 index 不能存在</strong>！否則先 close / delete</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>還原特定 indices</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">POST /_snapshot/s3_repo/snap-2026-05-01/_restore
+{
+  "indices":  [ "users", "orders-2026.*" ],
+  "include_global_state": false
+}</code></pre></div>
+<div class="cs-note">只還原部分</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>還原並改名（recovery test）</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">POST /_snapshot/s3_repo/snap-2026-05-01/_restore
+{
+  "indices":           "logs-2026.04.30",
+  "rename_pattern":    "logs-(.+)",
+  "rename_replacement": "restored-logs-$1"
+}</code></pre></div>
+<div class="cs-note">常用於還原 + 不影響現有 index</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>還原時改 setting</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">POST /_snapshot/s3_repo/snap-2026-05-01/_restore
+{
+  "indices": "logs-*",
+  "index_settings": {
+    "index.number_of_replicas": 0
+  },
+  "ignore_index_settings": [
+    "index.lifecycle.name"
+  ]
+}</code></pre></div>
+<div class="cs-note">還原時調整 setting（如先設 0 replica 加快還原）</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety safe" title="safe"></span> <strong>看 restore 進度</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">GET /_recovery?active_only=true&amp;human
+GET /my-index/_recovery</code></pre></div>
+<div class="cs-note">看 shard recovery 進度</div>
+</div>
+</div>
+
+<h2 id="slm">⏰ D. SLM Policy（自動排程）</h2>
+
+<div class="cs-table">
+<div class="cs-row header"><div>情境</div><div>命令 / Code</div><div>說明</div></div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>建 SLM policy（每日）</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">PUT /_slm/policy/daily-snap
+{
+  "schedule":   "0 30 1 * * ?",
+  "name":       "&lt;daily-snap-{now/d}&gt;",
+  "repository": "s3_repo",
+  "config": {
+    "indices":              "*",
+    "ignore_unavailable":   true,
+    "include_global_state": false,
+    "expand_wildcards":     "open,hidden"
+  },
+  "retention": {
+    "expire_after": "30d",
+    "min_count":    7,
+    "max_count":    50
+  }
+}</code></pre></div>
+<div class="cs-note">cron 0:30 AM 每日；保留 30 天但至少 7 個、最多 50 個</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>每小時 + 每天 + 每月組合</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash"># Hourly
+PUT /_slm/policy/hourly
+{
+  "schedule":   "0 0 * * * ?",
+  "name":       "&lt;hourly-{now{yyyy.MM.dd.HH}}&gt;",
+  "repository": "s3_repo",
+  "config":     { "indices": "logs-*" },
+  "retention":  { "expire_after": "2d" }
+}
+
+# Daily
+PUT /_slm/policy/daily
+{
+  "schedule":   "0 0 1 * * ?",
+  "name":       "&lt;daily-{now/d}&gt;",
+  "repository": "s3_repo",
+  "config":     { "indices": "*" },
+  "retention":  { "expire_after": "30d" }
+}
+
+# Monthly
+PUT /_slm/policy/monthly
+{
+  "schedule":   "0 0 2 1 * ?",
+  "name":       "&lt;monthly-{now/M}&gt;",
+  "repository": "s3_repo",
+  "config":     { "indices": "*" },
+  "retention":  { "expire_after": "365d" }
+}</code></pre></div>
+<div class="cs-note">經典 GFS（Grandfather-Father-Son）備份策略</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>立即執行 policy（測試）</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">POST /_slm/policy/daily-snap/_execute</code></pre></div>
+<div class="cs-note">不等排程，馬上跑一次</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>立即執行 retention</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">POST /_slm/_execute_retention</code></pre></div>
+<div class="cs-note">不等排程，立即清過期 snapshot</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety safe" title="safe"></span> <strong>看 SLM 狀態</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">GET /_slm/status
+GET /_slm/stats</code></pre></div>
+<div class="cs-note">RUNNING / STOPPED；統計</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety safe" title="safe"></span> <strong>看 policies</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">GET /_slm/policy
+GET /_slm/policy/daily-snap</code></pre></div>
+<div class="cs-note">看設定 + 上次執行 + 下次執行</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>停 / 啟 SLM</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">POST /_slm/stop
+POST /_slm/start</code></pre></div>
+<div class="cs-note">維護期暫停。<strong>注意：停 ILM 會連動停 SLM</strong></div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety danger" title="danger"></span> <strong>刪 policy</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">DELETE /_slm/policy/daily-snap</code></pre></div>
+<div class="cs-note">不會刪已經建好的 snapshots</div>
+</div>
+</div>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart LR
+    Cron["⏰ Cron Schedule"]
+    SLM["🤖 SLM Policy"]
+    Snap["📸 Snapshot"]
+    Repo["☁️ Repository<br/>(S3/GCS/Azure)"]
+    Retention["🗑️ Retention<br/>expire_after / min / max"]
+
+    Cron -->|觸發| SLM
+    SLM -->|建立| Snap
+    Snap -->|寫入| Repo
+    SLM -->|定期清理| Retention
+    Retention -.刪除過期.-> Repo
+
+    classDef cron fill:#fef3c7,stroke:#d97706,color:#0f172a
+    classDef slm fill:#cffafe,stroke:#0891b2,color:#0f172a,stroke-width:2px
+    classDef snap fill:#dcfce7,stroke:#16a34a,color:#0f172a
+    classDef repo fill:#fed7aa,stroke:#ea580c,color:#0f172a
+    class Cron cron
+    class SLM,Retention slm
+    class Snap snap
+    class Repo repo
+</pre>
+<div class="mermaid-caption">圖 10-1：SLM 自動化備份循環</div>
+</div>
+
+<h2 id="cron">⏱️ E. Cron 表達式速查</h2>
+
+<p>SLM 用 <strong>6 欄位 cron</strong>（秒 分 時 日 月 星期）。</p>
+
+<div class="cs-table">
+<div class="cs-row header"><div>頻率</div><div>Cron 表達式</div><div>備註</div></div>
+<div class="cs-row">
+<div class="cs-scenario">每分鐘</div>
+<div class="cs-cmd"><code>0 * * * * ?</code></div>
+<div class="cs-note">測試用</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario">每 30 分鐘</div>
+<div class="cs-cmd"><code>0 0,30 * * * ?</code></div>
+<div class="cs-note"></div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario">每小時整點</div>
+<div class="cs-cmd"><code>0 0 * * * ?</code></div>
+<div class="cs-note"></div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario">每天 1:30 AM</div>
+<div class="cs-cmd"><code>0 30 1 * * ?</code></div>
+<div class="cs-note">經典 daily</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario">每天 2 AM</div>
+<div class="cs-cmd"><code>0 0 2 * * ?</code></div>
+<div class="cs-note"></div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario">每週日 3 AM</div>
+<div class="cs-cmd"><code>0 0 3 ? * SUN</code></div>
+<div class="cs-note"><code>?</code> 不指定 day</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario">每月 1 號 4 AM</div>
+<div class="cs-cmd"><code>0 0 4 1 * ?</code></div>
+<div class="cs-note">monthly</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario">工作日 9 AM</div>
+<div class="cs-cmd"><code>0 0 9 ? * MON-FRI</code></div>
+<div class="cs-note"></div>
+</div>
+</div>
+
+<h2 id="searchable">❄️ F. Searchable Snapshot（cold / frozen tier）</h2>
+
+<p>把 snapshot 直接 mount 為可查 index。<strong>cold tier</strong> 用 fully cached（資料完整下載）；<strong>frozen tier</strong> 用 partial（只在 S3，按需抓）。</p>
+
+<div class="cs-table">
+<div class="cs-row header"><div>情境</div><div>命令 / Code</div><div>說明</div></div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>Mount snapshot（fully cached）</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">POST /_snapshot/s3_repo/snap-2026-04-01/_mount?wait_for_completion=true
+{
+  "index":               "logs-2026.04.01",
+  "renamed_index":       "restored-logs-2026.04.01",
+  "index_settings": {
+    "index.number_of_replicas": 0
+  }
+}</code></pre></div>
+<div class="cs-note"><strong>fully cached</strong>：cold tier。資料完整下載到 local</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>Mount snapshot（partial）</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">POST /_snapshot/s3_repo/snap-2026-04-01/_mount?wait_for_completion=true
+{
+  "index":  "logs-2026.04.01",
+  "storage": "shared_cache"
+}</code></pre></div>
+<div class="cs-note"><strong>partial</strong>：frozen tier。資料只在 S3，需要時才抓</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>ILM 自動 mount（在 policy 中）</strong></div>
+<div class="cs-cmd"><pre><code class="language-json">"cold": {
+  "actions": {
+    "searchable_snapshot": {
+      "snapshot_repository": "s3_repo"
+    }
+  }
+},
+"frozen": {
+  "actions": {
+    "searchable_snapshot": {
+      "snapshot_repository": "s3_repo",
+      "force_merge_index":   true
+    }
+  }
+}</code></pre></div>
+<div class="cs-note">建議做法：ILM 自動處理（見 CS 03）</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety safe" title="safe"></span> <strong>看 searchable snapshot</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">GET /_searchable_snapshots/stats
+GET /_searchable_snapshots/cache/stats</code></pre></div>
+<div class="cs-note">看快取使用率</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>清 cache</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">POST /restored-logs-2026.04.01/_searchable_snapshots/cache/clear</code></pre></div>
+<div class="cs-note">釋放 frozen partial cache 空間</div>
+</div>
+</div>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart LR
+    subgraph Hot["🔥 Hot tier"]
+      H["index<br/>(SSD, full data)"]
+    end
+
+    subgraph Cold["❄️ Cold tier (fully cached)"]
+      C["restored-index<br/>(local SSD/HDD<br/>+ S3 backup)"]
+    end
+
+    subgraph Frozen["🧊 Frozen tier (partial)"]
+      F["partial-index<br/>(only metadata<br/>+ S3 source)"]
+      Cache["📦 shared_cache<br/>(local hot data)"]
+    end
+
+    S3["☁️ S3 Snapshot Repository"]
+
+    H -->|"ILM cold action<br/>searchable_snapshot<br/>(full mount)"| C
+    C -->|"ILM frozen action<br/>(partial mount)"| F
+
+    H -.snapshot.-> S3
+    S3 <-.fully cached.-> C
+    S3 <-.| 按需抓 (LRU) |.-> Cache
+    Cache -.serve query.-> F
+
+    classDef hot fill:#fee2e2,stroke:#dc2626,color:#0f172a
+    classDef cold fill:#cffafe,stroke:#0891b2,color:#0f172a
+    classDef frozen fill:#e0e7ff,stroke:#4338ca,color:#0f172a
+    classDef s3 fill:#fef3c7,stroke:#d97706,color:#0f172a
+    class H,Hot hot
+    class C,Cold cold
+    class F,Cache,Frozen frozen
+    class S3 s3
+</pre>
+<div class="mermaid-caption">圖 10-2：Hot → Cold → Frozen 資料層級流程</div>
+</div>
+
+<h2 id="ccr-setup">🌐 G. CCR Setup（跨叢集複製）</h2>
+
+<div class="cs-table">
+<div class="cs-row header"><div>情境</div><div>命令 / Code</div><div>說明</div></div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>1. Local cluster 加遠端</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash"># 在 follower cluster 上設
+PUT /_cluster/settings
+{
+  "persistent": {
+    "cluster.remote.leader_cluster.mode":           "proxy",
+    "cluster.remote.leader_cluster.proxy_address": "leader.example.com:9443"
+  }
+}
+
+# 把 cross-cluster API key 放 keystore
+bin/elasticsearch-keystore add \
+  cluster.remote.leader_cluster.credentials</code></pre></div>
+<div class="cs-note">9.x 推薦用 API key 模型（見 <a href="ch09-CheatSheet-security.html#cross-cluster-key">CS 09</a>）</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety safe" title="safe"></span> <strong>確認連線</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">GET /_remote/info</code></pre></div>
+<div class="cs-note">看 connected: true</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>2. 在 leader 建 cross-cluster API key</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash"># 在 leader cluster 執行
+POST /_security/cross_cluster/api_key
+{
+  "name": "follower-key",
+  "access": {
+    "search":      [ { "names": [ "logs-*", "metrics-*" ] } ],
+    "replication": [ { "names": [ "logs-app-*" ] } ]
+  },
+  "expiration": "365d"
+}</code></pre></div>
+<div class="cs-note">注意 search vs replication 是兩種不同 access</div>
+</div>
+</div>
+
+<div class="callout-tip">
+  <strong>💡 CCR 用途速查</strong>
+  <ul>
+    <li><strong>DR / HA</strong>：主備機房異地備援</li>
+    <li><strong>Read scaling</strong>：地理上 follow 到讀者較近的 cluster</li>
+    <li><strong>Data locality</strong>：將資料 follow 到合規地區</li>
+    <li><strong>Centralized reporting</strong>：多 cluster 資料 follow 到一個分析 cluster</li>
+  </ul>
+</div>
+
+<h2 id="ccr-follow">🔄 H. CCR Follow / Auto-follow</h2>
+
+<div class="cs-table">
+<div class="cs-row header"><div>情境</div><div>命令 / Code</div><div>說明</div></div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>建 follow（單一 index）</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash"># 在 follower cluster
+PUT /logs-app-prod-follower/_ccr/follow?wait_for_active_shards=1
+{
+  "remote_cluster":  "leader_cluster",
+  "leader_index":    "logs-app-prod"
+}</code></pre></div>
+<div class="cs-note">建立 follower index，開始同步</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>Auto-follow patterns</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">PUT /_ccr/auto_follow/logs-pattern
+{
+  "remote_cluster":         "leader_cluster",
+  "leader_index_patterns":  [ "logs-*" ],
+  "leader_index_exclusion_patterns": [ "logs-temp-*" ],
+  "follow_index_pattern":   "{{leader_index}}-replica"
+}</code></pre></div>
+<div class="cs-note"><strong>Production 必用</strong>：未來新建符合 pattern 的 index 自動 follow</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety safe" title="safe"></span> <strong>看 CCR 狀態</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">GET /_ccr/stats
+GET /logs-app-prod-follower/_ccr/info
+GET /logs-app-prod-follower/_ccr/stats</code></pre></div>
+<div class="cs-note">看 lag、checkpoint、failure</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety safe" title="safe"></span> <strong>看 auto-follow patterns</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">GET /_ccr/auto_follow
+GET /_ccr/auto_follow/logs-pattern</code></pre></div>
+<div class="cs-note">列所有 / 單一</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>暫停 follow</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">POST /logs-app-prod-follower/_ccr/pause_follow
+POST /_ccr/auto_follow/logs-pattern/pause</code></pre></div>
+<div class="cs-note">同步暫停（不刪 follower index）</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety warn" title="warn"></span> <strong>恢復 follow</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">POST /logs-app-prod-follower/_ccr/resume_follow
+POST /_ccr/auto_follow/logs-pattern/resume</code></pre></div>
+<div class="cs-note">繼續同步</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety danger" title="danger"></span> <strong>解除 follow（轉為一般 index）</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash"># 必須先 pause + close
+POST /logs-app-prod-follower/_ccr/pause_follow
+POST /logs-app-prod-follower/_close
+POST /logs-app-prod-follower/_ccr/unfollow
+POST /logs-app-prod-follower/_open</code></pre></div>
+<div class="cs-note">災備切主：把 follower 變成可寫的 leader</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety danger" title="danger"></span> <strong>從 leader 端清理</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash"># 在 leader cluster
+POST /logs-app-prod/_ccr/forget_follower
+{
+  "follower_cluster":  "follower_cluster",
+  "follower_index":    "logs-app-prod-follower",
+  "follower_index_uuid": "..."
+}</code></pre></div>
+<div class="cs-note">follower cluster 被廢時，清掉 leader 的 retention lease</div>
+</div>
+<div class="cs-row">
+<div class="cs-scenario"><span class="safety danger" title="danger"></span> <strong>刪 auto-follow pattern</strong></div>
+<div class="cs-cmd"><pre><code class="language-bash">DELETE /_ccr/auto_follow/logs-pattern</code></pre></div>
+<div class="cs-note">已建立的 follower 不影響；未來新 index 不再 auto follow</div>
+</div>
+</div>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart LR
+    subgraph Leader["🇺🇸 Leader Cluster (us-east)"]
+      L1["logs-app-2026.05.01<br/>(write index)"]
+      L2["logs-app-2026.04.30<br/>(read-only)"]
+    end
+
+    subgraph Follower["🇪🇺 Follower Cluster (eu-west)"]
+      F1["logs-app-2026.05.01-replica<br/>(read-only)"]
+      F2["logs-app-2026.04.30-replica<br/>(read-only)"]
+    end
+
+    AF["🤖 auto_follow pattern<br/>logs-app-*"]
+
+    L1 -->|sequential ops<br/>(checkpoint-based)| F1
+    L2 -->|sequential ops| F2
+
+    AF -.偵測新 index.-> Leader
+    AF -.自動建 follower.-> Follower
+
+    classDef leader fill:#fee2e2,stroke:#dc2626,color:#0f172a
+    classDef follower fill:#cffafe,stroke:#0891b2,color:#0f172a
+    classDef af fill:#fef3c7,stroke:#d97706,color:#0f172a,stroke-width:2px
+    class L1,L2,Leader leader
+    class F1,F2,Follower follower
+    class AF af
+</pre>
+<div class="mermaid-caption">圖 10-3：CCR auto-follow 持續同步</div>
+</div>
+
+<h2 id="failover">🚨 I. Failover SOP（DR 切主）</h2>
+
+<p>當 leader cluster 發生災難，需把 follower 切成可寫主：</p>
+
+<ol>
+  <li><strong>確認 leader 真的不可用</strong>（避免 split-brain）</li>
+  <li><strong>暫停 follow</strong>：<code>POST /follower-index/_ccr/pause_follow</code></li>
+  <li><strong>關閉 follower index</strong>：<code>POST /follower-index/_close</code></li>
+  <li><strong>解除 follow</strong>：<code>POST /follower-index/_ccr/unfollow</code></li>
+  <li><strong>重新打開</strong>：<code>POST /follower-index/_open</code></li>
+  <li><strong>切流量</strong>：DNS / LB / app 配置切到 follower cluster</li>
+  <li><strong>監控寫入正常</strong></li>
+  <li>當 leader 恢復後，<strong>反向</strong>建 CCR（原 follower 變新 leader）</li>
+</ol>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TB
+    Disaster["💥 Leader Cluster Down"]
+
+    Step1["1. 確認 leader 不可用"]
+    Step2["2. pause_follow"]
+    Step3["3. close index"]
+    Step4["4. unfollow<br/>(轉為一般 index)"]
+    Step5["5. open index<br/>(可寫)"]
+    Step6["6. 切流量到 follower"]
+    Step7["7. (恢復後) 反向 CCR<br/>原 follower → 新 follower"]
+
+    Disaster --> Step1 --> Step2 --> Step3 --> Step4 --> Step5 --> Step6 -.後續.-> Step7
+
+    classDef d fill:#fee2e2,stroke:#dc2626,color:#0f172a,stroke-width:2px
+    classDef s fill:#fef3c7,stroke:#d97706,color:#0f172a
+    classDef ok fill:#dcfce7,stroke:#16a34a,color:#0f172a
+    class Disaster d
+    class Step1,Step2,Step3,Step4 s
+    class Step5,Step6,Step7 ok
+</pre>
+<div class="mermaid-caption">圖 10-4：DR Failover 流程</div>
+</div>
+
+<h2 id="dr">📊 J. DR 策略對照</h2>
+
+<div class="cs-table">
+  <div class="cs-row header"><div>策略</div><div>RPO / RTO</div><div>適用</div></div>
+  <div class="cs-row">
+    <div class="cs-scenario"><strong>SLM 每日 snapshot</strong></div>
+    <div class="cs-cmd">RPO 24h / RTO 數小時（restore 時間）</div>
+    <div class="cs-note">基本備份；任何規模都該做</div>
+  </div>
+  <div class="cs-row">
+    <div class="cs-scenario"><strong>SLM 每小時 + 每日</strong></div>
+    <div class="cs-cmd">RPO 1h / RTO 數小時</div>
+    <div class="cs-note">中等需求；GFS 策略</div>
+  </div>
+  <div class="cs-row">
+    <div class="cs-scenario"><strong>CCR (auto-follow)</strong></div>
+    <div class="cs-cmd">RPO 秒 / RTO 分鐘（切流量）</div>
+    <div class="cs-note">高可用要求；雙 cluster 成本 2×</div>
+  </div>
+  <div class="cs-row">
+    <div class="cs-scenario"><strong>CCR + SLM</strong></div>
+    <div class="cs-cmd">RPO 秒 / RTO 分鐘 + 歷史備份</div>
+    <div class="cs-note">企業級。CCR 防硬體故障；SLM 防誤刪</div>
+  </div>
+  <div class="cs-row">
+    <div class="cs-scenario"><strong>Searchable Snapshot</strong></div>
+    <div class="cs-cmd">N/A（非 DR，是冷儲存）</div>
+    <div class="cs-note">省 50-90% 儲存成本，仍可查詢</div>
+  </div>
+</div>
+
+<div class="callout warning">
+  <strong>⚠️ 永遠記得測試還原！</strong>
+  <ul>
+    <li>每季做一次 restore drill（還原到 staging）</li>
+    <li>驗證 snapshot 是否真的可用，沒人想在災難當天才發現備份壞了</li>
+    <li>記錄 RTO 實測時間</li>
+    <li>測試 cross-region restore（snapshot 從 S3 us-east 還到 ES eu-west）</li>
+  </ul>
+</div>
+
+<h2 id="related">🔗 相關速查卡</h2>
+
+<ul>
+  <li><a href="ch01-CheatSheet-cat-api-cluster-health.html">CheatSheet 01</a> — 看 recovery / repository</li>
+  <li><a href="ch03-CheatSheet-data-stream-ilm.html">CheatSheet 03</a> — ILM 中的 searchable_snapshot action</li>
+  <li><a href="ch09-CheatSheet-security.html">CheatSheet 09</a> — Cross-cluster API key（CCR 認證用）</li>
+  <li><a href="ch11-CheatSheet-troubleshooting-upgrade.html">CheatSheet 11</a> — 升級前必須 snapshot</li>
+</ul>
+
+<h2 id="back-to-book">📖 回正書深入閱讀</h2>
+
+<ul>
+  <li><a href="../ch47-snapshot-restore.html">CH 47 · Snapshot & Restore</a></li>
+  <li><a href="../ch48-ccr.html">CH 48 · Cross-Cluster Replication</a></li>
+</ul>
+
+<div class="bottom-nav">
+  <a href="ch09-CheatSheet-security.html" class="nav-prev">← <span class="nav-arrow-label">上一張</span><br><strong>09 · Security</strong></a>
+  <a href="ch11-CheatSheet-troubleshooting-upgrade.html" class="nav-next"><span class="nav-arrow-label">下一張</span> →<br><strong>11 · Troubleshooting & Upgrade</strong></a>
+</div>
+</main>
+<aside class="toc">
+  <div class="toc-title">本卡目錄</div>
+  <ul></ul>
+</aside>
+</div>
+<footer class="footer">
+  <div class="footer-inner">
+    <div>📋 Elasticsearch Self-managed 速查表 · 對應正書 67 章</div>
+    <div class="footer-meta">內容對應 Elastic Stack 9.x · 最後更新 2026/05</div>
+  </div>
+</footer>
+
+// Copy-to-clipboard for all <pre> blocks
+(function () {
+  function init() {
+    document.querySelectorAll('main pre').forEach(function (pre) {
+      if (pre.parentElement.classList.contains('code-wrap')) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'code-wrap';
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
+      const lang = pre.querySelector('code')?.className.match(/language-(\w+)/)?.[1];
+      if (lang) {
+        const tag = document.createElement('span');
+        tag.className = 'code-lang';
+        tag.textContent = lang;
+        wrap.appendChild(tag);
+      }
+      const btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.type = 'button';
+      btn.textContent = '📋 複製';
+      btn.addEventListener('click', function () {
+        const text = pre.innerText;
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(text).then(success).catch(fallback);
+        } else {
+          fallback();
+        }
+        function success() {
+          btn.textContent = '✓ 已複製';
+          btn.classList.add('copied');
+          setTimeout(function () { btn.textContent = '📋 複製'; btn.classList.remove('copied'); }, 1800);
+        }
+        function fallback() {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); success(); } catch (_) {}
+          document.body.removeChild(ta);
+        }
+      });
+      wrap.appendChild(btn);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+// Auto-build TOC from h2/h3 in <main>
+(function () {
+  function init() {
+    const toc = document.querySelector('.toc ul');
+    if (!toc) return;
+    const headings = document.querySelectorAll('main h2, main h3');
+    headings.forEach(function (h) {
+      if (!h.id) {
+        h.id = h.textContent.trim().toLowerCase()
+          .replace(/[^\w\u4e00-\u9fff\s-]/g, '')
+          .replace(/\s+/g, '-');
+      }
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = '#' + h.id;
+      a.textContent = h.textContent;
+      a.className = 'toc-' + h.tagName.toLowerCase();
+      li.appendChild(a);
+      toc.appendChild(li);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+
+// Mermaid initialization with theme sync
+(function () {
+  function getMermaidTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default';
+  }
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    const cs = getComputedStyle(document.documentElement);
+    return {
+      startOnLoad: false,
+      theme: isDark ? 'dark' : 'default',
+      themeVariables: {
+        fontFamily: cs.getPropertyValue('--font-sans').trim() || 'DM Sans, sans-serif',
+        fontSize: '14px',
+        primaryColor: isDark ? '#1e3a4a' : '#e0f2fe',
+        primaryTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        primaryBorderColor: isDark ? '#5fb3d4' : '#0891b2',
+        lineColor: isDark ? '#7aa3b8' : '#475569',
+        secondaryColor: isDark ? '#2a3f4f' : '#f1f5f9',
+        tertiaryColor: isDark ? '#1a2530' : '#fafafa',
+        background: isDark ? '#1e2a35' : '#ffffff',
+        mainBkg: isDark ? '#243441' : '#ecfeff',
+        secondBkg: isDark ? '#1a2530' : '#f8fafc',
+        nodeBorder: isDark ? '#5fb3d4' : '#0891b2',
+        clusterBkg: isDark ? '#1a2530' : '#f1f5f9',
+        clusterBorder: isDark ? '#3a5260' : '#cbd5e1',
+        defaultLinkColor: isDark ? '#7aa3b8' : '#475569',
+        titleColor: isDark ? '#e6f2f8' : '#0f172a',
+        edgeLabelBackground: isDark ? '#243441' : '#ffffff',
+        actorBkg: isDark ? '#243441' : '#ecfeff',
+        actorBorder: isDark ? '#5fb3d4' : '#0891b2',
+        actorTextColor: isDark ? '#e6f2f8' : '#0c4a5e',
+        actorLineColor: isDark ? '#5fb3d4' : '#0891b2',
+        signalColor: isDark ? '#7aa3b8' : '#334155',
+        signalTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        labelBoxBkgColor: isDark ? '#1a2530' : '#fef3c7',
+        labelBoxBorderColor: isDark ? '#a89060' : '#d97706',
+        labelTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        loopTextColor: isDark ? '#e6f2f8' : '#0f172a',
+        noteBkgColor: isDark ? '#3a4f3a' : '#fef3c7',
+        noteBorderColor: isDark ? '#86c598' : '#d97706',
+        noteTextColor: isDark ? '#e6f2f8' : '#0f172a',
+      },
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true, showSequenceNumbers: false, mirrorActors: true, bottomMarginAdj: 10 },
+    };
+  }
+
+  let renderCounter = 0;
+  async function renderAll() {
+    if (typeof mermaid === 'undefined') return;
+    renderCounter++;
+    const myCounter = renderCounter;
+    mermaid.initialize(getMermaidConfig());
+    const blocks = document.querySelectorAll('.mermaid');
+    for (const el of blocks) {
+      // restore source if already rendered
+      if (el.dataset.source) el.innerHTML = el.dataset.source;
+      else el.dataset.source = el.innerHTML;
+      el.removeAttribute('data-processed');
+    }
+    if (myCounter !== renderCounter) return;
+    try {
+      await mermaid.run({ querySelector: '.mermaid' });
+    } catch (e) { console.warn('Mermaid render error', e); }
+  }
+
+  function init() {
+    renderAll();
+    window.addEventListener('jhsun:theme-changed', renderAll);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+
+
+</body>
+</html>

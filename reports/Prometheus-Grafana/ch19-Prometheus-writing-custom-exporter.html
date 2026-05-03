@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch19 · 寫自己的 Exporter | Prometheus / Alertmanager / Grafana 完整教學</title>
+<style>
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --text-3xl: 44px;
+  --text-4xl: 64px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+  --container-narrow: 720px;
+  --container-wide: 1280px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80;
+  --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24;
+  --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171;
+  --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee;
+  --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  padding: 0;
+}
+.top-nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-soft);
+  padding: var(--space-3) var(--space-5);
+  display: flex; justify-content: space-between; align-items: center;
+  backdrop-filter: blur(8px);
+}
+.nav-links { display: flex; gap: var(--space-3); align-items: center; }
+.nav-links a {
+  color: var(--text-secondary); text-decoration: none;
+  font-size: var(--text-sm); padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm); transition: all 0.2s ease;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--color-primary-soft); }
+.nav-links a.disabled { color: var(--text-muted); cursor: not-allowed; pointer-events: none; }
+button[data-theme-toggle] {
+  background: var(--bg-muted); color: var(--text-primary);
+  border: 1px solid var(--border-soft);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+  cursor: pointer; font-size: var(--text-sm);
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-sans); transition: all 0.2s ease;
+}
+button[data-theme-toggle]:hover { background: var(--color-primary-soft); border-color: var(--color-primary); }
+.theme-icon { font-size: var(--text-md); }
+main { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-7) var(--space-5); }
+@media (min-width: 1024px) { main { max-width: 880px; } }
+.chapter-meta {
+  font-size: var(--text-sm); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: var(--space-3); font-family: var(--font-mono);
+}
+h1 {
+  font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 700;
+  line-height: 1.15; margin: 0 0 var(--space-4);
+  color: var(--text-primary); letter-spacing: -0.02em;
+}
+.subtitle {
+  font-size: var(--text-md); color: var(--text-secondary);
+  margin-bottom: var(--space-7); font-style: italic;
+  border-left: 3px solid var(--color-primary); padding-left: var(--space-4);
+}
+h2 {
+  font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600;
+  margin-top: var(--space-8); margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2); border-bottom: 2px solid var(--border-soft);
+  color: var(--text-primary);
+}
+h3 { font-size: var(--text-xl); font-weight: 600; margin-top: var(--space-6); margin-bottom: var(--space-3); color: var(--text-primary); }
+h4 { font-size: var(--text-md); font-weight: 600; margin-top: var(--space-5); margin-bottom: var(--space-2); color: var(--text-primary); }
+p { margin: var(--space-3) 0; }
+strong { color: var(--text-primary); font-weight: 600; }
+em { color: var(--text-secondary); }
+a {
+  color: var(--color-primary-text); text-decoration: underline;
+  text-decoration-color: var(--color-primary-soft);
+  text-underline-offset: 3px; transition: all 0.2s ease;
+}
+a:hover { color: var(--color-primary-hover); text-decoration-color: var(--color-primary); }
+code {
+  font-family: var(--font-mono); font-size: 0.92em;
+  background: var(--bg-code); padding: 0.15em 0.4em;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-soft);
+  color: var(--color-primary-text);
+}
+pre {
+  background: var(--bg-code); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  overflow-x: auto; font-size: var(--text-sm); line-height: 1.6;
+  margin: var(--space-4) 0;
+}
+pre code { background: transparent; border: none; padding: 0; color: var(--text-primary); }
+.callout {
+  margin: var(--space-5) 0; padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md); border-left: 4px solid;
+}
+.callout-title {
+  font-weight: 600; margin-bottom: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.callout.info { background: var(--color-info-soft); border-color: var(--color-info); }
+.callout.info .callout-title { color: var(--color-info); }
+.callout.success { background: var(--color-success-soft); border-color: var(--color-success); }
+.callout.success .callout-title { color: var(--color-success); }
+.callout.warning { background: var(--color-warning-soft); border-color: var(--color-warning); }
+.callout.warning .callout-title { color: var(--color-warning); }
+.callout.danger { background: var(--color-danger-soft); border-color: var(--color-danger); }
+.callout.danger .callout-title { color: var(--color-danger); }
+table {
+  width: 100%; border-collapse: collapse; margin: var(--space-5) 0;
+  font-size: var(--text-sm); background: var(--bg-surface);
+  border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-sm);
+}
+th, td { text-align: left; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); }
+th {
+  background: var(--bg-muted); font-weight: 600; color: var(--text-primary);
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg-muted); }
+ul, ol { padding-left: var(--space-5); margin: var(--space-3) 0; }
+li { margin: var(--space-2) 0; }
+li::marker { color: var(--color-primary); }
+.toc {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4) var(--space-5);
+  margin: var(--space-5) 0;
+}
+.toc-title {
+  font-weight: 600; font-size: var(--text-sm);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted); margin-bottom: var(--space-3);
+}
+.toc ul { list-style: none; padding-left: 0; }
+.toc li { margin: var(--space-1) 0; }
+.toc a { text-decoration: none; }
+.toc ul ul { padding-left: var(--space-4); }
+.card-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4); margin: var(--space-5) 0;
+}
+.card {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  transition: all 0.2s ease;
+}
+.card:hover { box-shadow: var(--shadow-md); border-color: var(--color-primary); transform: translateY(-2px); }
+.card-num { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-primary); font-weight: 600; }
+.card-title { font-weight: 600; font-size: var(--text-base); margin: var(--space-2) 0; color: var(--text-primary); }
+.card-desc { font-size: var(--text-sm); color: var(--text-secondary); }
+.mermaid {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-5);
+  margin: var(--space-5) 0; text-align: center; overflow-x: auto;
+}
+.footer-nav {
+  display: flex; justify-content: space-between;
+  margin-top: var(--space-8); padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft); gap: var(--space-3);
+}
+.footer-nav a {
+  flex: 1; padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); text-decoration: none;
+  color: var(--text-primary); transition: all 0.2s ease;
+}
+.footer-nav a:hover { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.footer-nav .nav-direction {
+  font-size: var(--text-xs); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.footer-nav .nav-title { font-weight: 600; margin-top: var(--space-1); }
+.footer-nav .next { text-align: right; }
+.footer-nav a.disabled { opacity: 0.4; pointer-events: none; }
+.tag {
+  display: inline-block; padding: 0.1em 0.6em; font-size: var(--text-xs);
+  border-radius: var(--radius-sm); font-family: var(--font-mono);
+  background: var(--bg-muted); color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+}
+.tag.primary { background: var(--color-primary-soft); color: var(--color-primary-text); border-color: var(--color-primary); }
+@media print { .top-nav, .footer-nav, button[data-theme-toggle] { display: none; } }
+</style>
+</head>
+<body>
+
+<nav class="top-nav">
+  <div class="nav-links">
+    <a href="ch18-Prometheus-exporters-survey.html">← 上一章</a>
+    <a href="ch00-Overview-learning-path.html">📚 目錄</a>
+    <a href="ch20-Prometheus-client-libraries.html">下一章 →</a>
+  </div>
+  <button data-theme-toggle aria-label="Toggle theme"></button>
+</nav>
+
+<main>
+  <div class="chapter-meta">Chapter 19 · 寫自己的 Exporter</div>
+  <h1>寫自己的 Exporter：模式、實作、踩雷</h1>
+  <p class="subtitle">
+    當沒有現成 exporter 時，您需要自己寫一個。本章涵蓋官方推薦的兩種設計模式
+    （Custom Collector vs Direct Instrumentation）、Multi-Target Pattern 實作、
+    Cardinality 控制、以及 Prometheus 維護者親自整理的 best practices。
+  </p>
+
+  <div class="toc">
+    <div class="toc-title">本章內容</div>
+    <ul>
+      <li><a href="#section-1">§ 1. 何時該寫自己的 Exporter</a></li>
+      <li><a href="#section-2">§ 2. 兩種實作模式：Direct vs Custom Collector</a></li>
+      <li><a href="#section-3">§ 3. 範例：Direct Instrumentation（Python）</a></li>
+      <li><a href="#section-4">§ 4. 範例：Custom Collector（Go）</a></li>
+      <li><a href="#section-5">§ 5. 範例:Multi-Target Pattern（Go）</a></li>
+      <li><a href="#section-6">§ 6. 命名與 Label 規範</a></li>
+      <li><a href="#section-7">§ 7. Exporter 自身的 Metric</a></li>
+      <li><a href="#section-8">§ 8. Cardinality 控制</a></li>
+      <li><a href="#section-9">§ 9. 安全性考量</a></li>
+      <li><a href="#section-10">§ 10. 上 production 前 checklist</a></li>
+    </ul>
+  </div>
+
+  <h2 id="section-1">§ 1. 何時該寫自己的 Exporter</h2>
+
+  <p>寫 exporter 是有成本的（持續維護、跟上 client library 更新、處理 edge cases）。先確認以下情況：</p>
+
+  <div class="callout success">
+    <div class="callout-title">✅ 該寫的情況</div>
+    <ol>
+      <li>系統<strong>沒有</strong>現成 exporter（搜過 awesome-prometheus、官方清單、GitHub）</li>
+      <li>有現成但<strong>不維護</strong>了（commits 半年沒更新）</li>
+      <li>系統有 API 但格式特殊，需要解析</li>
+      <li>內部自有系統，外部不會有 exporter</li>
+    </ol>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 不該寫的情況</div>
+    <ol>
+      <li>應用是您自己寫的 → <strong>直接用 client library 在應用裡埋 metric</strong>（Ch 20），不要寫獨立 exporter</li>
+      <li>已有現成 exporter，只是某些 metric 不滿意 → 提 PR，不要重造輪子</li>
+      <li>需求是一次性的 → 寫個 cron 用 textfile collector 就好</li>
+    </ol>
+  </div>
+
+  <h2 id="section-2">§ 2. 兩種實作模式：Direct vs Custom Collector</h2>
+
+  <h3>2.1 Direct Instrumentation</h3>
+
+  <p>
+    Exporter 啟動時建立 metric 物件，<strong>主動更新</strong>它們的值（如 <code>counter.inc()</code>）。
+    當 Prometheus 抓 <code>/metrics</code> 時，就把當前值序列化吐出。
+  </p>
+
+  <p>適用：<strong>事件驅動</strong>、自己的應用、當下發生時就更新。</p>
+
+  <pre><code># Pseudocode
+counter = Counter('http_requests_total', ...)
+gauge = Gauge('queue_size', ...)
+
+def on_request(req):
+    counter.inc()           # 事件發生時增加
+
+def on_queue_change(size):
+    gauge.set(size)         # 狀態改變時更新
+
+# Prometheus scrape /metrics 時，直接讀目前值</code></pre>
+
+  <h3>2.2 Custom Collector</h3>
+
+  <p>
+    Exporter <strong>不持有 metric 物件</strong>，而是在每次 scrape 時：
+    呼叫目標系統 API、把回傳資料即時轉成 Prometheus metric、回應給 Prometheus。
+  </p>
+
+  <p>適用：<strong>查詢驅動</strong>、第三方系統、scrape 時才即時抓。</p>
+
+  <pre><code># Pseudocode
+class MyCollector:
+    def collect(self):
+        # 每次 Prometheus scrape 都會呼叫這個
+        data = call_third_party_api()
+        for item in data:
+            yield Metric('foo_value', item.value, labels={...})</code></pre>
+
+  <h3>2.3 兩者比較</h3>
+
+  <table>
+    <thead>
+      <tr><th>面向</th><th>Direct Instrumentation</th><th>Custom Collector</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>適用場景</td><td>自己的應用、事件驅動</td><td>第三方系統、查詢驅動</td></tr>
+      <tr><td>資料更新時機</td><td>事件發生時</td><td>Scrape 觸發時</td></tr>
+      <tr><td>內部狀態</td><td>持有 counter/gauge 物件</td><td>無持久狀態</td></tr>
+      <tr><td>Counter 累積</td><td>自動處理</td><td>需自己確保 monotonic</td></tr>
+      <tr><td>實作難度</td><td>低</td><td>較高</td></tr>
+      <tr><td>典型例</td><td>應用程式埋點</td><td>blackbox、mysqld、snmp</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout danger">
+    <div class="callout-title">🚨 寫第三方 exporter 一定要用 Custom Collector</div>
+    <p>
+      如果您寫的是「監控別人的系統」的 exporter（像 mysqld、redis），<strong>必須</strong>用 custom collector。<br>
+      若用 direct instrumentation，會有<strong>致命問題</strong>：被監控系統重啟時，您的 exporter 還持有舊的 counter 累積值，
+      導致 <code>rate()</code> 看不到 reset。
+    </p>
+  </div>
+
+  <h2 id="section-3">§ 3. 範例：Direct Instrumentation（Python）</h2>
+
+  <p>最簡單的場景：給自己寫的 Flask 應用加上 metric。</p>
+
+  <pre><code># app.py
+from flask import Flask, request
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+import time
+
+app = Flask(__name__)
+
+# 1. 定義 metric
+REQUESTS_TOTAL = Counter(
+    'app_http_requests_total',
+    'Total HTTP requests',
+    ['method', 'endpoint', 'status']
+)
+
+REQUEST_DURATION = Histogram(
+    'app_http_request_duration_seconds',
+    'Request duration',
+    ['method', 'endpoint'],
+    buckets=[0.005, 0.01, 0.05, 0.1, 0.5, 1, 5]
+)
+
+# 2. 中介層：每個請求結束後更新 metric
+@app.before_request
+def start_timer():
+    request._start_time = time.time()
+
+@app.after_request
+def record_request(response):
+    duration = time.time() - request._start_time
+    REQUESTS_TOTAL.labels(
+        method=request.method,
+        endpoint=request.path,
+        status=response.status_code
+    ).inc()
+    REQUEST_DURATION.labels(
+        method=request.method,
+        endpoint=request.path
+    ).observe(duration)
+    return response
+
+# 3. 暴露 /metrics endpoint
+@app.route('/metrics')
+def metrics():
+    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
+
+@app.route('/api/users')
+def users():
+    return {"users": []}
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080)</code></pre>
+
+  <p>啟動後 <code>curl http://localhost:8080/metrics</code> 就能看到 metric。</p>
+
+  <h2 id="section-4">§ 4. 範例：Custom Collector（Go）</h2>
+
+  <p>場景：監控一個內部系統的 REST API（提供 <code>/api/stats</code> 回傳 JSON 統計）。</p>
+
+  <pre><code>package main
+
+import (
+	"encoding/json"
+	"net/http"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+// 1. 定義 metric descriptor（不是 metric 物件）
+var (
+	queueSize = prometheus.NewDesc(
+		"myapp_queue_size",
+		"Current queue size by queue name",
+		[]string{"queue"},   // 變數 label
+		nil,                 // 常數 label
+	)
+
+	processedTotal = prometheus.NewDesc(
+		"myapp_processed_total",
+		"Total processed items by queue",
+		[]string{"queue"},
+		nil,
+	)
+)
+
+// 2. 實作 Collector interface
+type myCollector struct {
+	apiURL string
+}
+
+func (c *myCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- queueSize
+	ch <- processedTotal
+}
+
+// Collect 在每次 Prometheus scrape 時被呼叫
+func (c *myCollector) Collect(ch chan<- prometheus.Metric) {
+	// 呼叫第三方 API 取得即時資料
+	resp, err := http.Get(c.apiURL + "/api/stats")
+	if err != nil {
+		// 若呼叫失敗，不要 panic，靜默回傳沒有 metric
+		// up 會自動由 Prometheus 寫成 0
+		return
+	}
+	defer resp.Body.Close()
+
+	var stats struct {
+		Queues []struct {
+			Name      string `json:"name"`
+			Size      int    `json:"size"`
+			Processed int    `json:"processed_total"`
+		} `json:"queues"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+		return
+	}
+
+	// 把資料轉成 metric
+	for _, q := range stats.Queues {
+		ch <- prometheus.MustNewConstMetric(
+			queueSize,
+			prometheus.GaugeValue,
+			float64(q.Size),
+			q.Name,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			processedTotal,
+			prometheus.CounterValue,    // 注意：這個是 counter
+			float64(q.Processed),
+			q.Name,
+		)
+	}
+}
+
+func main() {
+	// 註冊 collector
+	collector := &myCollector{apiURL: "http://internal-system:8080"}
+	prometheus.MustRegister(collector)
+
+	// 暴露 /metrics
+	http.Handle("/metrics", promhttp.Handler())
+	http.ListenAndServe(":9200", nil)
+}</code></pre>
+
+  <h3>4.1 Custom Collector 三大要點</h3>
+
+  <ul>
+    <li><strong>用 <code>NewDesc</code> 而不是 <code>NewCounter</code>/<code>NewGauge</code></strong>：因為您不在自己持有狀態</li>
+    <li><strong>每次 <code>Collect</code> 都即時去抓</strong>：不要 cache 太久（資料會過期）</li>
+    <li><strong>失敗時靜默回傳</strong>：不要因為單次 API 失敗讓整個 exporter crash</li>
+  </ul>
+
+  <h2 id="section-5">§ 5. 範例：Multi-Target Pattern（Go）</h2>
+
+  <p>更進階的場景：類似 blackbox_exporter，target 透過 URL 參數傳入。</p>
+
+  <pre><code>package main
+
+import (
+	"net/http"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+// 對「特定 target」做監控的 collector
+func probeHandler(w http.ResponseWriter, r *http.Request) {
+	target := r.URL.Query().Get("target")
+	if target == "" {
+		http.Error(w, "Missing target parameter", http.StatusBadRequest)
+		return
+	}
+
+	// 為這次 scrape 建立 registry
+	registry := prometheus.NewRegistry()
+
+	probeSuccess := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "probe_success",
+		Help: "1 if probe succeeded, 0 otherwise",
+	})
+	probeDuration := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "probe_duration_seconds",
+	})
+
+	registry.MustRegister(probeSuccess)
+	registry.MustRegister(probeDuration)
+
+	// 對 target 做檢查
+	success, duration := doMyCheck(target)
+	if success {
+		probeSuccess.Set(1)
+	} else {
+		probeSuccess.Set(0)
+	}
+	probeDuration.Set(duration)
+
+	// 用這次的 registry 回應
+	h := promhttp.HandlerFor(registry, promhttp.HandlerOpts{})
+	h.ServeHTTP(w, r)
+}
+
+func main() {
+	// 兩個 endpoint
+	http.HandleFunc("/probe", probeHandler)              // 對特定 target 探測
+	http.Handle("/metrics", promhttp.Handler())          // exporter 自身 metric
+	http.ListenAndServe(":9300", nil)
+}</code></pre>
+
+  <h3>5.1 Multi-Target 的兩個 endpoint</h3>
+
+  <table>
+    <thead>
+      <tr><th>Endpoint</th><th>用途</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>/probe?target=...</code></td><td>對特定 target 做檢查，每次新建 registry</td></tr>
+      <tr><td><code>/metrics</code></td><td>exporter 自身運作 metric（probe 次數、錯誤率等）</td></tr>
+    </tbody>
+  </table>
+
+  <p>這個架構讓 Prometheus 透過 relabeling 動態傳入 target，一個 exporter 服務上千個目標。</p>
+
+  <h2 id="section-6">§ 6. 命名與 Label 規範</h2>
+
+  <p>官方 best practices（Prometheus 維護者 Brian Brazil 親自整理）：</p>
+
+  <h3>6.1 Metric 命名</h3>
+
+  <div class="callout success">
+    <div class="callout-title">✅ Best Practices</div>
+    <ol>
+      <li><strong>用 namespace 前綴</strong>：<code>myapp_</code> 而不是 <code>requests_</code></li>
+      <li><strong>用基本單位後綴</strong>：<code>_seconds</code> 不是 <code>_milliseconds</code>；<code>_bytes</code> 不是 <code>_kb</code></li>
+      <li><strong>Counter 加 <code>_total</code></strong></li>
+      <li><strong>Snake_case</strong>：<code>http_request_duration_seconds</code></li>
+      <li><strong>Info metric 用 <code>_info</code> 後綴</strong>：<code>node_uname_info</code></li>
+    </ol>
+  </div>
+
+  <h3>6.2 Label 命名</h3>
+
+  <ul>
+    <li>用 snake_case</li>
+    <li>不要用「重複 metric 名」的 label（<code>http_requests{type="http"}</code> 是冗餘）</li>
+    <li>避免高基數 label</li>
+    <li><strong>同一概念在不同 metric 用相同 label 名</strong>（例：所有 metric 都用 <code>method</code>，不要混 <code>http_method</code>）</li>
+  </ul>
+
+  <h3>6.3 慣例：用 ConstLabels</h3>
+
+  <p>對於「整個 exporter 共用」的常數 label（例：版本號），用 <code>ConstLabels</code> 一次設好：</p>
+
+  <pre><code>var requestsTotal = prometheus.NewCounterVec(
+    prometheus.CounterOpts{
+        Name: "myapp_requests_total",
+        ConstLabels: prometheus.Labels{
+            "version": "1.2.3",
+            "build":   "abc123",
+        },
+    },
+    []string{"method"},
+)</code></pre>
+
+  <h2 id="section-7">§ 7. Exporter 自身的 Metric</h2>
+
+  <p>Exporter 應該<strong>暴露自身運作狀態</strong>，方便監控 exporter 自己。常見做法：</p>
+
+  <pre><code>// 整體 scrape 計數
+myExporterScrapesTotal = prometheus.NewCounter(
+    prometheus.CounterOpts{
+        Name: "myexporter_scrapes_total",
+        Help: "Total scrapes against the exporter.",
+    },
+)
+
+// 失敗計數
+myExporterScrapeErrorsTotal = prometheus.NewCounterVec(
+    prometheus.CounterOpts{
+        Name: "myexporter_scrape_errors_total",
+    },
+    []string{"collector"},
+)
+
+// 每個 scrape 耗時（gauge，不是 histogram）
+myExporterScrapeDuration = prometheus.NewGauge(
+    prometheus.GaugeOpts{
+        Name: "myexporter_scrape_duration_seconds",
+        Help: "Time taken to scrape target.",
+    },
+)</code></pre>
+
+  <h3>7.1 重要：scrape 元 metric 不要當 histogram</h3>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ Brian Brazil 的建議</div>
+    <p>
+      像「scrape 耗時」這類 meta metric，<strong>用 gauge 暴露最後一次值</strong>就好，
+      不要做成 histogram 或 counter。Prometheus 自身已經有 <code>scrape_duration_seconds</code>，
+      重複會造成冗餘。
+    </p>
+  </div>
+
+  <h2 id="section-8">§ 8. Cardinality 控制</h2>
+
+  <p>這是寫 exporter 最常踩的雷。</p>
+
+  <div class="callout danger">
+    <div class="callout-title">🚨 永遠記住：每個 unique label 組合 = 一條 series</div>
+    <p>
+      如果您把 <code>user_id</code>（百萬可能值）放進 label，您的 exporter 會在幾分鐘內讓 Prometheus 爆炸。
+    </p>
+  </div>
+
+  <h3>8.1 高基數陷阱</h3>
+
+  <ul>
+    <li><strong>不要</strong>把 user_id、session_id、request_id、UUID 放進 label</li>
+    <li><strong>不要</strong>把任意的 query string、URL path 放進 label</li>
+    <li><strong>不要</strong>把 timestamp、numeric ID 當 label 值</li>
+    <li>動態增長的 enum（例：DB 表名、queue 名）要設上限或用 allowlist</li>
+  </ul>
+
+  <h3>8.2 路徑正規化範例</h3>
+
+  <p>HTTP path 是常見高基數來源。要正規化：</p>
+
+  <pre><code># Bad（每個 ID 一條 series）
+/users/123
+/users/456
+/users/789
+
+# Good（正規化成 :id）
+/users/:id
+
+# 在 instrument 時就要做：
+def normalize_path(path):
+    # /users/123 -> /users/:id
+    return re.sub(r'/\d+', '/:id', path)
+
+REQUESTS.labels(path=normalize_path(request.path)).inc()</code></pre>
+
+  <h3>8.3 設上限機制</h3>
+
+  <pre><code># Pseudocode：超過 N 個不同值就用 "other" 取代
+class CardinalityLimiter:
+    MAX_LABELS = 100
+
+    def __init__(self):
+        self.seen = set()
+
+    def get(self, value):
+        if value in self.seen:
+            return value
+        if len(self.seen) >= self.MAX_LABELS:
+            return "other"
+        self.seen.add(value)
+        return value</code></pre>
+
+  <h2 id="section-9">§ 9. 安全性考量</h2>
+
+  <h3>9.1 不要在 metric 中洩漏敏感資料</h3>
+
+  <ul>
+    <li>API token、密碼、PII 個資<strong>絕對不能</strong>當 label 值</li>
+    <li>客戶 email、IP 等若必要，先 hash 處理</li>
+    <li><code>/metrics</code> endpoint 應該被視為「半敏感」資料來源（誰能看就知道您系統的內部狀態）</li>
+  </ul>
+
+  <h3>9.2 認證與 TLS</h3>
+
+  <p>v2.24+ 起 Prometheus 與所有官方 exporter 支援 TLS + basic auth。設定檔：</p>
+
+  <pre><code># web-config.yml（給您的 exporter 啟動用）
+tls_server_config:
+  cert_file: /etc/exporter/cert.pem
+  key_file: /etc/exporter/key.pem
+
+basic_auth_users:
+  prom: $2y$05$...   # bcrypt hash
+</code></pre>
+
+  <pre><code>./your_exporter --web.config.file=/etc/exporter/web-config.yml</code></pre>
+
+  <h3>9.3 Resource 限制</h3>
+
+  <ul>
+    <li>設定 timeout：每次抓第三方 API 要有上限</li>
+    <li>限制並發：一次 scrape 的最大查詢數</li>
+    <li>記憶體上限：使用語言層級的 limit / K8s resource limit</li>
+    <li>Rate limit：避免突然湧入太多 scrape 請求</li>
+  </ul>
+
+  <h2 id="section-10">§ 10. 上 production 前 checklist</h2>
+
+  <div class="callout success">
+    <div class="callout-title">✅ Production-ready Checklist</div>
+    <ol>
+      <li>☐ Metric 命名遵守 best practices（namespace、單位、_total）</li>
+      <li>☐ 沒有高基數 label（user_id 等）</li>
+      <li>☐ 失敗時不會 crash，靜默回傳</li>
+      <li>☐ 有 timeout 機制（避免 hang）</li>
+      <li>☐ 暴露自身運作 metric（scrape 次數、錯誤）</li>
+      <li>☐ 用 custom collector（如果是第三方系統）</li>
+      <li>☐ 有 <code>/metrics</code> 也有 <code>/-/healthy</code> endpoint</li>
+      <li>☐ Resource limit 設好（timeout、並發）</li>
+      <li>☐ 不洩漏 secrets（不在 label / log / metric）</li>
+      <li>☐ 啟用 TLS + basic auth（公開或多租戶環境）</li>
+      <li>☐ 寫了 README 與範例 prometheus.yml</li>
+      <li>☐ 寫了單元測試</li>
+      <li>☐ 用 promtool check 驗證輸出格式</li>
+      <li>☐ 在 staging 環境跑過 24 小時無問題</li>
+    </ol>
+  </div>
+
+  <h3>10.1 用 promtool 驗證 exporter 輸出</h3>
+
+  <pre><code># 把 exporter 的 /metrics 輸出存檔
+curl -s http://localhost:9200/metrics > metrics.txt
+
+# 驗證格式
+promtool check metrics < metrics.txt
+
+# 應該看到：
+# (no errors found)</code></pre>
+
+  <h3>10.2 觀察生產上的 cardinality</h3>
+
+  <pre><code># 您 exporter 產生多少 series（給定一個 instance）
+count by (__name__)({job="my-exporter", instance="exporter-1:9200"})
+
+# Top 10 series 數最多的 metric
+topk(10, count by (__name__)({job="my-exporter"}))</code></pre>
+
+  <h2>📚 延伸閱讀</h2>
+
+  <ul>
+    <li><a href="https://prometheus.io/docs/instrumenting/writing_exporters/" target="_blank" rel="noopener">官方 Writing Exporters Guidelines（必讀！）</a></li>
+    <li><a href="https://prometheus.io/docs/instrumenting/writing_clientlibs/" target="_blank" rel="noopener">Writing Client Libraries（深入想了解 client lib 內部）</a></li>
+    <li><a href="https://prometheus.io/docs/practices/naming/" target="_blank" rel="noopener">Metric and Label Naming Best Practices</a></li>
+    <li><a href="https://prometheus.io/docs/guides/multi-target-exporter/" target="_blank" rel="noopener">Multi-Target Exporter Pattern Guide</a></li>
+    <li><a href="https://github.com/prometheus/blackbox_exporter" target="_blank" rel="noopener">blackbox_exporter（最佳的 multi-target 學習範例）</a></li>
+    <li><a href="https://github.com/prometheus/exporter-toolkit" target="_blank" rel="noopener">exporter-toolkit（TLS、auth 的官方工具庫）</a></li>
+  </ul>
+
+  <h2>✅ 本章重點摘要</h2>
+
+  <div class="callout success">
+    <div class="callout-title">30 秒回顧</div>
+    <ul>
+      <li>寫 exporter 前先確認沒有現成解；自己應用直接用 client library</li>
+      <li>兩種模式：<strong>Direct Instrumentation</strong>（事件驅動）vs <strong>Custom Collector</strong>（查詢驅動）</li>
+      <li><strong>第三方系統 exporter 必須用 Custom Collector</strong>（避免 counter reset 問題）</li>
+      <li>Multi-Target Pattern：透過 URL <code>?target=...</code> 動態傳入，搭配 relabeling</li>
+      <li>命名：<strong>namespace 前綴 + 基本單位後綴 + counter 加 <code>_total</code></strong></li>
+      <li>Label：snake_case、跨 metric 同名、避免高基數</li>
+      <li>暴露自身 metric：<code>scrapes_total</code>、<code>scrape_errors_total</code>、<code>scrape_duration_seconds</code></li>
+      <li>Cardinality 控制：路徑正規化、設上限機制、白名單</li>
+      <li>安全：TLS + basic auth、不洩漏 secrets、resource limit</li>
+      <li>上 production 前用 <code>promtool check metrics</code> 驗證</li>
+    </ul>
+  </div>
+
+  <h2>📝 練習題</h2>
+
+  <ol>
+    <li>下面情境該選 Direct 還是 Custom Collector？(a) 監控自己寫的 Go 服務的 HTTP request；(b) 監控 Redis 的 connection 數；(c) 監控某個批次任務每分鐘處理的記錄數。</li>
+    <li>下面這段 metric 定義有什麼問題？請改寫：
+      <pre><code>requests_count = Counter('requests_count', 'count of requests', ['user_id', 'http_method'])</code></pre>
+    </li>
+    <li>解釋為什麼 multi-target pattern 用 <code>NewDesc</code> + <code>MustNewConstMetric</code>，而不是 <code>NewCounterVec</code>？</li>
+    <li>請實作一個簡單 exporter（任何語言），讀取 <code>/proc/loadavg</code> 暴露為 <code>my_load1 / my_load5 / my_load15</code> 三個 gauge。</li>
+    <li>您的 exporter 上線後 Prometheus series 數從 50 萬暴增到 500 萬。請列出三個排查步驟。</li>
+  </ol>
+
+  <nav class="footer-nav">
+    <a href="ch18-Prometheus-exporters-survey.html">
+      <div class="nav-direction">← 上一章</div>
+      <div class="nav-title">Ch 18 · Exporters 全景</div>
+    </a>
+    <a class="next" href="ch20-Prometheus-client-libraries.html">
+      <div class="nav-direction">下一章 →</div>
+      <div class="nav-title">Ch 20 · Client Libraries</div>
+    </a>
+  </nav>
+
+</main>
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else { init(); }
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  // Calm Teal hue 200° 設計色系 → mermaid themeVariables 對齊 tokens.css
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    return {
+      startOnLoad: false,
+      securityLevel: 'loose',
+      fontFamily: 'DM Sans, Inter, Noto Sans TC, sans-serif',
+      theme: 'base',
+      themeVariables: isDark ? {
+        background: '#2a2520',
+        primaryColor: '#1f3a4a',
+        primaryTextColor: '#e8e6e1',
+        primaryBorderColor: '#5a8499',
+        lineColor: '#7a8a8f',
+        secondaryColor: '#2d3a32',
+        tertiaryColor: '#3a3528',
+        nodeBorder: '#5a8499',
+        clusterBkg: '#252523',
+        clusterBorder: '#4a4944',
+        edgeLabelBackground: '#2a2520',
+        textColor: '#e8e6e1',
+      } : {
+        background: '#fdfcfa',
+        primaryColor: '#cffafe',
+        primaryTextColor: '#1a1a18',
+        primaryBorderColor: '#0891b2',
+        lineColor: '#4a6873',
+        secondaryColor: '#dcfce7',
+        tertiaryColor: '#fef3c7',
+        nodeBorder: '#0891b2',
+        clusterBkg: '#f5f3ee',
+        clusterBorder: '#d4d2cd',
+        edgeLabelBackground: '#fdfcfa',
+        textColor: '#1a1a18',
+      },
+    };
+  }
+  mermaid.initialize(getMermaidConfig());
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => mermaid.run());
+  } else {
+    mermaid.run();
+  }
+  window.addEventListener('jhsun:theme-changed', () => {
+    document.querySelectorAll('.mermaid').forEach(el => {
+      const code = el.dataset.source || el.textContent;
+      if (!el.dataset.source) el.dataset.source = code;
+      el.removeAttribute('data-processed');
+      el.innerHTML = el.dataset.source;
+    });
+    mermaid.initialize(getMermaidConfig());
+    mermaid.run();
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,1235 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch46 · Tempo Distributed Tracing | Prometheus / Alertmanager / Grafana 完整教學</title>
+<style>
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --text-3xl: 44px;
+  --text-4xl: 64px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+  --container-narrow: 720px;
+  --container-wide: 1280px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80;
+  --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24;
+  --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171;
+  --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee;
+  --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  padding: 0;
+}
+.top-nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-soft);
+  padding: var(--space-3) var(--space-5);
+  display: flex; justify-content: space-between; align-items: center;
+  backdrop-filter: blur(8px);
+}
+.nav-links { display: flex; gap: var(--space-3); align-items: center; }
+.nav-links a {
+  color: var(--text-secondary); text-decoration: none;
+  font-size: var(--text-sm); padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm); transition: all 0.2s ease;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--color-primary-soft); }
+.nav-links a.disabled { color: var(--text-muted); cursor: not-allowed; pointer-events: none; }
+button[data-theme-toggle] {
+  background: var(--bg-muted); color: var(--text-primary);
+  border: 1px solid var(--border-soft);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+  cursor: pointer; font-size: var(--text-sm);
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-sans); transition: all 0.2s ease;
+}
+button[data-theme-toggle]:hover { background: var(--color-primary-soft); border-color: var(--color-primary); }
+.theme-icon { font-size: var(--text-md); }
+main { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-7) var(--space-5); }
+@media (min-width: 1024px) { main { max-width: 880px; } }
+.chapter-meta {
+  font-size: var(--text-sm); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: var(--space-3); font-family: var(--font-mono);
+}
+h1 {
+  font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 700;
+  line-height: 1.15; margin: 0 0 var(--space-4);
+  color: var(--text-primary); letter-spacing: -0.02em;
+}
+.subtitle {
+  font-size: var(--text-md); color: var(--text-secondary);
+  margin-bottom: var(--space-7); font-style: italic;
+  border-left: 3px solid var(--color-primary); padding-left: var(--space-4);
+}
+h2 {
+  font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600;
+  margin-top: var(--space-8); margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2); border-bottom: 2px solid var(--border-soft);
+  color: var(--text-primary);
+}
+h3 { font-size: var(--text-xl); font-weight: 600; margin-top: var(--space-6); margin-bottom: var(--space-3); color: var(--text-primary); }
+h4 { font-size: var(--text-md); font-weight: 600; margin-top: var(--space-5); margin-bottom: var(--space-2); color: var(--text-primary); }
+p { margin: var(--space-3) 0; }
+strong { color: var(--text-primary); font-weight: 600; }
+em { color: var(--text-secondary); }
+a {
+  color: var(--color-primary-text); text-decoration: underline;
+  text-decoration-color: var(--color-primary-soft);
+  text-underline-offset: 3px; transition: all 0.2s ease;
+}
+a:hover { color: var(--color-primary-hover); text-decoration-color: var(--color-primary); }
+code {
+  font-family: var(--font-mono); font-size: 0.92em;
+  background: var(--bg-code); padding: 0.15em 0.4em;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-soft);
+  color: var(--color-primary-text);
+}
+pre {
+  background: var(--bg-code); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  overflow-x: auto; font-size: var(--text-sm); line-height: 1.6;
+  margin: var(--space-4) 0;
+}
+pre code { background: transparent; border: none; padding: 0; color: var(--text-primary); }
+.callout {
+  margin: var(--space-5) 0; padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md); border-left: 4px solid;
+}
+.callout-title {
+  font-weight: 600; margin-bottom: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.callout.info { background: var(--color-info-soft); border-color: var(--color-info); }
+.callout.info .callout-title { color: var(--color-info); }
+.callout.success { background: var(--color-success-soft); border-color: var(--color-success); }
+.callout.success .callout-title { color: var(--color-success); }
+.callout.warning { background: var(--color-warning-soft); border-color: var(--color-warning); }
+.callout.warning .callout-title { color: var(--color-warning); }
+.callout.danger { background: var(--color-danger-soft); border-color: var(--color-danger); }
+.callout.danger .callout-title { color: var(--color-danger); }
+table {
+  width: 100%; border-collapse: collapse; margin: var(--space-5) 0;
+  font-size: var(--text-sm); background: var(--bg-surface);
+  border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-sm);
+}
+th, td { text-align: left; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); }
+th {
+  background: var(--bg-muted); font-weight: 600; color: var(--text-primary);
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg-muted); }
+ul, ol { padding-left: var(--space-5); margin: var(--space-3) 0; }
+li { margin: var(--space-2) 0; }
+li::marker { color: var(--color-primary); }
+.toc {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4) var(--space-5);
+  margin: var(--space-5) 0;
+}
+.toc-title {
+  font-weight: 600; font-size: var(--text-sm);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted); margin-bottom: var(--space-3);
+}
+.toc ul { list-style: none; padding-left: 0; }
+.toc li { margin: var(--space-1) 0; }
+.toc a { text-decoration: none; }
+.toc ul ul { padding-left: var(--space-4); }
+.card-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4); margin: var(--space-5) 0;
+}
+.card {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  transition: all 0.2s ease;
+}
+.card:hover { box-shadow: var(--shadow-md); border-color: var(--color-primary); transform: translateY(-2px); }
+.card-num { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-primary); font-weight: 600; }
+.card-title { font-weight: 600; font-size: var(--text-base); margin: var(--space-2) 0; color: var(--text-primary); }
+.card-desc { font-size: var(--text-sm); color: var(--text-secondary); }
+.mermaid {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-5);
+  margin: var(--space-5) 0; text-align: center; overflow-x: auto;
+}
+.footer-nav {
+  display: flex; justify-content: space-between;
+  margin-top: var(--space-8); padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft); gap: var(--space-3);
+}
+.footer-nav a {
+  flex: 1; padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); text-decoration: none;
+  color: var(--text-primary); transition: all 0.2s ease;
+}
+.footer-nav a:hover { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.footer-nav .nav-direction {
+  font-size: var(--text-xs); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.footer-nav .nav-title { font-weight: 600; margin-top: var(--space-1); }
+.footer-nav .next { text-align: right; }
+.footer-nav a.disabled { opacity: 0.4; pointer-events: none; }
+.tag {
+  display: inline-block; padding: 0.1em 0.6em; font-size: var(--text-xs);
+  border-radius: var(--radius-sm); font-family: var(--font-mono);
+  background: var(--bg-muted); color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+}
+.tag.primary { background: var(--color-primary-soft); color: var(--color-primary-text); border-color: var(--color-primary); }
+@media print { .top-nav, .footer-nav, button[data-theme-toggle] { display: none; } }
+</style>
+</head>
+<body>
+
+<nav class="top-nav">
+  <div class="nav-links">
+    <a href="ch45-Loki-log-aggregation.html">← 上一章</a>
+    <a href="ch00-Overview-learning-path.html">📚 目錄</a>
+    <a href="ch47-Mimir-scalable-prometheus.html">下一章 →</a>
+  </div>
+  <button data-theme-toggle aria-label="Toggle theme"></button>
+</nav>
+
+<main>
+  <div class="chapter-meta">Chapter 46 · Tempo Distributed Tracing</div>
+  <h1>Tempo：高 Scale 的分散式 Tracing 後端</h1>
+  <p class="subtitle">
+    LGTM Stack 的「<strong>T</strong>」：Tempo。Grafana Labs 推出的 trace backend，特色是「<strong>不索引、只用 trace ID 取</strong>」，
+    成本是 Jaeger / Zipkin 的 1/10。本章涵蓋分散式 tracing 概念、Tempo 架構、TraceQL、與 OpenTelemetry / Jaeger / Zipkin 整合、
+    metrics generator 自動算 RED 指標。
+  </p>
+
+  <div class="toc">
+    <div class="toc-title">本章內容</div>
+    <ul>
+      <li><a href="#section-1">§ 1. 分散式 Tracing 入門</a></li>
+      <li><a href="#section-2">§ 2. 為什麼需要 Tempo</a></li>
+      <li><a href="#section-3">§ 3. 架構與元件</a></li>
+      <li><a href="#section-4">§ 4. Trace 接收協議</a></li>
+      <li><a href="#section-5">§ 5. TraceQL 完整語法</a></li>
+      <li><a href="#section-6">§ 6. Metrics Generator</a></li>
+      <li><a href="#section-7">§ 7. Sampling 策略</a></li>
+      <li><a href="#section-8">§ 8. 部署模式</a></li>
+      <li><a href="#section-9">§ 9. 與三本柱整合</a></li>
+      <li><a href="#section-10">§ 10. Production Best Practices</a></li>
+      <li><a href="#section-11">§ 11. 從 Jaeger / Zipkin 遷移</a></li>
+    </ul>
+  </div>
+
+  <h2 id="section-1">§ 1. 分散式 Tracing 入門</h2>
+
+  <h3>1.1 為什麼要 tracing</h3>
+
+  <p>
+    在微服務環境，單一 user 請求可能經過 10+ 個 service。當「結帳很慢」時：
+  </p>
+
+  <ul>
+    <li>Metric 告訴您「平均 1.5s」</li>
+    <li>Log 告訴您「order-service 在處理 12345」</li>
+    <li>但<strong>哪個 service / 哪個 DB query / 哪個外部 API 慢</strong>？</li>
+  </ul>
+
+  <p>
+    <strong>Distributed tracing</strong> 解決：把請求路徑完整串起來，每個跨 service 操作叫 <strong>span</strong>，
+    所有 span 合起來叫 <strong>trace</strong>。
+  </p>
+
+  <h3>1.2 核心概念</h3>
+
+  <table>
+    <thead>
+      <tr><th>概念</th><th>說明</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Trace</strong></td><td>一個完整 request 的完整路徑（一棵樹）</td></tr>
+      <tr><td><strong>Span</strong></td><td>樹中一個節點，代表一個操作（HTTP call、DB query、function）</td></tr>
+      <tr><td><strong>Trace ID</strong></td><td>整個 trace 的唯一 ID（128-bit hex）</td></tr>
+      <tr><td><strong>Span ID</strong></td><td>單一 span 的唯一 ID（64-bit hex）</td></tr>
+      <tr><td><strong>Parent Span ID</strong></td><td>形成樹結構</td></tr>
+      <tr><td><strong>Attributes</strong></td><td>span 的 key-value（http.method, db.statement）</td></tr>
+      <tr><td><strong>Events</strong></td><td>span 內的時間點事件（log style）</td></tr>
+      <tr><td><strong>Status</strong></td><td>OK / Error</td></tr>
+      <tr><td><strong>Duration</strong></td><td>span 執行時間</td></tr>
+    </tbody>
+  </table>
+
+  <h3>1.3 一個 trace 範例</h3>
+
+  <pre><code>Trace: checkout-12345
+└── frontend.handleCheckout (200ms total)
+    ├── auth-service.verify (10ms)
+    ├── cart-service.getCart (50ms)
+    │   └── database.query (40ms)
+    ├── payment-service.charge (120ms)  ← 瓶頸
+    │   ├── external-api.stripe (110ms)
+    │   └── database.recordPayment (5ms)
+    └── notification-service.send (15ms)</code></pre>
+
+  <p>看 trace 立刻知道：「<strong>payment-service 的 stripe 調用是瓶頸</strong>」。</p>
+
+  <h3>1.4 OpenTelemetry：標準化 Tracing</h3>
+
+  <p>
+    Tracing 的標準是 <strong>OpenTelemetry (OTel)</strong>。它提供：
+  </p>
+
+  <ul>
+    <li>SDK（自動 / 手動 instrument 應用）</li>
+    <li>OTLP 協議（傳送格式）</li>
+    <li>Collector（接收、處理、匯出）</li>
+    <li>Vendor-neutral（可換 backend，code 不變）</li>
+  </ul>
+
+  <p>Tempo 原生支援 OTLP（Ch 04 介紹過 OTel）。</p>
+
+  <h2 id="section-2">§ 2. 為什麼需要 Tempo</h2>
+
+  <h3>2.1 既有方案的痛點</h3>
+
+  <table>
+    <thead>
+      <tr><th>方案</th><th>痛點</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Jaeger（all-in-one）</strong></td>
+        <td>需要 Cassandra / ES 當後端，運維複雜</td>
+      </tr>
+      <tr>
+        <td><strong>Zipkin</strong></td>
+        <td>類似 Jaeger 痛點，社群活躍度低</td>
+      </tr>
+      <tr>
+        <td><strong>商業 SaaS（Datadog APM 等）</strong></td>
+        <td>per-host / per-trace 收費，scale 後極貴</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>2.2 Tempo 的設計</h3>
+
+  <div class="callout success">
+    <div class="callout-title">💡 核心洞察</div>
+    <p>
+      Jaeger / Zipkin 都把 trace 完整 indexed（service name、operation、tags），index 巨大。<br>
+      Tempo 觀察：「<strong>實務上，trace ID 通常從 log / metric exemplar 拿到</strong>」（不是搜出來）。<br>
+      所以：<br>
+      • <strong>不索引</strong>，只用 trace ID 取<br>
+      • Trace 直接<strong>壓縮存 object store</strong><br>
+      • 想搜 trace？從 metric exemplar 跳，或用 TraceQL（v2+ 補上）
+    </p>
+  </div>
+
+  <h3>2.3 成本對比</h3>
+
+  <p>同樣 1B span/day：</p>
+
+  <ul>
+    <li>Jaeger + Cassandra：$10000+/月</li>
+    <li>Tempo + S3：$1000-2000/月</li>
+  </ul>
+
+  <h3>2.4 Tempo 的取捨</h3>
+
+  <p>v1 時 Tempo 完全沒有「搜尋」（只能用 trace ID 取）。v2 加上 <strong>TraceQL</strong> 補上搜尋功能，
+    但仍比 Jaeger 慢（必要時可加 Tempo metrics generator 補足常見 query pattern）。</p>
+
+  <h2 id="section-3">§ 3. 架構與元件</h2>
+
+  <h3>3.1 元件架構圖</h3>
+
+  <div class="mermaid">
+graph LR
+    APP[Application]
+    OTEL[OTel Collector · Alloy]
+    DIST[Distributor]
+    INGEST[Ingester]
+    OBJ[(Object Storage<br/>S3 · GCS)]
+    QF[Query Frontend]
+    QUERIER[Querier]
+    METGEN[Metrics Generator]
+    PROM[Prometheus · Mimir]
+    USER[User · Grafana]
+
+    APP --> OTEL
+    OTEL -- OTLP --> DIST
+    DIST -- shards --> INGEST
+    DIST -- copy --> METGEN
+    INGEST -- write blocks --> OBJ
+    METGEN -- write metrics --> PROM
+    USER -- TraceQL · Trace ID --> QF
+    QF -- splits --> QUERIER
+    QUERIER -- read blocks --> OBJ
+    QUERIER -- read recent --> INGEST
+</div>
+
+  <h3>3.2 主要元件</h3>
+
+  <table>
+    <thead>
+      <tr><th>元件</th><th>職責</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Distributor</strong></td>
+        <td>接收 OTLP / Jaeger / Zipkin push、validation、shard 到 ingester</td>
+      </tr>
+      <tr>
+        <td><strong>Ingester</strong></td>
+        <td>記憶體中累積 trace blocks、定期 flush 到 object store</td>
+      </tr>
+      <tr>
+        <td><strong>Query Frontend</strong></td>
+        <td>切分 TraceQL 查詢、cache、平行化</td>
+      </tr>
+      <tr>
+        <td><strong>Querier</strong></td>
+        <td>從 ingester（最近）+ object store（歷史）讀資料</td>
+      </tr>
+      <tr>
+        <td><strong>Compactor</strong></td>
+        <td>合併小 blocks，提升 query 效能</td>
+      </tr>
+      <tr>
+        <td><strong>Metrics Generator</strong></td>
+        <td>從 trace 自動算 RED metrics + service graph，寫到 Prometheus</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>架構與 Loki 高度一致（同一團隊設計），運維知識可重用。</p>
+
+  <h3>3.3 與 Loki 的相似度</h3>
+
+  <ul>
+    <li>同樣 Distributor / Ingester / Querier / Frontend / Compactor 五大元件</li>
+    <li>同樣 object store + ingester memory 兩段儲存</li>
+    <li>同樣 multi-tenant via header</li>
+    <li>同樣三種部署模式（monolithic / simple scalable / microservices）</li>
+  </ul>
+
+  <h2 id="section-4">§ 4. Trace 接收協議</h2>
+
+  <h3>4.1 支援的協議</h3>
+
+  <table>
+    <thead>
+      <tr><th>協議</th><th>狀態</th><th>建議</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>OTLP gRPC（4317）</strong></td>
+        <td>OpenTelemetry 標準</td>
+        <td>✅ 推薦</td>
+      </tr>
+      <tr>
+        <td><strong>OTLP HTTP（4318）</strong></td>
+        <td>OpenTelemetry HTTP</td>
+        <td>✅ 防火牆友善</td>
+      </tr>
+      <tr>
+        <td><strong>Jaeger gRPC（14250）/ HTTP（14268）</strong></td>
+        <td>傳統 Jaeger</td>
+        <td>遷移期使用</td>
+      </tr>
+      <tr>
+        <td><strong>Zipkin（9411）</strong></td>
+        <td>傳統 Zipkin</td>
+        <td>遷移期使用</td>
+      </tr>
+      <tr>
+        <td><strong>Jaeger Thrift</strong></td>
+        <td>舊版 Jaeger agent</td>
+        <td>盡量避免</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>4.2 啟用多協議</h3>
+
+  <pre><code># tempo.yaml
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+    jaeger:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:14250
+        thrift_http:
+          endpoint: 0.0.0.0:14268
+
+    zipkin:
+      endpoint: 0.0.0.0:9411</code></pre>
+
+  <h3>4.3 OTel Collector / Alloy 在中間</h3>
+
+  <p>實務常見架構：</p>
+
+  <pre><code>App (instrumented)
+  ↓ OTLP
+OTel Collector / Alloy
+  ↓ OTLP
+Tempo</code></pre>
+
+  <p>中間層好處：</p>
+
+  <ul>
+    <li>Buffering（Tempo 暫掛時不丟資料）</li>
+    <li>Sampling（先在 collector 過濾）</li>
+    <li>Enrichment（加 cluster / region label）</li>
+    <li>Multi-backend（同 trace 送 Tempo + 商業 APM）</li>
+  </ul>
+
+  <h2 id="section-5">§ 5. TraceQL 完整語法</h2>
+
+  <h3>5.1 基本概念</h3>
+
+  <p>
+    TraceQL 是 Tempo v2+ 引入的查詢語言，類似 PromQL 風格但給 trace。
+    用 <code>{}</code> 篩選 span，回傳整個 trace（含所有 span）。
+  </p>
+
+  <h3>5.2 基本 selector</h3>
+
+  <pre><code># 找特定 service 的 trace
+{ resource.service.name = "api" }
+
+# Duration filter
+{ duration > 500ms }
+{ duration < 100ms }
+
+# 多條件 AND
+{ resource.service.name = "api" && duration > 500ms }
+
+# Error filter
+{ status = error }
+
+# HTTP status
+{ span.http.status_code >= 500 }
+
+# Resource 與 span attribute 區分
+# resource = service-level（pod / region / version）
+# span = operation-level（http.method / db.statement）</code></pre>
+
+  <h3>5.3 屬性命名空間</h3>
+
+  <table>
+    <thead>
+      <tr><th>Prefix</th><th>意義</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>resource.</code></td><td>Service-level（service.name, k8s.cluster.name）</td></tr>
+      <tr><td><code>span.</code></td><td>Span-level（http.method, db.system）</td></tr>
+      <tr><td><code>name</code></td><td>Span 名稱（operation）</td></tr>
+      <tr><td><code>duration</code></td><td>Span 持續時間</td></tr>
+      <tr><td><code>status</code></td><td>OK / error</td></tr>
+      <tr><td><code>kind</code></td><td>server / client / internal / producer / consumer</td></tr>
+    </tbody>
+  </table>
+
+  <h3>5.4 Span 內條件</h3>
+
+  <pre><code># 任一 span 符合條件
+{ span.http.status_code = 500 }
+
+# 多個 span 同時符合（AND in same span）
+{ span.http.method = "POST" && span.http.status_code = 500 }
+
+# 不同 span 符合（structural query）
+{ resource.service.name = "frontend" } &gt;&gt; { span.http.status_code = 500 }
+# >> 表「祖先 → 後代」關係</code></pre>
+
+  <h3>5.5 結構性查詢</h3>
+
+  <pre><code># 直接父子關係
+{ ... } > { ... }
+
+# 任意祖先後代
+{ ... } >> { ... }
+
+# 兄弟（同 parent）
+{ ... } ~ { ... }
+
+# 範例：「frontend 服務的請求中，payment-service 出錯」
+{ resource.service.name = "frontend" } >> { resource.service.name = "payment" && status = error }</code></pre>
+
+  <h3>5.6 Aggregation（v2.3+）</h3>
+
+  <pre><code># Trace 數量
+count_over_time({ resource.service.name = "api" }[5m])
+
+# Average duration
+avg_over_time({ resource.service.name = "api" } | avg(duration))
+
+# Quantile
+quantile_over_time({ resource.service.name = "api" } | quantile(duration, 0.99))</code></pre>
+
+  <h3>5.7 與 Drilldown 整合</h3>
+
+  <p>
+    Ch 39 介紹的 <strong>Traces Drilldown</strong> 自動產生 RED 卡片，
+    讓您不用寫 TraceQL 也能探索。Drilldown 用底層 metrics generator 寫的 RED metric 來做。
+  </p>
+
+  <h2 id="section-6">§ 6. Metrics Generator</h2>
+
+  <h3>6.1 為什麼需要</h3>
+
+  <p>
+    沒有 metrics generator 時，要算「service 的 RED 指標」必須跑 TraceQL aggregation，慢。<br>
+    有了 metrics generator，<strong>Tempo 自動從每個 span 算 RED metric</strong>，寫到 Prometheus。<br>
+    Dashboard 用便宜的 metric 而非每次重算。
+  </p>
+
+  <h3>6.2 啟用</h3>
+
+  <pre><code># tempo.yaml
+metrics_generator:
+  registry:
+    external_labels:
+      source: tempo
+      cluster: production
+
+  storage:
+    path: /tmp/tempo/generator/wal
+    remote_write:
+      - url: http://prometheus:9090/api/v1/write
+        send_exemplars: true
+
+  processor:
+    span_metrics:
+      dimensions:
+        - http.method
+        - http.status_code
+        - http.route
+      filter_policies:
+        - include:
+            match_type: strict
+            attributes:
+              - key: resource.service.name
+                value: ".*"
+
+    service_graphs:
+      enabled: true
+      dimensions:
+        - cluster
+
+# Per-tenant override
+overrides:
+  defaults:
+    metrics_generator:
+      processors:
+        - service-graphs
+        - span-metrics
+      collection_interval: 15s</code></pre>
+
+  <h3>6.3 自動產生的 metric</h3>
+
+  <p>啟用 span-metrics 後，自動寫到 Prometheus：</p>
+
+  <pre><code>traces_spanmetrics_calls_total{
+  service="api",
+  span_name="GET /api/orders",
+  status_code="STATUS_CODE_OK",
+  http_method="GET"
+}
+
+traces_spanmetrics_latency_bucket{
+  service="api",
+  span_name="GET /api/orders",
+  le="0.1"
+}
+
+traces_spanmetrics_size_total{
+  service="api"
+}</code></pre>
+
+  <h3>6.4 Service Graph</h3>
+
+  <p>啟用 <code>service_graphs</code> 後，產生「服務拓樸」metric：</p>
+
+  <pre><code>traces_service_graph_request_total{
+  client="frontend",
+  server="api",
+  connection_type="virtual_node"
+}
+
+traces_service_graph_request_failed_total{...}
+
+traces_service_graph_request_server_seconds_bucket{...}</code></pre>
+
+  <p>Grafana 自動畫出服務拓樸（Tempo datasource → Service Graph view）。</p>
+
+  <h3>6.5 Cardinality 控制</h3>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ Span Metrics Cardinality 警告</div>
+    <p>
+      <code>dimensions</code> 加越多 → metric series 越多。<br>
+      範例：service × span_name × http.method × http.status_code × http.route<br>
+      若 http.route 有 1000 種、http.status_code 6 種，single service 就 6000 series。<br>
+      <strong>解法</strong>：<br>
+      • 用 <code>http.route</code>（template path）不是 <code>http.target</code>（含 query string）<br>
+      • 限制 dimensions 數量<br>
+      • 用 <code>filter_policies</code> 排除高 cardinality 服務
+    </p>
+  </div>
+
+  <h2 id="section-7">§ 7. Sampling 策略</h2>
+
+  <h3>7.1 為什麼要 sampling</h3>
+
+  <p>1B span/day 全存太貴。sampling 在 collector 端做，只送一部分 trace。</p>
+
+  <h3>7.2 Head-based Sampling</h3>
+
+  <p>在 trace 開始時就決定送不送（用 trace ID hash 機率採樣）：</p>
+
+  <pre><code># OTel Collector / Alloy
+processors:
+  probabilistic_sampler:
+    sampling_percentage: 10    # 10%
+
+# 或用 trace ID 一致性
+processors:
+  probabilistic_sampler:
+    hash_seed: 22
+    sampling_percentage: 10</code></pre>
+
+  <p>優點：簡單、低 overhead<br>缺點：可能漏掉重要的 error trace</p>
+
+  <h3>7.3 Tail-based Sampling</h3>
+
+  <p>等 trace 完成才決定（基於 status / duration / attribute）：</p>
+
+  <pre><code>processors:
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 100000
+    expected_new_traces_per_sec: 100
+
+    policies:
+      # 永遠保留 error
+      - name: errors
+        type: status_code
+        status_code: { status_codes: [ERROR] }
+
+      # 永遠保留慢的
+      - name: slow
+        type: latency
+        latency: { threshold_ms: 1000 }
+
+      # 其他 10%
+      - name: random
+        type: probabilistic
+        probabilistic: { sampling_percentage: 10 }</code></pre>
+
+  <p>優點：保留有價值的 trace<br>缺點：collector 需要 buffer 等 trace 完成，記憶體大</p>
+
+  <h3>7.4 推薦策略</h3>
+
+  <ul>
+    <li><strong>小規模</strong>：100% 送（&lt; 1M span/day）</li>
+    <li><strong>中規模</strong>：head-based 50%（1M-100M）</li>
+    <li><strong>大規模</strong>：tail-based + 智能策略</li>
+  </ul>
+
+  <h2 id="section-8">§ 8. 部署模式</h2>
+
+  <h3>8.1 三種部署</h3>
+
+  <p>跟 Loki 一樣三種，差別在 trace 量級閾值不同。</p>
+
+  <table>
+    <thead>
+      <tr><th>模式</th><th>適合</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Monolithic</td><td>&lt; 100K span/sec</td></tr>
+      <tr><td>Simple Scalable</td><td>100K-1M span/sec</td></tr>
+      <tr><td>Microservices</td><td>&gt; 1M span/sec</td></tr>
+    </tbody>
+  </table>
+
+  <h3>8.2 Helm 部署 Simple Scalable</h3>
+
+  <pre><code>helm repo add grafana https://grafana.github.io/helm-charts
+
+helm install tempo grafana/tempo-distributed \
+  --namespace tracing --create-namespace \
+  -f tempo-values.yaml</code></pre>
+
+  <pre><code># tempo-values.yaml
+storage:
+  trace:
+    backend: s3
+    s3:
+      bucket: tempo-traces
+      endpoint: s3.us-east-1.amazonaws.com
+      region: us-east-1
+
+distributor:
+  replicas: 3
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+ingester:
+  replicas: 3
+  persistence:
+    enabled: true
+    size: 50Gi
+
+querier:
+  replicas: 2
+
+queryFrontend:
+  replicas: 2
+
+compactor:
+  replicas: 1
+
+metricsGenerator:
+  enabled: true
+  replicas: 2
+  config:
+    storage:
+      remote_write:
+        - url: http://prometheus:9090/api/v1/write
+          send_exemplars: true</code></pre>
+
+  <h2 id="section-9">§ 9. 與三本柱整合</h2>
+
+  <h3>9.1 完整觀測性 stack</h3>
+
+  <pre><code>App
+  ↓ instrumented (OTel SDK)
+OTel Collector / Alloy
+  ├── Metrics → Prometheus / Mimir
+  ├── Logs → Loki
+  └── Traces → Tempo
+                ↓ metrics generator
+                Prometheus（RED metric + service graph）
+
+Grafana 連所有三家：
+  - Metrics → Prometheus
+  - Logs → Loki
+  - Traces → Tempo</code></pre>
+
+  <h3>9.2 串接設定（回顧 Ch 34）</h3>
+
+  <pre><code># Tempo datasource
+jsonData:
+  # Trace → Logs
+  tracesToLogsV2:
+    datasourceUid: loki-prod
+    spanStartTimeShift: '-1m'
+    spanEndTimeShift: '1m'
+    tags:
+      - { key: 'service.name', value: 'service' }
+    customQuery: true
+    query: '{service="$${__span.tags.service}"} |= "$${__trace.traceId}"'
+
+  # Trace → Metrics
+  tracesToMetrics:
+    datasourceUid: prometheus-prod
+    queries:
+      - name: 'Request rate'
+        query: 'sum(rate(traces_spanmetrics_calls_total{$$__tags}[5m]))'
+
+  # Trace → Profiles
+  tracesToProfiles:
+    datasourceUid: pyroscope-prod
+    profileTypeId: 'process_cpu:cpu:nanoseconds:cpu:nanoseconds'
+
+  # Service Graph
+  serviceMap:
+    datasourceUid: prometheus-prod
+
+  # Node Graph
+  nodeGraph:
+    enabled: true</code></pre>
+
+  <h3>9.3 完整 debug 流程（回顧 Ch 39 場景）</h3>
+
+  <ol>
+    <li>Metric 飆 → 點 exemplar 進 trace</li>
+    <li>Trace 看到 payment-service 慢 → 點 "Logs for span" 進 Loki 看 log</li>
+    <li>Log 看到 "DB timeout" → 點 trace_id link 回 trace 看其他 span</li>
+    <li>Trace 點 "Profile for span" → 進 Pyroscope 看 CPU</li>
+  </ol>
+
+  <h2 id="section-10">§ 10. Production Best Practices</h2>
+
+  <h3>10.1 Sampling 設計</h3>
+
+  <ul>
+    <li>Production：tail-based sampling，<strong>error 與慢 trace 100% 留</strong></li>
+    <li>用 OTel Collector / Alloy 做 sampling，不在 app 端</li>
+    <li>定期檢視 sample rate 與 storage 用量</li>
+  </ul>
+
+  <h3>10.2 Resource Sizing</h3>
+
+  <table>
+    <thead>
+      <tr><th>規模</th><th>Distributor</th><th>Ingester</th><th>Storage</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>10K span/sec</td><td>2 × 1CPU/2GB</td><td>2 × 2CPU/8GB</td><td>S3</td></tr>
+      <tr><td>100K span/sec</td><td>5 × 2CPU/4GB</td><td>5 × 4CPU/16GB</td><td>S3 multi-AZ</td></tr>
+      <tr><td>1M span/sec</td><td>10+ ×</td><td>10+ ×</td><td>多 region</td></tr>
+    </tbody>
+  </table>
+
+  <h3>10.3 Retention</h3>
+
+  <pre><code>compactor:
+  compaction:
+    block_retention: 168h    # 7 天
+    compacted_block_retention: 1h
+    retention_concurrency: 10</code></pre>
+
+  <h3>10.4 監控 Tempo 自身</h3>
+
+  <pre><code>必看 metrics：
+- tempo_distributor_spans_received_total
+- tempo_ingester_blocks_flushed_total
+- tempo_request_duration_seconds_bucket
+- tempo_metrics_generator_processor_*
+
+必設告警：
+- TempoDown
+- TempoIngestionFailing
+- TempoCompactorFailing
+- TempoMetricsGeneratorBehind</code></pre>
+
+  <h3>10.5 多租戶</h3>
+
+  <pre><code>multitenancy_enabled: true
+
+# 用 X-Scope-OrgID header 區分</code></pre>
+
+  <h3>10.6 Cost Optimization</h3>
+
+  <ul>
+    <li>用 tail-based sampling 留有用 trace</li>
+    <li>S3 Intelligent Tiering（自動轉冷）</li>
+    <li>Block compaction 設積極</li>
+    <li>不要存無用 attribute（如 stack trace 太長）</li>
+  </ul>
+
+  <h2 id="section-11">§ 11. 從 Jaeger / Zipkin 遷移</h2>
+
+  <h3>11.1 為什麼遷移</h3>
+
+  <ul>
+    <li>成本（Tempo 1/10）</li>
+    <li>運維（Tempo 不需要 Cassandra / ES）</li>
+    <li>整合（與 Loki / Mimir 同 ecosystem）</li>
+    <li>OpenTelemetry 標準化趨勢</li>
+  </ul>
+
+  <h3>11.2 遷移流程</h3>
+
+  <ol>
+    <li>部署 Tempo（與 Jaeger 並行）</li>
+    <li>App 端用 OTel SDK / collector 同時送 Tempo + Jaeger</li>
+    <li>Grafana 加 Tempo datasource，驗證可用</li>
+    <li>切換 Grafana 預設 trace datasource 到 Tempo</li>
+    <li>觀察一週確認穩定</li>
+    <li>停用 Jaeger Cassandra / ES</li>
+    <li>遷移舊 trace（可選；通常不必）</li>
+  </ol>
+
+  <h3>11.3 OTel Collector 雙寫範例</h3>
+
+  <pre><code>exporters:
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+  jaeger:
+    endpoint: jaeger-collector:14250
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlp/tempo, jaeger]   # 雙寫</code></pre>
+
+  <h3>11.4 Code 不用改</h3>
+
+  <p>
+    若 app 用 OTel SDK 送 OTLP 到 collector，<strong>切後端 0 code 修改</strong>。
+    這是 OTel 的核心價值：vendor-neutral instrumentation。
+  </p>
+
+  <h2>📚 延伸閱讀</h2>
+
+  <ul>
+    <li><a href="https://grafana.com/docs/tempo/latest/" target="_blank" rel="noopener">Tempo 官方文件</a></li>
+    <li><a href="https://grafana.com/docs/tempo/latest/traceql/" target="_blank" rel="noopener">TraceQL 完整參考</a></li>
+    <li><a href="https://grafana.com/docs/tempo/latest/metrics-generator/" target="_blank" rel="noopener">Metrics Generator</a></li>
+    <li><a href="https://opentelemetry.io/docs/" target="_blank" rel="noopener">OpenTelemetry 官方</a></li>
+    <li><a href="https://github.com/grafana/intro-to-mltp" target="_blank" rel="noopener">Intro to MLTP（範例 stack）</a></li>
+  </ul>
+
+  <h2>✅ 本章重點摘要</h2>
+
+  <div class="callout success">
+    <div class="callout-title">30 秒回顧</div>
+    <ul>
+      <li>分散式 tracing 解決微服務請求的「<strong>哪個 service 慢</strong>」問題</li>
+      <li>核心概念：<strong>Trace（樹）/ Span（節點）/ Trace ID / Parent Span ID / Attributes</strong></li>
+      <li>OpenTelemetry (OTel) 是 tracing 的業界標準（vendor-neutral）</li>
+      <li>Tempo 設計：<strong>不索引、只用 trace ID 取</strong>，比 Jaeger 便宜 10 倍</li>
+      <li>架構與 Loki 高度相似（同團隊設計）：5 大元件 + object store</li>
+      <li>Trace 接收協議：<strong>OTLP（推薦）/ Jaeger / Zipkin</strong></li>
+      <li>OTel Collector / Alloy 在中間做 buffering / sampling / enrichment / multi-backend</li>
+      <li>TraceQL 用 <code>{}</code> 篩選 span，支援 duration / status / structural query（<code>&gt;&gt;</code>）</li>
+      <li>屬性命名空間：<strong>resource.（service-level）/ span.（operation-level）</strong></li>
+      <li><strong>Metrics Generator</strong>：自動從 trace 算 RED metric + service graph，寫到 Prometheus</li>
+      <li>Sampling：<strong>head-based（簡單）/ tail-based（保留 error+慢 trace）</strong></li>
+      <li>三種部署模式（同 Loki），按 span/sec 量級選</li>
+      <li>三本柱串接：<strong>tracesToLogsV2 / tracesToMetrics / tracesToProfiles + serviceMap</strong></li>
+      <li>從 Jaeger 遷移：OTel collector 雙寫，code 不用改</li>
+    </ul>
+  </div>
+
+  <h2>📝 練習題</h2>
+
+  <ol>
+    <li>解釋為什麼 Tempo 「不索引」設計能省這麼多錢？取捨是什麼？</li>
+    <li>下面 TraceQL 找的是什麼？<code>{ resource.service.name = "frontend" } &gt;&gt; { resource.service.name = "payment" && status = error }</code></li>
+    <li>解釋 head-based 與 tail-based sampling 的差別。何時各用哪個？</li>
+    <li>解釋 Metrics Generator 的價值。Cardinality 失控時怎麼辦？</li>
+    <li>實作從 Jaeger 遷移到 Tempo 的計畫：時程、雙寫設定、驗證、切換流程。</li>
+  </ol>
+
+  <nav class="footer-nav">
+    <a href="ch45-Loki-log-aggregation.html">
+      <div class="nav-direction">← 上一章</div>
+      <div class="nav-title">Ch 45 · Loki</div>
+    </a>
+    <a class="next" href="ch47-Mimir-scalable-prometheus.html">
+      <div class="nav-direction">下一章 →</div>
+      <div class="nav-title">Ch 47 · Mimir</div>
+    </a>
+  </nav>
+
+</main>
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else { init(); }
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  // Calm Teal hue 200° 設計色系 → mermaid themeVariables 對齊 tokens.css
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    return {
+      startOnLoad: false,
+      securityLevel: 'loose',
+      fontFamily: 'DM Sans, Inter, Noto Sans TC, sans-serif',
+      theme: 'base',
+      themeVariables: isDark ? {
+        background: '#2a2520',
+        primaryColor: '#1f3a4a',
+        primaryTextColor: '#e8e6e1',
+        primaryBorderColor: '#5a8499',
+        lineColor: '#7a8a8f',
+        secondaryColor: '#2d3a32',
+        tertiaryColor: '#3a3528',
+        nodeBorder: '#5a8499',
+        clusterBkg: '#252523',
+        clusterBorder: '#4a4944',
+        edgeLabelBackground: '#2a2520',
+        textColor: '#e8e6e1',
+      } : {
+        background: '#fdfcfa',
+        primaryColor: '#cffafe',
+        primaryTextColor: '#1a1a18',
+        primaryBorderColor: '#0891b2',
+        lineColor: '#4a6873',
+        secondaryColor: '#dcfce7',
+        tertiaryColor: '#fef3c7',
+        nodeBorder: '#0891b2',
+        clusterBkg: '#f5f3ee',
+        clusterBorder: '#d4d2cd',
+        edgeLabelBackground: '#fdfcfa',
+        textColor: '#1a1a18',
+      },
+    };
+  }
+  mermaid.initialize(getMermaidConfig());
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => mermaid.run());
+  } else {
+    mermaid.run();
+  }
+  window.addEventListener('jhsun:theme-changed', () => {
+    document.querySelectorAll('.mermaid').forEach(el => {
+      const code = el.dataset.source || el.textContent;
+      if (!el.dataset.source) el.dataset.source = code;
+      el.removeAttribute('data-processed');
+      el.innerHTML = el.dataset.source;
+    });
+    mermaid.initialize(getMermaidConfig());
+    mermaid.run();
+  });
+</script>
+</body>
+</html>
