@@ -1,0 +1,1557 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 31 章 — Execution Environment 深入 ｜ Ansible 教學手冊</title>
+
+<!-- ============== Design Tokens (inline) ============== -->
+<style id="design-tokens">
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success:        #16a34a;
+  --color-success-soft:   #dcfce7;
+  --color-warning:        #d97706;
+  --color-warning-soft:   #fef3c7;
+  --color-danger:         #dc2626;
+  --color-danger-soft:    #fee2e2;
+  --color-info:           #0891b2;
+  --color-info-soft:      #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+  --font-mono:       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:       "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif:      "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  32px;
+  --text-3xl:  44px;
+  --text-4xl:  64px;
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+  --container-narrow: 720px;
+  --container-wide:   1280px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success:        #4ade80;
+  --color-success-soft:   oklch(0.30 0.08 145);
+  --color-warning:        #fbbf24;
+  --color-warning-soft:   oklch(0.32 0.10 70);
+  --color-danger:         #f87171;
+  --color-danger-soft:    oklch(0.32 0.10 27);
+  --color-info:           #22d3ee;
+  --color-info-soft:      oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas:      oklch(0.16 0.008 50);
+  --bg-surface:     oklch(0.20 0.009 50);
+  --bg-muted:       oklch(0.23 0.010 50);
+  --bg-code:        oklch(0.18 0.009 50);
+  --border-soft:    oklch(0.28 0.010 50);
+  --border-mid:     oklch(0.36 0.012 50);
+  --text-primary:   oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted:     oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+</style>
+
+<!-- ============== Page Styles ============== -->
+<style>
+* { box-sizing: border-box; }
+body {
+  font-family: var(--font-serif-body);
+  font-size: var(--text-md);
+  line-height: 1.75;
+  margin: 0; padding: 0;
+}
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-soft);
+  backdrop-filter: saturate(180%) blur(8px);
+}
+.topbar-inner {
+  max-width: var(--container-narrow);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
+}
+.brand {
+  font-family: var(--font-sans); font-weight: 600;
+  font-size: var(--text-sm); color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+.brand strong { color: var(--color-primary-text); }
+[data-theme-toggle] {
+  font-family: var(--font-sans); font-size: var(--text-sm);
+  background: var(--bg-muted); color: var(--text-primary);
+  border: 1px solid var(--border-soft); border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3); cursor: pointer;
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  transition: background 0.2s, border-color 0.2s;
+}
+[data-theme-toggle]:hover {
+  background: var(--color-primary-soft); border-color: var(--color-primary);
+}
+[data-theme-toggle] .theme-icon { font-size: var(--text-md); }
+
+.container {
+  max-width: var(--container-narrow);
+  margin: 0 auto;
+  padding: var(--space-7) var(--space-5) var(--space-9);
+}
+
+.hero {
+  margin: 0 0 var(--space-7);
+  padding-bottom: var(--space-6);
+  border-bottom: 1px solid var(--border-soft);
+}
+.hero .eyebrow {
+  font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 600;
+  color: var(--color-primary-text); letter-spacing: 0.08em; text-transform: uppercase;
+  margin: 0 0 var(--space-3);
+}
+.hero h1 {
+  font-family: var(--font-serif); font-size: var(--text-3xl);
+  font-weight: 700; line-height: 1.15;
+  margin: 0 0 var(--space-4); color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+.hero .lede { font-size: var(--text-lg); color: var(--text-secondary); margin: 0; line-height: 1.6; }
+.hero-meta { margin-top: var(--space-5); display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.tag {
+  font-family: var(--font-sans); font-size: var(--text-xs);
+  background: var(--bg-muted); color: var(--text-secondary);
+  padding: var(--space-1) var(--space-3); border-radius: 999px;
+  border: 1px solid var(--border-soft);
+}
+
+h2 {
+  font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 700;
+  line-height: 1.2; margin: var(--space-8) 0 var(--space-4); color: var(--text-primary);
+  letter-spacing: -0.005em; border-bottom: 2px solid var(--color-primary);
+  padding-bottom: var(--space-2);
+}
+h2 .num {
+  font-family: var(--font-mono); font-size: var(--text-md);
+  color: var(--color-primary-text); margin-right: var(--space-3); font-weight: 600;
+}
+h3 {
+  font-family: var(--font-sans); font-size: var(--text-xl); font-weight: 700;
+  margin: var(--space-7) 0 var(--space-3); color: var(--text-primary);
+}
+h3 .num {
+  font-family: var(--font-mono); font-size: var(--text-md);
+  color: var(--text-muted); margin-right: var(--space-2);
+}
+h4 {
+  font-family: var(--font-sans); font-size: var(--text-md); font-weight: 700;
+  margin: var(--space-5) 0 var(--space-2); color: var(--text-primary);
+}
+
+p { margin: 0 0 var(--space-4); }
+strong { color: var(--text-primary); font-weight: 700; }
+em { color: var(--text-secondary); }
+
+code {
+  font-family: var(--font-mono); font-size: 0.92em;
+  background: var(--bg-code); color: var(--color-primary-text);
+  padding: 2px 6px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+}
+
+ul, ol { margin: 0 0 var(--space-4); padding-left: var(--space-5); }
+li { margin-bottom: var(--space-2); }
+li > strong:first-child { color: var(--color-primary-text); }
+
+.audience-row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-3) 0 var(--space-4); }
+.aud-badge {
+  font-family: var(--font-sans); font-size: var(--text-xs); font-weight: 600;
+  padding: var(--space-1) var(--space-3); border-radius: var(--radius-md);
+  border: 1px solid; letter-spacing: 0.03em;
+}
+.aud-beginner   { background: var(--color-success-soft); color: var(--color-success); border-color: var(--color-success); }
+.aud-developer  { background: var(--color-info-soft);    color: var(--color-info);    border-color: var(--color-info); }
+.aud-devops     { background: var(--color-warning-soft); color: var(--color-warning); border-color: var(--color-warning); }
+
+.callout {
+  margin: var(--space-5) 0; padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md); border-left: 4px solid; background: var(--bg-muted);
+}
+.callout .ct-title {
+  font-family: var(--font-sans); font-weight: 700; font-size: var(--text-sm);
+  margin-bottom: var(--space-2); letter-spacing: 0.04em; text-transform: uppercase;
+}
+.callout p:last-child { margin-bottom: 0; }
+.callout-info    { border-color: var(--color-info);    background: var(--color-info-soft); }
+.callout-info .ct-title    { color: var(--color-info); }
+.callout-warning { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout-warning .ct-title { color: var(--color-warning); }
+.callout-danger  { border-color: var(--color-danger);  background: var(--color-danger-soft); }
+.callout-danger .ct-title  { color: var(--color-danger); }
+.callout-success { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout-success .ct-title { color: var(--color-success); }
+
+.code-block {
+  position: relative; margin: var(--space-4) 0 var(--space-5);
+  background: var(--bg-code); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); overflow: hidden;
+}
+.code-block-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: var(--space-2) var(--space-4);
+  background: var(--bg-muted); border-bottom: 1px solid var(--border-soft);
+  font-family: var(--font-sans); font-size: var(--text-xs); color: var(--text-muted);
+}
+.code-lang { font-weight: 600; color: var(--color-primary-text); letter-spacing: 0.05em; text-transform: uppercase; }
+.copy-btn {
+  background: transparent; border: 1px solid var(--border-mid);
+  color: var(--text-secondary); font-family: var(--font-sans);
+  font-size: var(--text-xs); padding: 2px var(--space-2);
+  border-radius: var(--radius-sm); cursor: pointer; transition: all 0.15s;
+}
+.copy-btn:hover { background: var(--color-primary-soft); color: var(--color-primary-text); border-color: var(--color-primary); }
+.copy-btn.copied { background: var(--color-success-soft); color: var(--color-success); border-color: var(--color-success); }
+.code-block pre {
+  margin: 0; padding: var(--space-4); overflow-x: auto;
+  font-family: var(--font-mono); font-size: var(--text-sm);
+  line-height: 1.6; color: var(--text-primary);
+}
+.code-block code { background: none; border: none; padding: 0; color: inherit; font-size: inherit; }
+
+.tok-comment  { color: var(--text-muted); font-style: italic; }
+.tok-keyword  { color: var(--color-neutral-accent); font-weight: 600; }
+.tok-string   { color: var(--color-success); }
+.tok-number   { color: var(--color-warning); }
+.tok-fn       { color: var(--color-info); }
+.tok-prop     { color: var(--color-primary-text); }
+.tok-op       { color: var(--text-secondary); }
+.tok-prompt   { color: var(--color-primary); user-select: none; }
+
+.compare-wrap {
+  margin: var(--space-5) 0; overflow-x: auto;
+  border: 1px solid var(--border-soft); border-radius: var(--radius-md);
+}
+table.compare {
+  width: 100%; border-collapse: collapse;
+  font-family: var(--font-sans); font-size: var(--text-sm);
+  background: var(--bg-surface);
+}
+table.compare th, table.compare td {
+  padding: var(--space-3) var(--space-4); text-align: left;
+  border-bottom: 1px solid var(--border-soft); vertical-align: top;
+}
+table.compare thead th {
+  background: var(--bg-muted); color: var(--text-primary); font-weight: 700;
+  border-bottom: 2px solid var(--color-primary); position: sticky; top: 0;
+}
+table.compare tbody tr:last-child td { border-bottom: none; }
+table.compare tbody tr:hover { background: var(--color-primary-soft); }
+table.compare td:first-child { font-weight: 600; color: var(--color-primary-text); }
+table.compare .check   { color: var(--color-success); font-weight: 700; }
+table.compare .cross   { color: var(--color-danger); font-weight: 700; }
+table.compare .partial { color: var(--color-warning); font-weight: 700; }
+
+.diagram {
+  margin: var(--space-5) 0; padding: var(--space-5);
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); text-align: center; overflow-x: auto;
+}
+.diagram .caption {
+  margin-top: var(--space-3); font-family: var(--font-sans);
+  font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.04em;
+}
+
+.mermaid { font-family: var(--font-sans) !important; }
+.mermaid svg { background: transparent !important; }
+.mermaid .nodeLabel,
+.mermaid .edgeLabel,
+.mermaid .label,
+.mermaid text { fill: var(--text-primary) !important; color: var(--text-primary) !important; }
+.mermaid .edgeLabel { background-color: var(--bg-surface) !important; }
+.mermaid .edgePath .path,
+.mermaid .flowchart-link,
+.mermaid path.relation { stroke: var(--text-muted) !important; }
+.mermaid .marker,
+.mermaid #arrowhead path { fill: var(--text-muted) !important; stroke: var(--text-muted) !important; }
+.mermaid .cluster rect { fill: transparent !important; stroke: var(--border-mid) !important; stroke-dasharray: 4 2 !important; }
+.mermaid .cluster .nodeLabel { font-weight: 600; }
+
+.cards-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-4); margin: var(--space-5) 0;
+}
+.mini-card {
+  padding: var(--space-4); background: var(--bg-surface);
+  border: 1px solid var(--border-soft); border-radius: var(--radius-md);
+  transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.mini-card:hover { transform: translateY(-2px); border-color: var(--color-primary); box-shadow: var(--shadow-md); }
+.mini-card .icon {
+  font-size: var(--text-xl); color: var(--color-primary);
+  margin-bottom: var(--space-2); font-family: var(--font-mono); font-weight: 700;
+}
+.mini-card h4 { margin: 0 0 var(--space-2); font-size: var(--text-md); color: var(--text-primary); }
+.mini-card p {
+  font-size: var(--text-sm); color: var(--text-secondary);
+  margin: 0; font-family: var(--font-sans); line-height: 1.55;
+}
+
+.practice {
+  margin: var(--space-7) 0; padding: var(--space-5) var(--space-6);
+  background: var(--color-primary-soft); border-left: 4px solid var(--color-primary);
+  border-radius: var(--radius-md);
+}
+.practice h3 { margin-top: 0; color: var(--color-primary-text); }
+.practice ol li { margin-bottom: var(--space-3); font-family: var(--font-sans); font-size: var(--text-sm); }
+
+.glossary {
+  margin-top: var(--space-7); padding: var(--space-5);
+  background: var(--bg-muted); border-radius: var(--radius-md);
+  font-family: var(--font-sans); font-size: var(--text-sm);
+}
+.glossary dt { font-weight: 700; color: var(--color-primary-text); margin-top: var(--space-3); }
+.glossary dt:first-child { margin-top: 0; }
+.glossary dd { margin: 0 0 var(--space-1); color: var(--text-secondary); line-height: 1.55; }
+
+.chapter-nav {
+  margin-top: var(--space-8); padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  display: flex; justify-content: space-between;
+  font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-muted);
+}
+.chapter-nav a { color: var(--color-primary-text); text-decoration: none; }
+
+@media (max-width: 640px) {
+  .hero h1 { font-size: var(--text-2xl); }
+  h2 { font-size: var(--text-xl); }
+  h3 { font-size: var(--text-md); }
+  .container { padding: var(--space-5) var(--space-4) var(--space-7); }
+  body { font-size: var(--text-base); }
+}
+</style>
+
+<!-- ============== Theme Toggle (inline) ============== -->
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">Ansible 教學手冊 ｜ <strong>Ch.31</strong></div>
+    <button data-theme-toggle aria-label="Toggle theme"></button>
+  </div>
+</header>
+
+<main class="container">
+
+<!-- Hero -->
+<section class="hero">
+  <p class="eyebrow">第七篇 — 生態系工具鏈</p>
+  <h1>第 31 章 — Execution Environment 深入</h1>
+  <p class="lede">第 30 章介紹了 EE 概念與三檔（execution-environment.yml / requirements.yml / requirements.txt）；本章把 EE 帶到<em>生產就緒</em>等級。九個主題：① <strong>EE 四階段 build pipeline</strong>——Base / Galaxy / Builder / Final 各做什麼；② <strong>v3 schema 完整解析</strong>——所有可用欄位、build_arg_defaults、additional_build_files；③ <strong>八個 build hook</strong>——prepend / append × 四階段，何時用哪個；④ <strong>private registry 整合</strong>——pull / push 的認證、PyPI 私有源、Galaxy private hub；⑤ <strong>image 大小優化</strong>——多階段、micro 基底、cache 控制；⑥ <strong>CI 自動 build pipeline</strong>——GitHub Actions / GitLab CI 完整範例；⑦ <strong>不同類型 EE 設計</strong>——network / cloud / k8s 三種範本；⑧ <strong>debug EE 內部</strong>——進去 shell、看裝了什麼、執行測試；⑨ <strong>業界最佳實踐</strong>。讀完這章你能維運一條完整的 EE pipeline——CI 自動 build、扫描漏洞、簽章、push 到 private registry，AAP / AWX 自動拉新版。</p>
+  <div class="hero-meta">
+    <span class="tag">本章把 EE 從「能 build」推到「生產 pipeline」 — 完整 lifecycle 管理</span>
+  </div>
+  <div class="audience-row">
+    <span class="aud-badge aud-beginner">初學者選讀（31.1–31.2 build 流程理解）</span>
+    <span class="aud-badge aud-developer">開發者必讀（特別 31.3 hooks + 31.7 各類型範本）</span>
+    <span class="aud-badge aud-devops">DevOps / SRE 必讀（全章）</span>
+  </div>
+</section>
+
+<!-- 31.1 -->
+<h2><span class="num">31.1</span>EE 四階段 build pipeline</h2>
+
+<p>理解 build 內部流程是<strong>排查 build 失敗</strong>的關鍵。<code>ansible-builder build</code> 不是黑盒——是有結構的四階段。</p>
+
+<h3><span class="num">31.1.1</span>四階段架構</h3>
+
+<div class="diagram">
+<div class="mermaid-host"><script type="text/x-mermaid">
+flowchart TB
+    classDef base fill:__FILL_PKG__,stroke:__STROKE_PKG__,color:__TEXT__,stroke-width:2px
+    classDef galaxy fill:__FILL_CORE__,stroke:__STROKE_CORE__,color:__TEXT__,stroke-width:2px
+    classDef builder fill:__FILL_COLL__,stroke:__STROKE_COLL__,color:__TEXT__,stroke-width:2px
+    classDef final fill:__FILL_PKG__,stroke:__STROKE_PKG__,color:__TEXT__,stroke-width:2px
+
+    BASE["Stage 1 Base<br/>pull base_image<br/>裝 Python pip<br/>裝 ansible-core ansible-runner"]:::base
+    BASE --> GALAXY["Stage 2 Galaxy<br/>下載 collections<br/>暫存到 build context"]:::galaxy
+    BASE --> BUILDER["Stage 3 Builder<br/>下載 Python pkg<br/>下載系統 pkg<br/>暫存到 build context"]:::builder
+
+    GALAXY --> FINAL["Stage 4 Final<br/>整合所有暫存<br/>產生最終 image"]:::final
+    BUILDER --> FINAL
+</script></div>
+<div class="caption">Figure 31.1 — Ansible Builder 四階段 build pipeline</div>
+</div>
+
+<h3><span class="num">31.1.2</span>各階段職責</h3>
+
+<div class="compare-wrap">
+<table class="compare">
+  <thead>
+    <tr><th>階段</th><th>做什麼</th><th>常見失敗</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>1 Base</strong></td>
+      <td>pull <code>base_image</code> + 裝 Python / pip / ansible-core / ansible-runner</td>
+      <td>base image pull 失敗（registry 認證、網路）</td>
+    </tr>
+    <tr>
+      <td><strong>2 Galaxy</strong></td>
+      <td>下載 collection（從 Galaxy / Hub）</td>
+      <td>collection 找不到、版本衝突、需 git 但 base 沒裝</td>
+    </tr>
+    <tr>
+      <td><strong>3 Builder</strong></td>
+      <td>下載 Python wheels + 系統 pkg（rpm / deb）</td>
+      <td>需 build tool（gcc / python3-devel）、缺 system header</td>
+    </tr>
+    <tr>
+      <td><strong>4 Final</strong></td>
+      <td>整合三 stage 結果產出最終 image</td>
+      <td>權限 / 路徑問題、entrypoint 衝突</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout callout-info">
+  <div class="ct-title">ⓘ 為什麼分四階段</div>
+  <p>多階段（multi-stage）build 的標準好處：<strong>較大的 build dependencies（gcc / dev headers）只存在 builder stage</strong>，最終 final image 不含這些——image 體積小很多（典型減 30-50%）。Galaxy 與 Builder 階段平行跑（不互相依賴）也加快速度。</p>
+</div>
+
+<!-- 31.2 -->
+<h2><span class="num">31.2</span>v3 schema 完整解析</h2>
+
+<p>2026 主流是 schema v3。整體結構：</p>
+
+<div class="code-block" data-lang="yaml">
+  <div class="code-block-header">
+    <span class="code-lang">yaml · 完整功能 execution-environment.yml v3</span>
+    <button class="copy-btn" type="button">複製</button>
+  </div>
+<pre><code><span class="tok-keyword">---</span>
+<span class="tok-prop">version</span>: <span class="tok-number">3</span>
+
+<span class="tok-comment"># ① 基底 image — 所有 stage 起點</span>
+<span class="tok-prop">images</span>:
+  <span class="tok-prop">base_image</span>:
+    <span class="tok-prop">name</span>: <span class="tok-string">quay.io/ansible/awx-ee:latest</span>
+    <span class="tok-prop">signature_original_name</span>: <span class="tok-string">quay.io/ansible/awx-ee:latest</span>
+
+<span class="tok-comment"># ② build 階段預設參數（CLI --build-arg 可覆蓋）</span>
+<span class="tok-prop">build_arg_defaults</span>:
+  <span class="tok-prop">ANSIBLE_GALAXY_CLI_COLLECTION_OPTS</span>: <span class="tok-string">"--timeout 120"</span>
+  <span class="tok-prop">PKGMGR_PRESERVE_CACHE</span>: <span class="tok-string">"always"</span>     <span class="tok-comment"># 保留 dnf/apt cache（迭代 build 較快）</span>
+
+<span class="tok-comment"># ③ 依賴聲明</span>
+<span class="tok-prop">dependencies</span>:
+  <span class="tok-prop">ansible_core</span>:
+    <span class="tok-prop">package_pip</span>: <span class="tok-string">ansible-core&gt;=2.18,&lt;2.19</span>
+
+  <span class="tok-prop">ansible_runner</span>:
+    <span class="tok-prop">package_pip</span>: <span class="tok-string">ansible-runner</span>
+
+  <span class="tok-comment"># 指定 Python 版本（base image 沒對的版本時）</span>
+  <span class="tok-prop">python_interpreter</span>:
+    <span class="tok-prop">package_system</span>: <span class="tok-string">python3.12</span>
+    <span class="tok-prop">python_path</span>: <span class="tok-string">/usr/bin/python3.12</span>
+
+  <span class="tok-prop">galaxy</span>: <span class="tok-string">requirements.yml</span>
+  <span class="tok-prop">python</span>: <span class="tok-string">requirements.txt</span>
+  <span class="tok-prop">system</span>: <span class="tok-string">bindep.txt</span>
+
+  <span class="tok-comment"># 排除（即使 collection 依賴有寫也不裝）</span>
+  <span class="tok-prop">exclude</span>:
+    <span class="tok-prop">python</span>:
+      - <span class="tok-string">"~mysqlclient.*"</span>          <span class="tok-comment"># tilde = regex match</span>
+    <span class="tok-prop">system</span>:
+      - <span class="tok-string">subversion</span>
+
+<span class="tok-comment"># ④ 額外複製到 build context 的檔案 / 目錄</span>
+<span class="tok-prop">additional_build_files</span>:
+  - <span class="tok-prop">src</span>: <span class="tok-string">files/ansible.cfg</span>
+    <span class="tok-prop">dest</span>: <span class="tok-string">configs</span>                  <span class="tok-comment"># 進 _build/configs/</span>
+
+  - <span class="tok-prop">src</span>: <span class="tok-string">files/custom-certs/</span>
+    <span class="tok-prop">dest</span>: <span class="tok-string">certs</span>
+
+<span class="tok-comment"># ⑤ 八個 build hook（prepend / append × 4 stage）</span>
+<span class="tok-prop">additional_build_steps</span>:
+  <span class="tok-prop">prepend_base</span>:
+    - <span class="tok-string">RUN whoami</span>
+
+  <span class="tok-prop">append_galaxy</span>:
+    - <span class="tok-string">COPY _build/configs/ansible.cfg /etc/ansible/ansible.cfg</span>
+
+  <span class="tok-prop">prepend_final</span>:
+    - <span class="tok-string">COPY _build/certs/ /etc/pki/ca-trust/source/anchors/</span>
+    - <span class="tok-string">RUN update-ca-trust</span>
+
+  <span class="tok-prop">append_final</span>:
+    - <span class="tok-string">RUN chmod -R 755 /usr/share/ansible</span>
+    - <span class="tok-string">LABEL maintainer="myorg-platform@example.com"</span>
+    - <span class="tok-string">LABEL version="2026.05"</span>
+
+<span class="tok-comment"># ⑥ entrypoint 自訂（高級、罕用）</span>
+<span class="tok-comment"># options:</span>
+<span class="tok-comment">#   container_init:</span>
+<span class="tok-comment">#     entrypoint: '["/usr/bin/dumb-init", "--"]'</span>
+<span class="tok-comment">#     cmd: '["bash"]'</span></code></pre>
+</div>
+
+<!-- 31.3 -->
+<h2><span class="num">31.3</span>八個 build hook — 何時用哪個</h2>
+
+<p>hook 是 EE 高級用法的核心。<strong>四階段 × prepend / append = 8 個 hook</strong>。</p>
+
+<h3><span class="num">31.3.1</span>八 hook 對照</h3>
+
+<div class="compare-wrap">
+<table class="compare">
+  <thead>
+    <tr><th>Hook</th><th>時機</th><th>典型用途</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>prepend_base</code></td>
+      <td>Base stage 開始前</td>
+      <td>設環境變數、driver pre-config</td>
+    </tr>
+    <tr>
+      <td><code>append_base</code></td>
+      <td>Base 完成、Galaxy/Builder 前</td>
+      <td>裝 git（Galaxy 需要從 GitHub 拉時）</td>
+    </tr>
+    <tr>
+      <td><code>prepend_galaxy</code></td>
+      <td>Galaxy stage 起始</td>
+      <td>放入 ansible.cfg（含 private Galaxy server）</td>
+    </tr>
+    <tr>
+      <td><code>append_galaxy</code></td>
+      <td>Galaxy 完成</td>
+      <td>事後處理 collection 內容</td>
+    </tr>
+    <tr>
+      <td><code>prepend_builder</code></td>
+      <td>Builder stage 起始</td>
+      <td>升級 pip、設 PyPI mirror</td>
+    </tr>
+    <tr>
+      <td><code>append_builder</code></td>
+      <td>Builder 完成</td>
+      <td>清理 build cache</td>
+    </tr>
+    <tr>
+      <td><code>prepend_final</code></td>
+      <td>Final stage 起始</td>
+      <td>放 CA 證書、信任企業 CA</td>
+    </tr>
+    <tr>
+      <td><code>append_final</code></td>
+      <td>Final 完成</td>
+      <td>chmod、LABEL、final cleanup</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h3><span class="num">31.3.2</span>實用 hook 範例</h3>
+
+<div class="code-block" data-lang="yaml">
+  <div class="code-block-header">
+    <span class="code-lang">yaml · 三個常見 hook 模式</span>
+    <button class="copy-btn" type="button">複製</button>
+  </div>
+<pre><code><span class="tok-keyword">---</span>
+<span class="tok-prop">version</span>: <span class="tok-number">3</span>
+<span class="tok-prop">images</span>:
+  <span class="tok-prop">base_image</span>: { <span class="tok-prop">name</span>: <span class="tok-string">quay.io/ansible/awx-ee:latest</span> }
+
+<span class="tok-prop">additional_build_files</span>:
+  - <span class="tok-prop">src</span>: <span class="tok-string">files/corp-ca.crt</span>
+    <span class="tok-prop">dest</span>: <span class="tok-string">certs</span>
+  - <span class="tok-prop">src</span>: <span class="tok-string">files/ansible.cfg</span>
+    <span class="tok-prop">dest</span>: <span class="tok-string">configs</span>
+  - <span class="tok-prop">src</span>: <span class="tok-string">files/pip.conf</span>
+    <span class="tok-prop">dest</span>: <span class="tok-string">configs</span>
+
+<span class="tok-prop">additional_build_steps</span>:
+
+  <span class="tok-comment"># 模式 1: 信任企業 CA — 必須在 base 結束後、Galaxy 之前</span>
+  <span class="tok-prop">append_base</span>:
+    - <span class="tok-string">COPY _build/certs/corp-ca.crt /etc/pki/ca-trust/source/anchors/</span>
+    - <span class="tok-string">RUN update-ca-trust</span>
+    - <span class="tok-string">RUN microdnf install -y git</span>           <span class="tok-comment"># Galaxy 從 GitHub 拉需要</span>
+
+  <span class="tok-comment"># 模式 2: 用內部 PyPI mirror — Builder 階段前設好</span>
+  <span class="tok-prop">prepend_builder</span>:
+    - <span class="tok-string">COPY _build/configs/pip.conf /etc/pip.conf</span>
+    - <span class="tok-string">RUN pip install --upgrade pip</span>
+
+  <span class="tok-comment"># 模式 3: 最終 image 加 metadata</span>
+  <span class="tok-prop">append_final</span>:
+    - <span class="tok-string">LABEL maintainer="platform@example.com"</span>
+    - <span class="tok-string">LABEL org.opencontainers.image.source="https://github.com/example/ee"</span>
+    - <span class="tok-string">LABEL org.opencontainers.image.version="2.1.0"</span>
+    - <span class="tok-string">RUN ansible-galaxy collection list &gt; /etc/ee-manifest.txt</span></code></pre>
+</div>
+
+<!-- 31.4 -->
+<h2><span class="num">31.4</span>Private registry 整合</h2>
+
+<p>企業環境下 EE pipeline 全部來源都要私有：① 拉 base image 從私有 registry；② collection 從 private Hub；③ Python 從內部 PyPI mirror；④ push 完成的 EE 到 private registry。</p>
+
+<h3><span class="num">31.4.1</span>私有 base image — registry 認證</h3>
+
+<div class="code-block" data-lang="bash">
+  <div class="code-block-header">
+    <span class="code-lang">bash · 用 podman / docker login 後 build</span>
+    <button class="copy-btn" type="button">複製</button>
+  </div>
+<pre><code><span class="tok-comment"># 1) 先登入私有 registry</span>
+<span class="tok-prompt">$</span> podman login registry.example.com -u <span class="tok-string">"$USER"</span> -p <span class="tok-string">"$REG_PASS"</span>
+
+<span class="tok-comment"># 2) execution-environment.yml 用私有 base</span>
+<span class="tok-comment">#    images:</span>
+<span class="tok-comment">#      base_image:</span>
+<span class="tok-comment">#        name: registry.example.com/internal/ansible-base:rhel9</span>
+
+<span class="tok-comment"># 3) build — builder 用 podman 認證快取</span>
+<span class="tok-prompt">$</span> ansible-builder build \
+    --tag registry.example.com/myorg/myapp-ee:1.0 \
+    --container-runtime podman</code></pre>
+</div>
+
+<h3><span class="num">31.4.2</span>private Galaxy / Automation Hub</h3>
+
+<div class="code-block" data-lang="ini">
+  <div class="code-block-header">
+    <span class="code-lang">ini · ansible.cfg — 指向 private Hub</span>
+    <button class="copy-btn" type="button">複製</button>
+  </div>
+<pre><code><span class="tok-keyword">[galaxy]</span>
+<span class="tok-prop">server_list</span> = <span class="tok-string">private_hub, public_galaxy</span>
+
+<span class="tok-keyword">[galaxy_server.private_hub]</span>
+<span class="tok-prop">url</span> = <span class="tok-string">https://hub.example.com/api/galaxy/content/published/</span>
+<span class="tok-prop">token</span> = <span class="tok-string">$AH_TOKEN</span>
+
+<span class="tok-keyword">[galaxy_server.public_galaxy]</span>
+<span class="tok-prop">url</span> = <span class="tok-string">https://galaxy.ansible.com/</span></code></pre>
+</div>
+
+<div class="code-block" data-lang="yaml">
+  <div class="code-block-header">
+    <span class="code-lang">yaml · execution-environment.yml — 把 ansible.cfg 帶進 Galaxy stage</span>
+    <button class="copy-btn" type="button">複製</button>
+  </div>
+<pre><code><span class="tok-keyword">---</span>
+<span class="tok-prop">version</span>: <span class="tok-number">3</span>
+
+<span class="tok-prop">additional_build_files</span>:
+  - <span class="tok-prop">src</span>: <span class="tok-string">files/ansible.cfg</span>
+    <span class="tok-prop">dest</span>: <span class="tok-string">configs</span>
+
+<span class="tok-prop">additional_build_steps</span>:
+  <span class="tok-prop">prepend_galaxy</span>:
+    <span class="tok-comment"># 在 Galaxy stage 把 ansible.cfg 放好 — galaxy 會用</span>
+    - <span class="tok-string">COPY _build/configs/ansible.cfg /etc/ansible/ansible.cfg</span>
+    <span class="tok-comment"># token 透過 build arg 傳入（不寫進 image）</span>
+    - <span class="tok-string">ARG AH_TOKEN</span>
+    - <span class="tok-string">ENV ANSIBLE_GALAXY_SERVER_PRIVATE_HUB_TOKEN=$AH_TOKEN</span></code></pre>
+</div>
+
+<div class="code-block" data-lang="bash">
+  <div class="code-block-header">
+    <span class="code-lang">bash · build 時傳入 token（不存在 image 內）</span>
+    <button class="copy-btn" type="button">複製</button>
+  </div>
+<pre><code><span class="tok-prompt">$</span> ansible-builder build \
+    --tag myapp-ee:1.0 \
+    --extra-build-cli-args <span class="tok-string">"--build-arg AH_TOKEN=$AH_TOKEN"</span></code></pre>
+</div>
+
+<h3><span class="num">31.4.3</span>內部 PyPI mirror</h3>
+
+<div class="code-block" data-lang="text">
+  <div class="code-block-header">
+    <span class="code-lang">text · files/pip.conf — 用內部 mirror</span>
+    <button class="copy-btn" type="button">複製</button>
+  </div>
+<pre><code>[global]
+index-url = https://pypi.example.com/simple/
+trusted-host = pypi.example.com
+timeout = 60</code></pre>
+</div>
+
+<!-- 31.5 -->
+<h2><span class="num">31.5</span>Image 大小優化</h2>
+
+<p>預設 EE 通常 1.0-1.5 GB。生產環境（air-gapped / edge）需要瘦身。</p>
+
+<h3><span class="num">31.5.1</span>四個瘦身手段</h3>
+
+<div class="cards-grid">
+  <div class="mini-card">
+    <div class="icon">①</div>
+    <h4>用 minimal base</h4>
+    <p>不用 awx-ee（功能完整、體積大），改用 ee-minimal-rhel9 或 fedora 的 minimal 變體。可省 200-400 MB。</p>
+  </div>
+  <div class="mini-card">
+    <div class="icon">②</div>
+    <h4>排除不需 collection</h4>
+    <p>只裝該專案用到的 collection（不要 community.general 整套）。每 collection 30-100 MB。</p>
+  </div>
+  <div class="mini-card">
+    <div class="icon">③</div>
+    <h4>清 cache</h4>
+    <p><code>append_final</code> 加 <code>RUN microdnf clean all</code> + <code>rm -rf /var/cache/*</code>。20-100 MB。</p>
+  </div>
+  <div class="mini-card">
+    <div class="icon">④</div>
+    <h4>用 dive 找肥肉</h4>
+    <p><code>dive</code> 工具看 image 每層佔多少。找出意外大的層。</p>
+  </div>
+</div>
+
+<h3><span class="num">31.5.2</span>瘦身範例</h3>
+
+<div class="code-block" data-lang="yaml">
+  <div class="code-block-header">
+    <span class="code-lang">yaml · 瘦身配置</span>
+    <button class="copy-btn" type="button">複製</button>
+  </div>
+<pre><code><span class="tok-keyword">---</span>
+<span class="tok-prop">version</span>: <span class="tok-number">3</span>
+
+<span class="tok-prop">images</span>:
+  <span class="tok-prop">base_image</span>:
+    <span class="tok-comment"># minimal 基底 — 比 awx-ee 小 ~300 MB</span>
+    <span class="tok-prop">name</span>: <span class="tok-string">registry.redhat.io/ansible-automation-platform-25/ee-minimal-rhel9:latest</span>
+
+<span class="tok-prop">build_arg_defaults</span>:
+  <span class="tok-comment"># cache 不保留 — 雖然 build 慢點 但 image 小</span>
+  <span class="tok-prop">PKGMGR_PRESERVE_CACHE</span>: <span class="tok-string">""</span>
+
+<span class="tok-prop">dependencies</span>:
+  <span class="tok-prop">galaxy</span>: <span class="tok-string">requirements.yml</span>          <span class="tok-comment"># 只列必要</span>
+  <span class="tok-prop">python</span>: <span class="tok-string">requirements.txt</span>
+  <span class="tok-prop">system</span>: <span class="tok-string">bindep.txt</span>
+
+<span class="tok-prop">additional_build_steps</span>:
+  <span class="tok-prop">append_final</span>:
+    <span class="tok-comment"># 清理 — 30+ MB</span>
+    - <span class="tok-string">RUN microdnf clean all && rm -rf /var/cache/{dnf,yum} /tmp/*</span>
+    - <span class="tok-string">RUN find /usr/share/ansible/collections -name "tests" -type d -exec rm -rf {} + 2&gt;/dev/null || true</span>
+    - <span class="tok-string">RUN find /usr/share/ansible/collections -name "*.md" -delete</span></code></pre>
+</div>
+
+<div class="code-block" data-lang="bash">
+  <div class="code-block-header">
+    <span class="code-lang">bash · 用 dive 工具 inspect image</span>
+    <button class="copy-btn" type="button">複製</button>
+  </div>
+<pre><code><span class="tok-comment"># 安裝</span>
+<span class="tok-prompt">$</span> brew install dive
+
+<span class="tok-comment"># 互動 inspect — TUI 看每層大小、檔案分佈</span>
+<span class="tok-prompt">$</span> dive my-ee:latest
+
+<span class="tok-comment"># CI 用 — 檢查無用空間比例</span>
+<span class="tok-prompt">$</span> CI=true dive my-ee:latest \
+    --highestUserWastedPercent 0.10 \
+    --highestWastedBytes 100M</code></pre>
+</div>
+
+<!-- 31.6 -->
+<h2><span class="num">31.6</span>CI 自動 build pipeline</h2>
+
+<h3><span class="num">31.6.1</span>GitHub Actions 完整 workflow</h3>
+
+<div class="code-block" data-lang="yaml">
+  <div class="code-block-header">
+    <span class="code-lang">yaml · .github/workflows/ee-build.yml</span>
+    <button class="copy-btn" type="button">複製</button>
+  </div>
+<pre><code><span class="tok-keyword">---</span>
+<span class="tok-prop">name</span>: <span class="tok-string">Build and Push EE</span>
+
+<span class="tok-prop">on</span>:
+  <span class="tok-prop">push</span>:
+    <span class="tok-prop">branches</span>: [<span class="tok-string">main</span>]
+    <span class="tok-prop">paths</span>:
+      - <span class="tok-string">"execution-environment.yml"</span>
+      - <span class="tok-string">"requirements.yml"</span>
+      - <span class="tok-string">"requirements.txt"</span>
+      - <span class="tok-string">"bindep.txt"</span>
+      - <span class="tok-string">"files/**"</span>
+  <span class="tok-prop">workflow_dispatch</span>:           <span class="tok-comment"># 也允許手動觸發</span>
+
+<span class="tok-prop">jobs</span>:
+  <span class="tok-prop">build</span>:
+    <span class="tok-prop">runs-on</span>: <span class="tok-string">ubuntu-latest</span>
+    <span class="tok-prop">permissions</span>:
+      <span class="tok-prop">contents</span>: <span class="tok-string">read</span>
+      <span class="tok-prop">packages</span>: <span class="tok-string">write</span>
+      <span class="tok-prop">id-token</span>: <span class="tok-string">write</span>            <span class="tok-comment"># 簽章用</span>
+
+    <span class="tok-prop">steps</span>:
+      - <span class="tok-prop">uses</span>: <span class="tok-string">actions/checkout@v4</span>
+
+      - <span class="tok-prop">uses</span>: <span class="tok-string">actions/setup-python@v5</span>
+        <span class="tok-prop">with</span>:
+          <span class="tok-prop">python-version</span>: <span class="tok-string">"3.12"</span>
+
+      - <span class="tok-prop">name</span>: <span class="tok-string">Install ansible-builder</span>
+        <span class="tok-prop">run</span>: <span class="tok-string">pip install ansible-builder</span>
+
+      - <span class="tok-prop">name</span>: <span class="tok-string">Login to registry</span>
+        <span class="tok-prop">uses</span>: <span class="tok-string">docker/login-action@v3</span>
+        <span class="tok-prop">with</span>:
+          <span class="tok-prop">registry</span>: <span class="tok-string">ghcr.io</span>
+          <span class="tok-prop">username</span>: <span class="tok-string">${{ github.actor }}</span>
+          <span class="tok-prop">password</span>: <span class="tok-string">${{ secrets.GITHUB_TOKEN }}</span>
+
+      - <span class="tok-prop">name</span>: <span class="tok-string">Build EE</span>
+        <span class="tok-prop">run</span>: <span class="tok-string">|
+          ansible-builder build \
+            --tag ghcr.io/${{ github.repository }}/ee:${{ github.sha }} \
+            --tag ghcr.io/${{ github.repository }}/ee:latest \
+            --container-runtime docker \
+            --verbosity 2</span>
+        <span class="tok-prop">env</span>:
+          <span class="tok-prop">AH_TOKEN</span>: <span class="tok-string">${{ secrets.AUTOMATION_HUB_TOKEN }}</span>
+
+      - <span class="tok-prop">name</span>: <span class="tok-string">Scan image with Trivy</span>
+        <span class="tok-prop">uses</span>: <span class="tok-string">aquasecurity/trivy-action@master</span>
+        <span class="tok-prop">with</span>:
+          <span class="tok-prop">image-ref</span>: <span class="tok-string">ghcr.io/${{ github.repository }}/ee:${{ github.sha }}</span>
+          <span class="tok-prop">severity</span>: <span class="tok-string">CRITICAL,HIGH</span>
+          <span class="tok-prop">exit-code</span>: <span class="tok-string">"1"</span>
+
+      - <span class="tok-prop">name</span>: <span class="tok-string">Smoke test — 驗 collection 都進去了</span>
+        <span class="tok-prop">run</span>: <span class="tok-string">|
+          docker run --rm \
+            ghcr.io/${{ github.repository }}/ee:${{ github.sha }} \
+            ansible-galaxy collection list</span>
+
+      - <span class="tok-prop">name</span>: <span class="tok-string">Push image</span>
+        <span class="tok-prop">run</span>: <span class="tok-string">|
+          docker push ghcr.io/${{ github.repository }}/ee:${{ github.sha }}
+          docker push ghcr.io/${{ github.repository }}/ee:latest</span>
+
+      - <span class="tok-prop">name</span>: <span class="tok-string">Sign image with Cosign</span>
+        <span class="tok-prop">uses</span>: <span class="tok-string">sigstore/cosign-installer@v3</span>
+      - <span class="tok-prop">run</span>: <span class="tok-string">cosign sign --yes ghcr.io/${{ github.repository }}/ee:${{ github.sha }}</span></code></pre>
+</div>
+
+<h3><span class="num">31.6.2</span>Pipeline 五步驟</h3>
+
+<div class="diagram">
+<div class="mermaid-host"><script type="text/x-mermaid">
+flowchart LR
+    classDef step fill:__FILL_CORE__,stroke:__STROKE_CORE__,color:__TEXT__,stroke-width:2px
+    classDef out fill:__FILL_COLL__,stroke:__STROKE_COLL__,color:__TEXT__,stroke-width:2px
+
+    G["git push<br/>EE def 改了"] --> B["1 ansible-builder<br/>build image"]:::step
+    B --> S["2 Trivy CVE scan<br/>HIGH CRITICAL fail"]:::step
+    S --> T["3 smoke test<br/>collection list"]:::step
+    T --> P["4 push registry"]:::step
+    P --> SIG["5 cosign sign"]:::step
+    SIG --> AAP["AAP AWX<br/>下次 job 拉新版"]:::out
+</script></div>
+<div class="caption">Figure 31.2 — EE CI pipeline 五步驟</div>
+</div>
+
+<!-- 31.7 -->
+<h2><span class="num">31.7</span>不同類型 EE 設計</h2>
+
+<p>不同自動化場景需要不同 collection / 系統工具。本節給三個常見 EE 範本。</p>
+
+<h3><span class="num">31.7.1</span>Network EE</h3>
+
+<div class="code-block" data-lang="yaml">
+  <div class="code-block-header">
+    <span class="code-lang">yaml · network-ee — 網路設備自動化</span>
+    <button class="copy-btn" type="button">複製</button>
+  </div>
+<pre><code><span class="tok-keyword">---</span>
+<span class="tok-prop">version</span>: <span class="tok-number">3</span>
+<span class="tok-prop">images</span>:
+  <span class="tok-prop">base_image</span>:
+    <span class="tok-prop">name</span>: <span class="tok-string">registry.redhat.io/ansible-automation-platform-25/ee-minimal-rhel9:latest</span>
+
+<span class="tok-prop">dependencies</span>:
+  <span class="tok-prop">galaxy</span>:
+    <span class="tok-prop">collections</span>:
+      - <span class="tok-prop">name</span>: <span class="tok-string">ansible.netcommon</span>
+      - <span class="tok-prop">name</span>: <span class="tok-string">cisco.ios</span>
+      - <span class="tok-prop">name</span>: <span class="tok-string">cisco.nxos</span>
+      - <span class="tok-prop">name</span>: <span class="tok-string">cisco.iosxr</span>
+      - <span class="tok-prop">name</span>: <span class="tok-string">arista.eos</span>
+      - <span class="tok-prop">name</span>: <span class="tok-string">junipernetworks.junos</span>
+
+  <span class="tok-prop">python</span>:
+    - <span class="tok-string">netaddr</span>
+    - <span class="tok-string">paramiko</span>
+    - <span class="tok-string">netmiko</span>
+    - <span class="tok-string">ncclient</span>          <span class="tok-comment"># NETCONF</span>
+    - <span class="tok-string">jxmlease</span>          <span class="tok-comment"># Junos XML</span>
+    - <span class="tok-string">textfsm</span>           <span class="tok-comment"># show output 解析</span>
+
+  <span class="tok-prop">system</span>:
+    - <span class="tok-string">openssh-clients [platform:rpm]</span>
+    - <span class="tok-string">sshpass [platform:rpm]</span></code></pre>
+</div>
+
+<h3><span class="num">31.7.2</span>Cloud EE</h3>
+
+<div class="code-block" data-lang="yaml">
+  <div class="code-block-header">
+    <span class="code-lang">yaml · cloud-ee — AWS / Azure / GCP</span>
+    <button class="copy-btn" type="button">複製</button>
+  </div>
+<pre><code><span class="tok-keyword">---</span>
+<span class="tok-prop">version</span>: <span class="tok-number">3</span>
+<span class="tok-prop">images</span>:
+  <span class="tok-prop">base_image</span>:
+    <span class="tok-prop">name</span>: <span class="tok-string">quay.io/ansible/awx-ee:latest</span>
+
+<span class="tok-prop">dependencies</span>:
+  <span class="tok-prop">galaxy</span>:
+    <span class="tok-prop">collections</span>:
+      - <span class="tok-prop">name</span>: <span class="tok-string">amazon.aws</span>
+      - <span class="tok-prop">name</span>: <span class="tok-string">community.aws</span>
+      - <span class="tok-prop">name</span>: <span class="tok-string">azure.azcollection</span>
+      - <span class="tok-prop">name</span>: <span class="tok-string">google.cloud</span>
+      - <span class="tok-prop">name</span>: <span class="tok-string">community.general</span>
+
+  <span class="tok-prop">python</span>:
+    - <span class="tok-string">boto3&gt;=1.28.0</span>
+    - <span class="tok-string">botocore&gt;=1.31.0</span>
+    - <span class="tok-string">azure-cli-core&gt;=2.50.0</span>
+    - <span class="tok-string">azure-mgmt-compute</span>
+    - <span class="tok-string">google-auth&gt;=2.20.0</span>
+    - <span class="tok-string">google-cloud-compute</span>
+    - <span class="tok-string">requests-oauthlib</span>
+
+  <span class="tok-prop">system</span>:
+    - <span class="tok-string">jq [platform:rpm]</span>
+    - <span class="tok-string">unzip [platform:rpm]</span>
+
+<span class="tok-prop">additional_build_steps</span>:
+  <span class="tok-prop">append_final</span>:
+    <span class="tok-comment"># 裝 awscli v2 (官方 binary 比 pip 版好)</span>
+    - <span class="tok-string">RUN curl -L "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/aws.zip</span>
+    - <span class="tok-string">RUN unzip -q /tmp/aws.zip -d /tmp && /tmp/aws/install && rm -rf /tmp/aws*</span></code></pre>
+</div>
+
+<h3><span class="num">31.7.3</span>Kubernetes EE</h3>
+
+<div class="code-block" data-lang="yaml">
+  <div class="code-block-header">
+    <span class="code-lang">yaml · k8s-ee — Kubernetes / OpenShift</span>
+    <button class="copy-btn" type="button">複製</button>
+  </div>
+<pre><code><span class="tok-keyword">---</span>
+<span class="tok-prop">version</span>: <span class="tok-number">3</span>
+<span class="tok-prop">images</span>:
+  <span class="tok-prop">base_image</span>:
+    <span class="tok-prop">name</span>: <span class="tok-string">quay.io/ansible/awx-ee:latest</span>
+
+<span class="tok-prop">dependencies</span>:
+  <span class="tok-prop">galaxy</span>:
+    <span class="tok-prop">collections</span>:
+      - <span class="tok-prop">name</span>: <span class="tok-string">kubernetes.core</span>
+      - <span class="tok-prop">name</span>: <span class="tok-string">redhat.openshift</span>
+      - <span class="tok-prop">name</span>: <span class="tok-string">community.kubernetes</span>
+
+  <span class="tok-prop">python</span>:
+    - <span class="tok-string">kubernetes&gt;=27.0.0</span>
+    - <span class="tok-string">openshift</span>
+    - <span class="tok-string">pyyaml</span>
+    - <span class="tok-string">jsonpatch</span>
+
+<span class="tok-prop">additional_build_steps</span>:
+  <span class="tok-prop">append_final</span>:
+    <span class="tok-comment"># 裝 kubectl + helm — 直接從官方</span>
+    - <span class="tok-string">RUN curl -L "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl</span>
+    - <span class="tok-string">RUN chmod +x /usr/local/bin/kubectl</span>
+    - <span class="tok-string">RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash</span></code></pre>
+</div>
+
+<!-- 31.8 -->
+<h2><span class="num">31.8</span>Debug EE 內部</h2>
+
+<p>build 過了不代表 image 真能跑。<strong>進去看一下</strong>是必要技能。</p>
+
+<h3><span class="num">31.8.1</span>進 image 探查</h3>
+
+<div class="code-block" data-lang="bash">
+  <div class="code-block-header">
+    <span class="code-lang">bash · 五個必跑檢查命令</span>
+    <button class="copy-btn" type="button">複製</button>
+  </div>
+<pre><code><span class="tok-comment"># 1) 互動 shell 進去</span>
+<span class="tok-prompt">$</span> podman run --rm -it my-ee:1.0 bash
+
+<span class="tok-comment"># 2) 看 ansible 版本（確認是預期的 core）</span>
+<span class="tok-prompt">$</span> podman run --rm my-ee:1.0 ansible --version
+
+<span class="tok-comment"># 3) 看 collection 都進去了沒</span>
+<span class="tok-prompt">$</span> podman run --rm my-ee:1.0 ansible-galaxy collection list
+
+<span class="tok-comment"># 4) 看 Python pkg</span>
+<span class="tok-prompt">$</span> podman run --rm my-ee:1.0 pip list
+
+<span class="tok-comment"># 5) 看系統 pkg</span>
+<span class="tok-prompt">$</span> podman run --rm my-ee:1.0 rpm -qa | grep -E "openssh|git|sshpass"
+
+<span class="tok-comment"># 6) 看 image 大小、多少層</span>
+<span class="tok-prompt">$</span> podman images my-ee
+<span class="tok-prompt">$</span> podman history my-ee:1.0</code></pre>
+</div>
+
+<h3><span class="num">31.8.2</span>常見問題排查</h3>
+
+<div class="compare-wrap">
+<table class="compare">
+  <thead>
+    <tr><th>症狀</th><th>原因</th><th>解法</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>"Collection not found" build 階段</td>
+      <td>requirements.yml 名字錯 / 版本不存在</td>
+      <td><code>ansible-galaxy collection list</code> 確認、用 <code>"&gt;=X"</code> 而非鎖死版本</td>
+    </tr>
+    <tr>
+      <td>pip install fail（缺 build tool）</td>
+      <td>缺 gcc / python3-devel</td>
+      <td>bindep.txt 加 <code>gcc</code> + <code>python3-devel [platform:rpm]</code></td>
+    </tr>
+    <tr>
+      <td>Permission denied（rootless podman）</td>
+      <td>subuid / subgid 沒設好</td>
+      <td><code>cat /etc/subuid /etc/subgid</code> 確認、<code>podman system migrate</code></td>
+    </tr>
+    <tr>
+      <td>Base image pull fail</td>
+      <td>沒 login / 網路斷 / image 名打錯</td>
+      <td><code>podman login</code> + 確認 image 確實存在</td>
+    </tr>
+    <tr>
+      <td>EE run 在 AAP 上但 collection 找不到</td>
+      <td>AAP 配的 EE entry 指向錯版本</td>
+      <td>UI 內確認 EE entry 與實際 push 的 tag 一致</td>
+    </tr>
+    <tr>
+      <td>build 慢但每次都重 download</td>
+      <td>cache 沒生效（layer 順序不對）</td>
+      <td>requirements.yml 變動少的放前面、<code>--no-cache</code> 只在 CI 用</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<!-- 31.9 -->
+<h2><span class="num">31.9</span>業界最佳實踐</h2>
+
+<div class="cards-grid">
+  <div class="mini-card">
+    <div class="icon">①</div>
+    <h4>每個團隊一個 EE</h4>
+    <p>不要全公司一個 mega-EE。Network team / Cloud team / DBA 各自的 EE，只裝自己用的 collection。瘦身又責任清楚。</p>
+  </div>
+  <div class="mini-card">
+    <div class="icon">②</div>
+    <h4>EE = git repo</h4>
+    <p>execution-environment.yml + requirements.* 都進 git，與 application code 同等對待。code review、tag、changelog 都要有。</p>
+  </div>
+  <div class="mini-card">
+    <div class="icon">③</div>
+    <h4>image 版本明確（不要 latest）</h4>
+    <p>tag 用 <code>2.1.0</code> 或 <code>$GITHUB_SHA</code>。AAP job template 鎖版本。要升版時改 template、不靠 latest。</p>
+  </div>
+  <div class="mini-card">
+    <div class="icon">④</div>
+    <h4>CI 必跑 CVE scan</h4>
+    <p>Trivy / Grype / Snyk。CRITICAL / HIGH 一律 fail build。安全合規必做。</p>
+  </div>
+  <div class="mini-card">
+    <div class="icon">⑤</div>
+    <h4>image 簽章</h4>
+    <p>cosign 簽章（sigstore）。AAP 2.5+ 支援 verify signed image。供應鏈安全標配。</p>
+  </div>
+  <div class="mini-card">
+    <div class="icon">⑥</div>
+    <h4>private registry + private hub</h4>
+    <p>內部 collection 走 Hub、image 走 private registry（Harbor / Quay / GHCR）。不依賴 public infrastructure。</p>
+  </div>
+  <div class="mini-card">
+    <div class="icon">⑦</div>
+    <h4>smoke test 在 CI</h4>
+    <p>build 完跑 <code>ansible --version</code> + <code>collection list</code> + 一個最簡 hello playbook。確認 image 是 functional 的。</p>
+  </div>
+  <div class="mini-card">
+    <div class="icon">⑧</div>
+    <h4>image 含 LABEL metadata</h4>
+    <p><code>append_final</code> 加 <code>LABEL org.opencontainers.image.source</code> 等 OCI 標準 label。orchestration 工具能識別來源。</p>
+  </div>
+</div>
+
+<!-- 31.10 -->
+<h2><span class="num">31.10</span>本章重點回顧</h2>
+
+<div class="cards-grid">
+  <div class="mini-card">
+    <div class="icon">01</div>
+    <h4>四階段 build pipeline</h4>
+    <p>Base（pull base + Python）→ Galaxy（拉 collection）+ Builder（拉 Python/system pkg）→ Final（整合）。</p>
+  </div>
+  <div class="mini-card">
+    <div class="icon">02</div>
+    <h4>v3 schema 七大欄位</h4>
+    <p>images / build_arg_defaults / dependencies / additional_build_files / additional_build_steps / options / version。</p>
+  </div>
+  <div class="mini-card">
+    <div class="icon">03</div>
+    <h4>八個 build hook</h4>
+    <p>prepend / append × 四階段。CA cert 用 prepend_final、git 安裝用 append_base、清理用 append_final。</p>
+  </div>
+  <div class="mini-card">
+    <div class="icon">04</div>
+    <h4>Private registry 整合</h4>
+    <p>podman login + ansible.cfg private hub + pip.conf mirror。token 用 build-arg 傳、不存進 image。</p>
+  </div>
+  <div class="mini-card">
+    <div class="icon">05</div>
+    <h4>image 大小四手段</h4>
+    <p>minimal base + 排除 collection + 清 cache + dive 找肥肉。1.5 GB 可瘦到 800 MB。</p>
+  </div>
+  <div class="mini-card">
+    <div class="icon">06</div>
+    <h4>CI pipeline 五步驟</h4>
+    <p>build → CVE scan → smoke test → push → cosign sign。GitHub Actions / GitLab CI 都類似。</p>
+  </div>
+  <div class="mini-card">
+    <div class="icon">07</div>
+    <h4>三種 EE 類型範本</h4>
+    <p>Network（cisco/arista/junos + netaddr/netmiko）、Cloud（amazon.aws/azure/google + boto3 等）、K8s（kubernetes.core + kubectl/helm binary）。</p>
+  </div>
+  <div class="mini-card">
+    <div class="icon">08</div>
+    <h4>debug EE 五命令</h4>
+    <p><code>ansible --version</code> / <code>collection list</code> / <code>pip list</code> / <code>rpm -qa</code> / <code>history</code>。build 過了不代表能跑。</p>
+  </div>
+</div>
+
+<!-- 練習 -->
+<section class="practice">
+  <h3>練習題</h3>
+  <ol>
+    <li><strong>初學者</strong>：對既有 execution-environment.yml 跑 <code>ansible-builder create</code> 而非 <code>build</code>。看 context/ 目錄與 Containerfile 內容。理解四 stage 在 Dockerfile 中如何呈現。</li>
+    <li><strong>初學者</strong>：用 <code>podman history my-ee:1.0</code> 看 build 出來的 image 有多少層、各層做什麼。</li>
+    <li><strong>初學者</strong>：寫個最小 EE 用 minimal base、只裝 community.general、build 完 dive 看有沒有意外大檔。</li>
+    <li><strong>開發者</strong>：用 <code>append_final</code> hook 在 image 加 5 個 LABEL（含 maintainer / version / source / vendor / build-date）。podman inspect 看到這些 metadata。</li>
+    <li><strong>開發者</strong>：把 ansible.cfg 透過 <code>additional_build_files</code> + <code>prepend_galaxy</code> 帶進 image，配置內部 Galaxy server。pull 一個只在 private hub 的 collection 驗證。</li>
+    <li><strong>開發者</strong>：寫 Network / Cloud / K8s 三個 EE 各一份。比較 build 出來大小（沒優化 vs minimal base + cache 清乾淨）。</li>
+    <li><strong>DevOps / SRE</strong>：寫完整 GitHub Actions workflow — build + Trivy CVE scan + smoke test + push + cosign sign。push tag 自動觸發。</li>
+    <li><strong>DevOps / SRE</strong>：對你公司目前的 venv 做盤點 — 哪些可以轉成 EE？寫一頁遷移計畫（時程 / 哪些團隊先 / pilot scope）。</li>
+    <li><strong>DevOps / SRE</strong>：模擬 air-gapped 環境 — 把 EE image + 所有 collection mirror 到 internal registry / Hub。在隔離環境中只用內部 source build 出新 image。</li>
+  </ol>
+</section>
+
+<!-- Glossary -->
+<section class="glossary">
+  <h3 style="margin-top:0;">本章詞彙表</h3>
+  <dl>
+    <dt>Build pipeline 四階段</dt>
+    <dd>ansible-builder 的內部 build 流程：Base（pull base + 裝 Python/ansible）→ Galaxy（拉 collection）+ Builder（拉 Python/系統 pkg）→ Final（整合產 image）。Galaxy 與 Builder 平行。</dd>
+
+    <dt>Multi-stage build</dt>
+    <dd>容器 build 模式 — 中間 stage 暫存 build deps（gcc / dev headers），final stage 只取產出。EE 預設就是多階段。</dd>
+
+    <dt>Schema v3</dt>
+    <dd>execution-environment.yml 的 schema 第三版（2026 主流）。比 v1/v2 多了 additional_build_files、八 hook、option 等 fine-grained 控制。</dd>
+
+    <dt>base_image</dt>
+    <dd>EE 的起點 image。常見：<code>quay.io/ansible/awx-ee</code>（社群）、<code>registry.redhat.io/.../ee-minimal-rhel9</code>（瘦身）、<code>registry.fedoraproject.org/fedora:42</code>（最 minimal）。</dd>
+
+    <dt>build_arg_defaults</dt>
+    <dd>execution-environment.yml 內的 build-time 預設參數。<code>ANSIBLE_GALAXY_CLI_COLLECTION_OPTS</code> / <code>PKGMGR_PRESERVE_CACHE</code> 等。CLI <code>--build-arg</code> 可覆蓋。</dd>
+
+    <dt>PKGMGR_PRESERVE_CACHE</dt>
+    <dd>build_arg_defaults 之一。設 <code>"always"</code> 保留 dnf/apt cache（迭代 build 較快），設 <code>""</code> 不保留（image 較小）。trade-off。</dd>
+
+    <dt>dependencies.galaxy</dt>
+    <dd>EE 聲明檔中的 collection 依賴。指向 requirements.yml 或直接 inline 列。</dd>
+
+    <dt>dependencies.python</dt>
+    <dd>Python 套件依賴。指向 requirements.txt。</dd>
+
+    <dt>dependencies.system</dt>
+    <dd>系統套件依賴。指向 bindep.txt。<code>[platform:rpm]</code> / <code>[platform:dpkg]</code> 區分。</dd>
+
+    <dt>dependencies.exclude</dt>
+    <dd>排除清單。即使 collection 自己宣告需要某 Python / system pkg 也不裝。<code>~regex</code> 支援正規表達。</dd>
+
+    <dt>additional_build_files</dt>
+    <dd>把本機檔案複製到 build context 的 <code>_build/</code>。供 hook 階段用 <code>COPY _build/...</code> 引用。常見：<code>ansible.cfg</code> / 企業 CA 證書 / <code>pip.conf</code>。</dd>
+
+    <dt>八個 build hook</dt>
+    <dd>prepend / append × 4 階段（base / galaxy / builder / final）。在指定 stage 前後注入自訂 RUN / COPY / ENV / LABEL 指令。</dd>
+
+    <dt>prepend_base</dt>
+    <dd>Base stage 開始前。設環境變數、driver 預配置。</dd>
+
+    <dt>append_base</dt>
+    <dd>Base 完成、Galaxy/Builder 前。最常用——裝 git（為 Galaxy 從 GitHub 拉用）、加 CA。</dd>
+
+    <dt>append_final</dt>
+    <dd>Final stage 結尾。最常用——加 LABEL、清理、權限調整。</dd>
+
+    <dt>options.container_init</dt>
+    <dd>進階選項——自訂 entrypoint / cmd。<code>dumb-init</code> 處理 zombie process。罕用。</dd>
+
+    <dt>signature_original_name</dt>
+    <dd>v3 新欄位。指定 base_image 簽章驗證的原始名稱。供應鏈安全用。</dd>
+
+    <dt>private registry</dt>
+    <dd>企業內部容器 registry（Harbor / Quay / GHCR / Nexus）。EE image 推送到這裡，AAP / AWX 從這裡拉。</dd>
+
+    <dt>private Automation Hub</dt>
+    <dd>AAP 內部的私有 Galaxy。EE build 時透過 ansible.cfg 配置從這裡拉 collection。</dd>
+
+    <dt>internal PyPI mirror</dt>
+    <dd>企業內部 pip 源（pulp / devpi / Artifactory）。透過 <code>pip.conf</code> 配置。air-gapped 環境必備。</dd>
+
+    <dt>--build-arg</dt>
+    <dd>ansible-builder CLI 選項。透過 <code>--extra-build-cli-args "--build-arg KEY=VAL"</code> 傳入 build-time 變數（如 token）。<em>不會</em>存進 image。</dd>
+
+    <dt>dive</dt>
+    <dd>image 分析 TUI 工具。看每層大小、找出沒清乾淨的肥肉。CI 內可用 <code>--highestUserWastedPercent</code> 自動 fail。</dd>
+
+    <dt>cosign / sigstore</dt>
+    <dd>image 簽章工具。CI 中對 push 後的 image 簽。AAP 2.5+ 可驗 signed image。供應鏈安全標準。</dd>
+
+    <dt>Trivy / Grype / Snyk</dt>
+    <dd>容器 image CVE 掃描工具。CI 內必跑、HIGH/CRITICAL fail build。</dd>
+
+    <dt>OCI label（org.opencontainers.image.*）</dt>
+    <dd>OCI 標準 image metadata label。<code>source</code> / <code>version</code> / <code>vendor</code> / <code>created</code>。<code>append_final</code> 加。</dd>
+
+    <dt>Network EE / Cloud EE / K8s EE</dt>
+    <dd>三大典型專業 EE 類型。Network 含 cisco/arista/junos collection；Cloud 含 amazon.aws/azure/google + boto3；K8s 含 kubernetes.core + kubectl/helm binary。</dd>
+
+    <dt>smoke test (EE)</dt>
+    <dd>CI 內 build 完跑的最小驗證——<code>ansible --version</code>、<code>collection list</code>、簡單 hello playbook。確認 image 可運作。</dd>
+  </dl>
+</section>
+
+<nav class="chapter-nav">
+  <span>← 第 30 章 — 生態系工具鏈總覽</span>
+  <span>第 32 章 — AWX / AAP 部署實戰 →</span>
+</nav>
+
+</main>
+
+<!-- Mermaid init + theme reactive -->
+<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+window.__mermaid = mermaid;
+
+function _gamma(x) {
+  if (x <= 0.0031308) return 12.92 * x;
+  return 1.055 * Math.pow(x, 1.0/2.4) - 0.055;
+}
+function _clamp01(x) { return Math.max(0, Math.min(1, x)); }
+function _toHex(n) {
+  const i = Math.round(_clamp01(n) * 255);
+  return i.toString(16).padStart(2, '0');
+}
+function _tokenizeOklchArgs(s) {
+  const tokens = [];
+  let cur = '', depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === '(') { depth++; cur += ch; }
+    else if (ch === ')') { depth--; cur += ch; }
+    else if ((ch === ' ' || ch === ',' || ch === '\t' || ch === '\n') && depth === 0) {
+      if (cur) { tokens.push(cur); cur = ''; }
+    }
+    else if (ch === '/' && depth === 0) {
+      if (cur) { tokens.push(cur); cur = ''; }
+      tokens.push('/');
+    }
+    else cur += ch;
+  }
+  if (cur) tokens.push(cur);
+  return tokens;
+}
+function _evalComponent(raw) {
+  if (raw == null) return NaN;
+  let s = String(raw).trim();
+  const calcMatch = s.match(/^calc\(\s*(.*)\s*\)$/i);
+  if (calcMatch) s = calcMatch[1];
+  let pct = false;
+  if (s.endsWith('%')) { pct = true; s = s.slice(0, -1).trim(); }
+  if (!/^[\d.\-+*/() \t]+$/.test(s)) return NaN;
+  let v;
+  try { v = Function('"use strict"; return (' + s + ');')(); }
+  catch (_) { return NaN; }
+  if (typeof v !== 'number' || !isFinite(v)) return NaN;
+  if (pct) v = v / 100;
+  return v;
+}
+function oklchStringToHex(input) {
+  if (!input) return null;
+  const m = String(input).trim().match(/^oklch\(\s*(.+?)\s*\)$/i);
+  if (!m) return null;
+  const tokens = _tokenizeOklchArgs(m[1]);
+  if (tokens.length < 3) return null;
+  const L = _evalComponent(tokens[0]);
+  const C = _evalComponent(tokens[1]);
+  const H = _evalComponent(tokens[2]);
+  if (isNaN(L) || isNaN(C) || isNaN(H)) return null;
+  let A = 1.0;
+  const slashIdx = tokens.indexOf('/');
+  if (slashIdx !== -1 && tokens[slashIdx + 1]) {
+    const av = _evalComponent(tokens[slashIdx + 1]);
+    if (!isNaN(av)) A = _clamp01(av);
+  }
+  const hRad = H * Math.PI / 180.0;
+  const a = C * Math.cos(hRad);
+  const b = C * Math.sin(hRad);
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+  const l3 = l_ * l_ * l_, m3 = m_ * m_ * m_, s3 = s_ * s_ * s_;
+  const rLin =  4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
+  const gLin = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
+  const bLin = -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3;
+  const rH = _toHex(_gamma(rLin));
+  const gH = _toHex(_gamma(gLin));
+  const bH = _toHex(_gamma(bLin));
+  if (A < 1) return `#${rH}${gH}${bH}${_toHex(A)}`;
+  return `#${rH}${gH}${bH}`;
+}
+function tokenVar(name, fallback) {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  if (!raw) return fallback || '#888888';
+  if (/^oklch\s*\(/i.test(raw)) {
+    const hex = oklchStringToHex(raw);
+    if (hex) return hex;
+    console.warn('Failed to parse oklch token', name, '=', raw);
+  }
+  return raw;
+}
+
+function getMermaidTheme() {
+  return {
+    startOnLoad: false,
+    securityLevel: 'loose',
+    theme: 'neutral',
+    flowchart: { htmlLabels: true },
+  };
+}
+
+async function renderMermaid() {
+  const fillCore = tokenVar('--color-info-soft');
+  const strokeCore = tokenVar('--color-info');
+  const textCore = tokenVar('--text-primary');
+  const fillPkg = tokenVar('--color-warning-soft');
+  const strokePkg = tokenVar('--color-warning');
+  const fillColl = tokenVar('--color-success-soft');
+  const strokeColl = tokenVar('--color-success');
+
+  const hosts = document.querySelectorAll('.mermaid-host');
+  hosts.forEach((host, i) => {
+    const tpl = host.querySelector('script[type="text/x-mermaid"]');
+    if (!tpl) return;
+    if (!host.dataset.original) host.dataset.original = tpl.textContent;
+    let src = host.dataset.original;
+    src = src
+      .replace(/__FILL_CORE__/g, fillCore).replace(/__STROKE_CORE__/g, strokeCore)
+      .replace(/__FILL_PKG__/g, fillPkg).replace(/__STROKE_PKG__/g, strokePkg)
+      .replace(/__FILL_COLL__/g, fillColl).replace(/__STROKE_COLL__/g, strokeColl)
+      .replace(/__TEXT__/g, textCore);
+    host.querySelectorAll('pre.mermaid, .mermaid-error').forEach(p => p.remove());
+    const pre = document.createElement('pre');
+    pre.className = 'mermaid';
+    pre.id = 'mermaid-' + i;
+    pre.textContent = src;
+    host.appendChild(pre);
+  });
+
+  try {
+    mermaid.initialize(getMermaidTheme());
+    await mermaid.run({ querySelector: '.mermaid-host pre.mermaid' });
+  } catch (e) {
+    let detail = '';
+    if (e instanceof Error) {
+      detail = `${e.name}: ${e.message}\n${e.stack || ''}`;
+    } else if (typeof e === 'object') {
+      try { detail = JSON.stringify(e, Object.getOwnPropertyNames(e)); }
+      catch (_) { detail = String(e); }
+    } else {
+      detail = String(e);
+    }
+    console.error('Mermaid render error:', e, '\nDetail:', detail);
+    document.querySelectorAll('.mermaid-host').forEach(host => {
+      const stillUnprocessed = host.querySelector('pre.mermaid:not([data-processed])');
+      if (!stillUnprocessed) return;
+      stillUnprocessed.remove();
+      const errBox = document.createElement('div');
+      errBox.className = 'mermaid-error';
+      errBox.style.cssText = `
+        color: var(--color-danger);
+        background: var(--color-danger-soft);
+        padding: var(--space-3);
+        border-radius: var(--radius-sm);
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
+        white-space: pre-wrap;
+        text-align: left;
+      `;
+      errBox.textContent = '⚠ Mermaid render failed:\n' + detail;
+      host.appendChild(errBox);
+    });
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', renderMermaid);
+} else {
+  renderMermaid();
+}
+
+window.addEventListener('jhsun:theme-changed', () => {
+  setTimeout(renderMermaid, 50);
+});
+</script>
+
+<!-- Copy buttons -->
+<script>
+document.addEventListener('click', (e) => {
+  if (!e.target.classList.contains('copy-btn')) return;
+  const btn = e.target;
+  const codeEl = btn.closest('.code-block').querySelector('pre code');
+  if (!codeEl) return;
+  const txt = codeEl.innerText;
+  navigator.clipboard.writeText(txt).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = '已複製 ✓';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = orig;
+      btn.classList.remove('copied');
+    }, 1500);
+  }).catch(() => {
+    btn.textContent = '複製失敗';
+    setTimeout(() => btn.textContent = '複製', 1500);
+  });
+});
+</script>
+
+</body>
+</html>

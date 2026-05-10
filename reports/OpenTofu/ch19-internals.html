@@ -1,0 +1,1582 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 19 章 · OpenTofu 內部運作機制 | OpenTofu 教學手冊</title>
+
+<!-- Prism.js syntax highlighting（支援 HCL / Terraform / YAML / Bash）-->
+<link id="prism-light" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css">
+<link id="prism-dark" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" disabled>
+
+<!-- Mermaid（defer 避免阻塞）-->
+<script defer src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+
+<!-- 共用 tokens.css inline -->
+<style>
+/* ============================================================
+   JHsun TechDocs — Unified Design Token Layer
+   v1.0 · Calm Teal (hue 200° / chroma 0.11)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success:        #16a34a;
+  --color-success-soft:   #dcfce7;
+  --color-warning:        #d97706;
+  --color-warning-soft:   #fef3c7;
+  --color-danger:         #dc2626;
+  --color-danger-soft:    #fee2e2;
+  --color-info:           #0891b2;
+  --color-info-soft:      #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+  --font-mono:       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:       "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif:      "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  32px;
+  --text-3xl:  44px;
+  --text-4xl:  64px;
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+  --container-narrow: 720px;
+  --container-wide:   1280px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success:        #4ade80;
+  --color-success-soft:   oklch(0.30 0.08 145);
+  --color-warning:        #fbbf24;
+  --color-warning-soft:   oklch(0.32 0.10 70);
+  --color-danger:         #f87171;
+  --color-danger-soft:    oklch(0.32 0.10 27);
+  --color-info:           #22d3ee;
+  --color-info-soft:      oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas:      oklch(0.16 0.008 50);
+  --bg-surface:     oklch(0.20 0.009 50);
+  --bg-muted:       oklch(0.23 0.010 50);
+  --bg-code:        oklch(0.18 0.009 50);
+  --border-soft:    oklch(0.28 0.010 50);
+  --border-mid:     oklch(0.36 0.012 50);
+  --text-primary:   oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted:     oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+</style>
+
+<!-- 報告專屬樣式 -->
+<style>
+* { box-sizing: border-box; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.75;
+  margin: 0;
+  padding: 0;
+}
+.layout {
+  max-width: var(--container-narrow);
+  margin: 0 auto;
+  padding: var(--space-7) var(--space-5) var(--space-9);
+}
+
+/* ---- Header ---- */
+.chapter-header {
+  border-bottom: 1px solid var(--border-soft);
+  padding-bottom: var(--space-6);
+  margin-bottom: var(--space-7);
+  position: relative;
+}
+.chapter-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--color-primary-text);
+  margin-bottom: var(--space-3);
+}
+.chapter-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-3xl);
+  line-height: 1.15;
+  font-weight: 700;
+  margin: 0 0 var(--space-4);
+  letter-spacing: -0.01em;
+}
+.chapter-subtitle {
+  font-family: var(--font-serif-body);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  font-style: italic;
+  line-height: 1.6;
+  margin: 0;
+}
+.audience-tags {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+  flex-wrap: wrap;
+}
+.audience-tag {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+}
+.audience-tag .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.audience-tag.beginner .dot   { background: var(--color-success); }
+.audience-tag.developer .dot  { background: var(--color-info); }
+.audience-tag.devops .dot     { background: var(--color-warning); }
+
+/* ---- Theme toggle button ---- */
+button[data-theme-toggle] {
+  position: fixed;
+  top: var(--space-4);
+  right: var(--space-4);
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px 14px;
+  border: 1px solid var(--border-mid);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s ease;
+}
+button[data-theme-toggle]:hover {
+  background: var(--bg-muted);
+  box-shadow: var(--shadow-md);
+}
+button[data-theme-toggle] .theme-icon { font-size: 14px; }
+
+/* ---- TOC ---- */
+.toc {
+  background: var(--bg-muted);
+  border-left: 3px solid var(--color-primary);
+  padding: var(--space-5) var(--space-5);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  margin-bottom: var(--space-7);
+}
+.toc-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--color-primary-text);
+  margin: 0 0 var(--space-3);
+}
+.toc ol {
+  margin: 0;
+  padding-left: var(--space-5);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+.toc ol li { margin: 4px 0; }
+.toc a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+.toc a:hover { color: var(--color-primary); text-decoration: underline; }
+
+/* ---- Headings ---- */
+h2 {
+  font-family: var(--font-serif);
+  font-size: var(--text-2xl);
+  line-height: 1.2;
+  font-weight: 700;
+  margin: var(--space-7) 0 var(--space-4);
+  letter-spacing: -0.005em;
+  scroll-margin-top: 24px;
+}
+h3 {
+  font-family: var(--font-sans);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin: var(--space-6) 0 var(--space-3);
+  scroll-margin-top: 24px;
+}
+h4 {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  font-weight: 600;
+  margin: var(--space-5) 0 var(--space-2);
+  color: var(--text-primary);
+}
+
+p {
+  font-family: var(--font-serif-body);
+  font-size: var(--text-md);
+  line-height: 1.8;
+  margin: 0 0 var(--space-4);
+  color: var(--text-primary);
+}
+
+ul, ol {
+  font-family: var(--font-serif-body);
+  font-size: var(--text-md);
+  line-height: 1.8;
+}
+li { margin-bottom: 6px; }
+
+/* 行內 code */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-text);
+}
+:root[data-theme="dark"] code { color: var(--color-primary-text); }
+
+/* 英文術語標示 */
+.term {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  color: var(--color-primary-text);
+  font-weight: 500;
+}
+
+/* ---- 程式碼區塊 ---- */
+.code-block {
+  position: relative;
+  margin: var(--space-5) 0;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  background: var(--bg-code);
+}
+.code-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  background: var(--bg-muted);
+  border-bottom: 1px solid var(--border-soft);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+.code-lang { letter-spacing: 0.08em; text-transform: uppercase; }
+.copy-btn {
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.copy-btn:hover { color: var(--color-primary); border-color: var(--color-primary); }
+.copy-btn.copied { color: var(--color-success); border-color: var(--color-success); }
+
+.code-block pre {
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  overflow-x: auto;
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  background: transparent !important;
+}
+.code-block code {
+  background: transparent !important;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+
+/* ---- Callouts ---- */
+.callout {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md);
+  border-left: 4px solid var(--color-info);
+  background: var(--color-info-soft);
+}
+.callout.info     { border-color: var(--color-info);     background: var(--color-info-soft); }
+.callout.warning  { border-color: var(--color-warning);  background: var(--color-warning-soft); }
+.callout.success  { border-color: var(--color-success);  background: var(--color-success-soft); }
+.callout.danger   { border-color: var(--color-danger);   background: var(--color-danger-soft); }
+.callout-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin: 0 0 var(--space-2);
+}
+.callout.info    .callout-title { color: var(--color-info); }
+.callout.warning .callout-title { color: var(--color-warning); }
+.callout.success .callout-title { color: var(--color-success); }
+.callout.danger  .callout-title { color: var(--color-danger); }
+.callout p:last-child { margin-bottom: 0; }
+.callout p {
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+
+/* ---- Mermaid ---- */
+.mermaid-wrapper {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid { font-family: var(--font-sans) !important; }
+
+/* ---- 比較表格 ---- */
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: var(--space-5) 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.comparison-table th,
+.comparison-table td {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: top;
+  line-height: 1.6;
+}
+.comparison-table th {
+  background: var(--bg-muted);
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.comparison-table tbody tr:last-child td { border-bottom: none; }
+.comparison-table tbody tr:hover { background: var(--bg-muted); }
+
+/* ---- 時間軸 ---- */
+.timeline {
+  position: relative;
+  margin: var(--space-6) 0;
+  padding-left: var(--space-6);
+  border-left: 2px solid var(--border-mid);
+}
+.timeline-item {
+  position: relative;
+  margin-bottom: var(--space-5);
+  padding-bottom: var(--space-3);
+}
+.timeline-item::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--space-6) * -1 - 7px);
+  top: 8px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  border: 3px solid var(--bg-canvas);
+  box-shadow: 0 0 0 2px var(--color-primary);
+}
+.timeline-date {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  color: var(--color-primary-text);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.timeline-title {
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  font-weight: 600;
+  margin: 0 0 4px;
+  color: var(--text-primary);
+}
+.timeline-desc {
+  font-family: var(--font-serif-body);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.65;
+}
+
+/* ---- 章末練習 ---- */
+.exercise {
+  margin: var(--space-6) 0;
+  padding: var(--space-5);
+  background: var(--color-primary-soft);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-soft);
+}
+.exercise-label {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--color-primary-text);
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+}
+.exercise h3 {
+  margin-top: 0;
+  font-family: var(--font-serif);
+}
+
+/* ---- 章節導覽 ---- */
+.chapter-nav {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--space-8);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.chapter-nav a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+.chapter-nav a:hover { color: var(--color-primary); }
+.chapter-nav .nav-disabled { color: var(--text-muted); cursor: not-allowed; }
+
+/* ---- footer ---- */
+footer {
+  margin-top: var(--space-8);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.7;
+}
+footer a { color: var(--text-secondary); text-decoration: none; }
+footer a:hover { color: var(--color-primary); }
+
+/* ---- 響應式 ---- */
+@media (max-width: 720px) {
+  .layout { padding: var(--space-5) var(--space-4) var(--space-7); }
+  .chapter-title { font-size: var(--text-2xl); }
+  h2 { font-size: var(--text-xl); }
+  button[data-theme-toggle] { top: var(--space-3); right: var(--space-3); padding: 6px 10px; }
+}
+</style>
+</head>
+<body>
+
+<button data-theme-toggle aria-label="Toggle theme"></button>
+
+<div class="layout">
+<header class="chapter-header">
+  <div class="chapter-eyebrow">Part 4 · OpenTofu Internals · Chapter 19</div>
+  <h1 class="chapter-title">OpenTofu 內部運作機制</h1>
+  <p class="chapter-subtitle">深入「機房」：架構分層、執行流程、resource dependency graph 的建構與遍歷、provider gRPC 通訊、plan/apply 階段詳解。理解這些能讓你 debug 與最佳化 OpenTofu 操作。</p>
+  <div class="audience-tags">
+    <span class="audience-tag developer"><span class="dot"></span>Developer</span>
+    <span class="audience-tag devops"><span class="dot"></span>DevOps & SRE</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <p class="toc-title">本章導讀</p>
+  <ol>
+    <li><a href="#sec-overview">為什麼要懂 internals</a></li>
+    <li><a href="#sec-architecture">五層架構總覽</a></li>
+    <li><a href="#sec-flow">一次 tofu apply 的完整旅程</a></li>
+    <li><a href="#sec-config-load">設定載入：config + state + tfvars</a></li>
+    <li><a href="#sec-graph">Resource Dependency Graph 詳解</a></li>
+    <li><a href="#sec-graph-walk">Graph 遍歷與並行控制</a></li>
+    <li><a href="#sec-plan-phase">Plan 階段內部</a></li>
+    <li><a href="#sec-apply-phase">Apply 階段內部</a></li>
+    <li><a href="#sec-provider-protocol">Provider Protocol：gRPC 通訊</a></li>
+    <li><a href="#sec-state-mgr">State Manager 與 Lock</a></li>
+    <li><a href="#sec-debug">用 internals 知識 debug</a></li>
+    <li><a href="#sec-summary">本章重點與練習</a></li>
+  </ol>
+</nav>
+
+<h2 id="sec-overview">1. 為什麼要懂 internals</h2>
+
+<p>使用 OpenTofu 不需要懂內部機制——但<strong>遇到怪問題時，內部知識是診斷的關鍵</strong>。常見會用到 internals 知識的情境：</p>
+
+<ul>
+  <li>plan 顯示意外的 destroy + create，要追是哪個依賴觸發</li>
+  <li>provider crash，要看 gRPC trace log 找原因</li>
+  <li>大型 stack apply 很慢，要分析 graph 並行度與 bottleneck</li>
+  <li>state lock 異常，要懂 lock 機制才能正確處理</li>
+  <li>寫 custom provider 或 backend</li>
+  <li>面試中被問「OpenTofu 是怎麼做到不破壞的更新」</li>
+</ul>
+
+<div class="callout info">
+  <p class="callout-title">官方對 internals 的態度</p>
+  <p>OpenTofu 官方文件明確說：「<strong>Knowledge of OpenTofu internals is not required to use OpenTofu</strong>」。這章的目標是讓你「不需要 magic」也能信任工具，但不是必修。如果你只是要快速上手，可以跳過本章，直接進 Part 5 實戰。</p>
+</div>
+
+<h2 id="sec-architecture">2. 五層架構總覽</h2>
+
+<p>OpenTofu 採分層架構，核心在 Go 寫成，外掛（provider）獨立 binary 透過 gRPC 通訊。</p>
+
+<div class="mermaid-wrapper">
+<pre class="mermaid">
+flowchart TD
+    subgraph L1["① CLI Layer<br/>(internal/command)"]
+        Cmd["指令解析 / flag 處理<br/>互動 prompt / log 輸出"]
+    end
+
+    subgraph L2["② Backend Abstraction Layer<br/>(internal/backend)"]
+        BE["Backend Interface<br/>state 儲存 / lock<br/>Local execution"]
+    end
+
+    subgraph L3["③ Core Execution Engine<br/>(internal/tofu)"]
+        Ctx["tofu.Context<br/>graph builder / walker<br/>plan / apply 邏輯"]
+    end
+
+    subgraph L4["④ Configuration<br/>(internal/configs)"]
+        Cfg["Config 載入<br/>HCL parsing<br/>Module resolution"]
+    end
+
+    subgraph L5["⑤ Provider Plugin System<br/>(internal/plugin / tfplugin5/6)"]
+        PP["go-plugin / gRPC<br/>Provider lifecycle"]
+    end
+
+    L1 --> L2
+    L2 --> L3
+    L3 --> L4
+    L3 -.gRPC.-> L5
+
+    L5 -.spawn.-> External["External Provider Binary<br/>(terraform-provider-aws, ...)"]
+
+    style L1 fill:#cffafe,stroke:#0891b2
+    style L3 fill:#dcfce7,stroke:#16a34a
+    style L5 fill:#fef3c7,stroke:#d97706
+</pre>
+</div>
+
+<h3>各層職責</h3>
+
+<table class="comparison-table">
+  <thead>
+    <tr><th>層</th><th>職責</th><th>關鍵 Go package</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>CLI Layer</td><td>指令解析、輸出渲染、互動式 prompt</td><td><code>internal/command</code></td></tr>
+    <tr><td>Backend Abstraction</td><td>state 儲存抽象（local、s3、gcs...）、lock 機制、本機執行</td><td><code>internal/backend</code></td></tr>
+    <tr><td>Core Execution Engine</td><td>graph 建構與遍歷、plan / apply 邏輯</td><td><code>internal/tofu</code>（含 <code>tofu.Context</code>）</td></tr>
+    <tr><td>Configuration</td><td>HCL parsing、module 解析、設定樹建構</td><td><code>internal/configs</code></td></tr>
+    <tr><td>Provider Plugin System</td><td>啟動 provider 進程、gRPC 通訊、protocol 處理</td><td><code>internal/plugin</code>（v5）、<code>internal/plugin6</code>（v6）</td></tr>
+  </tbody>
+</table>
+
+<h2 id="sec-flow">3. 一次 tofu apply 的完整旅程</h2>
+
+<p>以下是 <code>tofu apply</code> 從你按下 Enter 到雲端資源建立完成的完整流程：</p>
+
+<div class="mermaid-wrapper">
+<pre class="mermaid">
+sequenceDiagram
+    participant U as 使用者
+    participant CLI as CLI Layer
+    participant BE as Backend
+    participant Ctx as tofu.Context
+    participant GB as Graph Builder
+    participant GW as Graph Walker
+    participant PR as Provider (gRPC)
+    participant Cloud as Cloud API
+    participant SM as State Manager
+
+    U->>CLI: tofu apply
+    CLI->>BE: 解析 backend config
+    BE->>SM: 連接 state storage
+    SM->>BE: 取得 state lock
+    BE->>Ctx: 建立 Context（含 config + state）
+
+    Ctx->>GB: BuildPlanGraph()
+    GB-->>Ctx: 回傳 graph (DAG)
+
+    Ctx->>GW: Walk graph
+    GW->>PR: ConfigureProvider()
+    PR-->>GW: ok
+
+    loop 每個 resource node（並行）
+        GW->>PR: ReadResource() / PlanResourceChange()
+        PR->>Cloud: 查詢當前狀態
+        Cloud-->>PR: 當前屬性
+        PR-->>GW: 計畫變更
+    end
+
+    GW-->>Ctx: Plan 完成
+    Ctx-->>CLI: 顯示變更
+
+    U->>CLI: yes（確認）
+
+    Ctx->>GW: Walk apply graph
+    loop 每個變更（並行 +依依賴順序）
+        GW->>PR: ApplyResourceChange()
+        PR->>Cloud: 建立/修改/刪除
+        Cloud-->>PR: 新狀態
+        PR-->>GW: 結果
+        GW->>SM: 寫 state（增量）
+    end
+
+    GW-->>Ctx: Apply 完成
+    Ctx->>SM: 釋放 lock
+    SM-->>BE: 完成
+    BE-->>CLI: 結果
+    CLI-->>U: 顯示 outputs
+</pre>
+</div>
+
+<h3>關鍵階段</h3>
+
+<table class="comparison-table">
+  <thead>
+    <tr><th>階段</th><th>主要工作</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>① 解析</td><td>讀 .tf 檔、解析 HCL、解析 backend</td></tr>
+    <tr><td>② 初始化</td><td>連 backend、取 state lock、載入 state</td></tr>
+    <tr><td>③ Build Graph</td><td>從 config + state 建出 dependency DAG</td></tr>
+    <tr><td>④ Refresh</td><td>對所有資源呼叫 provider Read，同步當前狀態到 in-memory state</td></tr>
+    <tr><td>⑤ Plan</td><td>遍歷 graph，每個 node 呼叫 PlanResourceChange，產生變更清單</td></tr>
+    <tr><td>⑥ Confirm（互動或 -auto-approve）</td><td>顯示 plan 給使用者確認</td></tr>
+    <tr><td>⑦ Apply</td><td>遍歷 apply graph，依順序與並行度執行變更</td></tr>
+    <tr><td>⑧ State 寫入</td><td>每個資源變更立即寫 state（防中途失敗丟失進度）</td></tr>
+    <tr><td>⑨ 完成</td><td>釋放 lock、印 outputs</td></tr>
+  </tbody>
+</table>
+
+<h2 id="sec-config-load">4. 設定載入：config + state + tfvars</h2>
+
+<p>OpenTofu 啟動時要把多個來源整合成「執行的 ground truth」：</p>
+
+<div class="mermaid-wrapper">
+<pre class="mermaid">
+flowchart LR
+    subgraph Sources["輸入來源"]
+        A[".tf / .tofu 檔"]
+        B[".tfvars 檔"]
+        C["TF_VAR_xxx 環境變數"]
+        D["-var CLI flag"]
+        E["state 檔（remote/local）"]
+        F["lock 檔<br/>.terraform.lock.hcl"]
+    end
+
+    subgraph Loader["configload.Loader"]
+        L["HCL 解析器<br/>module 拉取<br/>provider 解析"]
+    end
+
+    subgraph Output["產出"]
+        Cfg["configs.Config"]
+        State["state.State"]
+    end
+
+    A --> L
+    B --> L
+    C --> L
+    D --> L
+    F --> L
+
+    L --> Cfg
+    E --> State
+
+    Cfg --> Ctx["tofu.Context"]
+    State --> Ctx
+
+    style Ctx fill:#dcfce7,stroke:#16a34a
+</pre>
+</div>
+
+<h3>configs.Config 結構</h3>
+
+<p>OpenTofu 內部把整個專案表示為 <strong>module tree</strong>：</p>
+
+<div class="code-block">
+  <div class="code-header">
+    <span class="code-lang">Plaintext · 概念上的 Config 結構</span>
+    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+  </div>
+<pre><code class="language-bash">configs.Config (root)
+├── Module: 解析後的 root module
+│   ├── ManagedResources: map[address]*Resource
+│   ├── DataResources: map[address]*Resource
+│   ├── Variables: map[name]*Variable
+│   ├── Outputs: map[name]*Output
+│   ├── Locals: map[name]*Local
+│   ├── ProviderConfigs: map[address]*Provider
+│   └── ModuleCalls: map[name]*ModuleCall
+└── Children: map[name]*Config (對應每個 module 呼叫)
+    └── ... 遞迴</code></pre>
+</div>
+
+<h3>HCL 與 expression 的延遲評估</h3>
+
+<p>OpenTofu 的設計哲學：<strong>能延遲評估的就延遲</strong>。原因是很多 expression 引用了「目前還不知道」的值（resource 屬性需要 apply 後才知道）。</p>
+
+<ul>
+  <li><strong>Static evaluation</strong>：count、for_each、module source、backend 設定等需要在 graph build 階段就確定，OpenTofu 1.8+ 才放寬部分變數使用</li>
+  <li><strong>Dynamic evaluation</strong>：resource 內 argument 引用 expression，在 graph 遍歷到該節點時才評估</li>
+  <li><strong>HCL Body / Expression</strong>：未評估的部分仍以原始 HCL AST 形式保留，graph walker 視需要才呼叫 <code>Decode()</code></li>
+</ul>
+
+<h2 id="sec-graph">5. Resource Dependency Graph 詳解</h2>
+
+<p>這是 OpenTofu 的核心。<strong>所有 plan / apply 行為都基於這張 graph</strong>。</p>
+
+<h3>Graph 是什麼</h3>
+
+<p>OpenTofu 的 graph 是<strong>有向無環圖（DAG）</strong>：</p>
+
+<ul>
+  <li><strong>Vertex（節點）</strong>：每個節點代表一個 OpenTofu 物件（resource、data、provider、variable、output、module call、本地計算節點）</li>
+  <li><strong>Edge（邊）</strong>：邊代表「<em>必須在...之後</em>」的順序關係</li>
+  <li><strong>Acyclic（無環）</strong>：建好後若有環會直接 error（你的設定有循環依賴）</li>
+</ul>
+
+<h3>節點類型</h3>
+
+<table class="comparison-table">
+  <thead>
+    <tr><th>類型</th><th>對應</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Resource Node</td><td>每個 <code>resource</code> block 一個</td></tr>
+    <tr><td>Data Node</td><td>每個 <code>data</code> block 一個</td></tr>
+    <tr><td>Provider Configuration Node</td><td>每個 provider 設定（含 alias）一個</td></tr>
+    <tr><td>Variable Node</td><td>每個 input variable 一個</td></tr>
+    <tr><td>Local Node</td><td>每個 local value 一個</td></tr>
+    <tr><td>Output Node</td><td>每個 output 一個</td></tr>
+    <tr><td>Module Call Node</td><td>每個 module 呼叫</td></tr>
+    <tr><td>Resource Meta Node</td><td>count / for_each 的展開（每個 instance 一個）</td></tr>
+    <tr><td>Orphan Node</td><td>state 有但設定中已移除的資源（要 destroy）</td></tr>
+    <tr><td>Root Node</td><td>合成的「最後一個」節點，所有未被引用的 sink 都連到它</td></tr>
+  </tbody>
+</table>
+
+<h3>邊的建立規則</h3>
+
+<ol>
+  <li><strong>Implicit edges（隱式邊）</strong>：A 的 argument 引用 B 的屬性 → A 依賴 B</li>
+  <li><strong>Explicit edges（顯式邊）</strong>：A 的 <code>depends_on</code> 列出 B → A 依賴 B</li>
+  <li><strong>Provider edges</strong>：所有 resource 依賴它的 provider 設定節點</li>
+  <li><strong>Module edges</strong>：跨 module 邊由 module 介面（input/output）轉接</li>
+  <li><strong>create_before_destroy 連鎖</strong>：開了該設定的 resource，所有依賴它的 resource 自動繼承</li>
+</ol>
+
+<h3>不同操作有不同 graph</h3>
+
+<p>每個操作（plan / plan-destroy / plan-refresh-only / apply）都有<strong>專屬的 graph builder</strong>：</p>
+
+<table class="comparison-table">
+  <thead>
+    <tr><th>Graph 類型</th><th>用途</th><th>來源</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Plan Graph</td><td>產生 plan</td><td>從 config + state 建</td></tr>
+    <tr><td>Plan-Refresh-Only Graph</td><td>只更新 state，不計畫變更</td><td>同上但不評估 diff</td></tr>
+    <tr><td>Plan-Destroy Graph</td><td>計畫銷毀（destroy）</td><td>從 state 建（反向順序）</td></tr>
+    <tr><td>Apply Graph</td><td>執行 plan</td><td>從 plan 建（不從 config）</td></tr>
+  </tbody>
+</table>
+
+<h3>用 tofu graph 視覺化</h3>
+
+<div class="code-block">
+  <div class="code-header">
+    <span class="code-lang">Bash · 看 graph</span>
+    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+  </div>
+<pre><code class="language-bash"># 看 plan graph
+tofu graph -type=plan
+
+# 看 apply graph（需先有 plan 檔）
+tofu plan -out=tfplan.bin
+tofu graph -type=apply -plan=tfplan.bin
+
+# 看 destroy graph
+tofu graph -type=plan-destroy
+
+# 渲染成 PNG
+tofu graph | dot -Tpng &gt; graph.png
+
+# 高亮循環（debug 用）
+tofu graph -draw-cycles | dot -Tpng &gt; cycles.png</code></pre>
+</div>
+
+<h3>用 console 觀察 graph</h3>
+
+<p>你可以間接從 <code>tofu state list</code> + 引用關係推導 graph，但最直接的方式是看 <code>tofu graph</code>。</p>
+
+<h2 id="sec-graph-walk">6. Graph 遍歷與並行控制</h2>
+
+<h3>Topological Walk</h3>
+
+<p>OpenTofu 用<strong>拓撲排序遍歷 graph</strong>：</p>
+
+<ol>
+  <li>找出所有<strong>入度為 0 的節點</strong>（沒有任何依賴）</li>
+  <li>並行處理它們</li>
+  <li>每完成一個，把它從 graph 「移除」，可能讓其他節點變成入度 0</li>
+  <li>重複直到所有節點處理完</li>
+</ol>
+
+<div class="mermaid-wrapper">
+<pre class="mermaid">
+flowchart TD
+    V["aws_vpc"]
+    SG["aws_security_group"]
+    S1["aws_subnet[0]"]
+    S2["aws_subnet[1]"]
+    S3["aws_subnet[2]"]
+    EC1["aws_instance[0]"]
+    EC2["aws_instance[1]"]
+    DB["aws_db_instance"]
+
+    V --> SG
+    V --> S1
+    V --> S2
+    V --> S3
+
+    S1 --> EC1
+    S2 --> EC2
+    S1 --> DB
+    SG --> EC1
+    SG --> EC2
+    SG --> DB
+
+    style V fill:#cffafe,stroke:#0891b2
+</pre>
+</div>
+
+<p>上圖會分這幾批執行：</p>
+
+<ol>
+  <li><strong>Batch 1</strong>：<code>aws_vpc</code> 一個</li>
+  <li><strong>Batch 2</strong>：<code>aws_security_group</code>、<code>aws_subnet[0,1,2]</code> 並行 4 個</li>
+  <li><strong>Batch 3</strong>：<code>aws_instance[0,1]</code>、<code>aws_db_instance</code> 並行 3 個</li>
+</ol>
+
+<h3>並行度控制：-parallelism</h3>
+
+<p>OpenTofu 用 <strong>semaphore</strong> 限制同時處理的節點數，<strong>預設 10</strong>：</p>
+
+<div class="code-block">
+  <div class="code-header">
+    <span class="code-lang">Bash</span>
+    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+  </div>
+<pre><code class="language-bash"># 預設 10
+tofu apply
+
+# 提高並行（注意 cloud API 限制）
+tofu apply -parallelism=20
+
+# 降低並行（debug 或避免 rate limit）
+tofu apply -parallelism=1</code></pre>
+</div>
+
+<div class="callout warning">
+  <p class="callout-title">什麼時候調 parallelism</p>
+  <p>① 大型 stack（&gt;100 資源）有時提高到 20-30 可加速；② 觸發 cloud API rate limit 時降低；③ debug provider 競態條件時設成 1 讓事件序列化；④ 多數情況下<strong>用預設 10 就好</strong>，provider 自己會做 retry/backoff。</p>
+</div>
+
+<h3>節點處理失敗的影響</h3>
+
+<p>當某節點處理失敗：</p>
+
+<ul>
+  <li>該節點及其所有<strong>下游</strong>（依賴它的）節點都不會執行</li>
+  <li>但<strong>已經並行執行的其他分支</strong>會繼續完成</li>
+  <li>整個操作以非零 exit code 結束</li>
+  <li>State 紀錄已成功的部分（不會 rollback）——這是<strong>partial apply</strong></li>
+</ul>
+
+<h2 id="sec-plan-phase">7. Plan 階段內部</h2>
+
+<h3>Plan 的核心問題</h3>
+
+<p>Plan 要回答：「<strong>從目前狀態到目標狀態，需要做什麼？</strong>」這需要三方比較：</p>
+
+<table class="comparison-table">
+  <thead>
+    <tr><th>來源</th><th>內容</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Config</td><td>使用者描述的「目標狀態」</td></tr>
+    <tr><td>State</td><td>OpenTofu 記得的「上次狀態」</td></tr>
+    <tr><td>Cloud (refresh)</td><td>雲端的「實際當前狀態」</td></tr>
+  </tbody>
+</table>
+
+<h3>Plan 的三步驟</h3>
+
+<div class="mermaid-wrapper">
+<pre class="mermaid">
+flowchart TD
+    S1["Step 1: Refresh<br/>對每個資源呼叫 ReadResource<br/>同步雲端實際狀態到 in-memory state"]
+    S2["Step 2: Diff Calculation<br/>對每個資源呼叫 PlanResourceChange<br/>provider 比較 config vs prior state<br/>回傳 proposed new state"]
+    S3["Step 3: Action Decision<br/>OpenTofu 依 schema 決定 create/update/replace/no-op<br/>含 ForceNew 屬性檢查"]
+
+    S1 --> S2 --> S3
+
+    style S2 fill:#cffafe,stroke:#0891b2
+</pre>
+</div>
+
+<h3>Provider 在 Plan 階段的角色</h3>
+
+<p>Provider 不是被動執行 OpenTofu 指令，它<strong>實際做 diff 計算</strong>：</p>
+
+<ul>
+  <li>OpenTofu Core 把 <code>config</code>、<code>prior_state</code> 透過 gRPC 傳給 provider</li>
+  <li>Provider 根據自己的 schema 計算「proposed_new_state」</li>
+  <li>Provider 還可加入<strong>computed attributes</strong>（雲端會產生的值，標為 unknown）</li>
+  <li>OpenTofu Core 收到結果後檢查 ForceNew、unknown 處理、決定最終動作</li>
+</ul>
+
+<h3>Plan 檔案內容</h3>
+
+<p>當你跑 <code>tofu plan -out=tfplan.bin</code>，這個檔案是 binary 格式，含：</p>
+
+<ul>
+  <li>當前 state 的快照（含 sensitive 值，所以 plan 檔本身也是敏感檔！）</li>
+  <li>變更清單（add / change / destroy / replace）</li>
+  <li>使用的 provider 版本</li>
+  <li>變數值</li>
+  <li>OpenTofu 1.7+ 可加密</li>
+</ul>
+
+<div class="callout danger">
+  <p class="callout-title">tfplan.bin 是 sensitive 檔案</p>
+  <p>plan 檔含 state 完整快照與所有 sensitive 值。<strong>絕不能 commit 進 git</strong>，CI 上傳成 artifact 時要用短期 retention 並限制下載權限。OpenTofu 1.7+ 的 encryption block 也涵蓋 plan 檔。</p>
+</div>
+
+<h2 id="sec-apply-phase">8. Apply 階段內部</h2>
+
+<h3>Apply 與 Plan 的差異</h3>
+
+<table class="comparison-table">
+  <thead>
+    <tr><th>面向</th><th>Plan</th><th>Apply</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Graph 來源</td><td>從 config + state 建</td><td>從 plan 建</td></tr>
+    <tr><td>對 provider 的呼叫</td><td><code>PlanResourceChange</code></td><td><code>ApplyResourceChange</code></td></tr>
+    <tr><td>對 cloud 的影響</td><td>無（唯讀）</td><td>實際變更</td></tr>
+    <tr><td>State 寫入</td><td>無</td><td>每個變更立刻寫</td></tr>
+    <tr><td>失敗影響</td><td>整個 plan 中止</td><td>partial apply（state 保留已完成的）</td></tr>
+  </tbody>
+</table>
+
+<h3>Apply 的關鍵保證</h3>
+
+<ol>
+  <li><strong>順序保證</strong>：依依賴 DAG 順序執行</li>
+  <li><strong>並行保證</strong>：無依賴關係的可並行（受 -parallelism 限制）</li>
+  <li><strong>State 增量寫入</strong>：每完成一個 resource 立刻寫 state，避免中途失敗丟進度</li>
+  <li><strong>Lock 持有</strong>：整個 apply 期間都持有 lock，防止其他人並行寫 state</li>
+</ol>
+
+<h3>Replace 的執行順序</h3>
+
+<div class="code-block">
+  <div class="code-header">
+    <span class="code-lang">Plaintext · 兩種 replace 模式</span>
+    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+  </div>
+<pre><code class="language-bash"># 預設：destroy + create
+1. Destroy old aws_instance.web
+2. Create new aws_instance.web
+
+# 開了 create_before_destroy
+1. Create new aws_instance.web (用新名稱或無衝突屬性)
+2. Update 引用該資源的下游
+3. Destroy old aws_instance.web</code></pre>
+</div>
+
+<h3>State 寫入策略</h3>
+
+<p>OpenTofu 對 state 寫入有三種模式：</p>
+
+<table class="comparison-table">
+  <thead>
+    <tr><th>模式</th><th>行為</th><th>場景</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Local backend</td><td>每變更立即 fsync 到本地檔</td><td>local state</td></tr>
+    <tr><td>Remote 增量</td><td>每變更上傳到 backend（網路成本）</td><td>S3 / GCS 等</td></tr>
+    <tr><td>Remote batched</td><td>批次累積後一次上傳（部分 backend）</td><td>降低 API call</td></tr>
+  </tbody>
+</table>
+
+<h2 id="sec-provider-protocol">9. Provider Protocol：gRPC 通訊</h2>
+
+<p>OpenTofu Core 與每個 provider 是<strong>獨立進程</strong>，透過 gRPC 通訊。Provider 是<strong>被 OpenTofu Core 啟動</strong>的子進程。</p>
+
+<h3>Provider 啟動序列</h3>
+
+<div class="mermaid-wrapper">
+<pre class="mermaid">
+sequenceDiagram
+    participant Core as OpenTofu Core
+    participant FS as 本機 FS
+    participant Plugin as Provider Process
+
+    Core->>FS: 找 .terraform/providers/.../terraform-provider-aws_v5.30.0
+    Core->>Plugin: spawn binary
+    Plugin->>Plugin: 啟動 gRPC server (loopback)
+    Plugin->>Core: stdout 印 handshake JSON<br/>{"protocol_version":6, "address":"127.0.0.1:12345"}
+    Core->>Plugin: 透過該 port 連 gRPC
+
+    Note over Core,Plugin: handshake 完成
+
+    Core->>Plugin: GetProviderSchema()
+    Plugin-->>Core: schema
+
+    Core->>Plugin: ConfigureProvider(region=us-east-1, ...)
+    Plugin->>Plugin: 初始化 AWS SDK client
+    Plugin-->>Core: ok
+
+    loop graph walk 期間
+        Core->>Plugin: ReadResource / PlanResourceChange / ApplyResourceChange
+        Plugin->>Plugin: 呼叫 cloud API
+        Plugin-->>Core: 結果
+    end
+
+    Core->>Plugin: Stop
+    Plugin->>Plugin: cleanup
+    Plugin->>Core: exit
+</pre>
+</div>
+
+<h3>Protocol 版本</h3>
+
+<table class="comparison-table">
+  <thead>
+    <tr><th>版本</th><th>狀態</th><th>說明</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>tfplugin5</td><td>遺留</td><td>OpenTofu 仍支援，舊 provider 用</td></tr>
+    <tr><td>tfplugin6</td><td>主流</td><td>多數新 provider 用，支援 nested types、ephemeral 等新特性</td></tr>
+  </tbody>
+</table>
+
+<h3>主要 RPC 方法</h3>
+
+<table class="comparison-table">
+  <thead>
+    <tr><th>RPC</th><th>用途</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>GetProviderSchema</code></td><td>取得 provider 的 schema（resource、data、function 定義）</td></tr>
+    <tr><td><code>ValidateProviderConfig</code></td><td>驗證 provider 設定是否合法</td></tr>
+    <tr><td><code>ConfigureProvider</code></td><td>初始化 provider（建立 SDK client）</td></tr>
+    <tr><td><code>ValidateResourceConfig</code></td><td>驗證 resource 設定</td></tr>
+    <tr><td><code>ReadResource</code></td><td>從雲端讀取當前狀態（refresh 用）</td></tr>
+    <tr><td><code>PlanResourceChange</code></td><td>計算變更（plan 用）</td></tr>
+    <tr><td><code>ApplyResourceChange</code></td><td>執行變更（apply 用）</td></tr>
+    <tr><td><code>ImportResourceState</code></td><td>匯入既有資源</td></tr>
+    <tr><td><code>UpgradeResourceState</code></td><td>state 格式升級（resource schema 改版時）</td></tr>
+    <tr><td><code>ReadDataSource</code></td><td>讀取 data source</td></tr>
+    <tr><td><code>OpenEphemeralResource</code> / <code>CloseEphemeralResource</code></td><td>OpenTofu 1.10+ ephemeral 支援</td></tr>
+  </tbody>
+</table>
+
+<h3>看 gRPC trace</h3>
+
+<div class="code-block">
+  <div class="code-header">
+    <span class="code-lang">Bash · 看 OpenTofu 與 provider 的對話</span>
+    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+  </div>
+<pre><code class="language-bash"># TRACE level 會印出每個 gRPC call
+TF_LOG=TRACE TF_LOG_PATH=trace.log tofu plan
+
+# 看 provider 與 OpenTofu 之間的請求
+grep "GRPCProvider" trace.log | head -50
+
+# 看 ReadResource 呼叫
+grep "ReadResource" trace.log
+
+# 看 PlanResourceChange 的 input/output
+grep -A 20 "PlanResourceChange" trace.log</code></pre>
+</div>
+
+<h2 id="sec-state-mgr">10. State Manager 與 Lock</h2>
+
+<h3>State Manager 介面</h3>
+
+<p>OpenTofu 內部把 state 操作抽象成 <code>statemgr</code> package 的多個 interface：</p>
+
+<table class="comparison-table">
+  <thead>
+    <tr><th>Interface</th><th>方法</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>statemgr.Reader</code></td><td>State() — 讀</td></tr>
+    <tr><td><code>statemgr.Writer</code></td><td>WriteState() — 寫（in-memory）</td></tr>
+    <tr><td><code>statemgr.Persister</code></td><td>PersistState() — 持久化（上傳到 backend）</td></tr>
+    <tr><td><code>statemgr.Refresher</code></td><td>RefreshState() — 從 backend 重新拉</td></tr>
+    <tr><td><code>statemgr.Locker</code></td><td>Lock / Unlock</td></tr>
+    <tr><td><code>statemgr.Full</code></td><td>以上全部組合</td></tr>
+  </tbody>
+</table>
+
+<h3>State serial 與 lineage</h3>
+
+<p>每次 PersistState：</p>
+
+<ol>
+  <li>檢查 backend 上的 lineage 與本地是否一致</li>
+  <li>檢查本地 serial &gt; backend 的 serial（防覆寫舊版）</li>
+  <li>遞增 serial，寫入 backend</li>
+</ol>
+
+<h3>Lock 機制細節</h3>
+
+<table class="comparison-table">
+  <thead>
+    <tr><th>Backend</th><th>Lock 實作</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>S3（1.10+）</td><td>conditional write 一個 .tflock 檔（用 If-None-Match）</td></tr>
+    <tr><td>S3（舊）</td><td>DynamoDB <code>PutItem</code> with condition expression</td></tr>
+    <tr><td>azurerm</td><td>Blob Lease（60 秒，自動 renew）</td></tr>
+    <tr><td>gcs</td><td>GCS object generation conditional write</td></tr>
+    <tr><td>postgres</td><td>PostgreSQL advisory lock（<code>pg_try_advisory_lock</code>）</td></tr>
+    <tr><td>local</td><td>OS file lock（flock 或 LockFileEx）</td></tr>
+    <tr><td>http</td><td>由 server 端實作（POST/DELETE 對應 endpoint）</td></tr>
+  </tbody>
+</table>
+
+<h3>Lock 檔內容</h3>
+
+<div class="code-block">
+  <div class="code-header">
+    <span class="code-lang">JSON · S3 lockfile 範例（1.10+）</span>
+    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+  </div>
+<pre><code class="language-json">{
+  "ID": "8b5f8e0d-f4d2-4bea-8f1a-bcd123456789",
+  "Operation": "OperationTypeApply",
+  "Info": "",
+  "Who": "alice@laptop.local",
+  "Version": "1.11.6",
+  "Created": "2026-04-15T10:30:00Z",
+  "Path": "production/myapp/terraform.tfstate"
+}</code></pre>
+</div>
+
+<h2 id="sec-debug">11. 用 internals 知識 debug</h2>
+
+<h3>場景 1：plan 顯示意外的 destroy + create</h3>
+
+<p>追究流程：</p>
+
+<ol>
+  <li>看 plan 輸出找到關鍵字 <code>forces replacement</code></li>
+  <li>OpenTofu 會指出哪個屬性觸發了 ForceNew</li>
+  <li>用 <code>tofu state show ADDR</code> 看 state 中該屬性目前值</li>
+  <li>對比 config 中的值，找出差異原因</li>
+  <li>常見原因：data source 結果變了、變數預設值改了、provider 升級改了 schema</li>
+</ol>
+
+<h3>場景 2：apply 卡住不動</h3>
+
+<div class="code-block">
+  <div class="code-header">
+    <span class="code-lang">Bash · 診斷流程</span>
+    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+  </div>
+<pre><code class="language-bash"># 1. 開 trace log
+TF_LOG=DEBUG TF_LOG_PATH=apply.log tofu apply
+
+# 在另一個 terminal
+tail -f apply.log | grep -E "ApplyResourceChange|ReadResource"
+
+# 看是哪個資源在等
+# 通常是雲端 API 慢（DB 建立要 5 分鐘）或 timeout 設太長
+
+# 2. 如果是 lock 卡住
+tofu force-unlock LOCK_ID   # 確認沒人在用後</code></pre>
+</div>
+
+<h3>場景 3：provider crash</h3>
+
+<div class="code-block">
+  <div class="code-header">
+    <span class="code-lang">Bash · 找 crash 原因</span>
+    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+  </div>
+<pre><code class="language-bash"># Provider crash 會留下 crash.log 在當前目錄
+cat crash.log
+
+# 或開 trace 重跑
+TF_LOG=TRACE TF_LOG_PATH=trace.log tofu plan
+grep -i "panic\|crash\|stack trace" trace.log
+
+# 通常 crash 報告該寄到 provider 的 GitHub repo</code></pre>
+</div>
+
+<h3>場景 4：循環依賴</h3>
+
+<div class="code-block">
+  <div class="code-header">
+    <span class="code-lang">Bash · 視覺化 cycle</span>
+    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+  </div>
+<pre><code class="language-bash">tofu graph -draw-cycles | dot -Tpng &gt; cycles.png
+open cycles.png   # macOS / xdg-open on Linux
+
+# 看哪些節點之間有紅色箭頭，找到循環</code></pre>
+</div>
+
+<h3>場景 5：apply 太慢</h3>
+
+<div class="code-block">
+  <div class="code-header">
+    <span class="code-lang">Bash · profiling</span>
+    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+  </div>
+<pre><code class="language-bash"># 1. 看 graph 結構，是否大部分資源都序列化執行
+tofu graph -type=apply | dot -Tpng &gt; apply.png
+
+# 2. 提高 parallelism 試試
+tofu apply -parallelism=20
+
+# 3. 看 trace log 找出慢的 resource
+TF_LOG=DEBUG TF_LOG_PATH=apply.log tofu apply
+# 搜尋耗時超過某個閾值的 RPC call
+
+# 4. 拆分 stack（核心問題：stack 太大）</code></pre>
+</div>
+
+<h2 id="sec-summary">12. 本章重點與練習</h2>
+
+<h3>重點回顧</h3>
+
+<ul>
+  <li>OpenTofu 採五層架構：CLI / Backend / Core Engine / Configuration / Provider Plugin</li>
+  <li><strong>Provider 是獨立進程</strong>，OpenTofu Core 啟動子進程後透過 gRPC（<code>tfplugin5</code> / <code>tfplugin6</code>）通訊</li>
+  <li>一次 apply 完整旅程：解析 → init backend → 取 lock → build graph → refresh → plan → confirm → apply → 寫 state → 釋放 lock</li>
+  <li>Resource Dependency Graph 是<strong>有向無環圖（DAG）</strong>，所有操作都基於它</li>
+  <li>Edge 三種來源：implicit（屬性引用）、explicit（depends_on）、provider edges</li>
+  <li>不同操作有不同 graph：plan / plan-destroy / plan-refresh-only / apply</li>
+  <li>Graph 用<strong>拓撲排序遍歷</strong>，semaphore 控制並行（預設 10，可用 <code>-parallelism</code> 調整）</li>
+  <li>Plan 三步驟：refresh → diff calculation（provider 做） → action decision</li>
+  <li>Apply 對 provider 呼叫 <code>ApplyResourceChange</code>，state 增量寫入避免中途失敗丟進度</li>
+  <li>Lock 機制依 backend 不同：S3 conditional write、DynamoDB conditional put、Azure Blob lease 等</li>
+  <li>Debug 用 <code>TF_LOG=TRACE</code> 看 gRPC 對話、用 <code>tofu graph -draw-cycles</code> 看循環、用 <code>-parallelism</code> 調整並行度</li>
+</ul>
+
+<div class="exercise">
+  <span class="exercise-label">⚡ 動手實作 · Hands-on Lab 19</span>
+  <h3>用 internals 知識深入觀察 OpenTofu</h3>
+  <ol>
+    <li>建立 <code>internals-lab/</code>，含多個有相互依賴的 <code>local_file</code> 資源（A、B、C、D，其中 B 依賴 A、C 依賴 A、D 依賴 B 與 C）</li>
+    <li><strong>練習 A · 看 graph</strong>：跑 <code>tofu graph -type=plan | dot -Tpng &gt; plan.png</code>（如有 graphviz），對比 apply graph 與 plan-destroy graph</li>
+    <li><strong>練習 B · trace log 解析</strong>：跑 <code>TF_LOG=TRACE TF_LOG_PATH=trace.log tofu plan</code>，找出：
+      <ul>
+        <li>provider 啟動的 handshake</li>
+        <li>每個 resource 的 PlanResourceChange 呼叫</li>
+        <li>config + prior state 在請求中的形式</li>
+      </ul>
+    </li>
+    <li><strong>練習 C · parallelism 觀察</strong>：用 4 個無相互依賴的 <code>local_file</code> 測試：
+      <ul>
+        <li><code>tofu apply -parallelism=1</code> 觀察序列執行</li>
+        <li><code>tofu apply -parallelism=4</code> 觀察並行</li>
+        <li>從 trace log 找出時間戳對比</li>
+      </ul>
+    </li>
+    <li><strong>練習 D · 故意製造 cycle</strong>：寫兩個 resource 互相用 <code>depends_on</code> 形成循環，跑 <code>tofu graph -draw-cycles</code> 找出循環</li>
+    <li><strong>練習 E · plan 檔解析</strong>：跑 <code>tofu plan -out=tfplan.bin</code>、<code>tofu show -json tfplan.bin | jq</code>，看 plan 檔的結構（resource_changes、prior_state、planned_values）</li>
+    <li><strong>挑戰題 1 · 觀察 partial apply</strong>：故意讓某個 resource 失敗（例如寫一個會 error 的 path），跑 apply 後看 state，確認其他成功的資源仍被記錄</li>
+    <li><strong>挑戰題 2 · provider 啟動原理</strong>：用 <code>ps -ef | grep terraform-provider</code> 在 apply 期間找到 spawned 的 provider 進程；查 <code>lsof</code> 看 gRPC 用的 port</li>
+    <li><strong>挑戰題 3 · gRPC 細節</strong>：抓 trace log 中一次完整的 PlanResourceChange，把 input/output 的 protobuf message 解碼出來</li>
+    <li>清理</li>
+  </ol>
+</div>
+
+<div class="callout info">
+  <p class="callout-title">下一章預告</p>
+  <p>Part 4 最後一章「Protocol 與擴充」將深入 OpenTofu 的擴充機制：Backend protocol、Module/Provider Registry protocol 詳解、開發第一個 provider 的入門指南。Part 4 結束後就是 Part 5「DevOps & SRE 實戰」。</p>
+</div>
+
+<nav class="chapter-nav">
+  <a href="#">← 上一章：Registry 整合</a>
+  <a href="#">下一章：Protocol 與擴充 →</a>
+</nav>
+
+<footer>
+  <p>OpenTofu 教學手冊 · Part 4 第 19 章<br>
+  資料來源：<a href="https://opentofu.org/docs/internals/" target="_blank" rel="noopener">OpenTofu Internals 官方文件</a> · <a href="https://opentofu.org/docs/internals/graph/" target="_blank" rel="noopener">Resource Graph</a> · <a href="https://github.com/opentofu/opentofu/blob/main/docs/architecture.md" target="_blank" rel="noopener">opentofu/opentofu architecture.md</a> · <a href="https://deepwiki.com/opentofu/opentofu/1.1-system-architecture" target="_blank" rel="noopener">DeepWiki 系統架構</a><br>
+  撰寫時最新穩定版本：OpenTofu 1.11.6（2026/4/8）</p>
+</footer>
+</div>
+
+<!-- 共用 theme-toggle.js inline -->
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) { }
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+
+<!-- Mermaid 與 Prism 初始化 + 主題同步 -->
+<script>
+(function () {
+  'use strict';
+
+  // ---------- Mermaid ----------
+  function getMermaidTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default';
+  }
+
+  // 先把所有 .mermaid 內的原始碼存到 data-source，方便重新渲染
+  document.querySelectorAll('.mermaid').forEach(el => {
+    el.setAttribute('data-source', el.textContent.trim());
+  });
+
+  function renderMermaid() {
+    try {
+      // 還原原始碼後重新渲染
+      document.querySelectorAll('.mermaid').forEach(el => {
+        const src = el.getAttribute('data-source');
+        if (src) {
+          el.removeAttribute('data-processed');
+          el.textContent = src;
+        }
+      });
+      if (window.mermaid && typeof window.mermaid.initialize === 'function') {
+        window.mermaid.initialize({
+          startOnLoad: false,
+          theme: getMermaidTheme(),
+          securityLevel: 'loose',
+          themeVariables: {
+            fontFamily: 'DM Sans, Inter, Noto Sans TC, system-ui, sans-serif'
+          },
+          flowchart: { curve: 'basis', padding: 16 }
+        });
+        if (typeof window.mermaid.run === 'function') {
+          window.mermaid.run();
+        }
+      }
+    } catch (err) {
+      console.warn('[mermaid] render failed:', err);
+    }
+  }
+
+  // ---------- Prism syntax 主題切換 ----------
+  function applyPrismTheme(isDark) {
+    try {
+      const light = document.getElementById('prism-light');
+      const dark  = document.getElementById('prism-dark');
+      if (light) light.disabled = isDark;
+      if (dark)  dark.disabled  = !isDark;
+    } catch (err) {
+      console.warn('[prism] theme switch failed:', err);
+    }
+  }
+
+  // ---------- 主題切換時同步 Mermaid 與 Prism ----------
+  window.addEventListener('jhsun:theme-changed', (e) => {
+    const isDark = e && e.detail && e.detail.theme === 'dark';
+    applyPrismTheme(isDark);
+    // Mermaid 主題切換需要全部重畫
+    renderMermaid();
+  });
+
+  // ---------- 初始啟動 ----------
+  function boot() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    applyPrismTheme(isDark);
+    renderMermaid();
+    if (window.Prism && typeof window.Prism.highlightAll === 'function') {
+      try { window.Prism.highlightAll(); } catch (err) { console.warn('[prism] highlight failed:', err); }
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+  // mermaid 是 defer 載入，可能在 DOMContentLoaded 後才到
+  window.addEventListener('load', renderMermaid);
+})();
+
+// ---------- 複製按鈕（全域函式）----------
+function copyCode(btn) {
+  try {
+    const codeBlock = btn.closest('.code-block').querySelector('pre code');
+    const text = codeBlock.innerText;
+    const done = () => {
+      const original = btn.textContent;
+      btn.textContent = '✓ Copied';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = original; btn.classList.remove('copied'); }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+    } else {
+      fallbackCopy(text, done);
+    }
+  } catch (err) {
+    console.warn('[copy] failed:', err);
+  }
+}
+function fallbackCopy(text, done) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); done && done(); } catch (_) {}
+  document.body.removeChild(ta);
+}
+
+// ---------- 全域 error handler，避免單一 script error 中斷頁面 ----------
+window.addEventListener('error', (e) => {
+  console.warn('[global error caught]', e && e.message);
+}, true);
+</script>
+
+<!-- Prism 主檔與必要語言（HCL 用 prism-hcl，Bash、YAML 內建於 components）-->
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-hcl.min.js"></script>
+<script>
+  // Prism 載完後手動 highlight 一次（boot 時可能還沒載入完成）
+  document.addEventListener('DOMContentLoaded', function () {
+    if (window.Prism && typeof window.Prism.highlightAll === 'function') {
+      try { window.Prism.highlightAll(); } catch (err) { console.warn('[prism] late highlight failed:', err); }
+    }
+  });
+</script>
+
+</body>
+</html>

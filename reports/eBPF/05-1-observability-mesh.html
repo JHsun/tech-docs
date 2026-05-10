@@ -1,0 +1,1251 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>eBPF 教學手冊 · 冊五-1 · 可觀測性 + 網路 / Service Mesh</title>
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger:  #dc2626; --color-danger-soft:  #fee2e2;
+  --color-info:    #0891b2; --color-info-soft:    #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px; --text-lg: 20px;
+  --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px; --text-4xl: 64px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger:  #f87171; --color-danger-soft:  oklch(0.32 0.10 27);
+  --color-info:    #22d3ee; --color-info-soft:    oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font-serif-body); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-7) var(--space-5); }
+header.site-header { border-bottom: 1px solid var(--border-soft); background: var(--bg-surface); position: sticky; top: 0; z-index: 50; backdrop-filter: blur(8px); }
+.header-inner { max-width: var(--container-wide); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); }
+.brand { font-family: var(--font-sans); font-weight: 600; font-size: var(--text-sm); color: var(--text-secondary); letter-spacing: 0.02em; }
+.brand strong { color: var(--color-primary); }
+[data-theme-toggle] { appearance: none; border: 1px solid var(--border-mid); background: var(--bg-muted); color: var(--text-primary); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); font-family: var(--font-sans); font-size: var(--text-sm); cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-2); transition: background 0.15s, border-color 0.15s; }
+[data-theme-toggle]:hover { background: var(--color-primary-soft); border-color: var(--color-primary); }
+.theme-icon { font-size: var(--text-md); }
+h1, h2, h3, h4 { font-family: var(--font-serif); color: var(--text-primary); line-height: 1.25; margin-top: var(--space-7); margin-bottom: var(--space-4); }
+h1 { font-size: var(--text-3xl); margin-top: var(--space-5); letter-spacing: -0.01em; }
+h2 { font-size: var(--text-2xl); border-bottom: 1px solid var(--border-soft); padding-bottom: var(--space-3); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-md); color: var(--color-primary-text); }
+p { margin: var(--space-4) 0; color: var(--text-primary); }
+strong { color: var(--text-primary); font-weight: 600; }
+em { color: var(--text-secondary); }
+a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dotted var(--color-primary); }
+a:hover { color: var(--color-primary-hover); border-bottom-style: solid; }
+ul, ol { padding-left: var(--space-5); }
+li { margin: var(--space-2) 0; }
+code { font-family: var(--font-mono); font-size: 0.92em; background: var(--bg-muted); padding: 2px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+pre { background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.6; margin: var(--space-4) 0; }
+pre code { background: transparent; padding: 0; border: none; color: var(--text-primary); font-size: inherit; }
+blockquote { margin: var(--space-5) 0; padding: var(--space-4) var(--space-5); background: var(--color-primary-soft); border-left: 4px solid var(--color-primary); border-radius: var(--radius-md); color: var(--text-primary); }
+blockquote p:first-child { margin-top: 0; }
+blockquote p:last-child { margin-bottom: 0; }
+.callout { margin: var(--space-5) 0; padding: var(--space-4) var(--space-5); border-radius: var(--radius-md); border-left: 4px solid; background: var(--bg-surface); }
+.callout-title { font-family: var(--font-sans); font-weight: 600; font-size: var(--text-sm); letter-spacing: 0.02em; text-transform: uppercase; margin-bottom: var(--space-2); }
+.callout-info { border-color: var(--color-info); background: var(--color-info-soft); }
+.callout-info .callout-title { color: var(--color-info); }
+.callout-warning { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout-warning .callout-title { color: var(--color-warning); }
+.callout-success { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout-success .callout-title { color: var(--color-success); }
+.callout-danger { border-color: var(--color-danger); background: var(--color-danger-soft); }
+.callout-danger .callout-title { color: var(--color-danger); }
+table { width: 100%; border-collapse: collapse; margin: var(--space-5) 0; font-family: var(--font-sans); font-size: var(--text-sm); }
+th, td { padding: var(--space-3); border-bottom: 1px solid var(--border-soft); text-align: left; vertical-align: top; }
+th { background: var(--bg-muted); color: var(--text-primary); font-weight: 600; }
+tr:hover td { background: var(--bg-muted); }
+.audience-tags { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-3) 0; }
+.tag { display: inline-block; padding: 2px 10px; border-radius: 999px; font-family: var(--font-sans); font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.02em; border: 1px solid transparent; }
+.tag-beginner { background: var(--color-success-soft); color: var(--color-success); border-color: var(--color-success); }
+.tag-developer { background: var(--color-warning-soft); color: var(--color-warning); border-color: var(--color-warning); }
+.tag-ops { background: var(--color-danger-soft); color: var(--color-danger); border-color: var(--color-danger); }
+.meta-bar { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-muted); border-top: 1px dashed var(--border-soft); border-bottom: 1px dashed var(--border-soft); padding: var(--space-3) 0; margin: var(--space-5) 0 var(--space-7); display: flex; flex-wrap: wrap; gap: var(--space-5); }
+.meta-bar span strong { color: var(--text-secondary); font-weight: 600; margin-right: var(--space-2); }
+hr { border: none; border-top: 1px solid var(--border-soft); margin: var(--space-7) 0; }
+.toc { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); padding: var(--space-5); margin: var(--space-5) 0; font-family: var(--font-sans); font-size: var(--text-sm); }
+.toc h3 { margin: 0 0 var(--space-3); font-family: var(--font-sans); font-size: var(--text-sm); text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border: none; }
+.toc ol { margin: 0; padding-left: var(--space-5); }
+.toc li { margin: var(--space-2) 0; }
+.toc a { color: var(--text-primary); border-bottom: none; }
+.toc a:hover { color: var(--color-primary); }
+footer.site-footer { border-top: 1px solid var(--border-soft); margin-top: var(--space-8); padding: var(--space-5); text-align: center; color: var(--text-muted); font-family: var(--font-sans); font-size: var(--text-sm); }
+.mermaid-wrap { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); margin: var(--space-5) 0; overflow-x: auto; text-align: center; }
+.mermaid-wrap .mermaid { display: inline-block; min-width: 100%; }
+.mermaid-wrap .mermaid svg { max-width: 100%; height: auto; }
+.code-tabs { margin: var(--space-5) 0; border: 1px solid var(--border-soft); border-radius: var(--radius-md); overflow: hidden; background: var(--bg-surface); }
+.code-tabs-header { display: flex; background: var(--bg-muted); border-bottom: 1px solid var(--border-soft); padding: 0; margin: 0; flex-wrap: wrap; }
+.code-tab-btn { appearance: none; border: none; background: transparent; color: var(--text-secondary); font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; padding: var(--space-3) var(--space-5); cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-2); border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s, background 0.15s; }
+.code-tab-btn:hover { background: var(--bg-surface); color: var(--text-primary); }
+.code-tab-btn[aria-selected="true"] { color: var(--color-primary); border-bottom-color: var(--color-primary); background: var(--bg-surface); }
+.code-tab-icon { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.code-tab-icon.go { background: #00add8; }
+.code-tab-icon.rust { background: #ce422b; }
+.code-tab-icon.shell { background: var(--color-success); }
+.code-tab-icon.c { background: var(--color-neutral-accent); }
+.code-tab-panel { display: none; padding: 0; }
+.code-tab-panel[data-active="true"] { display: block; }
+.code-tab-panel pre { margin: 0; border: none; border-radius: 0; background: var(--bg-code); }
+.code-tab-filename { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); padding: var(--space-2) var(--space-4); background: var(--bg-muted); border-bottom: 1px solid var(--border-soft); }
+.step-badge { display: inline-block; background: var(--color-primary); color: var(--bg-canvas); font-family: var(--font-sans); font-size: var(--text-xs); font-weight: 700; padding: 2px 10px; border-radius: 999px; margin-right: var(--space-2); letter-spacing: 0.05em; }
+.cat-badge { display: inline-block; background: var(--bg-muted); border: 1px solid var(--border-mid); color: var(--text-secondary); font-family: var(--font-sans); font-size: var(--text-xs); font-weight: 600; padding: 2px 8px; border-radius: var(--radius-sm); margin-right: var(--space-2); }
+
+/* Verifier reg-state notation styling */
+.regstate {
+  font-family: var(--font-mono); font-size: var(--text-sm);
+  background: var(--bg-code); padding: 2px 6px; border-radius: var(--radius-sm);
+  color: var(--color-primary-text); border: 1px solid var(--border-soft);
+  white-space: nowrap;
+}
+/* Helper category cards */
+.helper-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-4); margin: var(--space-5) 0;
+}
+.helper-card {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  font-family: var(--font-sans);
+}
+.helper-card h4 {
+  margin: 0 0 var(--space-2); font-family: var(--font-sans);
+  color: var(--color-primary); font-size: var(--text-base);
+}
+.helper-card .helper-list {
+  font-family: var(--font-mono); font-size: var(--text-xs);
+  color: var(--text-secondary); line-height: 1.7;
+  list-style: none; padding-left: 0; margin: var(--space-2) 0 0;
+}
+.helper-card .helper-list li { margin: 0; }
+.helper-card .helper-list li::before {
+  content: "• "; color: var(--color-primary);
+}
+
+@media (max-width: 640px) {
+  h1 { font-size: var(--text-2xl); }
+  h2 { font-size: var(--text-xl); }
+  .container { padding: var(--space-4); }
+}
+</style>
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]}`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  function buildConfig(theme) {
+    const isDark = theme === 'dark';
+    return {
+      startOnLoad: false, theme: 'base',
+      fontFamily: '"DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif',
+      themeVariables: isDark ? {
+        background: '#262421',
+        primaryColor: '#1f3a4a', primaryTextColor: '#e8e6e3', primaryBorderColor: '#5aa9c4',
+        secondaryColor: '#2a3640', secondaryTextColor: '#e8e6e3', secondaryBorderColor: '#4a6b7a',
+        tertiaryColor: '#332e2a', tertiaryTextColor: '#e8e6e3', tertiaryBorderColor: '#5a5550',
+        lineColor: '#94c5d4', textColor: '#e8e6e3', mainBkg: '#1f3a4a',
+        edgeLabelBackground: '#262421', clusterBkg: '#262421', clusterBorder: '#4a4540',
+        nodeBorder: '#5aa9c4', labelBackground: '#262421', titleColor: '#e8e6e3',
+      } : {
+        background: '#fdfcfb',
+        primaryColor: '#e6f4f7', primaryTextColor: '#3a3631', primaryBorderColor: '#3a8aa3',
+        secondaryColor: '#f1ede8', secondaryTextColor: '#3a3631', secondaryBorderColor: '#9a8e7e',
+        tertiaryColor: '#f7f1e8', tertiaryTextColor: '#3a3631', tertiaryBorderColor: '#c0a988',
+        lineColor: '#3a8aa3', textColor: '#3a3631', mainBkg: '#e6f4f7',
+        edgeLabelBackground: '#fdfcfb', clusterBkg: '#f5f1ec', clusterBorder: '#c4bbae',
+        nodeBorder: '#3a8aa3', labelBackground: '#fdfcfb', titleColor: '#3a3631',
+      },
+      flowchart: { curve: 'basis', padding: 16, htmlLabels: true },
+      sequence: { diagramMarginX: 30, diagramMarginY: 10, actorMargin: 50 },
+    };
+  }
+  function snapshotSources() { document.querySelectorAll('.mermaid').forEach((el) => { if (!el.dataset.source) el.dataset.source = el.textContent.trim(); }); }
+  async function renderAll(theme) {
+    if (typeof mermaid === 'undefined') return;
+    snapshotSources();
+    mermaid.initialize(buildConfig(theme));
+    const nodes = document.querySelectorAll('.mermaid');
+    let i = 0;
+    for (const node of nodes) {
+      const id = 'mmd-' + (i++) + '-' + Date.now();
+      try { const { svg } = await mermaid.render(id, node.dataset.source); node.innerHTML = svg; node.removeAttribute('data-processed'); }
+      catch (err) { console.error('mermaid render error', err); }
+    }
+  }
+  function getEffectiveTheme() { return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'; }
+  function init() {
+    snapshotSources();
+    renderAll(getEffectiveTheme());
+    window.addEventListener('jhsun:theme-changed', (e) => { const t = (e.detail && e.detail.theme) || getEffectiveTheme(); renderAll(t); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+<script>
+(function() {
+  'use strict';
+  function init() {
+    document.querySelectorAll('.code-tabs').forEach((tabs) => {
+      const btns = tabs.querySelectorAll('.code-tab-btn');
+      const panels = tabs.querySelectorAll('.code-tab-panel');
+      btns.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const target = btn.dataset.target;
+          btns.forEach((b) => b.setAttribute('aria-selected', b === btn ? 'true' : 'false'));
+          panels.forEach((p) => p.dataset.active = (p.dataset.id === target ? 'true' : 'false'));
+        });
+      });
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-inner">
+    <div class="brand">eBPF 教學手冊 · <strong>冊五-1</strong> · 可觀測性 + 網路/Service Mesh</div>
+    <button data-theme-toggle aria-label="Toggle theme"></button>
+  </div>
+</header>
+
+<main class="container">
+
+<h1>第 18 章　eBPF 可觀測性</h1>
+
+<div class="audience-tags">
+  <span class="tag tag-ops">🔴 DevOps / SRE</span>
+  <span class="tag tag-developer">🟡 開發者</span>
+</div>
+
+<div class="meta-bar">
+  <span><strong>章節</strong>第五部 DevOps / SRE 視角</span>
+  <span><strong>對應生態</strong>Pixie · Pyroscope · Parca · Hubble · Inspektor Gadget</span>
+  <span><strong>預期閱讀時間</strong>90–120 分鐘</span>
+  <span><strong>前置知識</strong>第 11 章 Tracing、第 17 章除錯與 benchmark</span>
+</div>
+
+<blockquote>
+<p><strong>本章學習目標</strong></p>
+<ul>
+<li>理解可觀測性<strong>三大支柱</strong>（Metrics / Logs / Traces）+ <strong>Profiles</strong>（第四支柱）在 eBPF 時代的重新定義。</li>
+<li>掌握 eBPF <strong>continuous profiling</strong> 的工作原理：取樣堆疊、聚合、火焰圖。</li>
+<li>看懂主流 eBPF 可觀測性工具的<strong>定位與選擇</strong>：<strong>Pixie / Parca / Pyroscope / Hubble / Inspektor Gadget / Coroot / Beyla / Odigos</strong>。</li>
+<li>理解 eBPF 與 OpenTelemetry 的<strong>互補</strong>關係（不是取代）。</li>
+<li>學會用 <code>BPF_MAP_TYPE_STACK_TRACE</code> 自己做火焰圖。</li>
+<li>了解 eBPF 觀測的<strong>成本控制</strong>原則：sampling、aggregation、cardinality。</li>
+</ul>
+</blockquote>
+
+<div class="toc">
+<h3>本章目錄</h3>
+<ol>
+<li><a href="#sec-18-1">18.1 觀測性四支柱與 eBPF 的角色</a></li>
+<li><a href="#sec-18-2">18.2 Continuous Profiling 工作原理</a></li>
+<li><a href="#sec-18-3">18.3 Pixie：自動 L7 trace</a></li>
+<li><a href="#sec-18-4">18.4 Parca / Pyroscope：CPU profiling</a></li>
+<li><a href="#sec-18-5">18.5 Hubble：網路流可視化</a></li>
+<li><a href="#sec-18-6">18.6 Inspektor Gadget：kubectl 級的工具集</a></li>
+<li><a href="#sec-18-7">18.7 Coroot / Beyla / Odigos：OTel 路線</a></li>
+<li><a href="#sec-18-8">18.8 自己做：用 STACK_TRACE map 寫火焰圖採樣器</a></li>
+<li><a href="#sec-18-9">18.9 eBPF 可觀測性的成本控制</a></li>
+<li><a href="#sec-18-10">18.10 eBPF vs OpenTelemetry：互補不取代</a></li>
+<li><a href="#sec-18-11">18.11 第 18 章小結</a></li>
+</ol>
+</div>
+
+<hr>
+
+<h2 id="sec-18-1">18.1 觀測性四支柱與 eBPF 的角色</h2>
+
+<p>傳統觀測性三支柱：<strong>Metrics</strong>（指標）、<strong>Logs</strong>（日誌）、<strong>Traces</strong>（分散式追蹤）。eBPF 帶來第四支柱 <strong>Profiles</strong>（連續取樣分析）成為主流。</p>
+
+<div class="mermaid-wrap"><div class="mermaid">
+flowchart TB
+    APP["應用程式 / Kubernetes 叢集"]
+
+    subgraph PILLARS["可觀測性四支柱"]
+        M["Metrics<br/>數值時序<br/>(每 15-30s 取樣)"]
+        L["Logs<br/>事件文字<br/>(byte stream)"]
+        T["Traces<br/>分散式請求路徑<br/>(span tree)"]
+        P["Profiles<br/>連續堆疊取樣<br/>(每 CPU 19/s)"]
+    end
+
+    subgraph EBPF_ROLE["eBPF 提供"]
+        EM["核心 metric<br/>(syscall 延遲、TCP retrans)"]
+        EL["Kernel event log<br/>(execve、socket、file)"]
+        ET["L7 自動 trace<br/>(無需 SDK 注入)"]
+        EP["Whole-system profiling<br/>(跨語言一致)"]
+    end
+
+    APP --> M & L & T & P
+    EM --> M
+    EL --> L
+    ET --> T
+    EP --> P
+</div></div>
+
+<h3>18.1.1 eBPF 在每個支柱的獨特價值</h3>
+
+<table>
+<thead>
+<tr><th>支柱</th><th>傳統作法</th><th>eBPF 的加值</th></tr>
+</thead>
+<tbody>
+<tr><td>Metrics</td><td>應用內 Prometheus client export</td><td>核心級 metric（syscall 慢、retrans、scheduling latency），<strong>應用無感</strong></td></tr>
+<tr><td>Logs</td><td>應用 stdout / stderr</td><td>Kernel event 日誌（execve、open、connect），<strong>看見應用沒記錄的</strong></td></tr>
+<tr><td>Traces</td><td>OpenTelemetry SDK 嵌入應用</td><td>L7 自動 trace（HTTP / gRPC / DNS / SQL），<strong>無需改 code</strong></td></tr>
+<tr><td>Profiles</td><td>偶發 perf 採樣，不持續</td><td>Continuous profiling，<strong>跨語言、跨容器、低 overhead</strong></td></tr>
+</tbody>
+</table>
+
+<h2 id="sec-18-2">18.2 Continuous Profiling 工作原理</h2>
+
+<h3>18.2.1 取樣 → 聚合 → 火焰圖</h3>
+
+<p>傳統 <code>perf record</code> 只能對某個 process 短時間取樣。eBPF profiler 用<strong>常駐取樣器</strong> + <strong>map 聚合</strong> + <strong>非同步上傳</strong>達成「production-safe always-on profiling」。</p>
+
+<div class="mermaid-wrap"><div class="mermaid">
+sequenceDiagram
+    participant CPU as CPU 0..N
+    participant K as Kernel<br/>perf_event timer
+    participant B as BPF program<br/>(perf_event type)
+    participant M as STACK_TRACE map<br/>+ HASH map count
+    participant A as Profiler agent
+    participant S as Backend<br/>(Parca/Pyroscope server)
+
+    loop 每 1/19 秒
+        K->>CPU: 中斷 (per-CPU)
+        CPU->>B: 執行 BPF
+        B->>B: bpf_get_stackid(ctx)
+        B->>M: 紀錄 stack_id
+        B->>M: count++ on (pid, stack_id)
+    end
+
+    loop 每 N 秒
+        A->>M: lookup batch dump
+        M-->>A: aggregated samples
+        A->>A: 解析 stack_id → 函式名
+        A->>S: pprof 上傳
+    end
+</div></div>
+
+<h3>18.2.2 為什麼這個架構可以 production always-on</h3>
+
+<table>
+<thead>
+<tr><th>關鍵設計</th><th>節省的 overhead</th></tr>
+</thead>
+<tbody>
+<tr><td>取樣（19 Hz / CPU）</td><td>只看 5% 的 CPU 時間，但統計上代表全部</td></tr>
+<tr><td>BPF 寫 map，不直接打 user space</td><td>無 syscall、無 context switch</td></tr>
+<tr><td>Stack trace deduplicate</td><td>同樣 stack 只存一次，N 次出現只增加 counter</td></tr>
+<tr><td>Agent 非同步 dump（每 N 秒）</td><td>不阻擋 BPF 執行</td></tr>
+<tr><td>跨 process 共用 BPF 程式</td><td>不需要每個 pod 注入</td></tr>
+</tbody>
+</table>
+
+<p>實測 overhead 通常 <strong>< 1% CPU</strong>，遠低於傳統 perf 的 5-10%。</p>
+
+<h2 id="sec-18-3">18.3 Pixie：自動 L7 trace</h2>
+
+<div class="map-card">
+<div class="map-card-title">Pixie</div>
+<dl>
+<dt>定位</dt><dd>K8s 自動可觀測性平台</dd>
+<dt>主要技術</dt><dd>uprobe（OpenSSL / libssl）+ kprobe（socket I/O）</dd>
+<dt>提供</dt><dd>Service map、HTTP trace、SQL trace、火焰圖、PxL 查詢語言</dd>
+<dt>歸屬</dt><dd>CNCF Sandbox（New Relic 捐贈）</dd>
+<dt>痛點</dt><dd>edge storage 留存有限；PxL 學習曲線</dd>
+</dl>
+</div>
+
+<h3>18.3.1 自動 L7 trace 的關鍵：uprobe + TLS 解密</h3>
+
+<p>應用使用 OpenSSL / GnuTLS / BoringSSL 等做 HTTPS 加密。Pixie 用 uprobe 鈎住 <code>SSL_read</code> / <code>SSL_write</code>，在<strong>明文剛離開 / 進入加密層的瞬間</strong>抓取 buffer：</p>
+
+<div class="mermaid-wrap"><div class="mermaid">
+flowchart LR
+    APP["應用程式"]
+    SSL_W["SSL_write(明文)"]
+    ENC["加密"]
+    NIC["TLS bytes 上線"]
+    UPROBE["uprobe<br/>抓 buffer"]
+
+    APP --> SSL_W
+    SSL_W -->|"uprobe rendezvous"| UPROBE
+    SSL_W --> ENC --> NIC
+    UPROBE -. "收集明文" .-> ANALYZE["L7 解析<br/>HTTP / gRPC"]
+</div></div>
+
+<p>所以 Pixie 能<strong>不解密 TLS、卻看到 HTTP request 內容</strong>——因為它在「加密之前」抓取。Cilium / Tetragon 等工具也使用類似手法。</p>
+
+<h2 id="sec-18-4">18.4 Parca / Pyroscope：CPU profiling</h2>
+
+<table>
+<thead>
+<tr><th>面向</th><th>Parca</th><th>Pyroscope（Grafana）</th></tr>
+</thead>
+<tbody>
+<tr><td>取樣機制</td><td>eBPF（whole-system）</td><td>eBPF + 各語言 SDK profiler</td></tr>
+<tr><td>儲存</td><td>自家 columnar pprof</td><td>類 Mimir 的 LSM</td></tr>
+<tr><td>查詢</td><td>類 Prometheus label selector</td><td>類 Prometheus + Grafana 整合</td></tr>
+<tr><td>商業版</td><td>Polar Signals Cloud</td><td>Grafana Cloud Profiles</td></tr>
+<tr><td>適合場景</td><td>純 OSS、Prometheus-style 標籤</td><td>已用 Grafana stack</td></tr>
+</tbody>
+</table>
+
+<h3>18.4.1 Parca 部署示例</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="parca-deploy" aria-selected="true"><span class="code-tab-icon shell"></span>K8s</button>
+</div>
+<div class="code-tab-panel" data-id="parca-deploy" data-active="true">
+<div class="code-tab-filename">部署 Parca + Agent</div>
+<pre><code># 1) 部署 Parca server（接收 + UI）
+$ kubectl apply -f https://github.com/parca-dev/parca/releases/latest/download/kubernetes-manifest.yaml
+
+# 2) 部署 Parca Agent（DaemonSet, eBPF profiler）
+$ kubectl apply -f https://github.com/parca-dev/parca-agent/releases/latest/download/kubernetes-manifest.yaml
+
+# 3) 連到 UI
+$ kubectl port-forward -n parca service/parca 7070
+# 瀏覽 http://localhost:7070
+
+# 4) 看單一 pod 的 CPU 火焰圖
+# 在 UI 查詢：
+#   {namespace="prod", pod="checkout-7d5f"}</code></pre>
+</div>
+</div>
+
+<h2 id="sec-18-5">18.5 Hubble：網路流可視化</h2>
+
+<div class="map-card">
+<div class="map-card-title">Hubble</div>
+<dl>
+<dt>定位</dt><dd>Cilium 的<strong>網路</strong>觀測層</dd>
+<dt>主要技術</dt><dd>tcx + cgroup_skb + L7 envoy proxy</dd>
+<dt>提供</dt><dd>L3/L4/L7 flow 即時可視化、Service map、policy verdicts</dd>
+<dt>整合</dt><dd>Hubble UI、Hubble CLI（<code>hubble observe</code>）、Prometheus metrics</dd>
+</dl>
+</div>
+
+<h3>18.5.1 Hubble 觀察範例</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="hubble-cli" aria-selected="true"><span class="code-tab-icon shell"></span>CLI</button>
+</div>
+<div class="code-tab-panel" data-id="hubble-cli" data-active="true">
+<div class="code-tab-filename">hubble observe</div>
+<pre><code># 啟用 Hubble + Hubble Relay（叢集級匯總）
+$ cilium hubble enable --ui
+
+# 看實時流量
+$ hubble observe --follow
+May  6 10:00:00 default/frontend-7d → default/backend-9c TCP_FLAGS  ack
+May  6 10:00:00 default/frontend-7d → default/backend-9c HTTP/1.1 GET /api/v1/users 200 4ms
+
+# 篩選某 pod 的 drop
+$ hubble observe --to-pod default/payments-xyz --verdict DROPPED
+
+# L7 HTTP（需先 enable proxy visibility）
+$ hubble observe --type l7 --pod payments-xyz</code></pre>
+</div>
+</div>
+
+<h2 id="sec-18-6">18.6 Inspektor Gadget：kubectl 級的工具集</h2>
+
+<div class="map-card">
+<div class="map-card-title">Inspektor Gadget</div>
+<dl>
+<dt>定位</dt><dd>把 BCC / libbpf-tools 包成 K8s 原生「gadget」</dd>
+<dt>主要技術</dt><dd>cilium/ebpf + DaemonSet + image-based gadget 套件</dd>
+<dt>提供</dt><dd>kubectl 子命令直接 trace pod / namespace</dd>
+</dl>
+</div>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="ig-cli" aria-selected="true"><span class="code-tab-icon shell"></span>CLI</button>
+</div>
+<div class="code-tab-panel" data-id="ig-cli" data-active="true">
+<div class="code-tab-filename">kubectl gadget</div>
+<pre><code># 安裝 plugin
+$ kubectl krew install gadget
+
+# 部署 DaemonSet
+$ kubectl gadget deploy
+
+# Trace TCP connect 在某 namespace
+$ kubectl gadget run trace_tcpconnect:latest --namespace prod
+NAMESPACE  POD               CONTAINER  PID    COMM    SADDR    SPORT  DADDR    DPORT
+prod       checkout-1        app        12345  curl    10.1.0.5 51234  9.9.9.9  443
+prod       payments-2        app        12346  java    10.1.0.6 51289  10.1.0.7 5432
+
+# Profile CPU 在某 pod
+$ kubectl gadget run profile_cpu:latest --podname checkout-1
+&lt;火焰圖文字版&gt;
+
+# DNS 查詢
+$ kubectl gadget run trace_dns:latest --namespace prod</code></pre>
+</div>
+</div>
+
+<h2 id="sec-18-7">18.7 Coroot / Beyla / Odigos：OTel 路線</h2>
+
+<table>
+<thead>
+<tr><th>工具</th><th>定位</th><th>輸出格式</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Coroot</strong></td><td>「root cause auto-discovery」端到端可觀測性平台</td><td>自家 UI + Prometheus</td></tr>
+<tr><td><strong>Beyla / OBI</strong>（Grafana）</td><td>用 eBPF 自動產生 OTel metrics + traces</td><td>OTLP（標準 OpenTelemetry Protocol）</td></tr>
+<tr><td><strong>Odigos</strong></td><td>K8s 上自動注入 OTel + eBPF auto-instrument</td><td>OTLP，可送任意後端（Tempo / Jaeger / Honeycomb）</td></tr>
+</tbody>
+</table>
+
+<p>這條路線的<strong>核心理念</strong>：用 eBPF 自動產生資料，但<strong>輸出標準 OTel</strong>。讓既有 OTel 後端（Tempo、Jaeger、Datadog、New Relic）原生消費，不綁定特定平台。</p>
+
+<h2 id="sec-18-8">18.8 自己做：用 STACK_TRACE map 寫火焰圖採樣器</h2>
+
+<p>了解原理勝過用工具。下面示範用 <code>BPF_MAP_TYPE_STACK_TRACE</code> 自寫一個簡易 CPU profiler。</p>
+
+<h3>18.8.1 BPF C</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="prof-c" aria-selected="true"><span class="code-tab-icon c"></span>BPF C</button>
+</div>
+<div class="code-tab-panel" data-id="prof-c" data-active="true">
+<div class="code-tab-filename">profile.bpf.c</div>
+<pre><code>#include "vmlinux.h"
+#include &lt;bpf/bpf_helpers.h&gt;
+#include &lt;bpf/bpf_tracing.h&gt;
+
+#define MAX_STACK_DEPTH 127
+#define MAX_ENTRIES 16384
+
+struct {
+    __uint(type, BPF_MAP_TYPE_STACK_TRACE);
+    __type(key, __u32);
+    __type(value, __u64[MAX_STACK_DEPTH]);
+    __uint(max_entries, MAX_ENTRIES);
+} stack_traces SEC(".maps");
+
+struct sample_key {
+    __u32 pid;
+    __s32 user_stack_id;
+    __s32 kern_stack_id;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, struct sample_key);
+    __type(value, __u64);
+    __uint(max_entries, MAX_ENTRIES);
+} counts SEC(".maps");
+
+SEC("perf_event")
+int do_sample(struct bpf_perf_event_data *ctx) {
+    __u32 pid = bpf_get_current_pid_tgid() &gt;&gt; 32;
+    if (pid == 0) return 0;
+
+    struct sample_key key = {
+        .pid = pid,
+        .user_stack_id = bpf_get_stackid(ctx, &amp;stack_traces, BPF_F_USER_STACK),
+        .kern_stack_id = bpf_get_stackid(ctx, &amp;stack_traces, 0),
+    };
+
+    __u64 zero = 0, *count;
+    count = bpf_map_lookup_elem(&amp;counts, &amp;key);
+    if (count) (*count)++;
+    else bpf_map_update_elem(&amp;counts, &amp;key, &amp;zero, BPF_ANY);
+
+    return 0;
+}
+
+char LICENSE[] SEC("license") = "GPL";</code></pre>
+</div>
+</div>
+
+<h3>18.8.2 Go user space（attach 到 perf event）</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="prof-go" aria-selected="true"><span class="code-tab-icon go"></span>Go</button>
+</div>
+<div class="code-tab-panel" data-id="prof-go" data-active="true">
+<div class="code-tab-filename">main.go（節錄）</div>
+<pre><code>package main
+
+import (
+    "github.com/cilium/ebpf"
+    "github.com/cilium/ebpf/link"
+    "github.com/cilium/ebpf/rlimit"
+    "log"
+    "os"
+    "os/signal"
+    "syscall"
+)
+
+func main() {
+    if err := rlimit.RemoveMemlock(); err != nil { log.Fatal(err) }
+
+    var objs profObjects
+    if err := loadProfObjects(&amp;objs, nil); err != nil { log.Fatal(err) }
+    defer objs.Close()
+
+    /* 對每個 CPU attach 一個 perf event sampler，99 Hz */
+    for cpu := 0; cpu &lt; runtime.NumCPU(); cpu++ {
+        l, err := link.OpenPerfEventCPU(link.PerfEventOptions{
+            CPU:        cpu,
+            SampleFreq: 99,
+            Type:       link.PerfTypeSoftware,
+            Config:     link.PerfCountSWCPUClock,
+            Program:    objs.DoSample,
+        })
+        if err != nil { log.Fatal(err) }
+        defer l.Close()
+    }
+
+    /* 等待 30 秒，然後 dump */
+    sig := make(chan os.Signal, 1)
+    signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+    log.Println("Sampling... Ctrl-C 結束")
+    &lt;-sig
+
+    dumpFolded(objs.Counts, objs.StackTraces)
+}
+
+/* dumpFolded：把 (pid, stack) → count 轉成 folded format（餵 flamegraph.pl 用） */
+func dumpFolded(counts *ebpf.Map, st *ebpf.Map) {
+    var key profSampleKey
+    var val uint64
+
+    iter := counts.Iterate()
+    for iter.Next(&amp;key, &amp;val) {
+        names := []string{}
+        var stack [127]uint64
+
+        /* user stack */
+        if key.UserStackId &gt;= 0 {
+            st.Lookup(uint32(key.UserStackId), &amp;stack)
+            for _, ip := range stack {
+                if ip == 0 { break }
+                names = append(names, fmt.Sprintf("0x%x", ip))
+                /* 真實工具會用 /proc/[pid]/maps 解析 + DWARF/symbol */
+            }
+        }
+        /* kernel stack */
+        /* ... */
+
+        fmt.Printf("pid_%d;%s %d\n", key.Pid, strings.Join(names, ";"), val)
+    }
+}</code></pre>
+</div>
+</div>
+
+<h3>18.8.3 產火焰圖</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="prof-flame" aria-selected="true"><span class="code-tab-icon shell"></span>shell</button>
+</div>
+<div class="code-tab-panel" data-id="prof-flame" data-active="true">
+<div class="code-tab-filename">產生火焰圖</div>
+<pre><code>$ sudo ./profiler &gt; folded.txt
+
+# Brendan Gregg 的 FlameGraph 工具
+$ git clone https://github.com/brendangregg/FlameGraph
+$ ./FlameGraph/flamegraph.pl folded.txt &gt; flame.svg
+$ open flame.svg</code></pre>
+</div>
+</div>
+
+<h2 id="sec-18-9">18.9 eBPF 可觀測性的成本控制</h2>
+
+<p>BPF 跑在 kernel 內，<strong>每個事件</strong>都會觸發。如果不控管，高頻事件（每秒百萬次的網路封包、context switch）會吃掉可觀的 CPU，而且事件量會塞爆 user space。</p>
+
+<h3>18.9.1 控管四原則</h3>
+
+<table>
+<thead>
+<tr><th>原則</th><th>實作方式</th></tr>
+</thead>
+<tbody>
+<tr><td>① <strong>Sampling</strong></td><td>每 N 個事件取一個（perf_event 用採樣頻率，自寫程式用 <code>bpf_get_prandom_u32() %% N</code>）</td></tr>
+<tr><td>② <strong>Aggregation in BPF</strong></td><td>BPF 內聚合（HASH map count），<strong>不要</strong>每個事件都打到 user space</td></tr>
+<tr><td>③ <strong>Cardinality 控制</strong></td><td>label 維度爆炸是觀測系統 #1 殺手；避免把 PID、connection-tuple 當 label</td></tr>
+<tr><td>④ <strong>Retention 規劃</strong></td><td>profile 與高 cardinality metric 退場政策；老資料降採樣</td></tr>
+</tbody>
+</table>
+
+<h3>18.9.2 BPF 端 sampling 範例</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="sample-c" aria-selected="true"><span class="code-tab-icon c"></span>BPF C</button>
+</div>
+<div class="code-tab-panel" data-id="sample-c" data-active="true">
+<div class="code-tab-filename">每 100 個事件記一個</div>
+<pre><code>SEC("kprobe/tcp_v4_connect")
+int sampled_trace(struct pt_regs *ctx) {
+    if (bpf_get_prandom_u32() % 100 != 0)
+        return 0;     /* 99% 跳過 */
+    /* ... 真正記錄 ... */
+    return 0;
+}</code></pre>
+</div>
+</div>
+
+<h2 id="sec-18-10">18.10 eBPF vs OpenTelemetry：互補不取代</h2>
+
+<table>
+<thead>
+<tr><th>面向</th><th>eBPF 擅長</th><th>OTel 擅長</th></tr>
+</thead>
+<tbody>
+<tr><td>取得時機</td><td>事後（不必預先 instrument）</td><td>事前（明確標記哪是 span）</td></tr>
+<tr><td>業務語意</td><td>看不到「order_id」、「user_id」</td><td>應用知道，能加 tag</td></tr>
+<tr><td>跨服務 trace 串接</td><td>難（需 context propagation）</td><td>標準 W3C trace context</td></tr>
+<tr><td>核心級事件</td><td>強（syscall、scheduling、TCP retrans）</td><td>無法直接看</td></tr>
+<tr><td>跨語言一致</td><td>強（看 binary 不看 SDK）</td><td>需要每語言 SDK</td></tr>
+<tr><td>低 overhead</td><td>強（kernel 內聚合）</td><td>視 SDK 與 sampling 設計</td></tr>
+</tbody>
+</table>
+
+<div class="callout callout-success">
+<div class="callout-title">最佳實踐：OTel + eBPF 共存</div>
+<p>業務語意的 span（含 user_id / order_id / 重要 tag）用 OTel 寫應用層 instrumentation。<strong>底層</strong>網路與系統指標、profile、L7 trace、kernel event 等用 eBPF 自動採集。兩邊用 trace context（traceparent）關聯。這是 2026 業界共識。</p>
+</div>
+
+<h2 id="sec-18-11">18.11 第 18 章小結</h2>
+
+<ol>
+<li>觀測四支柱：<strong>Metrics / Logs / Traces / Profiles</strong>；eBPF 在每一支柱都帶來「無感、跨語言、低 overhead」的加值。</li>
+<li>Continuous profiling 用「<strong>perf_event 採樣 + STACK_TRACE map 聚合 + 非同步上傳</strong>」達到 always-on，overhead < 1%。</li>
+<li>主流工具地圖：<strong>Pixie</strong>（自動 L7 trace）/ <strong>Parca / Pyroscope</strong>（profiling）/ <strong>Hubble</strong>（網路）/ <strong>Inspektor Gadget</strong>（kubectl 工具集）。</li>
+<li>Coroot / Beyla / Odigos 走「<strong>eBPF + OTel</strong>」路線：用 BPF 採集，但輸出標準 OTLP，不綁平台。</li>
+<li>自己用 <code>BPF_MAP_TYPE_STACK_TRACE</code> + perf_event 也能實作 profiler，了解原理勝過用工具。</li>
+<li>四個成本控制原則：<strong>sampling / aggregation / cardinality / retention</strong>。</li>
+<li><strong>eBPF 不取代 OpenTelemetry</strong>，兩者互補：業務語意用 OTel、底層細節用 eBPF。</li>
+</ol>
+
+<hr>
+
+<h1>第 19 章　網路與 Service Mesh</h1>
+
+<div class="audience-tags">
+  <span class="tag tag-ops">🔴 DevOps / SRE</span>
+</div>
+
+<div class="meta-bar">
+  <span><strong>章節</strong>第五部 DevOps / SRE 視角</span>
+  <span><strong>對應產品</strong>Cilium · Calico eBPF · Katran · Cilium Service Mesh</span>
+  <span><strong>預期閱讀時間</strong>90–120 分鐘</span>
+  <span><strong>前置知識</strong>第 8 章網路類程式（XDP / tcx / SOCK_OPS）+ 第 10 章 cGroup 程式（CGROUP_SOCK_ADDR）</span>
+</div>
+
+<blockquote>
+<p><strong>本章學習目標</strong></p>
+<ul>
+<li>理解 Cilium 為何能<strong>完全取代 kube-proxy</strong>，以及 socket-LB 的工作原理。</li>
+<li>掌握 <strong>sidecarless service mesh</strong> 的設計：L3/L4 在 kernel、L7 用 per-node Envoy。</li>
+<li>看懂 Cilium 的 <strong>data plane</strong>：tcx + cgroup_sock_addr + XDP + Envoy 的分工。</li>
+<li>了解 <strong>Cilium ClusterMesh</strong> 與多叢集網路。</li>
+<li>掌握 Layer 4 高效負載均衡：<strong>Katran</strong>（Meta）。</li>
+<li>看懂 <strong>BIG TCP</strong>、<strong>SRv6</strong>、<strong>WireGuard / IPsec 加密</strong>等現代特性。</li>
+<li>理解 Cilium 與 Istio / Linkerd 的取捨。</li>
+</ul>
+</blockquote>
+
+<div class="toc">
+<h3>本章目錄</h3>
+<ol>
+<li><a href="#sec-19-1">19.1 為何 eBPF 能改寫 K8s 網路</a></li>
+<li><a href="#sec-19-2">19.2 Cilium 取代 kube-proxy</a></li>
+<li><a href="#sec-19-3">19.3 Cilium data plane 架構</a></li>
+<li><a href="#sec-19-4">19.4 Sidecarless Service Mesh</a></li>
+<li><a href="#sec-19-5">19.5 ClusterMesh 與多叢集</a></li>
+<li><a href="#sec-19-6">19.6 Katran：Meta 的 L4 LB</a></li>
+<li><a href="#sec-19-7">19.7 加密：WireGuard 與 IPsec</a></li>
+<li><a href="#sec-19-8">19.8 BIG TCP / SRv6 / IPv6 only</a></li>
+<li><a href="#sec-19-9">19.9 Cilium vs Istio / Linkerd 抉擇</a></li>
+<li><a href="#sec-19-10">19.10 第 19 章小結</a></li>
+</ol>
+</div>
+
+<hr>
+
+<h2 id="sec-19-1">19.1 為何 eBPF 能改寫 K8s 網路</h2>
+
+<p>Kubernetes 預設網路三大元件都有 eBPF 替代品的明確理由：</p>
+
+<table>
+<thead>
+<tr><th>傳統元件</th><th>痛點</th><th>eBPF 解法</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>kube-proxy / iptables</strong></td><td>service 多時 iptables 規則 O(n) 線性掃描，1000 service 延遲明顯</td><td>Cilium socket-LB（O(1) hash 查詢）</td></tr>
+<tr><td><strong>iptables NetworkPolicy</strong></td><td>基於 IP 的規則難維護、policy 變更需 reload</td><td>Cilium identity-based policy（基於 label，K8s 原生概念）</td></tr>
+<tr><td><strong>Sidecar service mesh</strong></td><td>每 pod 多一個 Envoy（CPU + memory + latency 三倍負擔）</td><td>per-node Envoy + eBPF L3/L4，95% 流量不過 sidecar</td></tr>
+</tbody>
+</table>
+
+<h2 id="sec-19-2">19.2 Cilium 取代 kube-proxy</h2>
+
+<h3>19.2.1 kube-proxy 為何慢</h3>
+
+<div class="mermaid-wrap"><div class="mermaid">
+flowchart LR
+    POD["Pod sends to<br/>service VIP 10.96.0.1:80"]
+    NETNS["Pod netns"]
+    NSTACK["Host network stack"]
+    IPT["iptables 規則鏈<br/>(KUBE-SERVICES → KUBE-SVC-XXX → KUBE-SEP-YYY)"]
+    DNAT["DNAT to<br/>real pod IP"]
+    OUT["送出"]
+
+    POD --> NETNS --> NSTACK --> IPT
+    IPT -->|"O(n) 線性掃描"| DNAT --> OUT
+</div></div>
+
+<p>每個 service 約 5-7 條 iptables 規則，1000 個 service 就 5000-7000 條。每個封包都要遍歷一次，對 connection-heavy 工作負載是顯著瓶頸。</p>
+
+<h3>19.2.2 Cilium socket-LB 怎麼解</h3>
+
+<p>Cilium 用 <strong>CGROUP_SOCK_ADDR</strong>（第 10 章 §10.4）在 <code>connect()</code> 系統呼叫的瞬間就改寫目的地：</p>
+
+<div class="mermaid-wrap"><div class="mermaid">
+flowchart LR
+    POD["Pod connect()<br/>到 service VIP"]
+    SC["CGROUP_SOCK_ADDR<br/>BPF 攔截"]
+    MAP["service map 查詢<br/>(O(1) hash)"]
+    REW["改寫 user_ip4 +<br/>user_port → real backend"]
+    NSTACK["Kernel network stack"]
+    OUT["直送 backend pod"]
+
+    POD --> SC --> MAP --> REW --> NSTACK --> OUT
+</div></div>
+
+<p>結果：</p>
+
+<ul>
+<li><strong>O(1)</strong> 查詢，不論 service 多少。</li>
+<li>改寫發生在 <code>connect()</code> 瞬間，<strong>之後封包不再經過 LB</strong>（不像 iptables DNAT 每包都要查 conntrack）。</li>
+<li>無 conntrack 開銷，無 iptables 規則，<strong>10-30% 延遲改善</strong>是常見實測數字。</li>
+</ul>
+
+<h3>19.2.3 啟用 Cilium kube-proxy 替代</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="cil-kpr" aria-selected="true"><span class="code-tab-icon shell"></span>Helm</button>
+</div>
+<div class="code-tab-panel" data-id="cil-kpr" data-active="true">
+<div class="code-tab-filename">cilium kube-proxy replacement</div>
+<pre><code># 安裝 Cilium 並完全停掉 kube-proxy
+$ helm install cilium cilium/cilium \
+  --namespace kube-system \
+  --set kubeProxyReplacement=true \
+  --set k8sServiceHost=&lt;CONTROL_PLANE_IP&gt; \
+  --set k8sServicePort=6443
+
+# 驗證
+$ kubectl -n kube-system exec ds/cilium -- cilium-dbg status | grep KubeProxy
+KubeProxyReplacement: True [eth0 10.0.1.10 (Direct Routing)]
+
+# 確認 kube-proxy 不再運行
+$ kubectl -n kube-system get pods -l k8s-app=kube-proxy
+No resources found</code></pre>
+</div>
+</div>
+
+<h2 id="sec-19-3">19.3 Cilium data plane 架構</h2>
+
+<p>Cilium 的 data plane 是一張<strong>多層分工圖</strong>：每層用最合適的 BPF program type。</p>
+
+<div class="mermaid-wrap"><div class="mermaid">
+flowchart TB
+    subgraph POD["Pod 內"]
+        APP["應用程式"]
+    end
+
+    subgraph KERN["Kernel 資料路徑"]
+        SOCK["socket() / connect()<br/>CGROUP_SOCK_ADDR"]
+        TCX_E["pod veth egress<br/>tcx"]
+        ENVOY["per-node Envoy<br/>(L7 用)"]
+        TCX_I["host eth0 ingress<br/>tcx"]
+        XDP["NIC ingress<br/>XDP（DDoS / 早期 LB）"]
+    end
+
+    subgraph DAEMON["User space"]
+        AGENT["Cilium agent<br/>(維護 BPF maps)"]
+        OPER["Cilium operator"]
+    end
+
+    APP --> SOCK
+    SOCK --> TCX_E
+    TCX_E -->|"L3/L4"| TCX_I
+    TCX_E -->|"L7 (annotated)"| ENVOY --> TCX_I
+    XDP --> TCX_I
+
+    AGENT -. "設定" .-> SOCK & TCX_E & TCX_I & XDP
+    OPER -. "同步 K8s 狀態" .-> AGENT
+</div></div>
+
+<h3>19.3.1 各 BPF 程式分工</h3>
+
+<table>
+<thead>
+<tr><th>程式類型</th><th>位置</th><th>職責</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>CGROUP_SOCK_ADDR</strong></td><td>Pod cgroup</td><td>socket-LB（kube-proxy 替代）</td></tr>
+<tr><td><strong>tcx</strong>（SCHED_CLS via tcx）</td><td>pod veth ingress/egress、host eth0</td><td>L3/L4 policy、加密、IP-in-IP / VXLAN encap、masquerade</td></tr>
+<tr><td><strong>XDP</strong></td><td>physical NIC ingress</td><td>DDoS drop、L4 LB（XDP_TX）、early NAT</td></tr>
+<tr><td><strong>SOCK_OPS / SK_MSG</strong></td><td>Pod cgroup</td><td>Same-host pod-to-pod sockmap redirect（繞過 TCP/IP stack）</td></tr>
+<tr><td><strong>Envoy（user space）</strong></td><td>per-node DaemonSet</td><td>L7 HTTP / gRPC routing、mTLS</td></tr>
+</tbody>
+</table>
+
+<h2 id="sec-19-4">19.4 Sidecarless Service Mesh</h2>
+
+<p>Istio / Linkerd 的傳統做法是<strong>每 pod 注入一個 Envoy sidecar</strong>。Cilium Service Mesh 用 eBPF 重新設計：</p>
+
+<h3>19.4.1 Sidecar vs Sidecarless 對比</h3>
+
+<div class="mermaid-wrap"><div class="mermaid">
+flowchart LR
+    subgraph SC["Sidecar（Istio 傳統）"]
+        P1["Pod"] -->|"localhost"| E1["Envoy sidecar<br/>(per-pod)"]
+        E1 -->|"mTLS"| E2["Envoy sidecar<br/>(對端 pod)"]
+        E2 --> P2["對端 Pod"]
+    end
+
+    subgraph SL["Sidecarless（Cilium）"]
+        PA["Pod"] -. "L3/L4" .-> EBPF["eBPF tcx<br/>(per-node)"]
+        EBPF -. "L7 only" .-> ENVOY["per-node Envoy<br/>(共享)"]
+        EBPF -->|"L3/L4 直接路由"| EBPF2["對端 node tcx"]
+        ENVOY -->|"L7"| EBPF2
+        EBPF2 --> PB["對端 Pod"]
+    end
+</div></div>
+
+<h3>19.4.2 兩個模式的 overhead 對比</h3>
+
+<table>
+<thead>
+<tr><th>面向</th><th>Sidecar (Istio 傳統)</th><th>Sidecarless (Cilium)</th></tr>
+</thead>
+<tbody>
+<tr><td>每 pod 額外容器</td><td>1（Envoy）</td><td>0</td></tr>
+<tr><td>每 pod 額外記憶體</td><td>50-150 MB</td><td>共享</td></tr>
+<tr><td>L4 流量處理</td><td>過 Envoy（user space）</td><td><strong>kernel 內</strong>，不過 Envoy</td></tr>
+<tr><td>L7 流量處理</td><td>過 Envoy</td><td>過 per-node Envoy</td></tr>
+<tr><td>mTLS</td><td>每連線都過 Envoy 加解密</td><td>L7 過 Envoy；L4 用 WireGuard / IPsec 在 kernel 加密</td></tr>
+<tr><td>1000 pod 叢集 CPU 開銷</td><td>~10-20% CPU 給 sidecar</td><td>~1-3% CPU</td></tr>
+</tbody>
+</table>
+
+<h3>19.4.3 Cilium L7 policy 範例</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="cnp-l7" aria-selected="true"><span class="code-tab-icon shell"></span>YAML</button>
+</div>
+<div class="code-tab-panel" data-id="cnp-l7" data-active="true">
+<div class="code-tab-filename">CiliumNetworkPolicy（L7 HTTP）</div>
+<pre><code>apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: only-frontend-can-call-payments
+  namespace: shop
+spec:
+  endpointSelector:
+    matchLabels:
+      app: payments
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: frontend
+    toPorts:
+    - ports:
+      - port: "8080"
+        protocol: TCP
+      rules:
+        http:
+        - method: "POST"
+          path: "/api/v1/charge"
+        # 只允許 POST /api/v1/charge，其他 path 一律拒絕</code></pre>
+</div>
+</div>
+
+<h2 id="sec-19-5">19.5 ClusterMesh 與多叢集</h2>
+
+<p>多叢集場景（DR、跨地域、聯邦）傳統靠 Istio multi-cluster（複雜）或 submariner。Cilium <strong>ClusterMesh</strong> 把它變成 native：</p>
+
+<div class="mermaid-wrap"><div class="mermaid">
+flowchart LR
+    subgraph C1["叢集 A (us-east)"]
+        SA["frontend pod"]
+        OPA["Cilium operator A"]
+        ETCDA["etcd A"]
+    end
+
+    subgraph C2["叢集 B (eu-west)"]
+        SB["payments pod"]
+        OPB["Cilium operator B"]
+        ETCDB["etcd B"]
+    end
+
+    OPA -. "watch services" .-> ETCDB
+    OPB -. "watch services" .-> ETCDA
+
+    SA -->|"connect to global service"| OPA
+    OPA -. "identity 同步" .-> SB
+    SA --> SB
+</div></div>
+
+<p>關鍵特性：</p>
+
+<ul>
+<li><strong>Global Service</strong>：用 <code>annotation: io.cilium/global-service: "true"</code> 標記跨叢集 service。</li>
+<li><strong>Identity 同步</strong>：Cilium identity（基於 K8s label）跨叢集同步。</li>
+<li><strong>跨叢集 NetworkPolicy</strong>：用 cluster name 維度授權。</li>
+<li><strong>傳輸</strong>：node IP 直連 + WireGuard / IPsec 自動加密。</li>
+</ul>
+
+<h2 id="sec-19-6">19.6 Katran：Meta 的 L4 LB</h2>
+
+<div class="map-card">
+<div class="map-card-title">Katran</div>
+<dl>
+<dt>定位</dt><dd>Meta 開源的 L4 負載均衡器</dd>
+<dt>主要技術</dt><dd>XDP（NIC ingress）+ Maglev hash + IPIP encapsulation</dd>
+<dt>規模</dt><dd>Meta 內部處理 facebook.com / instagram.com 全部入站流量</dd>
+<dt>性能</dt><dd>單 NIC 10+ Mpps，scale linear with NIC queues</dd>
+</dl>
+</div>
+
+<p>Katran 是<strong>典型 XDP_TX 用例</strong>：</p>
+
+<ol>
+<li>封包到 NIC，XDP 程式跑。</li>
+<li>從 5-tuple 算 Maglev hash → 挑 backend。</li>
+<li>用 IPIP 把封包包起來轉給 backend（保留 client src IP）。</li>
+<li><code>XDP_TX</code> 從同一 NIC 送出，<strong>完全不進 Linux network stack</strong>。</li>
+</ol>
+
+<p>結果：100K req/s 等級的 LB 不需要傳統 LVS / HAProxy 機群。Cilium 的 XDP-based load-balancer mode 借鑑了 Katran 的設計。</p>
+
+<h2 id="sec-19-7">19.7 加密：WireGuard 與 IPsec</h2>
+
+<p>節點間流量加密是合規常見需求（PCI-DSS、HIPAA）。Cilium 提供兩種模式：</p>
+
+<table>
+<thead>
+<tr><th>模式</th><th>傳輸層加密</th><th>性能</th><th>設定</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>WireGuard</strong></td><td>每節點對 peer 一個 wg interface，user space 不參與</td><td>較高（現代 crypto + kernel 內）</td><td>單一 helm flag <code>encryption.type=wireguard</code></td></tr>
+<tr><td><strong>IPsec</strong></td><td>傳統 ESP，kernel xfrm</td><td>稍低，但成熟</td><td>需設定 SPI key、IPsec policy</td></tr>
+</tbody>
+</table>
+
+<p>啟用 WireGuard 一行：</p>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="cil-wg" aria-selected="true"><span class="code-tab-icon shell"></span>Helm</button>
+</div>
+<div class="code-tab-panel" data-id="cil-wg" data-active="true">
+<div class="code-tab-filename">啟用 WireGuard 加密</div>
+<pre><code>$ helm upgrade cilium cilium/cilium \
+  -n kube-system \
+  --reuse-values \
+  --set encryption.enabled=true \
+  --set encryption.type=wireguard
+
+# Cilium 會自動建立 wg0 interface 並交換 peer key
+$ kubectl -n kube-system exec ds/cilium -- cilium-dbg encrypt status
+Encryption: Wireguard
+  Interface: cilium_wg0
+  Public key: 8fOq...
+  Number of peers: 5</code></pre>
+</div>
+</div>
+
+<h2 id="sec-19-8">19.8 BIG TCP / SRv6 / IPv6 only</h2>
+
+<h3>19.8.1 BIG TCP</h3>
+
+<p>Linux 5.19 引入 <strong>BIG TCP</strong>：把 TCP 段的 GSO / GRO 上限從 64 KB 拉到 <strong>192 KB（IPv6）</strong>，減少封包數量、提高 throughput。Cilium 1.13+ 支援啟用：</p>
+
+<pre><code>--set enableIPv6BIGTCP=true</code></pre>
+
+<p>實測對 100 Gbps 工作負載 throughput 提升 30%+，特別適合 AI 訓練、儲存 replication 場景。</p>
+
+<h3>19.8.2 SRv6（Segment Routing v6）</h3>
+
+<p><strong>SRv6</strong> 是 IPv6 上的 source routing：把封包要走的路徑寫進 IPv6 extension header。Cilium 用 BPF（LWT_SEG6LOCAL，第 9 章）支援 SRv6 終端，做到 service chaining、跨叢集 traffic engineering。</p>
+
+<h3>19.8.3 IPv6 only Kubernetes</h3>
+
+<p>2025-2026 大型雲端開始推 <strong>IPv6 only</strong> 叢集（雙堆疊 IP 不夠用）。Cilium 是少數 native 支援 IPv6 only 的 CNI，包含 socket-LB、policy、加密都可只走 IPv6。</p>
+
+<h2 id="sec-19-9">19.9 Cilium vs Istio / Linkerd 抉擇</h2>
+
+<table>
+<thead>
+<tr><th>面向</th><th>Cilium Service Mesh</th><th>Istio (Ambient mode)</th><th>Linkerd</th></tr>
+</thead>
+<tbody>
+<tr><td>Sidecarless</td><td>✓ eBPF + per-node Envoy</td><td>✓ ztunnel + waypoint proxy（2024 GA）</td><td>2026 路線</td></tr>
+<tr><td>L3/L4 處理位置</td><td>Kernel（eBPF）</td><td>User space ztunnel</td><td>User space proxy</td></tr>
+<tr><td>L7 處理</td><td>per-node Envoy</td><td>waypoint proxy（per-namespace 可選）</td><td>linkerd2-proxy</td></tr>
+<tr><td>整合 CNI</td><td>是（Cilium 本身就是 CNI）</td><td>需獨立 CNI</td><td>需獨立 CNI</td></tr>
+<tr><td>Multi-cluster</td><td>ClusterMesh</td><td>multi-cluster gateway</td><td>multi-cluster extension</td></tr>
+<tr><td>觀測</td><td>Hubble（一站式）</td><td>Kiali + Prometheus + Tempo</td><td>Linkerd dashboard + Prometheus</td></tr>
+<tr><td>適合</td><td>底層想用 eBPF、要極致效能</td><td>已用 Istio 生態</td><td>輕量、保守</td></tr>
+</tbody>
+</table>
+
+<div class="callout callout-info">
+<div class="callout-title">2026 業界趨勢</div>
+<p>三家都往 <strong>sidecarless</strong> 移動。差別在於：Cilium 一開始就 eBPF-native；Istio 的 ambient mode 是後來的轉向；Linkerd 仍以保守 sidecar 為主、但已宣布 sidecarless 路線。底層 eBPF 與 L7 proxy 的<strong>分層</strong>已是業界共識。</p>
+</div>
+
+<h2 id="sec-19-10">19.10 第 19 章小結</h2>
+
+<ol>
+<li>eBPF 改寫 K8s 網路三大元件：<strong>kube-proxy / NetworkPolicy / Service Mesh</strong>。</li>
+<li>Cilium socket-LB 用 CGROUP_SOCK_ADDR 在 connect() 瞬間改寫，<strong>O(1)</strong> 取代 iptables 的 O(n)。</li>
+<li>Cilium data plane 多層分工：<strong>cgroup_sock_addr</strong>（LB）+ <strong>tcx</strong>（policy/encap）+ <strong>XDP</strong>（早期 drop/LB）+ <strong>per-node Envoy</strong>（L7）。</li>
+<li>Sidecarless 模式比 sidecar 省 5-10 倍 CPU、3-5 倍 memory，已是 Istio Ambient、Cilium、Linkerd 三家共同方向。</li>
+<li>ClusterMesh 把多叢集網路變成 native，identity / service / policy 跨叢集同步。</li>
+<li>Katran 是 XDP_TX 的標桿：Meta 用它扛全部入站流量。</li>
+<li>WireGuard / IPsec 提供節點間透明加密；BIG TCP 把 GSO 上限拉到 192 KB；SRv6 / IPv6 only 是 2026 主流方向。</li>
+</ol>
+
+<h3>19.10.1 自我檢驗</h3>
+
+<ol>
+<li>kube-proxy 為何在 1000+ service 時會變慢？socket-LB 怎麼解？</li>
+<li>Cilium data plane 用了哪 4 種 BPF program type？各自做什麼？</li>
+<li>sidecar 與 sidecarless service mesh 的 overhead 差距在哪？</li>
+<li>Pixie 怎麼在<strong>不解密 TLS</strong> 的前提下看到 HTTP 內容？</li>
+<li>Cilium L7 policy 是怎麼運作的？哪部分在 kernel？哪部分在 user space？</li>
+<li>Katran 為何不需要過 Linux network stack？</li>
+<li>WireGuard 比 IPsec 快的根本原因是什麼？</li>
+</ol>
+
+<h3>19.10.2 延伸閱讀</h3>
+
+<ul>
+<li><a href="https://docs.cilium.io/">Cilium 官方文件</a></li>
+<li><a href="https://github.com/cilium/cilium/blob/main/Documentation/network/kubernetes/kubeproxy-free.rst">Cilium kube-proxy free 詳解</a></li>
+<li><a href="https://isovalent.com/blog/post/cilium-service-mesh/">Isovalent — Cilium Service Mesh 介紹</a></li>
+<li><a href="https://github.com/facebookincubator/katran">Katran GitHub</a></li>
+<li><a href="https://docs.cilium.io/en/stable/network/clustermesh/">ClusterMesh 文件</a></li>
+<li><a href="https://lwn.net/Articles/884104/">LWN — BIG TCP</a></li>
+<li><a href="https://docs.cilium.io/en/stable/network/concepts/encryption/">Cilium 加密文件</a></li>
+<li><a href="https://ebpf.io/applications/">eBPF Applications Landscape（完整生態）</a></li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+  <p>eBPF 教學手冊 · 冊五-1 · 第 18 章 可觀測性 + 第 19 章 網路 / Service Mesh<br>
+  下一冊：<strong>冊五-2 · 第 20 章 安全 + 第 21 章 K8s 部署運維</strong></p>
+</footer>
+
+</body>
+</html>

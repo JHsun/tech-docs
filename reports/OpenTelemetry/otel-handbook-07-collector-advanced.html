@@ -1,0 +1,1747 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenTelemetry 教學手冊｜第七篇 Collector 進階：Components、配置、OTTL、擴展</title>
+
+<style>
+/* ============================================================
+   JHsun TechDocs — Unified Design Token Layer (inlined)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+
+  --color-success:        #16a34a;
+  --color-success-soft:   #dcfce7;
+  --color-warning:        #d97706;
+  --color-warning-soft:   #fef3c7;
+  --color-danger:         #dc2626;
+  --color-danger-soft:    #fee2e2;
+  --color-info:           #0891b2;
+  --color-info-soft:      #cffafe;
+  --color-neutral-accent: #7c3aed;
+
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+
+  --font-mono:       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:       "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif:      "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  32px;
+  --text-3xl:  44px;
+  --text-4xl:  64px;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+
+  --container-narrow: 720px;
+  --container-wide:   1280px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+
+:root[data-theme="dark"] {
+  --color-success:        #4ade80;
+  --color-success-soft:   oklch(0.30 0.08 145);
+  --color-warning:        #fbbf24;
+  --color-warning-soft:   oklch(0.32 0.10 70);
+  --color-danger:         #f87171;
+  --color-danger-soft:    oklch(0.32 0.10 27);
+  --color-info:           #22d3ee;
+  --color-info-soft:      oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+
+  --bg-canvas:      oklch(0.16 0.008 50);
+  --bg-surface:     oklch(0.20 0.009 50);
+  --bg-muted:       oklch(0.23 0.010 50);
+  --bg-code:        oklch(0.18 0.009 50);
+  --border-soft:    oklch(0.28 0.010 50);
+  --border-mid:     oklch(0.36 0.012 50);
+  --text-primary:   oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted:     oklch(0.58 0.007 60);
+
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+/* ============================================================
+   Page-specific Editorial layout
+   ============================================================ */
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: var(--font-serif-body);
+  font-size: var(--text-base);
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page-header {
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-surface);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: saturate(140%) blur(8px);
+}
+.page-header-inner {
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.brand {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+.brand strong { color: var(--color-primary-text); }
+
+[data-theme-toggle] {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+[data-theme-toggle]:hover {
+  background: var(--bg-muted);
+  border-color: var(--color-primary);
+}
+.theme-icon { font-size: 1em; line-height: 1; }
+.theme-label { font-weight: 500; }
+
+.hero {
+  max-width: var(--container-narrow);
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-5) var(--space-7);
+}
+.eyebrow {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--color-primary-text);
+  font-weight: 600;
+  margin-bottom: var(--space-4);
+}
+h1 {
+  font-family: var(--font-serif);
+  font-size: var(--text-3xl);
+  line-height: 1.15;
+  margin: 0 0 var(--space-4);
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.lede {
+  font-size: var(--text-md);
+  line-height: 1.7;
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-5);
+}
+.meta {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-soft);
+  padding-top: var(--space-4);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+.meta strong { color: var(--text-secondary); }
+
+main {
+  max-width: var(--container-narrow);
+  margin: 0 auto;
+  padding: 0 var(--space-5) var(--space-9);
+}
+
+h2 {
+  font-family: var(--font-serif);
+  font-size: var(--text-2xl);
+  line-height: 1.25;
+  margin: var(--space-8) 0 var(--space-4);
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--color-primary);
+  padding-bottom: var(--space-2);
+  letter-spacing: -0.005em;
+}
+h3 {
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  margin: var(--space-7) 0 var(--space-3);
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+h4 {
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  margin: var(--space-5) 0 var(--space-3);
+  color: var(--color-primary-text);
+  font-weight: 600;
+}
+
+p {
+  margin: 0 0 var(--space-4);
+  color: var(--text-primary);
+}
+
+a {
+  color: var(--color-primary-text);
+  text-decoration: underline;
+  text-decoration-color: var(--border-mid);
+  text-underline-offset: 0.2em;
+  transition: all 0.2s;
+}
+a:hover {
+  color: var(--color-primary-hover);
+  text-decoration-color: currentColor;
+}
+
+ul, ol {
+  margin: 0 0 var(--space-4);
+  padding-left: var(--space-5);
+}
+li { margin-bottom: var(--space-2); }
+li::marker { color: var(--color-primary); }
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-code);
+  padding: 0.12em 0.4em;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+  color: var(--color-primary-text);
+}
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  margin: 0 0 var(--space-5);
+  color: var(--text-primary);
+}
+pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+blockquote {
+  margin: var(--space-5) 0;
+  padding: var(--space-3) var(--space-5);
+  border-left: 4px solid var(--color-primary);
+  background: var(--color-primary-soft);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+blockquote p:last-child { margin-bottom: 0; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: var(--space-5) 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+th, td {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: top;
+}
+th {
+  background: var(--bg-muted);
+  font-weight: 600;
+  color: var(--color-primary-text);
+  font-family: var(--font-sans);
+}
+tr:last-child td { border-bottom: none; }
+
+/* Audience badges */
+.badges { display: inline-flex; gap: var(--space-2); margin-left: var(--space-3); vertical-align: middle; }
+.badge {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+.badge-beginner { background: var(--color-success-soft); color: var(--color-success); }
+.badge-dev      { background: var(--color-info-soft);    color: var(--color-info); }
+.badge-ops      { background: var(--color-warning-soft); color: var(--color-warning); }
+
+/* Callout boxes */
+.callout {
+  padding: var(--space-4) var(--space-5);
+  margin: var(--space-5) 0;
+  border-radius: var(--radius-md);
+  border-left: 4px solid;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: 1.7;
+}
+.callout-note    { background: var(--color-info-soft);    border-color: var(--color-info); }
+.callout-warn    { background: var(--color-warning-soft); border-color: var(--color-warning); }
+.callout-danger  { background: var(--color-danger-soft);  border-color: var(--color-danger); }
+.callout-success { background: var(--color-success-soft); border-color: var(--color-success); }
+.callout-title {
+  font-weight: 700;
+  margin-bottom: var(--space-2);
+  display: block;
+  letter-spacing: 0.02em;
+}
+.callout p:last-child { margin-bottom: 0; }
+
+/* Mermaid container */
+.mermaid {
+  margin: var(--space-5) 0;
+  text-align: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+  overflow-x: auto;
+}
+
+/* ============================================================
+   Mermaid SVG token-based theming
+   We let mermaid render with its built-in 'neutral' theme (which uses
+   only safe sRGB hex internally), then override the SVG's fills /
+   strokes / text colors here using tokens.css variables. This avoids
+   ever passing oklch() into mermaid (which v11 can't parse), while
+   still keeping the diagrams 100% token-driven and theme-aware with
+   zero re-render cost on theme switch.
+   ============================================================ */
+.mermaid svg { max-width: 100%; height: auto; }
+
+/* Flowchart nodes */
+.mermaid .node rect,
+.mermaid .node polygon,
+.mermaid .node circle,
+.mermaid .node ellipse,
+.mermaid .node path {
+  fill: var(--color-primary-soft) !important;
+  stroke: var(--color-primary) !important;
+  stroke-width: 1.5px !important;
+}
+.mermaid .node .label,
+.mermaid .node text,
+.mermaid .nodeLabel,
+.mermaid .nodeLabel p {
+  color: var(--text-primary) !important;
+  fill: var(--text-primary) !important;
+}
+
+/* Flowchart edges */
+.mermaid .edgePath .path,
+.mermaid .flowchart-link,
+.mermaid .arrowheadPath {
+  stroke: var(--color-primary) !important;
+  fill: var(--color-primary) !important;
+}
+.mermaid .edgeLabel {
+  background: var(--bg-surface) !important;
+  color: var(--text-primary) !important;
+}
+.mermaid .edgeLabel rect { fill: var(--bg-surface) !important; }
+.mermaid .edgeLabel p { color: var(--text-primary) !important; }
+
+/* Cluster / subgraph */
+.mermaid .cluster rect {
+  fill: var(--bg-muted) !important;
+  stroke: var(--border-soft) !important;
+}
+.mermaid .cluster text,
+.mermaid .cluster .nodeLabel { fill: var(--text-secondary) !important; color: var(--text-secondary) !important; }
+
+/* Sequence diagram */
+.mermaid .actor {
+  fill: var(--color-primary-soft) !important;
+  stroke: var(--color-primary) !important;
+}
+.mermaid text.actor > tspan { fill: var(--text-primary) !important; }
+.mermaid .actor-line { stroke: var(--border-mid) !important; }
+.mermaid .messageLine0,
+.mermaid .messageLine1 { stroke: var(--text-secondary) !important; }
+.mermaid .messageText { fill: var(--text-primary) !important; }
+.mermaid .labelBox {
+  fill: var(--bg-muted) !important;
+  stroke: var(--border-soft) !important;
+}
+.mermaid .labelText, .mermaid .labelText tspan { fill: var(--text-primary) !important; }
+.mermaid .loopText, .mermaid .loopText tspan { fill: var(--text-primary) !important; }
+.mermaid .loopLine { stroke: var(--border-mid) !important; }
+.mermaid .note {
+  fill: var(--color-warning-soft) !important;
+  stroke: var(--color-warning) !important;
+}
+.mermaid .noteText, .mermaid .noteText tspan { fill: var(--text-primary) !important; }
+
+/* Gantt */
+.mermaid .grid .tick line { stroke: var(--border-soft) !important; }
+.mermaid .grid path { stroke: transparent !important; }
+.mermaid .section0, .mermaid .section2 { fill: var(--bg-muted) !important; }
+.mermaid .section1, .mermaid .section3 { fill: var(--bg-surface) !important; }
+.mermaid .task { stroke: var(--color-primary) !important; }
+.mermaid rect.task0, .mermaid rect.task1, .mermaid rect.task2, .mermaid rect.task3,
+.mermaid rect.task { fill: var(--color-primary-soft) !important; }
+.mermaid .taskText, .mermaid .taskTextOutsideRight, .mermaid .taskTextOutsideLeft,
+.mermaid text.taskText { fill: var(--text-primary) !important; }
+.mermaid .titleText { fill: var(--text-primary) !important; }
+.mermaid .sectionTitle { fill: var(--text-secondary) !important; }
+.mermaid .today { stroke: var(--color-danger) !important; }
+
+/* TOC */
+.toc {
+  background: var(--bg-muted);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+  margin: var(--space-5) 0 var(--space-7);
+  font-family: var(--font-sans);
+}
+.toc-title {
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--color-primary-text);
+  font-weight: 700;
+  margin-bottom: var(--space-3);
+}
+.toc ol { margin: 0; padding-left: var(--space-5); }
+.toc li { margin-bottom: var(--space-1); }
+.toc a {
+  color: var(--text-primary);
+  text-decoration: none;
+  font-size: var(--text-sm);
+}
+.toc a:hover { color: var(--color-primary); text-decoration: underline; }
+.toc ol ol { margin-top: var(--space-1); }
+.toc ol ol a { color: var(--text-secondary); }
+
+/* Glossary table for terminology */
+.glossary { font-family: var(--font-sans); font-size: var(--text-sm); }
+.glossary th { width: 30%; }
+
+/* Section anchor */
+.anchor-link {
+  margin-left: var(--space-2);
+  opacity: 0;
+  text-decoration: none;
+  color: var(--color-primary);
+  font-size: 0.7em;
+  transition: opacity 0.2s;
+}
+h2:hover .anchor-link, h3:hover .anchor-link { opacity: 1; }
+
+/* Footer */
+.page-footer {
+  border-top: 1px solid var(--border-soft);
+  padding: var(--space-6) var(--space-5);
+  text-align: center;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  h1 { font-size: var(--text-2xl); }
+  h2 { font-size: var(--text-xl); }
+  h3 { font-size: var(--text-md); }
+  .hero { padding: var(--space-6) var(--space-4) var(--space-5); }
+  main  { padding: 0 var(--space-4) var(--space-7); }
+  pre   { font-size: var(--text-xs); }
+}
+</style>
+</head>
+
+<body>
+
+<header class="page-header">
+  <div class="page-header-inner">
+    <span class="brand">OpenTelemetry 教學手冊 · <strong>第七篇 Collector 進階：Components、配置、OTTL、擴展</strong></span>
+    <button data-theme-toggle aria-label="Toggle theme"></button>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="eyebrow">Volume 7 of 10 · Collector Advanced</div>
+  <h1>Collector 進階：Components、配置、OTTL、擴展</h1>
+  <p class="lede">
+    上一篇建立了 Collector 全景與部署模式，這一篇深入治理面：完整 <strong>Configuration</strong>（環境變數、includes、confmap providers、validate）、五大 <strong>Components</strong> 家族常用元件清單、Collector 的轉換語言 <strong>OTTL</strong>（filter / transform / routing 三大用法）、<strong>Operator</strong> 進階（Target Allocator、HPA、Auto-instrumentation 注入）、<strong>Scaling &amp; Resiliency</strong>（loadbalancing exporter、persistent queue、tail sampling 切片問題），最後到 <strong>OpenTelemetry Collector Builder（OCB）</strong>自製 distribution 與寫自家 component 的入門。
+  </p>
+  <div class="meta">
+    <span><strong>適合對象：</strong>SRE · 平台團隊 · Collector 維護者</span>
+    <span><strong>章節：</strong>第 18–21 章</span>
+    <span><strong>查證日期：</strong>2026-05-04</span>
+    <span><strong>對應規格：</strong>OTel Spec 1.56.0 · OTLP 1.10.0 · SemConv 1.41.0 · Collector v0.150.0</span>
+  </div>
+</section>
+
+<main>
+
+<nav class="toc">
+  <div class="toc-title">本篇目錄</div>
+  <ol>
+    <li><a href="#ch18">第 18 章 Configuration 完整剖析</a>
+      <ol>
+        <li><a href="#s18-1">18.1 Config 檔案結構</a></li>
+        <li><a href="#s18-2">18.2 Confmap Providers：env / file / http / yaml / k8s</a></li>
+        <li><a href="#s18-3">18.3 環境變數與密鑰處理</a></li>
+        <li><a href="#s18-4">18.4 多檔合併與覆寫順序</a></li>
+        <li><a href="#s18-5">18.5 Validation 與 dry-run</a></li>
+      </ol>
+    </li>
+    <li><a href="#ch19">第 19 章 Components 五大家族</a>
+      <ol>
+        <li><a href="#s19-1">19.1 Receivers：常用清單與設定</a></li>
+        <li><a href="#s19-2">19.2 Processors：常用清單與設定</a></li>
+        <li><a href="#s19-3">19.3 Exporters：OTLP、Prometheus、後端整合</a></li>
+        <li><a href="#s19-4">19.4 Connectors：spanmetrics、servicegraph、routing、forward</a></li>
+        <li><a href="#s19-5">19.5 Extensions：health_check、pprof、zpages、auth</a></li>
+      </ol>
+    </li>
+    <li><a href="#ch20">第 20 章 OTTL：Collector 的轉換語言</a>
+      <ol>
+        <li><a href="#s20-1">20.1 OTTL 是什麼，為什麼存在</a></li>
+        <li><a href="#s20-2">20.2 OTTL 語法基礎</a></li>
+        <li><a href="#s20-3">20.3 Filter Processor 與 OTTL</a></li>
+        <li><a href="#s20-4">20.4 Transform Processor 與 OTTL</a></li>
+        <li><a href="#s20-5">20.5 Routing Connector 與 OTTL</a></li>
+        <li><a href="#s20-6">20.6 OTTL 進階：functions、span path、條件式</a></li>
+        <li><a href="#s20-7">20.7 OTTL 常見實戰範例集</a></li>
+      </ol>
+    </li>
+    <li><a href="#ch21">第 21 章 Scaling、Resiliency、Operator、自製元件</a>
+      <ol>
+        <li><a href="#s21-1">21.1 Scaling 策略：水平擴充與背壓</a></li>
+        <li><a href="#s21-2">21.2 loadbalancing exporter：解 tail sampling 切片問題</a></li>
+        <li><a href="#s21-3">21.3 Resiliency：persistent queue 與 retry</a></li>
+        <li><a href="#s21-4">21.4 Operator 進階：CRD、HPA、Target Allocator</a></li>
+        <li><a href="#s21-5">21.5 Management：OpAMP 概覽</a></li>
+        <li><a href="#s21-6">21.6 OCB（OpenTelemetry Collector Builder）：自製 distribution</a></li>
+        <li><a href="#s21-7">21.7 自製 component：receiver / processor / connector / extension</a></li>
+        <li><a href="#s21-8">21.8 Collector Registry 與第三方元件</a></li>
+      </ol>
+    </li>
+  </ol>
+</nav>
+
+<!-- =========================================================
+     第 18 章 Configuration 完整剖析
+     ========================================================= -->
+<h2 id="ch18">第 18 章 Configuration 完整剖析 <span class="badges"><span class="badge badge-ops">DevOps</span><span class="badge badge-ops">SRE</span></span><a href="#ch18" class="anchor-link">#</a></h2>
+
+<h3 id="s18-1">18.1 Config 檔案結構</h3>
+
+<p>Collector config 是一份 YAML，由四個頂層區塊（receivers / processors / exporters / extensions）加 service 區塊組成：</p>
+
+<pre><code>receivers:    # 元件「定義」區
+  &lt;name&gt;: { ... }
+
+processors:
+  &lt;name&gt;: { ... }
+
+exporters:
+  &lt;name&gt;: { ... }
+
+extensions:
+  &lt;name&gt;: { ... }
+
+connectors:    # 0.86+ 專屬
+  &lt;name&gt;: { ... }
+
+service:       # 元件「啟用」區
+  extensions: [&lt;name&gt;, ...]
+  telemetry:
+    logs: { level: info }
+    metrics: { ... }
+  pipelines:
+    traces:
+      receivers:  [&lt;name&gt;, ...]
+      processors: [&lt;name&gt;, ...]
+      exporters:  [&lt;name&gt;, ...]
+    metrics: { ... }
+    logs:    { ... }</code></pre>
+
+<div class="callout callout-note">
+  <span class="callout-title">📌 「定義」≠「啟用」</span>
+  <p>頂層區塊只是「<em>定義</em>」可用元件，service 區塊才是「<em>啟用</em>」。常見錯誤：定義了某個 processor 但忘了在 pipeline 加它，processor 就完全不會跑（也不會報錯）。</p>
+</div>
+
+<h4>命名實例：用 <code>type/name</code> 開多份</h4>
+
+<p>同一類型的元件可以用 <code>type/name</code> 寫法宣告多個實例：</p>
+
+<pre><code>exporters:
+  otlp/tempo:
+    endpoint: tempo:4317
+  otlp/datadog:
+    endpoint: trace.agent.datadoghq.com:4317
+    headers: { dd-api-key: "${env:DD_API_KEY}" }
+
+service:
+  pipelines:
+    traces:
+      exporters: [otlp/tempo, otlp/datadog]   # fanout 到兩個後端</code></pre>
+
+<h3 id="s18-2">18.2 Confmap Providers：env / file / http / yaml / k8s</h3>
+
+<p>Config 來源不只本地檔案。OTel Collector 支援多種 <strong>confmap provider</strong>，啟動時用 URI 形式指定：</p>
+
+<table>
+  <thead><tr><th>Provider</th><th>URI 範例</th><th>用途</th></tr></thead>
+  <tbody>
+    <tr><td><code>file</code>（預設）</td><td><code>file:/etc/otelcol/config.yaml</code></td><td>本地檔</td></tr>
+    <tr><td><code>env</code></td><td><code>env:OTEL_CONFIG</code></td><td>整份 config 從環境變數讀</td></tr>
+    <tr><td><code>yaml</code></td><td><code>yaml:processors::batch::timeout: 5s</code></td><td>命令列直接給片段</td></tr>
+    <tr><td><code>http</code> / <code>https</code></td><td><code>https://config.example.com/otelcol.yaml</code></td><td>從遠端 URL 拉</td></tr>
+    <tr><td><code>k8s_configmap</code></td><td><code>k8s_configmap:&lt;ns&gt;/&lt;name&gt;</code></td><td>從 K8s ConfigMap 讀</td></tr>
+    <tr><td><code>secrets</code>（多 cloud）</td><td><code>aws_secretsmanager:secret-name</code></td><td>各 cloud secret manager</td></tr>
+  </tbody>
+</table>
+
+<p>啟動時可組合多個來源：</p>
+
+<pre><code># 主檔 + 環境特化覆蓋 + 動態 secret
+otelcol-contrib \
+  --config file:/etc/otelcol/base.yaml \
+  --config file:/etc/otelcol/prod-overlay.yaml \
+  --config "yaml:exporters::otlp/datadog::headers::dd-api-key: \${env:DD_API_KEY}"</code></pre>
+
+<h3 id="s18-3">18.3 環境變數與密鑰處理</h3>
+
+<p>Config 內可以用 <code>${env:VAR}</code> 取代值：</p>
+
+<pre><code>exporters:
+  otlp:
+    endpoint: ${env:COLLECTOR_ENDPOINT}
+    headers:
+      authorization: "Bearer ${env:OTEL_TOKEN}"
+    tls:
+      ca_file: ${env:OTEL_CA_FILE}</code></pre>
+
+<div class="callout callout-warn">
+  <span class="callout-title">⚠️ 不要把密鑰寫進 config 檔</span>
+  <p>Config 通常在 GitOps repo 或 ConfigMap 內，會被 audit。<strong>密鑰一律走環境變數或 secret provider</strong>。K8s 環境用 <code>envFrom: secretRef</code> 把 Secret 注入；雲環境用對應的 secret manager provider。</p>
+</div>
+
+<h3 id="s18-4">18.4 多檔合併與覆寫順序</h3>
+
+<p>多個 <code>--config</code> 由<strong>後者覆寫前者</strong>，map 是深度合併、list 是整段替換：</p>
+
+<table>
+  <thead><tr><th>類型</th><th>合併行為</th></tr></thead>
+  <tbody>
+    <tr><td>Map（如 <code>processors.batch</code> 的子欄位）</td><td>深度合併（key 級別覆寫）</td></tr>
+    <tr><td>List（如 <code>pipeline.processors: [a, b, c]</code>）</td><td>整段替換</td></tr>
+    <tr><td>Scalar（單值）</td><td>覆寫</td></tr>
+  </tbody>
+</table>
+
+<p>實務常見：base 檔放共用結構，per-env overlay 改 endpoint / sampling 比例：</p>
+
+<pre><code># base.yaml
+processors:
+  batch:
+    timeout: 10s
+
+# prod-overlay.yaml — 只覆寫 prod 想改的欄位
+processors:
+  batch:
+    timeout: 5s          # 覆寫
+    send_batch_size: 4096  # 新增</code></pre>
+
+<h3 id="s18-5">18.5 Validation 與 dry-run</h3>
+
+<pre><code># 驗證單一檔
+otelcol-contrib validate --config=/etc/otelcol/config.yaml
+
+# 驗證多檔合併結果
+otelcol-contrib validate \
+  --config=base.yaml \
+  --config=prod-overlay.yaml
+
+# 印出最終 effective config（含預設值與環境變數展開後）
+otelcol-contrib --config=config.yaml --dry-run   # v0.140+ 部分 distro 支援</code></pre>
+
+<p>把 <code>validate</code> 加到 CI / GitOps pipeline 是必須的。可以抓到 90% 設定錯誤。</p>
+
+<!-- =========================================================
+     第 19 章 Components 五大家族
+     ========================================================= -->
+<h2 id="ch19">第 19 章 Components 五大家族 <span class="badges"><span class="badge badge-ops">DevOps</span><span class="badge badge-ops">SRE</span></span><a href="#ch19" class="anchor-link">#</a></h2>
+
+<h3 id="s19-1">19.1 Receivers：常用清單與設定</h3>
+
+<table>
+  <thead><tr><th>Receiver</th><th>用途</th><th>適用</th></tr></thead>
+  <tbody>
+    <tr><td><code>otlp</code></td><td>接 OTLP gRPC（4317）/ HTTP（4318）</td><td>所有 OTel SDK 應用，<strong>必開</strong></td></tr>
+    <tr><td><code>prometheus</code></td><td>scrape Prometheus targets，轉為 OTel metric</td><td>把 Prometheus 生態納入 OTel pipeline</td></tr>
+    <tr><td><code>hostmetrics</code></td><td>採集 host CPU / memory / disk / network</td><td>Agent 模式必備</td></tr>
+    <tr><td><code>kubeletstats</code></td><td>從 kubelet 取得 container / pod metrics</td><td>K8s DaemonSet</td></tr>
+    <tr><td><code>k8s_cluster</code></td><td>從 K8s API 取得 cluster-level 物件數量</td><td>K8s 監控</td></tr>
+    <tr><td><code>k8sobjects</code></td><td>把 K8s 物件變動轉為 logs（events、deployments…）</td><td>Audit trail</td></tr>
+    <tr><td><code>filelog</code></td><td>讀 log 檔（tail）並 parse</td><td>容器 stdout、傳統 app log</td></tr>
+    <tr><td><code>journald</code></td><td>讀 systemd journal</td><td>Linux VM</td></tr>
+    <tr><td><code>kafka</code></td><td>從 Kafka topic 讀</td><td>建構 telemetry 中介</td></tr>
+    <tr><td><code>jaeger</code></td><td>接 Jaeger 格式</td><td>遷移期間</td></tr>
+    <tr><td><code>zipkin</code></td><td>接 Zipkin 格式</td><td>遷移期間</td></tr>
+    <tr><td><code>fluentforward</code></td><td>接 Fluentd / Fluent Bit forward 協定</td><td>整合既有 log pipeline</td></tr>
+    <tr><td><code>statsd</code></td><td>接 StatsD</td><td>遷移期間</td></tr>
+  </tbody>
+</table>
+
+<h4>OTLP receiver 完整設定</h4>
+
+<pre><code>receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        max_recv_msg_size_mib: 32
+        keepalive:
+          server_parameters:
+            time: 30s
+            timeout: 5s
+        tls:
+          cert_file: /etc/otelcol/tls.crt
+          key_file: /etc/otelcol/tls.key
+        auth:
+          authenticator: oidc
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - https://*.example.com
+          allowed_headers: [traceparent, tracestate]
+          max_age: 7200</code></pre>
+
+<h3 id="s19-2">19.2 Processors：常用清單與設定</h3>
+
+<table>
+  <thead><tr><th>Processor</th><th>用途</th><th>放在 pipeline 哪</th></tr></thead>
+  <tbody>
+    <tr><td><code>memory_limiter</code></td><td>記憶體保護，達 limit 觸發背壓</td><td><strong>第一個</strong></td></tr>
+    <tr><td><code>batch</code></td><td>批次以提升傳輸效率</td><td><strong>最後一個</strong></td></tr>
+    <tr><td><code>resource</code></td><td>新增／改／刪 resource attributes</td><td>memory_limiter 之後</td></tr>
+    <tr><td><code>resourcedetection</code></td><td>偵測 host / cloud 環境補 resource</td><td>resource 之前</td></tr>
+    <tr><td><code>k8sattributes</code></td><td>從 K8s API 補 pod / deployment 屬性</td><td>resourcedetection 之後</td></tr>
+    <tr><td><code>attributes</code></td><td>新增／改／刪 span / metric attributes</td><td>中段</td></tr>
+    <tr><td><code>filter</code></td><td>用 OTTL 條件丟棄 telemetry</td><td>越前越省 CPU</td></tr>
+    <tr><td><code>transform</code></td><td>用 OTTL 改寫資料（最強大）</td><td>中段</td></tr>
+    <tr><td><code>tail_sampling</code></td><td>看完整 trace 後決策</td><td>Gateway 層</td></tr>
+    <tr><td><code>probabilistic_sampler</code></td><td>機率採樣（不需看完整 trace）</td><td>Agent 或 Gateway</td></tr>
+    <tr><td><code>span</code></td><td>span name 改寫、提取屬性</td><td>中段</td></tr>
+    <tr><td><code>metricstransform</code></td><td>metric rename / label rename</td><td>中段</td></tr>
+    <tr><td><code>cumulativetodelta</code></td><td>把 cumulative 指標轉為 delta</td><td>送 Datadog 等需 delta 的後端</td></tr>
+    <tr><td><code>routing</code>（已轉為 connector）</td><td>按條件分流到不同 pipeline</td><td>—</td></tr>
+  </tbody>
+</table>
+
+<h4>標準 prod pipeline order（重要）</h4>
+
+<pre><code>processors:
+  memory_limiter: { ... }
+  resourcedetection: { ... }
+  k8sattributes: { ... }
+  resource: { ... }
+  filter: { ... }      # 早點丟，省下游成本
+  transform: { ... }   # OTTL 改寫
+  tail_sampling: { ... }  # Gateway 才有
+  batch: { ... }       # 最後
+
+service:
+  pipelines:
+    traces:
+      processors:
+        - memory_limiter
+        - resourcedetection
+        - k8sattributes
+        - resource
+        - filter
+        - transform
+        - tail_sampling
+        - batch</code></pre>
+
+<h4>k8sattributes（K8s 環境必裝）</h4>
+
+<pre><code>processors:
+  k8sattributes:
+    auth_type: serviceAccount
+    passthrough: false
+    extract:
+      metadata:
+        - k8s.namespace.name
+        - k8s.pod.name
+        - k8s.pod.uid
+        - k8s.deployment.name
+        - k8s.node.name
+      labels:
+        - tag_name: app.kubernetes.io/name
+          key: app.kubernetes.io/name
+          from: pod
+      annotations:
+        - tag_name: prometheus.io/scrape
+          key: prometheus.io/scrape
+          from: pod
+    pod_association:
+      - sources:
+          - from: resource_attribute
+            name: k8s.pod.ip
+      - sources:
+          - from: connection</code></pre>
+
+<p>需要 ClusterRole 取得 <code>pods</code> / <code>namespaces</code> / <code>replicasets</code> 等資源，Helm chart 會自動建立。</p>
+
+<h3 id="s19-3">19.3 Exporters：OTLP、Prometheus、後端整合</h3>
+
+<table>
+  <thead><tr><th>Exporter</th><th>用途</th></tr></thead>
+  <tbody>
+    <tr><td><code>otlp</code> / <code>otlphttp</code></td><td>送 OTLP 給下游 Collector / 後端</td></tr>
+    <tr><td><code>debug</code></td><td>印到 stdout（開發除錯）</td></tr>
+    <tr><td><code>file</code></td><td>寫到檔案（保留 / 重播）</td></tr>
+    <tr><td><code>prometheus</code></td><td>暴露 <code>/metrics</code> 給 Prometheus scrape</td></tr>
+    <tr><td><code>prometheusremotewrite</code></td><td>主動推給 Prometheus 相容後端（Mimir、Cortex、Thanos）</td></tr>
+    <tr><td><code>kafka</code></td><td>送進 Kafka 作 buffer 或 fanout</td></tr>
+    <tr><td><code>loadbalancing</code></td><td>把同一 trace_id 路由到同一下游 Collector（tail sampling 必備）</td></tr>
+    <tr><td><code>opensearch</code> / <code>elasticsearch</code></td><td>logs / spans 存進搜尋系統</td></tr>
+    <tr><td><code>awss3</code> / <code>googlecloudstorage</code></td><td>歸檔到對象儲存</td></tr>
+    <tr><td>各 vendor exporter</td><td>Datadog、New Relic、Splunk、Honeycomb…</td></tr>
+  </tbody>
+</table>
+
+<h4>Exporter 共用設定（sending_queue + retry_on_failure）</h4>
+
+<pre><code>exporters:
+  otlp/backend:
+    endpoint: tempo:4317
+    tls: { insecure: true }
+    timeout: 30s
+
+    # 持久化佇列（後端短暫不可用時不丟）
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 1000
+      storage: file_storage/otc   # 落地到磁碟（需配 storage extension）
+
+    # Retry 策略
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 5m</code></pre>
+
+<p>磁碟落地需配合 extension：</p>
+
+<pre><code>extensions:
+  file_storage/otc:
+    directory: /var/lib/otelcol/file_storage
+    timeout: 1s
+    compaction:
+      directory: /var/lib/otelcol/file_storage
+      on_rebound: true</code></pre>
+
+<h3 id="s19-4">19.4 Connectors：spanmetrics、servicegraph、routing、forward</h3>
+
+<p>Connector 同時是 exporter 與 receiver，讓兩條 pipeline 串起來。最常用的四個：</p>
+
+<table>
+  <thead><tr><th>Connector</th><th>用途</th></tr></thead>
+  <tbody>
+    <tr><td><code>spanmetrics</code></td><td>從 traces 衍生 RED metrics（rate / error / duration）</td></tr>
+    <tr><td><code>servicegraph</code></td><td>從 traces 衍生服務拓撲圖（edges + RED metrics）</td></tr>
+    <tr><td><code>routing</code></td><td>按條件分流到不同 pipeline</td></tr>
+    <tr><td><code>forward</code></td><td>單純轉發（連結兩條 pipeline）</td></tr>
+  </tbody>
+</table>
+
+<h4>spanmetrics 範例</h4>
+
+<pre><code>connectors:
+  spanmetrics:
+    histogram:
+      explicit:
+        buckets: [10ms, 50ms, 100ms, 250ms, 500ms, 1s, 5s, 10s]
+    dimensions:
+      - name: http.method
+      - name: http.status_code
+    metrics_flush_interval: 30s
+    exemplars:
+      enabled: true
+
+service:
+  pipelines:
+    traces:
+      receivers:  [otlp]
+      processors: [batch]
+      exporters:  [spanmetrics, otlp/tempo]   # spanmetrics 是 exporter
+    metrics:
+      receivers:  [spanmetrics]                # spanmetrics 也是 receiver
+      processors: [batch]
+      exporters:  [otlphttp/mimir]</code></pre>
+
+<p>產出的 metrics：<code>traces_span_metrics_calls_total</code>、<code>traces_span_metrics_duration_*</code>，可直接做為 RED dashboard 的資料源，不需各服務手寫。</p>
+
+<h4>routing 範例</h4>
+
+<pre><code>connectors:
+  routing/by-env:
+    default_pipelines: [traces/default]
+    error_mode: ignore
+    table:
+      - statement: route() where resource.attributes["deployment.environment.name"] == "prod"
+        pipelines: [traces/prod]
+      - statement: route() where resource.attributes["deployment.environment.name"] == "staging"
+        pipelines: [traces/staging]
+
+service:
+  pipelines:
+    traces:                   # 入口 pipeline
+      receivers:  [otlp]
+      exporters:  [routing/by-env]
+    traces/prod:
+      receivers:  [routing/by-env]
+      processors: [tail_sampling, batch]
+      exporters:  [otlp/prod-tempo]
+    traces/staging:
+      receivers:  [routing/by-env]
+      processors: [batch]
+      exporters:  [otlp/staging-tempo]
+    traces/default:
+      receivers:  [routing/by-env]
+      processors: [batch]
+      exporters:  [debug]</code></pre>
+
+<h3 id="s19-5">19.5 Extensions：health_check、pprof、zpages、auth</h3>
+
+<table>
+  <thead><tr><th>Extension</th><th>用途</th></tr></thead>
+  <tbody>
+    <tr><td><code>health_check</code></td><td>K8s liveness / readiness probe（<code>:13133/</code>）</td></tr>
+    <tr><td><code>pprof</code></td><td>Go profiler（<code>:1777/debug/pprof</code>）</td></tr>
+    <tr><td><code>zpages</code></td><td>內部除錯頁面（<code>:55679/debug/...</code>）</td></tr>
+    <tr><td><code>file_storage</code></td><td>提供其他元件磁碟儲存能力（persistent queue）</td></tr>
+    <tr><td><code>headers_setter</code></td><td>對外送加 header（如多租戶 tenant ID）</td></tr>
+    <tr><td><code>basicauth</code> / <code>bearertokenauth</code> / <code>oidc</code> / <code>oauth2client</code></td><td>OTLP receiver/exporter 的認證</td></tr>
+    <tr><td><code>k8sleaderelector</code></td><td>多 Collector 副本中選 leader（k8s_cluster receiver 用）</td></tr>
+    <tr><td><code>opamp</code></td><td>動態收 server 端 config（OpAMP 協定）</td></tr>
+  </tbody>
+</table>
+
+<!-- =========================================================
+     第 20 章 OTTL：Collector 的轉換語言
+     ========================================================= -->
+<h2 id="ch20">第 20 章 OTTL：Collector 的轉換語言 <span class="badges"><span class="badge badge-ops">DevOps</span></span><a href="#ch20" class="anchor-link">#</a></h2>
+
+<h3 id="s20-1">20.1 OTTL 是什麼，為什麼存在</h3>
+
+<p>
+<strong>OTTL（OpenTelemetry Transformation Language）</strong>是 Collector 為了「<em>用一種一致的小語言描述 telemetry 操作</em>」而設計的 DSL。它有三個哲學基礎：
+</p>
+
+<ol>
+  <li><strong>聲明式</strong>：你描述「<em>要對符合 X 條件的資料做 Y 動作</em>」，不寫 Go 邏輯。</li>
+  <li><strong>跨元件統一</strong>：filter、transform、routing、tail_sampling 都用 OTTL，學一套通吃。</li>
+  <li><strong>型別安全</strong>：在 Collector 啟動時 parse + 型別檢查，不會在 runtime 才炸。</li>
+</ol>
+
+<p>誰會用到：</p>
+
+<ul>
+  <li><strong>Filter Processor</strong>：定義要丟掉哪些 telemetry</li>
+  <li><strong>Transform Processor</strong>：改寫 attributes、span name、status code、metric value 等</li>
+  <li><strong>Routing Connector</strong>：依條件分流到不同 pipeline</li>
+  <li><strong>Tail Sampling Processor</strong>（部分 policy 支援 OTTL）</li>
+</ul>
+
+<h3 id="s20-2">20.2 OTTL 語法基礎</h3>
+
+<p>OTTL 由 <strong>statements</strong>（陳述式）組成。每個 statement 是「<em>function call where condition</em>」結構：</p>
+
+<pre><code>set(span.attributes["http.route"], "/checkout") where span.name == "POST /checkout"
+delete_key(span.attributes, "http.user_agent") where IsMatch(span.attributes["http.user_agent"], "bot")
+keep_keys(resource.attributes, ["service.name", "deployment.environment.name"])</code></pre>
+
+<h4>OTTL 主要型別</h4>
+
+<table>
+  <thead><tr><th>類別</th><th>例</th></tr></thead>
+  <tbody>
+    <tr><td>路徑（path）</td><td><code>span.name</code>、<code>span.attributes["k"]</code>、<code>resource.attributes["service.name"]</code>、<code>metric.name</code>、<code>log.body</code></td></tr>
+    <tr><td>函式（function）</td><td><code>set</code>、<code>delete_key</code>、<code>keep_keys</code>、<code>limit</code>、<code>truncate_all</code>、<code>SHA256</code>、<code>UUID</code>、<code>Concat</code>…</td></tr>
+    <tr><td>條件函式</td><td><code>IsMatch</code>、<code>HasPrefix</code>、<code>HasSuffix</code>、<code>Len</code></td></tr>
+    <tr><td>常量</td><td>字串 <code>"foo"</code>、整數 <code>42</code>、浮點 <code>3.14</code>、布林 <code>true</code>、<code>nil</code></td></tr>
+  </tbody>
+</table>
+
+<h4>路徑語法重點</h4>
+
+<table>
+  <thead><tr><th>路徑</th><th>意義</th></tr></thead>
+  <tbody>
+    <tr><td><code>resource.attributes["service.name"]</code></td><td>resource 屬性</td></tr>
+    <tr><td><code>span.attributes["http.route"]</code></td><td>span 屬性</td></tr>
+    <tr><td><code>span.name</code></td><td>span 名稱</td></tr>
+    <tr><td><code>span.status.code</code></td><td>span 狀態</td></tr>
+    <tr><td><code>span.kind</code></td><td>span kind（SERVER / CLIENT / ...）</td></tr>
+    <tr><td><code>metric.name</code></td><td>metric 名稱</td></tr>
+    <tr><td><code>datapoint.attributes["k"]</code></td><td>metric data point 屬性</td></tr>
+    <tr><td><code>log.body</code></td><td>log body</td></tr>
+    <tr><td><code>log.severity_text</code></td><td>log severity</td></tr>
+  </tbody>
+</table>
+
+<div class="callout callout-note">
+  <span class="callout-title">📌 OTTL 路徑語法 2025 大改版</span>
+  <p>2025 後 OTTL 統一了路徑前綴：所有 statement 一律用完整路徑（<code>span.attributes</code>、<code>resource.attributes</code>）而非舊版的 context-implicit 形式。如果看到舊範例只寫 <code>attributes["k"]</code>，要把它改寫成有前綴的版本。本手冊範例已用新版語法。</p>
+</div>
+
+<h3 id="s20-3">20.3 Filter Processor 與 OTTL</h3>
+
+<p>Filter Processor 用 OTTL 表達「<em>哪些資料應該被丟棄</em>」（match 到的資料 drop）：</p>
+
+<pre><code>processors:
+  filter/dropbots:
+    error_mode: ignore
+    traces:
+      span:
+        # 丟棄 user agent 是 bot 的 spans
+        - 'IsMatch(span.attributes["user_agent.original"], ".*bot.*")'
+    metrics:
+      metric:
+        # 丟棄 metric name 含 "_temp_" 的（debug 用 metric）
+        - 'IsMatch(metric.name, ".*_temp_.*")'
+    logs:
+      log_record:
+        # 丟棄 DEBUG 級別 logs
+        - 'log.severity_number &lt; SEVERITY_NUMBER_INFO'</code></pre>
+
+<h4>反向思考：「<em>只保留 X</em>」用 not + or</h4>
+
+<pre><code>processors:
+  filter/keeponly:
+    error_mode: ignore
+    traces:
+      span:
+        # 只保留 app1 / app2 / app3，丟掉其他
+        - |
+          resource.attributes["service.name"] != "app1" and
+          resource.attributes["service.name"] != "app2" and
+          resource.attributes["service.name"] != "app3"</code></pre>
+
+<h3 id="s20-4">20.4 Transform Processor 與 OTTL</h3>
+
+<p>Transform Processor 用來改寫資料。三類 statement：<code>trace_statements</code>、<code>metric_statements</code>、<code>log_statements</code>。</p>
+
+<pre><code>processors:
+  transform/cleanup:
+    error_mode: ignore
+
+    trace_statements:
+      # 1. 移除敏感屬性
+      - delete_key(span.attributes, "http.request.header.authorization")
+      - delete_key(span.attributes, "http.request.header.cookie")
+
+      # 2. 把 4xx 從 ERROR 改回 OK（不是 server 錯）
+      - set(span.status.code, STATUS_CODE_OK) where span.attributes["http.response.status_code"] &gt;= 400 and span.attributes["http.response.status_code"] &lt; 500
+
+      # 3. 截斷過長的 db.statement
+      - truncate_all(span.attributes, 4096)
+
+      # 4. 對 user_id 做 hash 保留分析能力但不洩漏
+      - set(span.attributes["enduser.id_hash"], SHA256(span.attributes["enduser.id"])) where span.attributes["enduser.id"] != nil
+      - delete_key(span.attributes, "enduser.id")
+
+    metric_statements:
+      # 5. 把 cumulative 的 system.cpu.time 重新命名以遷移
+      - set(metric.name, "system.cpu.usage_time") where metric.name == "system.cpu.usage"
+
+    log_statements:
+      # 6. 把 log.body 的特定 PII 模式遮罩
+      - replace_pattern(log.body, "\\b\\d{4}-\\d{4}-\\d{4}-\\d{4}\\b", "****-****-****-****")</code></pre>
+
+<h3 id="s20-5">20.5 Routing Connector 與 OTTL</h3>
+
+<p>Routing connector 用 <code>route()</code> 函式做分流，已在 19.4 給範例。要點：</p>
+
+<ul>
+  <li><code>route()</code> 是特殊函式，回傳「目前這筆 telemetry 的下一站」</li>
+  <li><code>where</code> 條件全用 OTTL 語法</li>
+  <li><code>default_pipelines</code> 是「沒符合任何條件」的 fallback</li>
+</ul>
+
+<h3 id="s20-6">20.6 OTTL 進階：functions、span path、條件式</h3>
+
+<h4>常用 OTTL 函式</h4>
+
+<table>
+  <thead><tr><th>函式</th><th>用途</th><th>範例</th></tr></thead>
+  <tbody>
+    <tr><td><code>set</code></td><td>設值</td><td><code>set(span.name, "fixed")</code></td></tr>
+    <tr><td><code>delete_key</code></td><td>刪 map 中的 key</td><td><code>delete_key(span.attributes, "k")</code></td></tr>
+    <tr><td><code>keep_keys</code></td><td>只保留指定 keys</td><td><code>keep_keys(resource.attributes, ["service.name"])</code></td></tr>
+    <tr><td><code>limit</code></td><td>限制屬性數量</td><td><code>limit(span.attributes, 32, [])</code></td></tr>
+    <tr><td><code>truncate_all</code></td><td>截斷所有字串值</td><td><code>truncate_all(span.attributes, 1024)</code></td></tr>
+    <tr><td><code>replace_pattern</code></td><td>regex 取代</td><td><code>replace_pattern(log.body, "[0-9]+", "N")</code></td></tr>
+    <tr><td><code>replace_all_patterns</code></td><td>多個 regex 取代</td><td>—</td></tr>
+    <tr><td><code>SHA256</code> / <code>SHA1</code> / <code>MD5</code></td><td>hash</td><td><code>SHA256(span.attributes["user.id"])</code></td></tr>
+    <tr><td><code>UUID</code></td><td>產生 UUID</td><td><code>set(span.attributes["request.id"], UUID())</code></td></tr>
+    <tr><td><code>Concat</code></td><td>連接字串</td><td><code>Concat([resource.attributes["service.name"], "/", span.name], "")</code></td></tr>
+    <tr><td><code>Split</code></td><td>切字串</td><td><code>Split(span.attributes["url.path"], "/")</code></td></tr>
+    <tr><td><code>IsMatch</code></td><td>regex match</td><td><code>IsMatch(metric.name, ".*_temp_.*")</code></td></tr>
+    <tr><td><code>HasPrefix</code> / <code>HasSuffix</code></td><td>字串前後綴</td><td>—</td></tr>
+    <tr><td><code>Len</code></td><td>長度</td><td><code>Len(span.attributes) &gt; 50</code></td></tr>
+    <tr><td><code>ParseJSON</code></td><td>解析 JSON</td><td><code>ParseJSON(log.body)</code></td></tr>
+    <tr><td><code>ConvertCase</code></td><td>大小寫轉換</td><td><code>ConvertCase(s, "lower")</code></td></tr>
+  </tbody>
+</table>
+
+<h3 id="s20-7">20.7 OTTL 常見實戰範例集</h3>
+
+<h4>範例 1：PII 防護</h4>
+
+<pre><code>transform/pii:
+  trace_statements:
+    # 信用卡號遮罩
+    - replace_pattern(span.attributes["http.request.body"], "\\b(?:\\d[ -]*?){13,16}\\b", "[CC_REDACTED]") where span.attributes["http.request.body"] != nil
+    # email 遮罩
+    - replace_pattern(span.attributes["http.request.body"], "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}", "[EMAIL_REDACTED]") where span.attributes["http.request.body"] != nil
+    # 移除敏感 headers
+    - delete_key(span.attributes, "http.request.header.authorization")
+    - delete_key(span.attributes, "http.request.header.cookie")
+    - delete_key(span.attributes, "http.request.header.x-api-key")</code></pre>
+
+<h4>範例 2：成本控制（丟掉低價值 spans）</h4>
+
+<pre><code>filter/cost:
+  traces:
+    span:
+      # 丟掉 health check / readiness probe
+      - 'span.name == "GET /health" or span.name == "GET /ready" or span.name == "GET /metrics"'
+      # 丟掉 internal span 中的 client（保留 SERVER 與業務 INTERNAL）
+      - 'span.kind == SPAN_KIND_CLIENT and IsMatch(span.attributes["url.path"], "^/internal/.*")'</code></pre>
+
+<h4>範例 3：補資料（遺失欄位用 fallback）</h4>
+
+<pre><code>transform/fallback:
+  trace_statements:
+    # 沒 service.version 時用 deployment.id 當版本
+    - set(resource.attributes["service.version"], resource.attributes["deployment.id"]) where resource.attributes["service.version"] == nil
+    # 沒 http.route 時從 url.path 取出第一段
+    - set(span.attributes["http.route"], Split(span.attributes["url.path"], "/")[1]) where span.attributes["http.route"] == nil and span.attributes["url.path"] != nil</code></pre>
+
+<h4>範例 4：標準化版本格式</h4>
+
+<pre><code>transform/version:
+  trace_statements:
+    # 把 v1.2.3 / 1.2.3 / V1.2.3 都統一成 1.2.3
+    - replace_pattern(resource.attributes["service.version"], "^[vV]", "")</code></pre>
+
+<!-- =========================================================
+     第 21 章 Scaling、Resiliency、Operator、自製元件
+     ========================================================= -->
+<h2 id="ch21">第 21 章 Scaling、Resiliency、Operator、自製元件 <span class="badges"><span class="badge badge-ops">SRE</span><span class="badge badge-ops">平台團隊</span></span><a href="#ch21" class="anchor-link">#</a></h2>
+
+<h3 id="s21-1">21.1 Scaling 策略：水平擴充與背壓</h3>
+
+<p>Collector 是 stateless（除了 tail_sampling 內部 cache），原則上水平擴充很簡單：增加副本、前面放 LB。但有四個微妙點：</p>
+
+<table>
+  <thead><tr><th>議題</th><th>解法</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>memory_limiter 觸發後 SDK 端不減速</td>
+      <td>SDK 端 batch processor 要設 max queue + drop policy；Collector 副本要能水平擴充</td>
+    </tr>
+    <tr>
+      <td>tail_sampling 必須看完整 trace 才決策</td>
+      <td>用 <code>loadbalancing</code> exporter 把同一 trace_id 路由到同一 Collector（見 21.2）</td>
+    </tr>
+    <tr>
+      <td>k8s_cluster receiver 不能多副本同時跑</td>
+      <td>用 <code>k8sleaderelector</code> extension 確保只有 leader 採集</td>
+    </tr>
+    <tr>
+      <td>Prometheus receiver 多副本會重複 scrape</td>
+      <td>用 Operator 的 <strong>Target Allocator</strong> 把 targets 分散</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4>HPA 適用指標</h4>
+
+<table>
+  <thead><tr><th>指標</th><th>意義</th></tr></thead>
+  <tbody>
+    <tr><td>CPU 使用率</td><td>最直接但不一定最準</td></tr>
+    <tr><td><code>otelcol_receiver_accepted_*</code> rate</td><td>進入流量</td></tr>
+    <tr><td><code>otelcol_exporter_queue_size</code></td><td>背壓信號</td></tr>
+    <tr><td><code>otelcol_processor_batch_send_size</code> p99</td><td>批次堆積跡象</td></tr>
+  </tbody>
+</table>
+
+<h3 id="s21-2">21.2 loadbalancing exporter：解 tail sampling 切片問題</h3>
+
+<p>多個 Gateway 副本各自獨立決策時，同一 trace 的 spans 可能落在不同 Collector，<strong>tail_sampling 看不到完整 trace 就決策，結果亂掉</strong>。</p>
+
+<p>解法：在最上游放一層 <strong>「routing 層」 Collector</strong>，用 <code>loadbalancing</code> exporter 按 trace_id hash 把 spans 路由到固定下游。</p>
+
+<div class="mermaid">
+<pre>
+flowchart LR
+  subgraph App[Apps]
+    A1[App A]
+    A2[App B]
+  end
+
+  subgraph LB[Routing Layer<br/>Collector]
+    R1[Coll R1<br/>loadbalancing exporter]
+    R2[Coll R2<br/>loadbalancing exporter]
+  end
+
+  subgraph TS[Tail Sampling Layer]
+    T1[Coll T1<br/>tail_sampling]
+    T2[Coll T2<br/>tail_sampling]
+    T3[Coll T3<br/>tail_sampling]
+  end
+
+  A1 --&gt; R1
+  A1 --&gt; R2
+  A2 --&gt; R1
+  A2 --&gt; R2
+
+  R1 -.trace_id hash.-&gt; T1
+  R1 -.trace_id hash.-&gt; T2
+  R1 -.trace_id hash.-&gt; T3
+  R2 -.trace_id hash.-&gt; T1
+  R2 -.trace_id hash.-&gt; T2
+  R2 -.trace_id hash.-&gt; T3
+
+  T1 --&gt; BE[(Backend)]
+  T2 --&gt; BE
+  T3 --&gt; BE
+</pre>
+</div>
+
+<pre><code># Routing 層
+exporters:
+  loadbalancing:
+    routing_key: traceID   # 按 trace_id hash
+    protocol:
+      otlp:
+        timeout: 1s
+        tls: { insecure: true }
+    resolver:
+      dns:                 # 用 DNS A record 自動發現下游
+        hostname: tail-sampling-collector.observability.svc.cluster.local
+        port: 4317
+        interval: 30s</code></pre>
+
+<h3 id="s21-3">21.3 Resiliency：persistent queue 與 retry</h3>
+
+<p>三層保護：</p>
+
+<ol>
+  <li><strong>memory queue</strong>（預設）：記憶體中暫存，Collector 重啟即丟</li>
+  <li><strong>persistent queue</strong>（搭 file_storage extension）：寫到磁碟，重啟後續送</li>
+  <li><strong>retry_on_failure</strong>：後端 5xx / 網路斷時 exponential backoff</li>
+</ol>
+
+<pre><code># 完整 resilient exporter
+exporters:
+  otlp/tempo:
+    endpoint: tempo:4317
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 5000
+      storage: file_storage   # 磁碟落地
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 10m
+
+extensions:
+  file_storage:
+    directory: /var/lib/otelcol/file_storage
+    timeout: 1s
+    compaction:
+      directory: /var/lib/otelcol/file_storage
+      on_rebound: true
+      rebound_needed_threshold_mib: 100</code></pre>
+
+<div class="callout callout-warn">
+  <span class="callout-title">⚠️ persistent queue 要 PVC</span>
+  <p>K8s 上 Collector pod 的 emptyDir 在 pod 重排程時會清空，達不到 persistent queue 的目的。<strong>正式環境要掛 PersistentVolume</strong>，或用 StatefulSet + volumeClaimTemplate。</p>
+</div>
+
+<h3 id="s21-4">21.4 Operator 進階：CRD、HPA、Target Allocator</h3>
+
+<h4>OpenTelemetryCollector CRD（含 HPA）</h4>
+
+<pre><code>apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel-gateway
+  namespace: observability
+spec:
+  mode: deployment
+  replicas: 3
+
+  # HPA 自動擴充
+  autoscaler:
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilization: 70
+    targetMemoryUtilization: 80
+
+  resources:
+    requests: { cpu: "1", memory: "2Gi" }
+    limits:   { cpu: "2", memory: "4Gi" }
+
+  config:
+    receivers: { otlp: { protocols: { grpc: {}, http: {} } } }
+    processors: { batch: {}, memory_limiter: { check_interval: 5s, limit_percentage: 80 } }
+    exporters: { otlp: { endpoint: tempo:4317, tls: { insecure: true } } }
+    service:
+      pipelines:
+        traces:
+          receivers:  [otlp]
+          processors: [memory_limiter, batch]
+          exporters:  [otlp]</code></pre>
+
+<h4>Target Allocator（Prometheus targets 分散）</h4>
+
+<p>多 Collector 副本同時跑 prometheus receiver 會重複 scrape。Target Allocator 解決這個問題：把 targets 切片分配給各 Collector。</p>
+
+<pre><code>spec:
+  mode: statefulset
+  replicas: 3
+  targetAllocator:
+    enabled: true
+    replicas: 1            # TA 自己只要 1 副本
+    allocationStrategy: consistent-hashing
+    serviceAccount: ta-sa
+    prometheusCR:
+      enabled: true        # 自動接 ServiceMonitor / PodMonitor CRD</code></pre>
+
+<h4>Auto-instrumentation 注入</h4>
+
+<p>第三篇講過 zero-code 注入；具體 CRD 是 <code>Instrumentation</code>：</p>
+
+<pre><code>apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: java-instr
+  namespace: default
+spec:
+  exporter:
+    endpoint: http://otel-gateway:4317
+  propagators: [tracecontext, baggage]
+  sampler:
+    type: parentbased_traceidratio
+    argument: "0.1"
+  java:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:latest</code></pre>
+
+<p>Pod 加 annotation 即啟用：</p>
+
+<pre><code>metadata:
+  annotations:
+    instrumentation.opentelemetry.io/inject-java: "default/java-instr"</code></pre>
+
+<h3 id="s21-5">21.5 Management：OpAMP 概覽</h3>
+
+<p>
+<strong>OpAMP（Open Agent Management Protocol）</strong>是 OTel 規格定義的 agent 管理協定。讓中央 server 可以：
+</p>
+
+<ul>
+  <li>動態下發 config（不用重啟）</li>
+  <li>遠端升級 Collector binary</li>
+  <li>收集 agent 健康狀態</li>
+  <li>遠端啟用 / 關閉特定 component</li>
+</ul>
+
+<p>狀態：規格穩定，server 端實作（<a href="https://github.com/open-telemetry/opamp-go">opamp-go</a>）已可用，多家 vendor（Splunk、Honeycomb…）已支援。Collector 用 <code>opamp</code> extension 接：</p>
+
+<pre><code>extensions:
+  opamp:
+    server:
+      ws:
+        endpoint: wss://opamp.example.com/v1/opamp
+    instance_uid: ${env:HOSTNAME}
+    capabilities:
+      reports_effective_config: true
+      accepts_remote_config: true
+      reports_health: true</code></pre>
+
+<p>大規模部署（1000+ Collector）會非常需要這套，否則 config 變更靠 GitOps + rolling restart 太慢。</p>
+
+<h3 id="s21-6">21.6 OCB（OpenTelemetry Collector Builder）：自製 distribution</h3>
+
+<p>當 contrib distribution 元件太多（攻擊面、binary 大小、合規要求）或需要私有 component 時，用 <strong>OCB</strong> 自製：</p>
+
+<pre><code># builder-config.yaml
+dist:
+  name: acme-otelcol
+  description: ACME custom OpenTelemetry Collector
+  output_path: ./_build
+  version: 1.0.0
+  otelcol_version: 0.150.0
+
+receivers:
+  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.150.0
+
+processors:
+  - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.150.0
+  - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.150.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/transformprocessor v0.150.0
+  - gomod: github.com/acme/otelcol-acme-processor v1.0.0   # 自家 processor
+
+exporters:
+  - gomod: go.opentelemetry.io/collector/exporter/otlpexporter v0.150.0
+
+extensions:
+  - gomod: go.opentelemetry.io/collector/extension/zpagesextension v0.150.0
+  - gomod: go.opentelemetry.io/collector/extension/healthcheckextension v0.150.0</code></pre>
+
+<pre><code># 安裝 builder
+go install go.opentelemetry.io/collector/cmd/builder@v0.150.0
+
+# build
+builder --config=builder-config.yaml
+
+# 產出在 ./_build/acme-otelcol</code></pre>
+
+<p>這份自製 distribution 只含你需要的元件，攻擊面最小，binary 體積也小很多（contrib 約 200MB；最小 OCB 可降到 30MB）。</p>
+
+<h3 id="s21-7">21.7 自製 component：receiver / processor / connector / extension</h3>
+
+<p>當社群沒有滿足需求的 component，可以寫自己的。基本骨架：</p>
+
+<pre><code>// processor/acme/factory.go
+package acme
+
+import (
+    "context"
+    "go.opentelemetry.io/collector/component"
+    "go.opentelemetry.io/collector/consumer"
+    "go.opentelemetry.io/collector/processor"
+)
+
+const typeStr = "acme"
+
+func NewFactory() processor.Factory {
+    return processor.NewFactory(
+        component.MustNewType(typeStr),
+        createDefaultConfig,
+        processor.WithTraces(createTracesProcessor, component.StabilityLevelBeta),
+    )
+}
+
+type Config struct {
+    SecretAttribute string `mapstructure:"secret_attribute"`
+}
+
+func createDefaultConfig() component.Config {
+    return &amp;Config{SecretAttribute: "default"}
+}
+
+func createTracesProcessor(
+    ctx context.Context,
+    set processor.Settings,
+    cfg component.Config,
+    next consumer.Traces,
+) (processor.Traces, error) {
+    return &amp;acmeProcessor{cfg: cfg.(*Config), next: next}, nil
+}</code></pre>
+
+<pre><code>// processor/acme/processor.go
+type acmeProcessor struct {
+    cfg  *Config
+    next consumer.Traces
+}
+
+func (p *acmeProcessor) Start(ctx context.Context, host component.Host) error { return nil }
+func (p *acmeProcessor) Shutdown(ctx context.Context) error                   { return nil }
+func (p *acmeProcessor) Capabilities() consumer.Capabilities {
+    return consumer.Capabilities{MutatesData: true}
+}
+func (p *acmeProcessor) ConsumeTraces(ctx context.Context, td ptrace.Traces) error {
+    // 你的邏輯
+    return p.next.ConsumeTraces(ctx, td)
+}</code></pre>
+
+<p>用 OCB 把 factory 註冊進去，就能在 config 裡引用：</p>
+
+<pre><code>processors:
+  acme:
+    secret_attribute: "x-secret"</code></pre>
+
+<h4>四類自製元件難度對照</h4>
+
+<table>
+  <thead><tr><th>類型</th><th>難度</th><th>常見場景</th></tr></thead>
+  <tbody>
+    <tr><td>Extension</td><td>★（最簡單）</td><td>自家 auth / 健康檢查整合</td></tr>
+    <tr><td>Processor</td><td>★★</td><td>業務轉換、特定資料清洗</td></tr>
+    <tr><td>Exporter</td><td>★★★</td><td>送到自家後端</td></tr>
+    <tr><td>Receiver</td><td>★★★★</td><td>收特定協定（含網路與背壓處理）</td></tr>
+    <tr><td>Connector</td><td>★★★★（最複雜）</td><td>跨 pipeline 衍生資料</td></tr>
+  </tbody>
+</table>
+
+<h3 id="s21-8">21.8 Collector Registry 與第三方元件</h3>
+
+<p>OTel 維護一個 <strong>Collector Registry</strong>（<code>opentelemetry.io/ecosystem/registry/?language=collector</code>），列出所有官方與第三方元件，含 stability level、文件連結、source repo。</p>
+
+<p>選用第三方元件時的盡職調查清單：</p>
+
+<ol>
+  <li>Stability level（Beta 以上才考慮 prod）</li>
+  <li>最近 commit 時間（&gt;6 個月沒更新要當心）</li>
+  <li>是否有 sponsor 維護者（個人 vs 公司）</li>
+  <li>是否在 Collector minor 版本升級時跟進測試</li>
+  <li>License 是否相容</li>
+</ol>
+
+<div class="callout callout-success">
+  <span class="callout-title">🎯 第七篇結語</span>
+  <p>到這邊 Collector 治理面全部結束。下一篇進入 <strong>第八篇〈平台與環境整合〉</strong>：Kubernetes（getting-started、Helm、Operator 完整篇）、FaaS（AWS Lambda Auto-Instrument / Manual / Lambda Collector Config）、Client-side Apps（Web RUM、iOS、Android、React Native）。然後第九篇進入進階主題（Blueprints、Compatibility、Security），第十篇收尾 Specs 與 SemConv（含 GenAI）。</p>
+</div>
+
+</main>
+
+<footer class="page-footer">
+  <p>OpenTelemetry 教學手冊 · 第 7 / 10 篇 · Collector 進階：Components、配置、OTTL、擴展</p>
+  <p>內容查證日期 2026-05-04 · 對應 OTel Spec 1.56.0 / OTLP 1.10.0 / SemConv 1.41.0</p>
+  <p>資料來源：<a href="https://opentelemetry.io/docs/" target="_blank" rel="noopener">opentelemetry.io/docs</a></p>
+</footer>
+
+<!-- ============================================================
+     Theme toggle (inlined from JHsun TechDocs shared/theme-toggle.js)
+     ============================================================ -->
+<script>
+(function () {
+  'use strict';
+
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = {
+    light:  '☀',
+    dark:   '☾',
+    system: '◐',
+  };
+  const LABELS = {
+    light:  'Light',
+    dark:   'Dark',
+    system: 'System',
+  };
+
+  function getStored() {
+    try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; }
+  }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) { /* ignore */ }
+  }
+
+  function systemPref() {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+
+  function effective(mode) {
+    return mode === 'system' ? systemPref() : mode;
+  }
+
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', {
+      detail: { theme: eff, mode },
+    }));
+  }
+
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+
+  function cycle(current) {
+    return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light';
+  }
+
+  function getCurrentMode() {
+    return getStored() || 'system';
+  }
+
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => {
+      if (getCurrentMode() === 'system') applyTheme('system');
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+  window.JHsunTheme = {
+    get:    getCurrentMode,
+    set:    (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+
+<!-- ============================================================
+     Mermaid renderer — uses the safe built-in 'neutral' theme.
+     All visible colors come from tokens.css via the CSS overrides
+     above, so there's no need to re-render mermaid on theme change.
+     ============================================================ -->
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+
+  function prepareBlocks() {
+    document.querySelectorAll('.mermaid').forEach(el => {
+      if (el.dataset.prepared) return;
+      const pre = el.querySelector('pre');
+      if (pre) {
+        const code = pre.textContent;
+        el.dataset.source = code;
+        el.textContent = code;
+      } else {
+        el.dataset.source = el.textContent;
+      }
+      el.dataset.prepared = '1';
+    });
+  }
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'neutral',
+    flowchart: { curve: 'basis', useMaxWidth: true },
+    sequence:  { useMaxWidth: true },
+    gantt:     { useMaxWidth: true },
+  });
+
+  prepareBlocks();
+  document.querySelectorAll('.mermaid').forEach(async (el, i) => {
+    const source = el.dataset.source || el.textContent;
+    const id = `mmd-${Date.now()}-${i}`;
+    try {
+      const { svg } = await mermaid.render(id, source);
+      el.innerHTML = svg;
+    } catch (e) {
+      el.innerHTML = `<pre style="color:var(--color-danger)">Mermaid render error: ${e.message}</pre>`;
+    }
+  });
+</script>
+
+</body>
+</html>

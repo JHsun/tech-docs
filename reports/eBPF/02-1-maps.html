@@ -1,0 +1,1528 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>eBPF 教學手冊 · 冊二-1 · Maps 資料結構</title>
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger:  #dc2626; --color-danger-soft:  #fee2e2;
+  --color-info:    #0891b2; --color-info-soft:    #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px; --text-lg: 20px;
+  --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px; --text-4xl: 64px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger:  #f87171; --color-danger-soft:  oklch(0.32 0.10 27);
+  --color-info:    #22d3ee; --color-info-soft:    oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font-serif-body); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-7) var(--space-5); }
+header.site-header { border-bottom: 1px solid var(--border-soft); background: var(--bg-surface); position: sticky; top: 0; z-index: 50; backdrop-filter: blur(8px); }
+.header-inner { max-width: var(--container-wide); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); }
+.brand { font-family: var(--font-sans); font-weight: 600; font-size: var(--text-sm); color: var(--text-secondary); letter-spacing: 0.02em; }
+.brand strong { color: var(--color-primary); }
+[data-theme-toggle] { appearance: none; border: 1px solid var(--border-mid); background: var(--bg-muted); color: var(--text-primary); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); font-family: var(--font-sans); font-size: var(--text-sm); cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-2); transition: background 0.15s, border-color 0.15s; }
+[data-theme-toggle]:hover { background: var(--color-primary-soft); border-color: var(--color-primary); }
+.theme-icon { font-size: var(--text-md); }
+h1, h2, h3, h4 { font-family: var(--font-serif); color: var(--text-primary); line-height: 1.25; margin-top: var(--space-7); margin-bottom: var(--space-4); }
+h1 { font-size: var(--text-3xl); margin-top: var(--space-5); letter-spacing: -0.01em; }
+h2 { font-size: var(--text-2xl); border-bottom: 1px solid var(--border-soft); padding-bottom: var(--space-3); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-md); color: var(--color-primary-text); }
+p { margin: var(--space-4) 0; color: var(--text-primary); }
+strong { color: var(--text-primary); font-weight: 600; }
+em { color: var(--text-secondary); }
+a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dotted var(--color-primary); }
+a:hover { color: var(--color-primary-hover); border-bottom-style: solid; }
+ul, ol { padding-left: var(--space-5); }
+li { margin: var(--space-2) 0; }
+code { font-family: var(--font-mono); font-size: 0.92em; background: var(--bg-muted); padding: 2px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+pre { background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.6; margin: var(--space-4) 0; }
+pre code { background: transparent; padding: 0; border: none; color: var(--text-primary); font-size: inherit; }
+blockquote { margin: var(--space-5) 0; padding: var(--space-4) var(--space-5); background: var(--color-primary-soft); border-left: 4px solid var(--color-primary); border-radius: var(--radius-md); color: var(--text-primary); }
+blockquote p:first-child { margin-top: 0; }
+blockquote p:last-child { margin-bottom: 0; }
+.callout { margin: var(--space-5) 0; padding: var(--space-4) var(--space-5); border-radius: var(--radius-md); border-left: 4px solid; background: var(--bg-surface); }
+.callout-title { font-family: var(--font-sans); font-weight: 600; font-size: var(--text-sm); letter-spacing: 0.02em; text-transform: uppercase; margin-bottom: var(--space-2); }
+.callout-info { border-color: var(--color-info); background: var(--color-info-soft); }
+.callout-info .callout-title { color: var(--color-info); }
+.callout-warning { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout-warning .callout-title { color: var(--color-warning); }
+.callout-success { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout-success .callout-title { color: var(--color-success); }
+.callout-danger { border-color: var(--color-danger); background: var(--color-danger-soft); }
+.callout-danger .callout-title { color: var(--color-danger); }
+table { width: 100%; border-collapse: collapse; margin: var(--space-5) 0; font-family: var(--font-sans); font-size: var(--text-sm); }
+th, td { padding: var(--space-3); border-bottom: 1px solid var(--border-soft); text-align: left; vertical-align: top; }
+th { background: var(--bg-muted); color: var(--text-primary); font-weight: 600; }
+tr:hover td { background: var(--bg-muted); }
+.audience-tags { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-3) 0; }
+.tag { display: inline-block; padding: 2px 10px; border-radius: 999px; font-family: var(--font-sans); font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.02em; border: 1px solid transparent; }
+.tag-beginner { background: var(--color-success-soft); color: var(--color-success); border-color: var(--color-success); }
+.tag-developer { background: var(--color-warning-soft); color: var(--color-warning); border-color: var(--color-warning); }
+.tag-ops { background: var(--color-danger-soft); color: var(--color-danger); border-color: var(--color-danger); }
+.meta-bar { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-muted); border-top: 1px dashed var(--border-soft); border-bottom: 1px dashed var(--border-soft); padding: var(--space-3) 0; margin: var(--space-5) 0 var(--space-7); display: flex; flex-wrap: wrap; gap: var(--space-5); }
+.meta-bar span strong { color: var(--text-secondary); font-weight: 600; margin-right: var(--space-2); }
+hr { border: none; border-top: 1px solid var(--border-soft); margin: var(--space-7) 0; }
+.toc { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); padding: var(--space-5); margin: var(--space-5) 0; font-family: var(--font-sans); font-size: var(--text-sm); }
+.toc h3 { margin: 0 0 var(--space-3); font-family: var(--font-sans); font-size: var(--text-sm); text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border: none; }
+.toc ol { margin: 0; padding-left: var(--space-5); }
+.toc li { margin: var(--space-2) 0; }
+.toc a { color: var(--text-primary); border-bottom: none; }
+.toc a:hover { color: var(--color-primary); }
+footer.site-footer { border-top: 1px solid var(--border-soft); margin-top: var(--space-8); padding: var(--space-5); text-align: center; color: var(--text-muted); font-family: var(--font-sans); font-size: var(--text-sm); }
+.mermaid-wrap { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); margin: var(--space-5) 0; overflow-x: auto; text-align: center; }
+.mermaid-wrap .mermaid { display: inline-block; min-width: 100%; }
+.mermaid-wrap .mermaid svg { max-width: 100%; height: auto; }
+.code-tabs { margin: var(--space-5) 0; border: 1px solid var(--border-soft); border-radius: var(--radius-md); overflow: hidden; background: var(--bg-surface); }
+.code-tabs-header { display: flex; background: var(--bg-muted); border-bottom: 1px solid var(--border-soft); padding: 0; margin: 0; flex-wrap: wrap; }
+.code-tab-btn { appearance: none; border: none; background: transparent; color: var(--text-secondary); font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; padding: var(--space-3) var(--space-5); cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-2); border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s, background 0.15s; }
+.code-tab-btn:hover { background: var(--bg-surface); color: var(--text-primary); }
+.code-tab-btn[aria-selected="true"] { color: var(--color-primary); border-bottom-color: var(--color-primary); background: var(--bg-surface); }
+.code-tab-icon { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.code-tab-icon.go { background: #00add8; }
+.code-tab-icon.rust { background: #ce422b; }
+.code-tab-icon.shell { background: var(--color-success); }
+.code-tab-icon.c { background: var(--color-neutral-accent); }
+.code-tab-panel { display: none; padding: 0; }
+.code-tab-panel[data-active="true"] { display: block; }
+.code-tab-panel pre { margin: 0; border: none; border-radius: 0; background: var(--bg-code); }
+.code-tab-filename { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); padding: var(--space-2) var(--space-4); background: var(--bg-muted); border-bottom: 1px solid var(--border-soft); }
+.step-badge { display: inline-block; background: var(--color-primary); color: var(--bg-canvas); font-family: var(--font-sans); font-size: var(--text-xs); font-weight: 700; padding: 2px 10px; border-radius: 999px; margin-right: var(--space-2); letter-spacing: 0.05em; }
+
+/* Map-specific summary card */
+.map-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-left: 4px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin: var(--space-5) 0 var(--space-4);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+}
+.map-card-title {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--color-primary);
+  font-size: var(--text-md);
+  margin-bottom: var(--space-2);
+}
+.map-card dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+}
+.map-card dt { color: var(--text-muted); font-weight: 600; }
+.map-card dd { margin: 0; color: var(--text-primary); }
+
+/* category badge */
+.cat-badge {
+  display: inline-block;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-mid);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  margin-right: var(--space-2);
+}
+
+@media (max-width: 640px) {
+  h1 { font-size: var(--text-2xl); }
+  h2 { font-size: var(--text-xl); }
+  .container { padding: var(--space-4); }
+  .map-card dl { grid-template-columns: 1fr; }
+}
+</style>
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]}`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  function buildConfig(theme) {
+    const isDark = theme === 'dark';
+    return {
+      startOnLoad: false, theme: 'base',
+      fontFamily: '"DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif',
+      themeVariables: isDark ? {
+        background: '#262421',
+        primaryColor: '#1f3a4a', primaryTextColor: '#e8e6e3', primaryBorderColor: '#5aa9c4',
+        secondaryColor: '#2a3640', secondaryTextColor: '#e8e6e3', secondaryBorderColor: '#4a6b7a',
+        tertiaryColor: '#332e2a', tertiaryTextColor: '#e8e6e3', tertiaryBorderColor: '#5a5550',
+        lineColor: '#94c5d4', textColor: '#e8e6e3', mainBkg: '#1f3a4a',
+        edgeLabelBackground: '#262421', clusterBkg: '#262421', clusterBorder: '#4a4540',
+        nodeBorder: '#5aa9c4', labelBackground: '#262421', titleColor: '#e8e6e3',
+      } : {
+        background: '#fdfcfb',
+        primaryColor: '#e6f4f7', primaryTextColor: '#3a3631', primaryBorderColor: '#3a8aa3',
+        secondaryColor: '#f1ede8', secondaryTextColor: '#3a3631', secondaryBorderColor: '#9a8e7e',
+        tertiaryColor: '#f7f1e8', tertiaryTextColor: '#3a3631', tertiaryBorderColor: '#c0a988',
+        lineColor: '#3a8aa3', textColor: '#3a3631', mainBkg: '#e6f4f7',
+        edgeLabelBackground: '#fdfcfb', clusterBkg: '#f5f1ec', clusterBorder: '#c4bbae',
+        nodeBorder: '#3a8aa3', labelBackground: '#fdfcfb', titleColor: '#3a3631',
+      },
+      flowchart: { curve: 'basis', padding: 16, htmlLabels: true },
+      sequence: { diagramMarginX: 30, diagramMarginY: 10, actorMargin: 50 },
+    };
+  }
+  function snapshotSources() {
+    document.querySelectorAll('.mermaid').forEach((el) => { if (!el.dataset.source) el.dataset.source = el.textContent.trim(); });
+  }
+  async function renderAll(theme) {
+    if (typeof mermaid === 'undefined') return;
+    snapshotSources();
+    mermaid.initialize(buildConfig(theme));
+    const nodes = document.querySelectorAll('.mermaid');
+    let i = 0;
+    for (const node of nodes) {
+      const id = 'mmd-' + (i++) + '-' + Date.now();
+      try { const { svg } = await mermaid.render(id, node.dataset.source); node.innerHTML = svg; node.removeAttribute('data-processed'); }
+      catch (err) { console.error('mermaid render error', err); }
+    }
+  }
+  function getEffectiveTheme() { return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'; }
+  function init() {
+    snapshotSources();
+    renderAll(getEffectiveTheme());
+    window.addEventListener('jhsun:theme-changed', (e) => { const t = (e.detail && e.detail.theme) || getEffectiveTheme(); renderAll(t); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+<script>
+(function() {
+  'use strict';
+  function init() {
+    document.querySelectorAll('.code-tabs').forEach((tabs) => {
+      const btns = tabs.querySelectorAll('.code-tab-btn');
+      const panels = tabs.querySelectorAll('.code-tab-panel');
+      btns.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const target = btn.dataset.target;
+          btns.forEach((b) => b.setAttribute('aria-selected', b === btn ? 'true' : 'false'));
+          panels.forEach((p) => p.dataset.active = (p.dataset.id === target ? 'true' : 'false'));
+        });
+      });
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-inner">
+    <div class="brand">eBPF 教學手冊 · <strong>冊二-1</strong> · Maps 資料結構</div>
+    <button data-theme-toggle aria-label="Toggle theme"></button>
+  </div>
+</header>
+
+<main class="container">
+
+<h1>第 4 章　Maps：BPF 資料結構全覽</h1>
+
+<div class="audience-tags">
+  <span class="tag tag-beginner">🟢 初學者（前半）</span>
+  <span class="tag tag-developer">🟡 開發者</span>
+  <span class="tag tag-ops">🔴 DevOps / SRE</span>
+</div>
+
+<div class="meta-bar">
+  <span><strong>章節</strong>第二部 核心概念</span>
+  <span><strong>對應官方文件</strong>docs.ebpf.io/linux/map-type/</span>
+  <span><strong>預期閱讀時間</strong>120–180 分鐘</span>
+  <span><strong>前置知識</strong>冊一全部</span>
+</div>
+
+<blockquote>
+<p><strong>本章學習目標</strong></p>
+<ul>
+<li>建立 Map 的<strong>分類心智模型</strong>：Generic、Specialized、Iteration、Per-CPU 變體、Storage、Map of Maps。</li>
+<li>逐一介紹 <strong>Linux Kernel 6.14+ 全部 24 種 Map 類型</strong>，每類含：用途、key/value 限制、適用 program type、典型場景、使用範例。</li>
+<li>掌握 Map 的<strong>共通機制</strong>：BTF-style 宣告、flags（pinning、mmap、read-only）、生命週期、容量規劃。</li>
+<li>提供 <strong>Go (cilium/ebpf)</strong> 與 <strong>Rust (aya)</strong> 並列範例：HashMap、Array、PerCPU、LRU、LPM Trie、Ring Buffer。</li>
+<li>能依場景挑選正確的 Map 類型，不再陷入「為何我的 Map 找不到資料」這類困境。</li>
+</ul>
+</blockquote>
+
+<div class="toc">
+<h3>本章目錄</h3>
+<ol>
+<li><a href="#sec-4-1">4.1 為何 Maps 是 eBPF 的核心</a></li>
+<li><a href="#sec-4-2">4.2 Map 分類心智模型</a></li>
+<li><a href="#sec-4-3">4.3 Map 的共通機制</a></li>
+<li><a href="#sec-4-4">4.4 Generic Maps（通用型）</a></li>
+<li><a href="#sec-4-5">4.5 Per-CPU 變體</a></li>
+<li><a href="#sec-4-6">4.6 Specialized Maps（專用型）</a></li>
+<li><a href="#sec-4-7">4.7 Iteration / Output Maps（事件流）</a></li>
+<li><a href="#sec-4-8">4.8 Network Redirection Maps</a></li>
+<li><a href="#sec-4-9">4.9 Storage Maps（綁定 Kernel 物件）</a></li>
+<li><a href="#sec-4-10">4.10 Stack / Trace 類</a></li>
+<li><a href="#sec-4-11">4.11 Map of Maps</a></li>
+<li><a href="#sec-4-12">4.12 STRUCT_OPS / 特殊用途</a></li>
+<li><a href="#sec-4-13">4.13 完整實作範例（Go + Rust 並列）</a></li>
+<li><a href="#sec-4-14">4.14 容量規劃與效能考量</a></li>
+<li><a href="#sec-4-15">4.15 本章小結與下一步</a></li>
+</ol>
+</div>
+
+<hr>
+
+<h2 id="sec-4-1">4.1 為何 Maps 是 eBPF 的核心</h2>
+
+<p>讀完冊一你應該已經熟悉一個事實：<strong>BPF 程式沒有 heap、沒有 mutable 全域變數、stack 只有 512 bytes</strong>。所有跨呼叫保留資料、跨程式共享狀態、跨 user/kernel 邊界傳遞訊息，全靠 Maps。</p>
+
+<p>用一個比喻：</p>
+
+<blockquote>
+<p>BPF 程式像是一個只能讀寫局部變數的純函式，<strong>Maps 就是這個函式存取外部世界的唯一管道</strong>。沒有 Maps，BPF 程式只能在 Kernel 裡安靜地跑完然後消失，不留痕跡。</p>
+</blockquote>
+
+<p>Maps 在 BPF 生態的角色：</p>
+
+<div class="mermaid-wrap"><div class="mermaid">
+flowchart TB
+    USER["User Space 程式<br/>(Go / Rust loader / dashboard)"]
+    BPF1["BPF Program A<br/>(XDP)"]
+    BPF2["BPF Program B<br/>(tracepoint)"]
+    BPF3["BPF Program C<br/>(tail call target)"]
+    MAP[("Maps")]
+
+    USER -. "->|"BPF_MAP_LOOKUP_ELEM<br/>BPF_MAP_UPDATE_ELEM<br/>BPF_MAP_DELETE_ELEM"| MAP
+    BPF1 -" .->|"bpf_map_lookup_elem<br/>bpf_map_update_elem"| MAP
+    BPF2 -. "-> MAP
+    MAP -" .-> BPF3
+
+    BPF1 -. "tail call (PROG_ARRAY)" .-> BPF3
+</div></div>
+
+<ol>
+<li><strong>BPF → User space 輸出資料</strong>：用 ring buffer / perf event array。</li>
+<li><strong>User space → BPF 配置參數</strong>：用 hashmap / array。</li>
+<li><strong>BPF → BPF 共享狀態</strong>：例如 XDP 程式統計後，由 tc 程式讀取。</li>
+<li><strong>BPF 程式內部跨呼叫保留狀態</strong>：例如延遲計算需要存「這次 syscall 的進入時間」。</li>
+<li><strong>BPF → BPF 跳轉</strong>：用 prog array 做 tail call。</li>
+<li><strong>BPF → 網路堆疊重導向</strong>：用 sockmap、devmap、cpumap 把封包轉到別處。</li>
+</ol>
+
+<h2 id="sec-4-2">4.2 Map 分類心智模型</h2>
+
+<p>Linux Kernel 截至 6.14 共有約 30 個 <code>BPF_MAP_TYPE_*</code> 常數，但其中<strong>實際有獨立用途的</strong>大致 24 種，且 docs.ebpf.io 把它們依功能分為六大類。建議把這六類記在心裡，遇到新需求時先決定「我要哪一類」，再從類內挑具體型別。</p>
+
+<div class="mermaid-wrap"><div class="mermaid">
+flowchart TB
+    MAPS["BPF Maps"]
+
+    G["Generic<br/>通用 K/V 容器"]
+    S["Specialized<br/>專用結構"]
+    I["Iteration / Output<br/>事件流"]
+    N["Network Redirection<br/>封包/socket 重導"]
+    ST["Storage<br/>綁定 Kernel 物件"]
+    T["Stack / Trace<br/>呼叫堆疊"]
+    M["Map of Maps<br/>巢狀"]
+    O["STRUCT_OPS / 其他"]
+
+    MAPS --> G --> G1["HASH / ARRAY<br/>BLOOM_FILTER<br/>QUEUE / STACK"]
+    MAPS --> S --> S1["LRU_HASH<br/>LPM_TRIE<br/>ARENA"]
+    MAPS --> I --> I1["RINGBUF<br/>USER_RINGBUF<br/>PERF_EVENT_ARRAY"]
+    MAPS --> N --> N1["SOCKMAP / SOCKHASH<br/>DEVMAP / CPUMAP / XSKMAP"]
+    MAPS --> ST --> ST1["TASK / SK / INODE / CGRP / CGROUP_STORAGE"]
+    MAPS --> T --> T1["STACK_TRACE"]
+    MAPS --> M --> M1["ARRAY_OF_MAPS<br/>HASH_OF_MAPS"]
+    MAPS --> O --> O1["STRUCT_OPS<br/>PROG_ARRAY"]
+</div></div>
+
+<h3>4.2.1 從「我要做什麼」反推 Map 類型</h3>
+
+<p>下表是實務上最常用的選擇路徑：</p>
+
+<table>
+<thead>
+<tr><th>需求</th><th>建議 Map 類型</th><th>關鍵理由</th></tr>
+</thead>
+<tbody>
+<tr><td>用 PID / IP / 任意 key 做 K/V 查詢</td><td><code>HASH</code></td><td>通用、彈性</td></tr>
+<tr><td>計數器、固定大小 config</td><td><code>ARRAY</code></td><td>JIT 可內聯，最快</td></tr>
+<tr><td>高頻計數，避免 lock</td><td><code>PERCPU_ARRAY</code> / <code>PERCPU_HASH</code></td><td>每 CPU 各自寫入，免鎖</td></tr>
+<tr><td>連線追蹤，容量有限要自動淘汰</td><td><code>LRU_HASH</code></td><td>內建 LRU 淘汰</td></tr>
+<tr><td>IP routing、最長前綴匹配</td><td><code>LPM_TRIE</code></td><td>專為 prefix 設計</td></tr>
+<tr><td>BPF → user 高效率事件流</td><td><code>RINGBUF</code></td><td>5.8+ 取代 perf event</td></tr>
+<tr><td>user → BPF 命令通道</td><td><code>USER_RINGBUF</code></td><td>5.18+ 反向 ringbuf</td></tr>
+<tr><td>給某個 task 私有的 scratch space</td><td><code>TASK_STORAGE</code></td><td>綁 task 生命週期</td></tr>
+<tr><td>給某個 socket 私有的狀態</td><td><code>SK_STORAGE</code></td><td>綁 sock 生命週期</td></tr>
+<tr><td>把封包重導到另一個 CPU 處理</td><td><code>CPUMAP</code></td><td>XDP 封包路由</td></tr>
+<tr><td>把封包重導到另一個 interface</td><td><code>DEVMAP</code></td><td>L2 封包轉發</td></tr>
+<tr><td>把流量送到 user space AF_XDP</td><td><code>XSKMAP</code></td><td>kernel-bypass</td></tr>
+<tr><td>把 socket 替換成 BPF 處理</td><td><code>SOCKMAP</code></td><td>L7 加速</td></tr>
+<tr><td>BPF → BPF 程式跳轉（不返回）</td><td><code>PROG_ARRAY</code></td><td>tail call</td></tr>
+<tr><td>取得當前呼叫堆疊</td><td><code>STACK_TRACE</code></td><td>profiling</td></tr>
+<tr><td>「Map 內含 Map」的彈性結構</td><td><code>ARRAY_OF_MAPS</code> / <code>HASH_OF_MAPS</code></td><td>多租戶、動態切換</td></tr>
+<tr><td>近似存在性檢查（可能誤判）</td><td><code>BLOOM_FILTER</code></td><td>節省記憶體</td></tr>
+<tr><td>FIFO / LIFO 用來解耦處理</td><td><code>QUEUE</code> / <code>STACK</code></td><td>無 key</td></tr>
+</tbody>
+</table>
+
+<h2 id="sec-4-3">4.3 Map 的共通機制</h2>
+
+<h3>4.3.1 BTF-style 宣告（建議寫法）</h3>
+
+<p>過去（&lt;= 2020 年）大家用 <code>struct bpf_map_def</code> 宣告 Map，但這種寫法<strong>不帶 BTF type 資訊</strong>，因此沒有 CO-RE 支援、bpf2go 也無法產生 typed scaffolding。<strong>現代寫法都用 BTF-style</strong>：</p>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="btf-style" aria-selected="true"><span class="code-tab-icon c"></span>C 端（BTF-style）</button>
+<button class="code-tab-btn" data-target="legacy-style"><span class="code-tab-icon c"></span>對比：legacy 寫法</button>
+</div>
+<div class="code-tab-panel" data-id="btf-style" data-active="true">
+<div class="code-tab-filename">推薦：BTF-style，放在 .maps section</div>
+<pre><code>#include "vmlinux.h"
+#include &lt;bpf/bpf_helpers.h&gt;
+
+struct event {
+    __u32 pid;
+    char  comm[16];
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, __u32);
+    __type(value, struct event);
+    __uint(max_entries, 1024);
+} my_hash SEC(".maps");
+
+// 還可以加：
+//   __uint(map_flags, BPF_F_NO_PREALLOC);
+//   __uint(pinning,   LIBBPF_PIN_BY_NAME);</code></pre>
+</div>
+<div class="code-tab-panel" data-id="legacy-style">
+<div class="code-tab-filename">不推薦：legacy 寫法，放在 maps section</div>
+<pre><code>// 缺點：bpf2go 無法產生 typed wrapper、無 CO-RE、IDE 失去型別提示
+struct bpf_map_def my_hash SEC("maps") = {
+    .type = BPF_MAP_TYPE_HASH,
+    .key_size = sizeof(__u32),
+    .value_size = sizeof(struct event),
+    .max_entries = 1024,
+};</code></pre>
+</div>
+</div>
+
+<h3>4.3.2 共通屬性</h3>
+
+<table>
+<thead>
+<tr><th>屬性</th><th>意義</th></tr>
+</thead>
+<tbody>
+<tr><td><code>type</code></td><td>Map 類型常數（<code>BPF_MAP_TYPE_*</code>）</td></tr>
+<tr><td><code>key_size</code> / <code>value_size</code></td><td>key、value 的 byte size。某些類型有額外限制（QUEUE 無 key、SOCKMAP value 必須為 4 等）</td></tr>
+<tr><td><code>max_entries</code></td><td>容量上限。對 ARRAY 而言是元素數量；對 HASH 是同時存活的 entry 上限；對 RINGBUF 是 bytes</td></tr>
+<tr><td><code>map_flags</code></td><td>各種 flag，見下方</td></tr>
+<tr><td><code>numa_node</code></td><td>建議的 NUMA node（4.14+）</td></tr>
+<tr><td><code>map_ifindex</code></td><td>網路裝置 offload 的 interface（少用）</td></tr>
+</tbody>
+</table>
+
+<h3>4.3.3 重要 Flags</h3>
+
+<table>
+<thead>
+<tr><th>Flag</th><th>用途</th></tr>
+</thead>
+<tbody>
+<tr><td><code>BPF_F_NO_PREALLOC</code></td><td>HASH 預設 pre-allocate 全部 slot；設此 flag 改為 lazy 配置（節省記憶體，速度略慢）</td></tr>
+<tr><td><code>BPF_F_NO_COMMON_LRU</code></td><td>LRU_HASH 從共用 LRU 改為 per-CPU LRU（提升併發效能）</td></tr>
+<tr><td><code>BPF_F_NUMA_NODE</code></td><td>啟用 numa_node 設定</td></tr>
+<tr><td><code>BPF_F_RDONLY</code> / <code>BPF_F_WRONLY</code></td><td>限制 syscall 端只能讀 / 只能寫</td></tr>
+<tr><td><code>BPF_F_RDONLY_PROG</code> / <code>BPF_F_WRONLY_PROG</code></td><td>限制 BPF 程式只能讀 / 只能寫（5.2+）</td></tr>
+<tr><td><code>BPF_F_MMAPABLE</code></td><td>ARRAY 可被 user space mmap，零 syscall 共享記憶體（5.5+）</td></tr>
+<tr><td><code>BPF_F_PRESERVE_ELEMS</code></td><td>PERF_EVENT_ARRAY，map FD 關閉時不清空 pending events</td></tr>
+<tr><td><code>BPF_F_INNER_MAP</code></td><td>用於 array_of_maps 的 inner map（5.10+）</td></tr>
+<tr><td><code>pinning = LIBBPF_PIN_BY_NAME</code></td><td>libbpf-style 自動 pin 到 <code>/sys/fs/bpf/{name}</code></td></tr>
+</tbody>
+</table>
+
+<h3>4.3.4 Map 的生命週期</h3>
+
+<div class="mermaid-wrap"><div class="mermaid">
+sequenceDiagram
+    participant U as User space
+    participant K as Kernel
+    participant M as Map 物件
+    participant P as BPF Program
+
+    U->>K: bpf(BPF_MAP_CREATE, ...)
+    K->>M: 配置記憶體
+    K-->>U: 回傳 map_fd
+
+    Note over P,M: BPF 載入時持有 map reference
+    U->>K: bpf(BPF_PROG_LOAD, ...)<br/>含 map_fd reference
+    K->>P: 載入 program
+
+    loop 運行中
+        P->>M: bpf_map_lookup_elem
+        U->>M: BPF_MAP_LOOKUP_ELEM (syscall)
+    end
+
+    Note over U,M: User space 關閉 fd
+    U->>K: close(map_fd)
+    Note over P,M: 若 program 也釋放 reference<br/>且未 pin，map 即被回收
+</div></div>
+
+<p>Map 的生命週期由<strong>所有持有 reference 的物件</strong>決定：</p>
+
+<ul>
+<li>User space FD</li>
+<li>BPF Program 載入時的 reference</li>
+<li>Pinning 在 bpffs 上的 inode</li>
+</ul>
+
+<p>只要還有任何一方持有，Map 就活著。全部釋放後，Kernel 才會回收。</p>
+
+<h3>4.3.5 容量計算（重要！）</h3>
+
+<p>Map 不是免費的——每個 Map 都會占用 Kernel locked memory。粗略估算公式：</p>
+
+<div class="callout callout-info">
+<div class="callout-title">記憶體估算公式</div>
+<p>對 <code>HASH</code>：<code>(key_size + value_size + ~50 bytes overhead) × max_entries</code></p>
+<p>對 <code>ARRAY</code>：<code>roundup(value_size, 8) × max_entries</code>（key 不占空間）</p>
+<p>對 <code>PERCPU_*</code>：上述 × <code>nr_cpus</code></p>
+<p>對 <code>RINGBUF</code>：<code>max_entries</code> 直接是 bytes（必須是 2 的次方）</p>
+<p>例：8-CPU 主機上 <code>PERCPU_HASH</code>，key 4 bytes、value 32 bytes、max_entries 100,000，記憶體約 <code>(4+32+50) × 100000 × 8 ≈ 65 MB</code>。</p>
+</div>
+
+<p>用 <code>bpftool map show</code> 可以查看實際的 <code>memlock</code> 占用。</p>
+
+
+<h2 id="sec-4-4">4.4 Generic Maps（通用型）</h2>
+
+<p>這是日常開發最常用的五種 Map。它們都是「通用 K/V 容器」，差別在於索引方式與是否支援淘汰。</p>
+
+<h3>4.4.1 <code>BPF_MAP_TYPE_HASH</code></h3>
+
+<div class="map-card">
+<div class="map-card-title">BPF_MAP_TYPE_HASH</div>
+<dl>
+<dt>分類</dt><dd><span class="cat-badge">Generic</span></dd>
+<dt>Key</dt><dd>任意大小、任意結構</dd>
+<dt>Value</dt><dd>任意大小、任意結構</dd>
+<dt>淘汰</dt><dd>無，滿了之後 update 會回 ENOMEM</dd>
+<dt>支援版本</dt><dd>3.19</dd>
+<dt>典型用途</dt><dd>PID → 統計、IP → metadata、syscall id → 計數</dd>
+</dl>
+</div>
+
+<p>Hash table 是預設選擇——當你不確定要用什麼，先用 HASH。它支援任意大小的 key/value，<code>bpf_map_lookup_elem</code> 回傳指向 value 的<strong>指標</strong>，所以更新只要在原地修改即可：</p>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="hash-c" aria-selected="true"><span class="code-tab-icon c"></span>BPF C</button>
+</div>
+<div class="code-tab-panel" data-id="hash-c" data-active="true">
+<div class="code-tab-filename">原地更新計數</div>
+<pre><code>struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, __u32);          // PID
+    __type(value, __u64);        // syscall 計數
+    __uint(max_entries, 10240);
+} pid_count SEC(".maps");
+
+SEC("tracepoint/raw_syscalls/sys_enter")
+int count_syscall(void *ctx) {
+    __u32 pid = bpf_get_current_pid_tgid() &gt;&gt; 32;
+
+    __u64 *cnt = bpf_map_lookup_elem(&amp;pid_count, &amp;pid);
+    if (cnt) {
+        // 直接 in-place 加，但併發可能 race
+        // 想免 race 改用 __sync_fetch_and_add
+        __sync_fetch_and_add(cnt, 1);
+    } else {
+        __u64 init = 1;
+        bpf_map_update_elem(&amp;pid_count, &amp;pid, &amp;init, BPF_NOEXIST);
+    }
+    return 0;
+}</code></pre>
+</div>
+</div>
+
+<div class="callout callout-warning">
+<div class="callout-title">HASH 的 race condition</div>
+<p>多 CPU 上同時觸發 BPF 程式時，<code>lookup → modify → update</code> 不是原子操作。要避免 race：(1) 用 <code>__sync_fetch_and_add</code> 等 atomic builtin、(2) 改用 <code>PERCPU_HASH</code>、(3) 用 spin lock（5.1+）。</p>
+</div>
+
+<h3>4.4.2 <code>BPF_MAP_TYPE_ARRAY</code></h3>
+
+<div class="map-card">
+<div class="map-card-title">BPF_MAP_TYPE_ARRAY</div>
+<dl>
+<dt>分類</dt><dd><span class="cat-badge">Generic</span></dd>
+<dt>Key</dt><dd>固定 4 bytes（u32 index，0 ~ max_entries-1）</dd>
+<dt>Value</dt><dd>任意大小，會 round up 至 8 bytes 對齊</dd>
+<dt>淘汰</dt><dd>無，元素永遠存在（init 為 0）</dd>
+<dt>支援版本</dt><dd>3.19</dd>
+<dt>典型用途</dt><dd>計數器、全域 config、enum-indexed lookup</dd>
+</dl>
+</div>
+
+<p>Array 在<strong>建立時</strong>就配置好全部 slot 並初始化為 0，<strong>無法 delete</strong>，只能 update。換來的好處是：JIT 知道 max_entries 是常數，可以把 <code>bpf_map_lookup_elem</code> 內聯掉，極快。</p>
+
+<p>進階用法：開啟 <code>BPF_F_MMAPABLE</code>，user space 可以 <code>mmap</code> map 到 process 記憶體，避免 syscall，效能再上一層樓。常見於儀表板、計數器收集。</p>
+
+<h3>4.4.3 <code>BPF_MAP_TYPE_BLOOM_FILTER</code></h3>
+
+<div class="map-card">
+<div class="map-card-title">BPF_MAP_TYPE_BLOOM_FILTER</div>
+<dl>
+<dt>分類</dt><dd><span class="cat-badge">Generic</span></dd>
+<dt>Key</dt><dd>無（push 模式）</dd>
+<dt>Value</dt><dd>任意 size（要查的元素本身）</dd>
+<dt>淘汰</dt><dd>無，bloom filter 不支援 delete</dd>
+<dt>支援版本</dt><dd>5.16</dd>
+<dt>典型用途</dt><dd>大型黑白名單預檢、查詢前 fast-path</dd>
+</dl>
+</div>
+
+<p>Bloom Filter 是<strong>機率性資料結構</strong>，可能誤判（false positive），但絕不漏報（no false negative）。對於「先 cheap 篩掉九成請求」的場景非常省記憶體。</p>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="bloom-c" aria-selected="true"><span class="code-tab-icon c"></span>BPF C</button>
+</div>
+<div class="code-tab-panel" data-id="bloom-c" data-active="true">
+<div class="code-tab-filename">配合 HASH 做兩階段查詢</div>
+<pre><code>struct {
+    __uint(type, BPF_MAP_TYPE_BLOOM_FILTER);
+    __type(value, __u32);
+    __uint(max_entries, 1000000);  // 預期條目數
+    __uint(map_extra, 5);          // hash 函式數量（可選）
+} suspicious_ips SEC(".maps");
+
+SEC("xdp")
+int filter_xdp(struct xdp_md *ctx) {
+    __u32 src_ip = /* 解析封包... */;
+
+    // 先用 bloom filter 快速篩
+    if (bpf_map_peek_elem(&amp;suspicious_ips, &amp;src_ip) != 0) {
+        return XDP_PASS;   // 不在可疑清單，直接放行
+    }
+    // bloom filter 命中（可能誤判），再走重的精確查表
+    // ... 查另一個 HASH map ...
+    return XDP_DROP;
+}</code></pre>
+</div>
+</div>
+
+<h3>4.4.4 <code>BPF_MAP_TYPE_QUEUE</code> / <code>BPF_MAP_TYPE_STACK</code></h3>
+
+<div class="map-card">
+<div class="map-card-title">BPF_MAP_TYPE_QUEUE / BPF_MAP_TYPE_STACK</div>
+<dl>
+<dt>分類</dt><dd><span class="cat-badge">Generic</span></dd>
+<dt>Key</dt><dd>無</dd>
+<dt>Value</dt><dd>任意 size</dd>
+<dt>淘汰</dt><dd>FIFO（QUEUE）/ LIFO（STACK）</dd>
+<dt>支援版本</dt><dd>4.20</dd>
+<dt>典型用途</dt><dd>解耦 producer / consumer、延遲計算批次</dd>
+</dl>
+</div>
+
+<p>沒有 key 的純佇列。用 <code>bpf_map_push_elem</code> 加入、<code>bpf_map_pop_elem</code> 取出、<code>bpf_map_peek_elem</code> 查看頂部。從 user space 看：</p>
+
+<ul>
+<li><code>BPF_MAP_LOOKUP_ELEM</code> = peek</li>
+<li><code>BPF_MAP_LOOKUP_AND_DELETE_ELEM</code> = pop</li>
+<li><code>BPF_MAP_UPDATE_ELEM</code> = push</li>
+</ul>
+
+<h2 id="sec-4-5">4.5 Per-CPU 變體</h2>
+
+<p>每個基礎 Map 類型多半有 per-CPU 版本。每個 CPU 各自有一份獨立的記憶體，<strong>BPF 程式存取時自動取得當前 CPU 的版本</strong>，<strong>免鎖、零 contention</strong>。代價是：</p>
+
+<ul>
+<li>記憶體 = 單份 × <code>nr_cpus</code>。</li>
+<li>BPF 程式之間無法跨 CPU 共享資料。</li>
+<li>User space 讀取時會看到「全部 CPU 的陣列」，需要自己 aggregate。</li>
+</ul>
+
+<p>四個 per-CPU 變體：</p>
+
+<table>
+<thead>
+<tr><th>類型</th><th>對應普通版</th><th>支援版本</th></tr>
+</thead>
+<tbody>
+<tr><td><code>BPF_MAP_TYPE_PERCPU_HASH</code></td><td>HASH</td><td>4.6</td></tr>
+<tr><td><code>BPF_MAP_TYPE_PERCPU_ARRAY</code></td><td>ARRAY</td><td>4.6</td></tr>
+<tr><td><code>BPF_MAP_TYPE_LRU_PERCPU_HASH</code></td><td>LRU_HASH</td><td>4.10</td></tr>
+<tr><td><code>BPF_MAP_TYPE_PERCPU_CGROUP_STORAGE</code></td><td>CGROUP_STORAGE</td><td>4.20</td></tr>
+</tbody>
+</table>
+
+<div class="callout callout-success">
+<div class="callout-title">什麼時候該用 PerCPU？</div>
+<p>三個情境：(1) <strong>高頻計數</strong>—— 每秒百萬次計數的 metric 必用。(2) <strong>大型 scratch buffer</strong>—— BPF stack 只有 512 bytes，需要大暫存區時用 <code>PERCPU_ARRAY[1]</code> 取得 CPU-private 大塊記憶體。(3) <strong>避免 lock contention</strong>—— 任何只在 BPF 程式內聚合、最後由 user space 加總的計數場景。</p>
+</div>
+
+<h3>4.5.1 PerCPU Array 當大型 scratch space</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="percpu-scratch" aria-selected="true"><span class="code-tab-icon c"></span>BPF C</button>
+</div>
+<div class="code-tab-panel" data-id="percpu-scratch" data-active="true">
+<div class="code-tab-filename">用 PERCPU_ARRAY 取代 stack 大型暫存</div>
+<pre><code>struct heavy_ctx {
+    char buf[4096];     // 遠超過 512 bytes stack
+    __u32 fields[256];
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __type(key, __u32);
+    __type(value, struct heavy_ctx);
+    __uint(max_entries, 1);     // 每 CPU 只需要 1 個
+} heavy_scratch SEC(".maps");
+
+SEC("kprobe/__some_function")
+int trace_heavy(struct pt_regs *ctx) {
+    __u32 zero = 0;
+    struct heavy_ctx *hc = bpf_map_lookup_elem(&amp;heavy_scratch, &amp;zero);
+    if (!hc) return 0;
+
+    // 在 hc-&gt;buf 等大塊記憶體上工作，不會炸 stack
+    // ...
+    return 0;
+}</code></pre>
+</div>
+</div>
+
+<h2 id="sec-4-6">4.6 Specialized Maps（專用型）</h2>
+
+<h3>4.6.1 <code>BPF_MAP_TYPE_LRU_HASH</code></h3>
+
+<div class="map-card">
+<div class="map-card-title">BPF_MAP_TYPE_LRU_HASH</div>
+<dl>
+<dt>分類</dt><dd><span class="cat-badge">Specialized</span></dd>
+<dt>Key</dt><dd>任意</dd>
+<dt>Value</dt><dd>任意</dd>
+<dt>淘汰</dt><dd>近似 LRU（容量到時自動移除最少使用的元素）</dd>
+<dt>支援版本</dt><dd>4.10</dd>
+<dt>典型用途</dt><dd>連線追蹤、快取、TCP flow state</dd>
+</dl>
+</div>
+
+<p>LRU_HASH 解決一個常見痛點：「我想追蹤連線，但連線數可能爆炸，又不能讓記憶體無限制成長」。LRU 自動淘汰最舊未使用的，無需 user space 介入清理。</p>
+
+<p>注意：<strong>淘汰是近似而非精確</strong>，為了效能，演算法允許某些誤差。對 hot path 沒影響，對 audit 場景要小心。</p>
+
+<h3>4.6.2 <code>BPF_MAP_TYPE_LPM_TRIE</code></h3>
+
+<div class="map-card">
+<div class="map-card-title">BPF_MAP_TYPE_LPM_TRIE</div>
+<dl>
+<dt>分類</dt><dd><span class="cat-badge">Specialized</span></dd>
+<dt>Key</dt><dd><code>struct bpf_lpm_trie_key</code>：prefix length + 資料</dd>
+<dt>Value</dt><dd>任意</dd>
+<dt>淘汰</dt><dd>無</dd>
+<dt>支援版本</dt><dd>4.11</dd>
+<dt>典型用途</dt><dd>IP routing table（最長前綴匹配）、子網路 ACL</dd>
+</dl>
+</div>
+
+<p>標準的 IP 路由表結構。Lookup 時帶完整的 IP，回傳最長匹配的 prefix 對應的 value。</p>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="lpm-c" aria-selected="true"><span class="code-tab-icon c"></span>BPF C</button>
+</div>
+<div class="code-tab-panel" data-id="lpm-c" data-active="true">
+<div class="code-tab-filename">IPv4 routing table</div>
+<pre><code>struct lpm_v4_key {
+    __u32 prefixlen;       // bit length（必須在第一個欄位）
+    __u8  data[4];         // IPv4 address
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LPM_TRIE);
+    __type(key, struct lpm_v4_key);
+    __type(value, __u32);            // gateway IP 或 verdict
+    __uint(max_entries, 1024);
+    __uint(map_flags, BPF_F_NO_PREALLOC);  // LPM_TRIE 必須加
+} routes SEC(".maps");
+
+// 查 10.0.5.7 → 找最長匹配的 prefix
+struct lpm_v4_key key = {
+    .prefixlen = 32,
+    .data = {10, 0, 5, 7},
+};
+__u32 *gw = bpf_map_lookup_elem(&amp;routes, &amp;key);</code></pre>
+</div>
+</div>
+
+<h3>4.6.3 <code>BPF_MAP_TYPE_ARENA</code></h3>
+
+<div class="map-card">
+<div class="map-card-title">BPF_MAP_TYPE_ARENA</div>
+<dl>
+<dt>分類</dt><dd><span class="cat-badge">Specialized</span> <span class="cat-badge">新</span></dd>
+<dt>Key</dt><dd>不適用，是線性記憶體區塊</dd>
+<dt>Value</dt><dd>記憶體 page</dd>
+<dt>支援版本</dt><dd>6.9（2024-05）</dd>
+<dt>典型用途</dt><dd>BPF 內 heap、自實作資料結構（如 link list、自訂 hashmap）</dd>
+</dl>
+</div>
+
+<p>Arena 是 eBPF 史上第一個「<strong>BPF 程式可動態配置記憶體</strong>」的機制。原本 BPF 完全無 heap，所有資料結構都受限於 Map 預定的 schema。Arena 提供一個 user / BPF 兩邊都能 mmap 的記憶體區，BPF 內可以用 <code>bpf_arena_alloc_pages</code> / <code>bpf_arena_free_pages</code> 動態配置。</p>
+
+<p>實務意義：可以在 BPF 內實作自己的 binary tree、linked list、自訂 hash 表，不再受 Map 預定義結構限制。本書冊二第 7 章會展開。</p>
+
+<h2 id="sec-4-7">4.7 Iteration / Output Maps（事件流）</h2>
+
+<p>BPF → user space 大量事件流的標準工具。共三類：</p>
+
+<h3>4.7.1 <code>BPF_MAP_TYPE_RINGBUF</code>（首選）</h3>
+
+<div class="map-card">
+<div class="map-card-title">BPF_MAP_TYPE_RINGBUF</div>
+<dl>
+<dt>分類</dt><dd><span class="cat-badge">Output</span></dd>
+<dt>Key</dt><dd>無</dd>
+<dt>Value</dt><dd>變動長度的 record</dd>
+<dt>容量</dt><dd>max_entries 直接是 bytes，必須 2 的次方</dd>
+<dt>支援版本</dt><dd>5.8</dd>
+<dt>典型用途</dt><dd>BPF → user 事件流（取代 PERF_EVENT_ARRAY）</dd>
+</dl>
+</div>
+
+<p>Ring Buffer 是 5.8 之後的<strong>首選</strong>事件輸出機制。優勢：</p>
+
+<ul>
+<li><strong>整機共用一個</strong>：不像 perf event array 要每 CPU 建一個。</li>
+<li><strong>BPF 端 reserve / submit / discard 三步驟</strong>：可以先預留空間，發現條件不對再 discard，沒寫完就不會被 user 看到。</li>
+<li><strong>支援 epoll wakeup</strong>：user space 用 epoll 等待，幾乎零 polling 開銷。</li>
+<li><strong>事件保序（per CPU 內）</strong>：相比 perf event array 更可靠。</li>
+</ul>
+
+<p>第 2 章 Hello World 就是用 RINGBUF。</p>
+
+<h3>4.7.2 <code>BPF_MAP_TYPE_USER_RINGBUF</code>（反向）</h3>
+
+<div class="map-card">
+<div class="map-card-title">BPF_MAP_TYPE_USER_RINGBUF</div>
+<dl>
+<dt>分類</dt><dd><span class="cat-badge">Output</span></dd>
+<dt>Key</dt><dd>無</dd>
+<dt>方向</dt><dd>User → BPF</dd>
+<dt>支援版本</dt><dd>5.18</dd>
+<dt>典型用途</dt><dd>user space 餵命令給 BPF（zero-copy）</dd>
+</dl>
+</div>
+
+<p>方向相反的 ring buffer：<strong>user space 寫入，BPF 端用 <code>bpf_user_ringbuf_drain</code> 讀取</strong>。場景：sched_ext 自訂 scheduler 需要 user space 持續餵 hint、控制平面需要動態指令。</p>
+
+<h3>4.7.3 <code>BPF_MAP_TYPE_PERF_EVENT_ARRAY</code>（傳統）</h3>
+
+<div class="map-card">
+<div class="map-card-title">BPF_MAP_TYPE_PERF_EVENT_ARRAY</div>
+<dl>
+<dt>分類</dt><dd><span class="cat-badge">Output</span> <span class="cat-badge">傳統</span></dd>
+<dt>Key</dt><dd>4 bytes（CPU index）</dd>
+<dt>Value</dt><dd>4 bytes（perf event FD）</dd>
+<dt>支援版本</dt><dd>4.3</dd>
+<dt>典型用途</dt><dd>5.8 前的事件流首選；XDP 使用 <code>bpf_xdp_output</code> 仍會選它</dd>
+</dl>
+</div>
+
+<p>在 ring buffer 之前的事件流方案。每 CPU 一個 perf ring，user space 為每個 CPU 開一個 reader。<strong>新專案應優先使用 RINGBUF</strong>，但既有工具與部分 program type（如 XDP 帶 metadata 的場景）仍會用到。</p>
+
+
+<h2 id="sec-4-8">4.8 Network Redirection Maps</h2>
+
+<p>這類 Map 的 value 不是「資料」，而是「<strong>把封包/socket 重導到哪裡</strong>」的目的地參考。BPF 程式呼叫對應的 redirect helper 時，會讀取 Map 取得目標。</p>
+
+<h3>4.8.1 <code>BPF_MAP_TYPE_DEVMAP</code> / <code>DEVMAP_HASH</code></h3>
+
+<div class="map-card">
+<div class="map-card-title">BPF_MAP_TYPE_DEVMAP / DEVMAP_HASH</div>
+<dl>
+<dt>分類</dt><dd><span class="cat-badge">Network Redirect</span></dd>
+<dt>Key</dt><dd>4 bytes index（DEVMAP）/ 任意（DEVMAP_HASH）</dd>
+<dt>Value</dt><dd>net device ifindex（或 <code>struct bpf_devmap_val</code>）</dd>
+<dt>支援版本</dt><dd>4.14（DEVMAP）/ 5.4（DEVMAP_HASH）</dd>
+<dt>典型用途</dt><dd>XDP 程式把封包轉發到另一張網卡</dd>
+</dl>
+</div>
+
+<p>XDP 程式呼叫 <code>bpf_redirect_map(&amp;devmap, idx, 0)</code> 時，封包就會被送到對應 ifindex 的 netdev。常見於：軟體 router、L2 bridge、bond 加速、kernel-bypass 中繼。</p>
+
+<h3>4.8.2 <code>BPF_MAP_TYPE_CPUMAP</code></h3>
+
+<div class="map-card">
+<div class="map-card-title">BPF_MAP_TYPE_CPUMAP</div>
+<dl>
+<dt>分類</dt><dd><span class="cat-badge">Network Redirect</span></dd>
+<dt>Key</dt><dd>CPU index</dd>
+<dt>Value</dt><dd><code>struct bpf_cpumap_val</code>（含 qsize）</dd>
+<dt>支援版本</dt><dd>4.15</dd>
+<dt>典型用途</dt><dd>XDP 把封包送到指定 CPU 的 backlog 處理</dd>
+</dl>
+</div>
+
+<p>把封包<strong>重新分配 CPU</strong>。XDP 在 hot CPU 上接到封包後，可以呼叫 <code>bpf_redirect_map(&amp;cpumap, target_cpu, 0)</code>，把封包送到比較閒的 CPU 上的 socket backlog。常見於：把 Rx queue 處理與 socket 處理分到不同 CPU、跨 NUMA 節點優化。</p>
+
+<h3>4.8.3 <code>BPF_MAP_TYPE_XSKMAP</code></h3>
+
+<div class="map-card">
+<div class="map-card-title">BPF_MAP_TYPE_XSKMAP</div>
+<dl>
+<dt>分類</dt><dd><span class="cat-badge">Network Redirect</span></dd>
+<dt>Key</dt><dd>4 bytes（queue id）</dd>
+<dt>Value</dt><dd>AF_XDP socket FD</dd>
+<dt>支援版本</dt><dd>4.18</dd>
+<dt>典型用途</dt><dd>把封包送進 user space AF_XDP socket（kernel-bypass）</dd>
+</dl>
+</div>
+
+<p>讓 XDP 程式把封包<strong>直接送到 user space</strong>，不經過 kernel network stack。這是 DPDK 替代方案的基石。冊三第 8 章會深入。</p>
+
+<h3>4.8.4 <code>BPF_MAP_TYPE_SOCKMAP</code> / <code>SOCKHASH</code></h3>
+
+<div class="map-card">
+<div class="map-card-title">BPF_MAP_TYPE_SOCKMAP / SOCKHASH</div>
+<dl>
+<dt>分類</dt><dd><span class="cat-badge">Network Redirect</span></dd>
+<dt>Key</dt><dd>SOCKMAP: 4 bytes index；SOCKHASH: 任意</dd>
+<dt>Value</dt><dd>socket FD（4 bytes）</dd>
+<dt>支援版本</dt><dd>4.14（SOCKMAP）/ 4.18（SOCKHASH）</dd>
+<dt>典型用途</dt><dd>L7 socket-level 重導、Service Mesh 加速</dd>
+</dl>
+</div>
+
+<p>把現有 socket 放進 SOCKMAP，<code>SK_MSG</code> 或 <code>SK_SKB</code> 程式可以攔截該 socket 的資料流，做 redirect、drop、modify。Cilium 的 Service Mesh 加速就是透過這個做到「不走 Envoy 也能完成 L7 處理」。</p>
+
+<h2 id="sec-4-9">4.9 Storage Maps（綁定 Kernel 物件）</h2>
+
+<p>這是一類特殊 Map：每個 entry 「<strong>綁定到某個 Kernel 物件</strong>」（task_struct、socket、inode、cgroup），物件消失時 entry 自動回收。對「per-task / per-socket 上下文」場景無比方便。</p>
+
+<table>
+<thead>
+<tr><th>類型</th><th>綁定物件</th><th>支援版本</th></tr>
+</thead>
+<tbody>
+<tr><td><code>BPF_MAP_TYPE_TASK_STORAGE</code></td><td><code>struct task_struct</code></td><td>5.11</td></tr>
+<tr><td><code>BPF_MAP_TYPE_SK_STORAGE</code></td><td><code>struct sock</code></td><td>5.2</td></tr>
+<tr><td><code>BPF_MAP_TYPE_INODE_STORAGE</code></td><td><code>struct inode</code></td><td>5.10</td></tr>
+<tr><td><code>BPF_MAP_TYPE_CGRP_STORAGE</code></td><td><code>struct cgroup</code></td><td>6.2</td></tr>
+<tr><td><code>BPF_MAP_TYPE_CGROUP_STORAGE</code>（舊式）</td><td>cgroup（綁 program）</td><td>4.19</td></tr>
+<tr><td><code>BPF_MAP_TYPE_PERCPU_CGROUP_STORAGE</code></td><td>cgroup（綁 program，per-cpu）</td><td>4.20</td></tr>
+</tbody>
+</table>
+
+<h3>4.9.1 為何不用普通 HASH？</h3>
+
+<p>沒有 storage map 之前，「per-PID 計時器」這類需求要用 <code>HASH&lt;pid, struct timer&gt;</code>。但 process 退出後，這個 entry 不會自動消失，要 user space 自己掃 PID list 清理，麻煩又容易 leak。Storage Map 把 entry 生命週期綁到 Kernel 物件本身，物件死了 entry 跟著走。</p>
+
+<h3>4.9.2 範例：用 TASK_STORAGE 計算 syscall 延遲</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="task-storage" aria-selected="true"><span class="code-tab-icon c"></span>BPF C</button>
+</div>
+<div class="code-tab-panel" data-id="task-storage" data-active="true">
+<div class="code-tab-filename">用 TASK_STORAGE 取代傳統 HASH</div>
+<pre><code>struct {
+    __uint(type, BPF_MAP_TYPE_TASK_STORAGE);
+    __uint(map_flags, BPF_F_NO_PREALLOC);   // 必須
+    __type(key, int);                       // 慣例：填 0
+    __type(value, __u64);                   // 起始時間戳
+} start_ts SEC(".maps");
+
+SEC("tracepoint/raw_syscalls/sys_enter")
+int on_enter(void *ctx) {
+    struct task_struct *task = (void *)bpf_get_current_task();
+    __u64 ts = bpf_ktime_get_ns();
+    bpf_task_storage_get(&amp;start_ts, task, &amp;ts,
+                         BPF_LOCAL_STORAGE_GET_F_CREATE);
+    return 0;
+}
+
+SEC("tracepoint/raw_syscalls/sys_exit")
+int on_exit(void *ctx) {
+    struct task_struct *task = (void *)bpf_get_current_task();
+    __u64 *t = bpf_task_storage_get(&amp;start_ts, task, NULL, 0);
+    if (!t) return 0;
+    __u64 latency = bpf_ktime_get_ns() - *t;
+    // ... 將 latency 送出 ...
+    bpf_task_storage_delete(&amp;start_ts, task);
+    return 0;
+}</code></pre>
+</div>
+</div>
+
+<p>當 process 結束時，Kernel 自動釋放這個 entry，不需要任何 cleanup 程式碼。</p>
+
+<h2 id="sec-4-10">4.10 Stack / Trace 類</h2>
+
+<h3>4.10.1 <code>BPF_MAP_TYPE_STACK_TRACE</code></h3>
+
+<div class="map-card">
+<div class="map-card-title">BPF_MAP_TYPE_STACK_TRACE</div>
+<dl>
+<dt>分類</dt><dd><span class="cat-badge">Stack</span></dd>
+<dt>Key</dt><dd>4 bytes（stack id，由 <code>bpf_get_stackid</code> 回傳）</dd>
+<dt>Value</dt><dd>固定大小陣列（function address）</dd>
+<dt>支援版本</dt><dd>4.6</dd>
+<dt>典型用途</dt><dd>profiling、火焰圖、stack dedup</dd>
+</dl>
+</div>
+
+<p>BPF 程式呼叫 <code>bpf_get_stackid</code> 取得「當前呼叫堆疊」的 hash id，然後寫入其他 Map。User space 取出 id 後，再用 syscall 從 STACK_TRACE 取得實際的 address 陣列、symbolize 後產生火焰圖。Brendan Gregg 經典的 <code>profile.py</code> 工具就是這個機制。</p>
+
+<h2 id="sec-4-11">4.11 Map of Maps</h2>
+
+<p>「Map 的 value 是另一個 Map 的 reference」。讓 BPF 程式可以根據 outer key 動態決定要操作哪個 inner map。</p>
+
+<h3>4.11.1 <code>BPF_MAP_TYPE_ARRAY_OF_MAPS</code> / <code>HASH_OF_MAPS</code></h3>
+
+<table>
+<thead>
+<tr><th>類型</th><th>Key</th><th>支援版本</th></tr>
+</thead>
+<tbody>
+<tr><td><code>ARRAY_OF_MAPS</code></td><td>4 bytes index</td><td>4.12</td></tr>
+<tr><td><code>HASH_OF_MAPS</code></td><td>任意</td><td>4.12</td></tr>
+</tbody>
+</table>
+
+<p>典型場景：</p>
+
+<ul>
+<li><strong>多租戶</strong>：每個租戶獨立有一個自己的 stats Map，outer key 是 tenant id。</li>
+<li><strong>動態切換 routing 表</strong>：藍綠部署，atomic 換掉一張 LPM_TRIE。</li>
+<li><strong>每網卡獨立 ACL</strong>：outer key 是 ifindex，inner 是該介面的 rule HASH。</li>
+</ul>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="mom-c" aria-selected="true"><span class="code-tab-icon c"></span>BPF C</button>
+</div>
+<div class="code-tab-panel" data-id="mom-c" data-active="true">
+<div class="code-tab-filename">每網卡獨立 stats</div>
+<pre><code>// inner map 範本
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key, __u32);
+    __type(value, __u64);
+    __uint(max_entries, 256);
+} inner_template SEC(".maps");
+
+// outer map: ifindex -&gt; inner map
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH_OF_MAPS);
+    __type(key, __u32);
+    __array(values, struct {
+        __uint(type, BPF_MAP_TYPE_ARRAY);
+        __type(key, __u32);
+        __type(value, __u64);
+        __uint(max_entries, 256);
+    });
+    __uint(max_entries, 32);
+} per_dev_stats SEC(".maps");
+
+SEC("xdp")
+int xdp_count(struct xdp_md *ctx) {
+    __u32 ifindex = ctx-&gt;ingress_ifindex;
+    void *inner = bpf_map_lookup_elem(&amp;per_dev_stats, &amp;ifindex);
+    if (!inner) return XDP_PASS;
+
+    __u32 idx = 0;
+    __u64 *cnt = bpf_map_lookup_elem(inner, &amp;idx);
+    if (cnt) __sync_fetch_and_add(cnt, 1);
+    return XDP_PASS;
+}</code></pre>
+</div>
+</div>
+
+<h2 id="sec-4-12">4.12 STRUCT_OPS / 特殊用途</h2>
+
+<h3>4.12.1 <code>BPF_MAP_TYPE_STRUCT_OPS</code></h3>
+
+<div class="map-card">
+<div class="map-card-title">BPF_MAP_TYPE_STRUCT_OPS</div>
+<dl>
+<dt>分類</dt><dd><span class="cat-badge">特殊</span></dd>
+<dt>支援版本</dt><dd>5.6</dd>
+<dt>典型用途</dt><dd>替換 Kernel function pointer 為 BPF 程式（自訂 TCP 擁塞演算法、scheduler）</dd>
+</dl>
+</div>
+
+<p>STRUCT_OPS 不是傳統意義的 K/V 容器，而是把<strong>一組 BPF 函式</strong>包成一個 Kernel ops vtable，用來替換 Kernel 內建的 ops（例如 <code>tcp_congestion_ops</code>）。冊三第 13 章專章討論。</p>
+
+<h3>4.12.2 <code>BPF_MAP_TYPE_PROG_ARRAY</code></h3>
+
+<div class="map-card">
+<div class="map-card-title">BPF_MAP_TYPE_PROG_ARRAY</div>
+<dl>
+<dt>分類</dt><dd><span class="cat-badge">特殊</span></dd>
+<dt>Key</dt><dd>4 bytes index</dd>
+<dt>Value</dt><dd>BPF program FD</dd>
+<dt>支援版本</dt><dd>4.2</dd>
+<dt>典型用途</dt><dd>tail call（程式跳轉）</dd>
+</dl>
+</div>
+
+<p>BPF 程式呼叫 <code>bpf_tail_call(ctx, &amp;prog_array, idx)</code> 時，會<strong>跳到</strong>對應的 program 並<strong>不返回</strong>原 program。這是處理「主程式太大、想拆成多階段」或「分派到不同處理邏輯」的標準做法。詳見冊二第 7 章。</p>
+
+<h2 id="sec-4-13">4.13 完整實作範例（Go + Rust 並列）</h2>
+
+<p>下面用一個小工具串起前面所有概念：<strong>記錄每個 process 開啟過的檔案數量</strong>，使用 <code>HASH&lt;pid, count&gt;</code>。</p>
+
+<h3>4.13.1 設計</h3>
+
+<ol>
+<li>BPF 程式 attach 到 <code>tracepoint/syscalls/sys_enter_openat</code>。</li>
+<li>每次觸發，取出 PID，更新 HASH map：<code>map[pid]++</code>。</li>
+<li>User space 每秒 dump 一次 map，列出 top 10。</li>
+</ol>
+
+<h3>4.13.2 BPF C（兩條路線共用）</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="example-bpf-c" aria-selected="true"><span class="code-tab-icon c"></span>bpf/openat.c</button>
+</div>
+<div class="code-tab-panel" data-id="example-bpf-c" data-active="true">
+<div class="code-tab-filename">openat.bpf.c — Go 路線使用</div>
+<pre><code>// SPDX-License-Identifier: GPL-2.0
+#include "headers/vmlinux.h"
+#include &lt;bpf/bpf_helpers.h&gt;
+
+char LICENSE[] SEC("license") = "GPL";
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, __u32);
+    __type(value, __u64);
+    __uint(max_entries, 10240);
+} open_count SEC(".maps");
+
+SEC("tracepoint/syscalls/sys_enter_openat")
+int count_openat(void *ctx) {
+    __u32 pid = bpf_get_current_pid_tgid() &gt;&gt; 32;
+
+    __u64 *cnt = bpf_map_lookup_elem(&amp;open_count, &amp;pid);
+    if (cnt) {
+        __sync_fetch_and_add(cnt, 1);
+    } else {
+        __u64 init = 1;
+        bpf_map_update_elem(&amp;open_count, &amp;pid, &amp;init, BPF_NOEXIST);
+    }
+    return 0;
+}</code></pre>
+</div>
+</div>
+
+<h3>4.13.3 Go user space</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="example-go-gen" aria-selected="true"><span class="code-tab-icon go"></span>gen.go</button>
+<button class="code-tab-btn" data-target="example-go-main"><span class="code-tab-icon go"></span>main.go</button>
+</div>
+<div class="code-tab-panel" data-id="example-go-gen" data-active="true">
+<div class="code-tab-filename">gen.go</div>
+<pre><code>package main
+
+//go:generate go tool bpf2go -cc clang -target amd64,arm64 \
+//  openat bpf/openat.bpf.c -- -I./bpf/headers</code></pre>
+</div>
+<div class="code-tab-panel" data-id="example-go-main">
+<div class="code-tab-filename">main.go</div>
+<pre><code>package main
+
+import (
+    "log"
+    "os"
+    "os/signal"
+    "sort"
+    "syscall"
+    "time"
+
+    "github.com/cilium/ebpf/link"
+    "github.com/cilium/ebpf/rlimit"
+)
+
+type entry struct {
+    PID   uint32
+    Count uint64
+}
+
+func main() {
+    if err := rlimit.RemoveMemlock(); err != nil {
+        log.Fatal(err)
+    }
+
+    objs := openatObjects{}
+    if err := loadOpenatObjects(&amp;objs, nil); err != nil {
+        log.Fatalf("load: %v", err)
+    }
+    defer objs.Close()
+
+    tp, err := link.Tracepoint("syscalls", "sys_enter_openat", objs.CountOpenat, nil)
+    if err != nil {
+        log.Fatalf("attach: %v", err)
+    }
+    defer tp.Close()
+
+    sig := make(chan os.Signal, 1)
+    signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+    tick := time.NewTicker(time.Second)
+    defer tick.Stop()
+
+    log.Println("Tracking openat... (Ctrl-C 結束)")
+    for {
+        select {
+        case &lt;-sig:
+            return
+        case &lt;-tick.C:
+            entries := dumpMap(objs.OpenCount)
+            sort.Slice(entries, func(i, j int) bool {
+                return entries[i].Count &gt; entries[j].Count
+            })
+            log.Printf("=== Top 10 ===")
+            for i := 0; i &lt; len(entries) &amp;&amp; i &lt; 10; i++ {
+                log.Printf("  PID %-7d  count=%d", entries[i].PID, entries[i].Count)
+            }
+        }
+    }
+}
+
+func dumpMap(m *ebpf.Map) []entry {
+    var (
+        key uint32
+        val uint64
+        out []entry
+    )
+    iter := m.Iterate()
+    for iter.Next(&amp;key, &amp;val) {
+        out = append(out, entry{PID: key, Count: val})
+    }
+    return out
+}</code></pre>
+</div>
+</div>
+
+<h3>4.13.4 Rust（aya）user space</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="example-rs-bpf" aria-selected="true"><span class="code-tab-icon rust"></span>ebpf/main.rs</button>
+<button class="code-tab-btn" data-target="example-rs-user"><span class="code-tab-icon rust"></span>user/main.rs</button>
+</div>
+<div class="code-tab-panel" data-id="example-rs-bpf" data-active="true">
+<div class="code-tab-filename">openat-ebpf/src/main.rs（aya-ebpf）</div>
+<pre><code>#![no_std]
+#![no_main]
+
+use aya_ebpf::{
+    helpers::bpf_get_current_pid_tgid,
+    macros::{map, tracepoint},
+    maps::HashMap,
+    programs::TracePointContext,
+};
+
+#[map]
+static OPEN_COUNT: HashMap&lt;u32, u64&gt; = HashMap::with_max_entries(10240, 0);
+
+#[tracepoint]
+pub fn count_openat(_ctx: TracePointContext) -&gt; u32 {
+    let pid = (bpf_get_current_pid_tgid() &gt;&gt; 32) as u32;
+
+    unsafe {
+        if let Some(cnt) = OPEN_COUNT.get_ptr_mut(&amp;pid) {
+            *cnt += 1;          // BPF 端 unsafe in-place 更新
+        } else {
+            let _ = OPEN_COUNT.insert(&amp;pid, &amp;1, 0);
+        }
+    }
+    0
+}
+
+#[cfg(not(test))]
+#[panic_handler]
+fn panic(_info: &amp;core::panic::PanicInfo) -&gt; ! { loop {} }
+
+#[unsafe(link_section = "license")]
+#[unsafe(no_mangle)]
+static LICENSE: [u8; 4] = *b"GPL\0";</code></pre>
+</div>
+<div class="code-tab-panel" data-id="example-rs-user">
+<div class="code-tab-filename">openat/src/main.rs（user space）</div>
+<pre><code>use aya::{maps::HashMap, programs::TracePoint, Ebpf};
+use std::{convert::TryInto, time::Duration};
+use tokio::{signal, time};
+
+#[tokio::main]
+async fn main() -&gt; anyhow::Result&lt;()&gt; {
+    env_logger::init();
+
+    #[cfg(debug_assertions)]
+    let mut bpf = Ebpf::load(include_bytes_aligned!(
+        "../../target/bpfel-unknown-none/debug/openat-ebpf"
+    ))?;
+    #[cfg(not(debug_assertions))]
+    let mut bpf = Ebpf::load(include_bytes_aligned!(
+        "../../target/bpfel-unknown-none/release/openat-ebpf"
+    ))?;
+
+    let prog: &amp;mut TracePoint = bpf
+        .program_mut("count_openat").unwrap().try_into()?;
+    prog.load()?;
+    prog.attach("syscalls", "sys_enter_openat")?;
+
+    let map: HashMap&lt;_, u32, u64&gt; = HashMap::try_from(bpf.map("OPEN_COUNT").unwrap())?;
+
+    let mut interval = time::interval(Duration::from_secs(1));
+    println!("Tracking openat... (Ctrl-C 結束)");
+    loop {
+        tokio::select! {
+            _ = signal::ctrl_c() =&gt; break,
+            _ = interval.tick() =&gt; {
+                let mut entries: Vec&lt;(u32, u64)&gt; = map.iter()
+                    .filter_map(Result::ok).collect();
+                entries.sort_by(|a, b| b.1.cmp(&amp;a.1));
+                println!("=== Top 10 ===");
+                for (pid, count) in entries.iter().take(10) {
+                    println!("  PID {:&lt;7}  count={}", pid, count);
+                }
+            }
+        }
+    }
+    Ok(())
+}</code></pre>
+</div>
+</div>
+
+<h3>4.13.5 執行結果</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="example-run" aria-selected="true"><span class="code-tab-icon shell"></span>terminal</button>
+</div>
+<div class="code-tab-panel" data-id="example-run" data-active="true">
+<div class="code-tab-filename">執行</div>
+<pre><code>$ sudo ./openat
+Tracking openat... (Ctrl-C 結束)
+=== Top 10 ===
+  PID 1234     count=145    # node 行程
+  PID 5678     count=92     # systemd-journald
+  PID 8901     count=44     # bash
+  ...
+=== Top 10 ===  # 1 秒後再列一次
+  ...</code></pre>
+</div>
+</div>
+
+<h2 id="sec-4-14">4.14 容量規劃與效能考量</h2>
+
+<h3>4.14.1 大小估算</h3>
+
+<p>用 <code>bpftool</code> 看實際 memlock：</p>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="cap-bpftool" aria-selected="true"><span class="code-tab-icon shell"></span>shell</button>
+</div>
+<div class="code-tab-panel" data-id="cap-bpftool" data-active="true">
+<div class="code-tab-filename">查看 Map 占用</div>
+<pre><code>$ sudo bpftool map list
+6: hash  name open_count  flags 0x0
+        key 4B  value 8B  max_entries 10240  memlock 696384B
+                                              ^^^^^^^^^^^^^^
+                                              實際 Kernel 占用 ~680KB
+
+# 列出所有 BPF 子系統占用
+$ sudo cat /proc/meminfo | grep -i bpf
+# 或：sudo bpftool feature probe</code></pre>
+</div>
+</div>
+
+<h3>4.14.2 選型決策樹</h3>
+
+<div class="mermaid-wrap"><div class="mermaid">
+flowchart TD
+    Q1{"需要儲存資料嗎？"}
+    Q2{"key 是固定 index 嗎？"}
+    Q3{"資料量會無限成長嗎？"}
+    Q4{"是否高頻計數<br/>(避免 lock)？"}
+    Q5{"key 是 IP prefix？"}
+    Q6{"BPF 寫 / user 讀大量事件？"}
+    Q7{"綁定到特定 task/sock/cgroup？"}
+
+    Q1 -->|"否，純事件流"| Q6
+    Q1 -->|"是"| Q7
+
+    Q7 -->|"是"| ST["TASK / SK / INODE / CGRP_STORAGE"]
+    Q7 -->|"否"| Q5
+
+    Q5 -->|"是"| LPM["LPM_TRIE"]
+    Q5 -->|"否"| Q3
+
+    Q3 -->|"是"| LRU["LRU_HASH"]
+    Q3 -->|"否"| Q2
+
+    Q2 -->|"是"| Q4
+    Q4 -->|"是"| PCA["PERCPU_ARRAY"]
+    Q4 -->|"否"| ARR["ARRAY"]
+
+    Q2 -->|"否"| Q4B{"高頻計數？"}
+    Q4B -->|"是"| PCH["PERCPU_HASH"]
+    Q4B -->|"否"| HSH["HASH"]
+
+    Q6 -->|"高效率"| RB["RINGBUF"]
+    Q6 -->|"傳統工具相容"| PEA["PERF_EVENT_ARRAY"]
+</div></div>
+
+<h3>4.14.3 常見效能陷阱</h3>
+
+<ul>
+<li><strong>HASH 預設 pre-alloc 全部 slot</strong>：max_entries 設大會吃光記憶體；想 lazy 配置加 <code>BPF_F_NO_PREALLOC</code>。</li>
+<li><strong>RINGBUF max_entries 必須是 2 的次方</strong>：而且建議至少 <code>64 KiB × CPU 核心數</code>，否則高負載下會 drop event。</li>
+<li><strong>PERCPU 系列在小機器上反而浪費</strong>：1-2 CPU 場景效益很低，差距主要在 16+ CPU。</li>
+<li><strong>iterating HASH 是 O(n)</strong>：若每秒掃 10 萬條 entry 會卡 user space。考慮 <code>BPF_MAP_LOOKUP_BATCH</code>（5.6+）。</li>
+<li><strong>Spin lock 取消支援 mmap</strong>：開了 <code>BPF_F_MMAPABLE</code> 的 ARRAY 不能再放 spin lock 結構。</li>
+</ul>
+
+<h2 id="sec-4-15">4.15 本章小結與下一步</h2>
+
+<h3>4.15.1 本章重點回顧</h3>
+
+<ol>
+<li><strong>Maps 是 BPF 程式對外溝通的唯一管道</strong>，理解 Map 的選型 = 理解 BPF 工具的核心設計。</li>
+<li><strong>六大分類</strong>：Generic、Per-CPU、Specialized、Output、Network、Storage、Map of Maps、特殊用途。</li>
+<li><strong>BTF-style 宣告</strong>是現代寫法，享有 CO-RE 與 typed scaffolding。</li>
+<li>Map 的<strong>生命週期</strong>由所有 reference 持有者決定（user FD / program / pinning）。</li>
+<li>本章逐一介紹 24 種 Map 類型，每類附用途、限制、典型場景。</li>
+<li>實作示範：用 <code>HASH</code> 做 openat 計數，Go 與 Rust 兩條路線並列。</li>
+<li>容量規劃：用 <code>bpftool map list</code> 看實際占用，選型決策樹輔助選擇。</li>
+</ol>
+
+<h3>4.15.2 自我檢驗</h3>
+
+<ol>
+<li>HASH 與 PERCPU_HASH 在<strong>使用方式</strong>上有什麼差別？</li>
+<li>什麼情況下 LRU_HASH 比 HASH 適合？</li>
+<li>RINGBUF 與 PERF_EVENT_ARRAY 的核心差別？</li>
+<li>為什麼有了 SK_STORAGE，許多場景就不需要傳統 HASH？</li>
+<li>為什麼 LPM_TRIE 必須加 <code>BPF_F_NO_PREALLOC</code>？</li>
+<li>BPF Arena（6.9+）填補了什麼歷史缺憾？</li>
+</ol>
+
+<h3>4.15.3 延伸閱讀</h3>
+
+<ul>
+<li><a href="https://docs.ebpf.io/linux/map-type/">docs.ebpf.io — Map Types 索引</a> — 本章主要對應的官方文件</li>
+<li><a href="https://docs.kernel.org/bpf/maps.html">Kernel BPF Maps 文件</a></li>
+<li><a href="https://nakryiko.com/posts/bpf-ringbuf/">BPF Ring Buffer 深度解析</a> — Andrii Nakryiko 的權威文章</li>
+<li><a href="https://lwn.net/Articles/961941/">BPF Arena LWN 文章</a> — Arena 機制設計理由</li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+  <p>eBPF 教學手冊 · 冊二-1 · 第 4 章 Maps 資料結構<br>
+  下一冊：<strong>冊二-2 · 第 5 章 Verifier 深入 + 第 6 章 Helpers / KFuncs</strong></p>
+</footer>
+
+</body>
+</html>

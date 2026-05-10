@@ -1,0 +1,1273 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>eBPF 教學手冊 · 冊五-3 · 效能調校 + 故障排除</title>
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger:  #dc2626; --color-danger-soft:  #fee2e2;
+  --color-info:    #0891b2; --color-info-soft:    #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px; --text-lg: 20px;
+  --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px; --text-4xl: 64px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger:  #f87171; --color-danger-soft:  oklch(0.32 0.10 27);
+  --color-info:    #22d3ee; --color-info-soft:    oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font-serif-body); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-7) var(--space-5); }
+header.site-header { border-bottom: 1px solid var(--border-soft); background: var(--bg-surface); position: sticky; top: 0; z-index: 50; backdrop-filter: blur(8px); }
+.header-inner { max-width: var(--container-wide); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); }
+.brand { font-family: var(--font-sans); font-weight: 600; font-size: var(--text-sm); color: var(--text-secondary); letter-spacing: 0.02em; }
+.brand strong { color: var(--color-primary); }
+[data-theme-toggle] { appearance: none; border: 1px solid var(--border-mid); background: var(--bg-muted); color: var(--text-primary); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); font-family: var(--font-sans); font-size: var(--text-sm); cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-2); transition: background 0.15s, border-color 0.15s; }
+[data-theme-toggle]:hover { background: var(--color-primary-soft); border-color: var(--color-primary); }
+.theme-icon { font-size: var(--text-md); }
+h1, h2, h3, h4 { font-family: var(--font-serif); color: var(--text-primary); line-height: 1.25; margin-top: var(--space-7); margin-bottom: var(--space-4); }
+h1 { font-size: var(--text-3xl); margin-top: var(--space-5); letter-spacing: -0.01em; }
+h2 { font-size: var(--text-2xl); border-bottom: 1px solid var(--border-soft); padding-bottom: var(--space-3); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-md); color: var(--color-primary-text); }
+p { margin: var(--space-4) 0; color: var(--text-primary); }
+strong { color: var(--text-primary); font-weight: 600; }
+em { color: var(--text-secondary); }
+a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dotted var(--color-primary); }
+a:hover { color: var(--color-primary-hover); border-bottom-style: solid; }
+ul, ol { padding-left: var(--space-5); }
+li { margin: var(--space-2) 0; }
+code { font-family: var(--font-mono); font-size: 0.92em; background: var(--bg-muted); padding: 2px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+pre { background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.6; margin: var(--space-4) 0; }
+pre code { background: transparent; padding: 0; border: none; color: var(--text-primary); font-size: inherit; }
+blockquote { margin: var(--space-5) 0; padding: var(--space-4) var(--space-5); background: var(--color-primary-soft); border-left: 4px solid var(--color-primary); border-radius: var(--radius-md); color: var(--text-primary); }
+blockquote p:first-child { margin-top: 0; }
+blockquote p:last-child { margin-bottom: 0; }
+.callout { margin: var(--space-5) 0; padding: var(--space-4) var(--space-5); border-radius: var(--radius-md); border-left: 4px solid; background: var(--bg-surface); }
+.callout-title { font-family: var(--font-sans); font-weight: 600; font-size: var(--text-sm); letter-spacing: 0.02em; text-transform: uppercase; margin-bottom: var(--space-2); }
+.callout-info { border-color: var(--color-info); background: var(--color-info-soft); }
+.callout-info .callout-title { color: var(--color-info); }
+.callout-warning { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout-warning .callout-title { color: var(--color-warning); }
+.callout-success { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout-success .callout-title { color: var(--color-success); }
+.callout-danger { border-color: var(--color-danger); background: var(--color-danger-soft); }
+.callout-danger .callout-title { color: var(--color-danger); }
+table { width: 100%; border-collapse: collapse; margin: var(--space-5) 0; font-family: var(--font-sans); font-size: var(--text-sm); }
+th, td { padding: var(--space-3); border-bottom: 1px solid var(--border-soft); text-align: left; vertical-align: top; }
+th { background: var(--bg-muted); color: var(--text-primary); font-weight: 600; }
+tr:hover td { background: var(--bg-muted); }
+.audience-tags { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-3) 0; }
+.tag { display: inline-block; padding: 2px 10px; border-radius: 999px; font-family: var(--font-sans); font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.02em; border: 1px solid transparent; }
+.tag-beginner { background: var(--color-success-soft); color: var(--color-success); border-color: var(--color-success); }
+.tag-developer { background: var(--color-warning-soft); color: var(--color-warning); border-color: var(--color-warning); }
+.tag-ops { background: var(--color-danger-soft); color: var(--color-danger); border-color: var(--color-danger); }
+.meta-bar { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-muted); border-top: 1px dashed var(--border-soft); border-bottom: 1px dashed var(--border-soft); padding: var(--space-3) 0; margin: var(--space-5) 0 var(--space-7); display: flex; flex-wrap: wrap; gap: var(--space-5); }
+.meta-bar span strong { color: var(--text-secondary); font-weight: 600; margin-right: var(--space-2); }
+hr { border: none; border-top: 1px solid var(--border-soft); margin: var(--space-7) 0; }
+.toc { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); padding: var(--space-5); margin: var(--space-5) 0; font-family: var(--font-sans); font-size: var(--text-sm); }
+.toc h3 { margin: 0 0 var(--space-3); font-family: var(--font-sans); font-size: var(--text-sm); text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border: none; }
+.toc ol { margin: 0; padding-left: var(--space-5); }
+.toc li { margin: var(--space-2) 0; }
+.toc a { color: var(--text-primary); border-bottom: none; }
+.toc a:hover { color: var(--color-primary); }
+footer.site-footer { border-top: 1px solid var(--border-soft); margin-top: var(--space-8); padding: var(--space-5); text-align: center; color: var(--text-muted); font-family: var(--font-sans); font-size: var(--text-sm); }
+.mermaid-wrap { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); margin: var(--space-5) 0; overflow-x: auto; text-align: center; }
+.mermaid-wrap .mermaid { display: inline-block; min-width: 100%; }
+.mermaid-wrap .mermaid svg { max-width: 100%; height: auto; }
+.code-tabs { margin: var(--space-5) 0; border: 1px solid var(--border-soft); border-radius: var(--radius-md); overflow: hidden; background: var(--bg-surface); }
+.code-tabs-header { display: flex; background: var(--bg-muted); border-bottom: 1px solid var(--border-soft); padding: 0; margin: 0; flex-wrap: wrap; }
+.code-tab-btn { appearance: none; border: none; background: transparent; color: var(--text-secondary); font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; padding: var(--space-3) var(--space-5); cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-2); border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s, background 0.15s; }
+.code-tab-btn:hover { background: var(--bg-surface); color: var(--text-primary); }
+.code-tab-btn[aria-selected="true"] { color: var(--color-primary); border-bottom-color: var(--color-primary); background: var(--bg-surface); }
+.code-tab-icon { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.code-tab-icon.go { background: #00add8; }
+.code-tab-icon.rust { background: #ce422b; }
+.code-tab-icon.shell { background: var(--color-success); }
+.code-tab-icon.c { background: var(--color-neutral-accent); }
+.code-tab-panel { display: none; padding: 0; }
+.code-tab-panel[data-active="true"] { display: block; }
+.code-tab-panel pre { margin: 0; border: none; border-radius: 0; background: var(--bg-code); }
+.code-tab-filename { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); padding: var(--space-2) var(--space-4); background: var(--bg-muted); border-bottom: 1px solid var(--border-soft); }
+.step-badge { display: inline-block; background: var(--color-primary); color: var(--bg-canvas); font-family: var(--font-sans); font-size: var(--text-xs); font-weight: 700; padding: 2px 10px; border-radius: 999px; margin-right: var(--space-2); letter-spacing: 0.05em; }
+.cat-badge { display: inline-block; background: var(--bg-muted); border: 1px solid var(--border-mid); color: var(--text-secondary); font-family: var(--font-sans); font-size: var(--text-xs); font-weight: 600; padding: 2px 8px; border-radius: var(--radius-sm); margin-right: var(--space-2); }
+
+/* Verifier reg-state notation styling */
+.regstate {
+  font-family: var(--font-mono); font-size: var(--text-sm);
+  background: var(--bg-code); padding: 2px 6px; border-radius: var(--radius-sm);
+  color: var(--color-primary-text); border: 1px solid var(--border-soft);
+  white-space: nowrap;
+}
+/* Helper category cards */
+.helper-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-4); margin: var(--space-5) 0;
+}
+.helper-card {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  font-family: var(--font-sans);
+}
+.helper-card h4 {
+  margin: 0 0 var(--space-2); font-family: var(--font-sans);
+  color: var(--color-primary); font-size: var(--text-base);
+}
+.helper-card .helper-list {
+  font-family: var(--font-mono); font-size: var(--text-xs);
+  color: var(--text-secondary); line-height: 1.7;
+  list-style: none; padding-left: 0; margin: var(--space-2) 0 0;
+}
+.helper-card .helper-list li { margin: 0; }
+.helper-card .helper-list li::before {
+  content: "• "; color: var(--color-primary);
+}
+
+@media (max-width: 640px) {
+  h1 { font-size: var(--text-2xl); }
+  h2 { font-size: var(--text-xl); }
+  .container { padding: var(--space-4); }
+}
+</style>
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]}`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  function buildConfig(theme) {
+    const isDark = theme === 'dark';
+    return {
+      startOnLoad: false, theme: 'base',
+      fontFamily: '"DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif',
+      themeVariables: isDark ? {
+        background: '#262421',
+        primaryColor: '#1f3a4a', primaryTextColor: '#e8e6e3', primaryBorderColor: '#5aa9c4',
+        secondaryColor: '#2a3640', secondaryTextColor: '#e8e6e3', secondaryBorderColor: '#4a6b7a',
+        tertiaryColor: '#332e2a', tertiaryTextColor: '#e8e6e3', tertiaryBorderColor: '#5a5550',
+        lineColor: '#94c5d4', textColor: '#e8e6e3', mainBkg: '#1f3a4a',
+        edgeLabelBackground: '#262421', clusterBkg: '#262421', clusterBorder: '#4a4540',
+        nodeBorder: '#5aa9c4', labelBackground: '#262421', titleColor: '#e8e6e3',
+      } : {
+        background: '#fdfcfb',
+        primaryColor: '#e6f4f7', primaryTextColor: '#3a3631', primaryBorderColor: '#3a8aa3',
+        secondaryColor: '#f1ede8', secondaryTextColor: '#3a3631', secondaryBorderColor: '#9a8e7e',
+        tertiaryColor: '#f7f1e8', tertiaryTextColor: '#3a3631', tertiaryBorderColor: '#c0a988',
+        lineColor: '#3a8aa3', textColor: '#3a3631', mainBkg: '#e6f4f7',
+        edgeLabelBackground: '#fdfcfb', clusterBkg: '#f5f1ec', clusterBorder: '#c4bbae',
+        nodeBorder: '#3a8aa3', labelBackground: '#fdfcfb', titleColor: '#3a3631',
+      },
+      flowchart: { curve: 'basis', padding: 16, htmlLabels: true },
+      sequence: { diagramMarginX: 30, diagramMarginY: 10, actorMargin: 50 },
+    };
+  }
+  function snapshotSources() { document.querySelectorAll('.mermaid').forEach((el) => { if (!el.dataset.source) el.dataset.source = el.textContent.trim(); }); }
+  async function renderAll(theme) {
+    if (typeof mermaid === 'undefined') return;
+    snapshotSources();
+    mermaid.initialize(buildConfig(theme));
+    const nodes = document.querySelectorAll('.mermaid');
+    let i = 0;
+    for (const node of nodes) {
+      const id = 'mmd-' + (i++) + '-' + Date.now();
+      try { const { svg } = await mermaid.render(id, node.dataset.source); node.innerHTML = svg; node.removeAttribute('data-processed'); }
+      catch (err) { console.error('mermaid render error', err); }
+    }
+  }
+  function getEffectiveTheme() { return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'; }
+  function init() {
+    snapshotSources();
+    renderAll(getEffectiveTheme());
+    window.addEventListener('jhsun:theme-changed', (e) => { const t = (e.detail && e.detail.theme) || getEffectiveTheme(); renderAll(t); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+<script>
+(function() {
+  'use strict';
+  function init() {
+    document.querySelectorAll('.code-tabs').forEach((tabs) => {
+      const btns = tabs.querySelectorAll('.code-tab-btn');
+      const panels = tabs.querySelectorAll('.code-tab-panel');
+      btns.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const target = btn.dataset.target;
+          btns.forEach((b) => b.setAttribute('aria-selected', b === btn ? 'true' : 'false'));
+          panels.forEach((p) => p.dataset.active = (p.dataset.id === target ? 'true' : 'false'));
+        });
+      });
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-inner">
+    <div class="brand">eBPF 教學手冊 · <strong>冊五-3</strong> · 效能調校 + 故障排除</div>
+    <button data-theme-toggle aria-label="Toggle theme"></button>
+  </div>
+</header>
+
+<main class="container">
+
+<h1>第 22 章　效能調校</h1>
+
+<div class="audience-tags">
+  <span class="tag tag-developer">🟡 開發者</span>
+  <span class="tag tag-ops">🔴 SRE</span>
+</div>
+
+<div class="meta-bar">
+  <span><strong>章節</strong>第五部 DevOps / SRE 視角</span>
+  <span><strong>對應原始碼</strong>linux/kernel/bpf/ + cilium/ebpf perf 文件</span>
+  <span><strong>預期閱讀時間</strong>90–120 分鐘</span>
+  <span><strong>前置知識</strong>第 4-5 章 Maps/Verifier、第 17 章 benchmark、第 21 章部署</span>
+</div>
+
+<blockquote>
+<p><strong>本章學習目標</strong></p>
+<ul>
+<li>掌握 BPF 程式效能調校的<strong>四大層次</strong>：<strong>verifier 友善、map 設計、resource 配置、kernel 參數</strong>。</li>
+<li>學會挑選正確 map 類型：<strong>ring buffer vs perf array、percpu vs shared、LRU 與 lock-free</strong>。</li>
+<li>理解 <strong>tail call vs loop</strong> 的取捨與 33 層深度限制。</li>
+<li>掌握 <strong>JIT 觀察與優化</strong>：bpftool prog dump jited、retpoline、call indirect。</li>
+<li>學會 <strong>cache locality</strong>：BPF map 對齊、percpu 結構排版、struct ordering。</li>
+<li>了解 <strong>kernel 參數</strong>：memlock、tail_call_max、bpf_stats、hashmap_walk_max。</li>
+<li>建立<strong>效能 baseline</strong> 與長期 trending 觀念。</li>
+</ul>
+</blockquote>
+
+<div class="toc">
+<h3>本章目錄</h3>
+<ol>
+<li><a href="#sec-22-1">22.1 BPF 效能的四大層次</a></li>
+<li><a href="#sec-22-2">22.2 Verifier 友善：寫得讓 verifier 開心</a></li>
+<li><a href="#sec-22-3">22.3 Map 類型選擇與 sizing</a></li>
+<li><a href="#sec-22-4">22.4 Ring buffer vs perf array：高頻事件設計</a></li>
+<li><a href="#sec-22-5">22.5 PERCPU vs shared map：何時用哪個</a></li>
+<li><a href="#sec-22-6">22.6 Tail call、bounded loop 與 BPF-to-BPF call</a></li>
+<li><a href="#sec-22-7">22.7 Cache locality 與 struct 排版</a></li>
+<li><a href="#sec-22-8">22.8 JIT 觀察與機器碼層級優化</a></li>
+<li><a href="#sec-22-9">22.9 Kernel 參數調校</a></li>
+<li><a href="#sec-22-10">22.10 建立效能 baseline 與長期趨勢</a></li>
+<li><a href="#sec-22-11">22.11 第 22 章小結</a></li>
+</ol>
+</div>
+
+<hr>
+
+<h2 id="sec-22-1">22.1 BPF 效能的四大層次</h2>
+
+<p>效能問題很少只有單一原因。要系統化提升 BPF 程式效能，從<strong>下到上</strong>看四個層次：</p>
+
+<div class="mermaid-wrap"><div class="mermaid">
+flowchart TB
+    L4["第 4 層：Kernel 參數<br/>memlock / hashmap_walk / bpf_stats"]
+    L3["第 3 層：Resource 配置<br/>map sizing / ring buffer / pinning"]
+    L2["第 2 層：Map 設計<br/>map type / percpu / LRU / lock-free"]
+    L1["第 1 層：Program 層<br/>verifier 友善 / cache locality / 演算法"]
+
+    L1 --> L2 --> L3 --> L4
+    L4 -. "支撐" .-> L1
+</div></div>
+
+<h3>22.1.1 影響量級的概略觀念</h3>
+
+<table>
+<thead>
+<tr><th>層次</th><th>典型影響量級</th><th>調校門檻</th></tr>
+</thead>
+<tbody>
+<tr><td>Program 層演算法</td><td>2-10×（換 O(n) → O(1)）</td><td>需要重寫</td></tr>
+<tr><td>Map 類型對換</td><td>2-5×（perf → ringbuf）</td><td>中等</td></tr>
+<tr><td>Cache locality</td><td>1.2-2×</td><td>低</td></tr>
+<tr><td>JIT 後機器碼</td><td>1.1-1.5×</td><td>觀察為主，難主動優化</td></tr>
+<tr><td>Kernel 參數</td><td>避免硬限制（不是 speedup，是不會 fail）</td><td>低</td></tr>
+</tbody>
+</table>
+
+<p><strong>結論</strong>：先看程式邏輯與 map 選型，再看 cache，最後才是 kernel 參數。</p>
+
+<h2 id="sec-22-2">22.2 Verifier 友善：寫得讓 verifier 開心</h2>
+
+<p>verifier 不只決定「能不能跑」，也<strong>影響 instruction 數量</strong>（dead code 消除、bounded loop 展開）。寫得 verifier-friendly 的程式 instruction 數可能少 30-50%。</p>
+
+<h3>22.2.1 verifier 三個硬限制</h3>
+
+<table>
+<thead>
+<tr><th>限制</th><th>數值（5.2+）</th><th>5.2 之前</th></tr>
+</thead>
+<tbody>
+<tr><td>單支 program instruction 上限</td><td>1,000,000</td><td>4,096</td></tr>
+<tr><td>complexity（驗證路徑展開）上限</td><td>1,000,000</td><td>131,072</td></tr>
+<tr><td>單一 program 的 stack size</td><td>512 bytes</td><td>同</td></tr>
+<tr><td>tail call 深度</td><td>33</td><td>同</td></tr>
+</tbody>
+</table>
+
+<h3>22.2.2 verifier-friendly 五原則</h3>
+
+<table>
+<thead>
+<tr><th>原則</th><th>實作</th></tr>
+</thead>
+<tbody>
+<tr><td>① 用 <code>__always_inline</code> 把小函式 inline</td><td>避免 BPF-to-BPF call 帶來額外 verifier 路徑</td></tr>
+<tr><td>② 早期 return（early bail-out）</td><td>命中常見 fast path 立刻 return，verifier 也少展開</td></tr>
+<tr><td>③ 減少 pointer 共線</td><td>同一 pointer 經多條分支變成不同 type，verifier 要展開大量狀態</td></tr>
+<tr><td>④ <code>bpf_assert</code> 縮小範圍</td><td>給 verifier 明確 hint：「這個值在 X..Y 之間」</td></tr>
+<tr><td>⑤ 用 <code>bpf_for</code> / <code>bpf_repeat</code></td><td>5.17+ 的 bounded loop helper，比手寫 unrolled loop 更省 instruction</td></tr>
+</tbody>
+</table>
+
+<h3>22.2.3 範例：early return 的威力</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="early-bad" aria-selected="true"><span class="code-tab-icon c"></span>❌ verifier-unfriendly</button>
+<button class="code-tab-btn" data-target="early-good"><span class="code-tab-icon c"></span>✅ verifier-friendly</button>
+</div>
+<div class="code-tab-panel" data-id="early-bad" data-active="true">
+<div class="code-tab-filename">所有條件都展開</div>
+<pre><code>SEC("xdp")
+int xdp_filter(struct xdp_md *ctx) {
+    int verdict = XDP_PASS;
+    void *data = (void *)(long)ctx-&gt;data;
+    void *data_end = (void *)(long)ctx-&gt;data_end;
+
+    /* 即使是 IPv6 也走完所有 IPv4 解析路徑 */
+    if (data + sizeof(struct ethhdr) &lt;= data_end) {
+        struct ethhdr *eth = data;
+        if (eth-&gt;h_proto == bpf_htons(ETH_P_IP)) {
+            /* 100 行 IPv4 處理 */
+        }
+        if (eth-&gt;h_proto == bpf_htons(ETH_P_IPV6)) {
+            /* 100 行 IPv6 處理 */
+        }
+        /* ... 更多協定 */
+    }
+    return verdict;
+}</code></pre>
+</div>
+<div class="code-tab-panel" data-id="early-good">
+<div class="code-tab-filename">命中即 return</div>
+<pre><code>SEC("xdp")
+int xdp_filter(struct xdp_md *ctx) {
+    void *data = (void *)(long)ctx-&gt;data;
+    void *data_end = (void *)(long)ctx-&gt;data_end;
+
+    if (data + sizeof(struct ethhdr) &gt; data_end)
+        return XDP_PASS;        /* early bail-out */
+
+    struct ethhdr *eth = data;
+    __be16 proto = eth-&gt;h_proto;
+
+    if (proto == bpf_htons(ETH_P_IP))
+        return handle_ipv4(ctx, eth);
+    if (proto == bpf_htons(ETH_P_IPV6))
+        return handle_ipv6(ctx, eth);
+
+    return XDP_PASS;            /* 其他協定一律放行 */
+}</code></pre>
+</div>
+</div>
+
+<p>第二種寫法：(a) verifier 對每條 path 獨立分析，complexity 大降；(b) JIT 後執行也少跳轉。</p>
+
+<h2 id="sec-22-3">22.3 Map 類型選擇與 sizing</h2>
+
+<h3>22.3.1 常見場景的最佳 map 類型</h3>
+
+<table>
+<thead>
+<tr><th>場景</th><th>建議 map type</th><th>為何</th></tr>
+</thead>
+<tbody>
+<tr><td>Lookup blacklist / config</td><td><code>HASH</code> 或 <code>LPM_TRIE</code>（CIDR）</td><td>O(1) 查詢</td></tr>
+<tr><td>Counter（per-key 計數）</td><td><code>PERCPU_HASH</code> + user space aggregate</td><td>無 lock contention</td></tr>
+<tr><td>Connection tracking（會 evict）</td><td><code>LRU_HASH</code></td><td>容量上限 + LRU evict</td></tr>
+<tr><td>固定大小事件 → user space</td><td><code>RINGBUF</code>（5.8+）</td><td>多 producer / 1 consumer 高效</td></tr>
+<tr><td>Variable-size 事件</td><td><code>RINGBUF</code> 配 dynamic 寫</td><td>同上</td></tr>
+<tr><td>Stack trace（profiler）</td><td><code>STACK_TRACE</code> + <code>HASH</code> count</td><td>專為 stack 設計</td></tr>
+<tr><td>Tail call 跳轉表</td><td><code>PROG_ARRAY</code></td><td>唯一支援的方式</td></tr>
+<tr><td>巨大 array（millions of entries）</td><td><code>ARRAY</code> 或 <code>BLOOM_FILTER</code>（5.16+）</td><td>O(1)，bloom 適合 set membership</td></tr>
+<tr><td>每 CPU 暫存（流水線中介）</td><td><code>PERCPU_ARRAY</code> max_entries=1</td><td>無 lock、無同步</td></tr>
+<tr><td>CIDR 比對</td><td><code>LPM_TRIE</code></td><td>longest prefix match</td></tr>
+</tbody>
+</table>
+
+<h3>22.3.2 Sizing 三原則</h3>
+
+<ul>
+<li><strong>HASH / LRU_HASH</strong>：max_entries 設成預期峰值的 <strong>1.3-1.5 倍</strong>，避免 hash collision degraded。</li>
+<li><strong>RINGBUF</strong>：必須是 2 的次方，建議 <strong>16 KB - 16 MB</strong>，看 producer 速率與 consumer latency。</li>
+<li><strong>PERCPU_*</strong>：每 CPU 一份，<strong>注意 NUMA 大機台</strong>。128 核機台 PERCPU_ARRAY size=8KB 等於用掉 1MB lock memory。</li>
+</ul>
+
+<h2 id="sec-22-4">22.4 Ring buffer vs perf array：高頻事件設計</h2>
+
+<table>
+<thead>
+<tr><th>面向</th><th>RINGBUF（5.8+）</th><th>PERF_EVENT_ARRAY（傳統）</th></tr>
+</thead>
+<tbody>
+<tr><td>Producer 模型</td><td>多 CPU 共享一個 buffer</td><td>每 CPU 一個 buffer</td></tr>
+<tr><td>Consumer 模型</td><td>單 reader（user space）</td><td>每 CPU 一個 reader</td></tr>
+<tr><td>事件順序</td><td><strong>跨 CPU 全域順序</strong></td><td>僅 per-CPU 順序</td></tr>
+<tr><td>API</td><td><code>bpf_ringbuf_reserve</code> + <code>bpf_ringbuf_submit</code></td><td><code>bpf_perf_event_output</code></td></tr>
+<tr><td>記憶體</td><td>單一 buffer（省）</td><td>N×buffer（N=CPU 數）</td></tr>
+<tr><td>新工具預設</td><td>是</td><td>maintenance only</td></tr>
+</tbody>
+</table>
+
+<h3>22.4.1 RINGBUF 高效寫入模式：reserve + submit</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="rb-c" aria-selected="true"><span class="code-tab-icon c"></span>BPF C</button>
+</div>
+<div class="code-tab-panel" data-id="rb-c" data-active="true">
+<div class="code-tab-filename">標準 ringbuf 寫入</div>
+<pre><code>struct {
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, 256 * 1024);  /* 256 KB */
+} events SEC(".maps");
+
+struct event {
+    __u32 pid;
+    char comm[16];
+    __u64 ts;
+};
+
+SEC("tp_btf/sched_process_exec")
+int handle_exec(u64 *ctx) {
+    /* reserve 一個 entry，避免一次 copy */
+    struct event *e = bpf_ringbuf_reserve(&amp;events, sizeof(*e), 0);
+    if (!e) return 0;
+
+    e-&gt;pid = bpf_get_current_pid_tgid() &gt;&gt; 32;
+    e-&gt;ts = bpf_ktime_get_ns();
+    bpf_get_current_comm(e-&gt;comm, sizeof(e-&gt;comm));
+
+    /* submit 後 user space 立即可見（zero-copy） */
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}</code></pre>
+</div>
+</div>
+
+<p>vs <code>bpf_perf_event_output</code>，RINGBUF 的核心優勢：</p>
+
+<ol>
+<li><strong>Zero-copy</strong>：BPF 直接寫到 user space 可見的記憶體（mmap）。</li>
+<li><strong>無記憶體膨脹</strong>：傳統 perf array 每 CPU 一份，96 核機 96 份。</li>
+<li><strong>跨 CPU 全域順序</strong>：debug 易得多。</li>
+</ol>
+
+<h2 id="sec-22-5">22.5 PERCPU vs shared map：何時用哪個</h2>
+
+<div class="mermaid-wrap"><div class="mermaid">
+flowchart TD
+    Q1{"是否需要<br/>跨 CPU 一致的<br/>單一狀態？"}
+    Q1 -->|"是<br/>(全域 counter,<br/>connection table)"| SHARED["普通 HASH/ARRAY<br/>(內建 spinlock 或<br/>atomic)"]
+    Q1 -->|"否<br/>(per-CPU 獨立)"| Q2{"需要 user space<br/>aggregate？"}
+    Q2 -->|"需要"| PERCPU["PERCPU_HASH/<br/>PERCPU_ARRAY<br/>(user space sum)"]
+    Q2 -->|"不需要<br/>(暫存 buffer)"| TMP["PERCPU_ARRAY<br/>max_entries=1<br/>(取代大 stack)"]
+</div></div>
+
+<h3>22.5.1 經典 PERCPU 範例：取代 stack 大 buffer</h3>
+
+<p>BPF stack 只有 512 bytes。要做大封包解析、L7 解析常需要更大 scratch buffer：</p>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="percpu-tmp" aria-selected="true"><span class="code-tab-icon c"></span>BPF C</button>
+</div>
+<div class="code-tab-panel" data-id="percpu-tmp" data-active="true">
+<div class="code-tab-filename">用 PERCPU_ARRAY 當大暫存</div>
+<pre><code>struct scratch {
+    char buf[4096];
+    __u32 len;
+    __u32 state;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __type(key, __u32);
+    __type(value, struct scratch);
+    __uint(max_entries, 1);     /* 只要 1 個 entry！ */
+} scratch_map SEC(".maps");
+
+SEC("xdp")
+int xdp_parse(struct xdp_md *ctx) {
+    __u32 zero = 0;
+    struct scratch *s = bpf_map_lookup_elem(&amp;scratch_map, &amp;zero);
+    if (!s) return XDP_PASS;     /* 不可能，但 verifier 要求檢查 */
+
+    /* 用 s-&gt;buf 做大型解析（4 KB > BPF stack 512） */
+    /* ... */
+    return XDP_PASS;
+}</code></pre>
+</div>
+</div>
+
+<h2 id="sec-22-6">22.6 Tail call、bounded loop 與 BPF-to-BPF call</h2>
+
+<p>BPF 程式長度受 1M instruction 限制。寫複雜邏輯有三種拆解方式：</p>
+
+<table>
+<thead>
+<tr><th>機制</th><th>支援版本</th><th>verifier 友善</th><th>性能</th><th>適用</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Tail call</strong></td><td>4.2</td><td>強（每支獨立驗證）</td><td>每跳一次有 indirect call 開銷</td><td>邏輯複雜、要 dispatch</td></tr>
+<tr><td><strong>BPF-to-BPF call</strong></td><td>4.16</td><td>中等（call 進去要展開）</td><td>direct call，快</td><td>共用工具函式</td></tr>
+<tr><td><strong>Bounded loop</strong></td><td>5.3</td><td>看 unroll 量</td><td>最快（直線）</td><td>固定迴圈次數</td></tr>
+<tr><td><strong>bpf_loop helper</strong></td><td>5.17</td><td>強（不展開）</td><td>有 helper call 開銷但少 instruction</td><td>大次數迴圈</td></tr>
+</tbody>
+</table>
+
+<h3>22.6.1 Tail call 33 層深度限制</h3>
+
+<p>避免遞迴爆炸，BPF 限制 tail call 鏈最多 <strong>33 層</strong>。實務上 5-10 層已經足夠處理多協定 dispatch（例：XDP → IPv4 / IPv6 → TCP / UDP / ICMP → 應用）。</p>
+
+<h3>22.6.2 範例：bpf_loop 取代手寫 unrolled loop</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="loop-old" aria-selected="true"><span class="code-tab-icon c"></span>❌ 5.3 unrolled</button>
+<button class="code-tab-btn" data-target="loop-new"><span class="code-tab-icon c"></span>✅ 5.17 bpf_loop</button>
+</div>
+<div class="code-tab-panel" data-id="loop-old" data-active="true">
+<div class="code-tab-filename">unrolled loop（instruction 多）</div>
+<pre><code>#pragma unroll
+for (int i = 0; i &lt; 64; i++) {
+    if (do_work(i, ...) == STOP) break;
+}
+/* 64 次展開 = ~64×N instructions */</code></pre>
+</div>
+<div class="code-tab-panel" data-id="loop-new">
+<div class="code-tab-filename">bpf_loop（少 instruction）</div>
+<pre><code>static long callback(__u32 i, void *ctx) {
+    if (do_work(i, ctx) == STOP)
+        return 1;       /* break */
+    return 0;
+}
+
+bpf_loop(64, callback, ctx, 0);
+/* 1 次 helper call + 1 個 callback program = ~N instructions */</code></pre>
+</div>
+</div>
+
+<h2 id="sec-22-7">22.7 Cache locality 與 struct 排版</h2>
+
+<p>BPF 在 hot path 跑（每封包、每事件），<strong>每次 cache miss 都是延遲</strong>。三個關鍵點：</p>
+
+<h3>22.7.1 Map value struct 對齊</h3>
+
+<p>大部分 BPF map value 對齊到 8 bytes 即可。但若是 PERCPU 且常被 cross-CPU 讀（罕見），對齊到 64 bytes（cacheline）可避免 false sharing：</p>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="align" aria-selected="true"><span class="code-tab-icon c"></span>BPF C</button>
+</div>
+<div class="code-tab-panel" data-id="align" data-active="true">
+<div class="code-tab-filename">cache-aligned struct</div>
+<pre><code>struct counters {
+    __u64 packets;
+    __u64 bytes;
+} __attribute__((aligned(64)));   /* 對齊到 cacheline */
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __type(key, __u32);
+    __type(value, struct counters);
+    __uint(max_entries, 1024);
+} stats SEC(".maps");</code></pre>
+</div>
+</div>
+
+<h3>22.7.2 把熱欄位放前面</h3>
+
+<p>若一個 struct 大、但常用的只有 head 幾個欄位，<strong>把熱欄位排在 struct 開頭</strong>，每次只讀一個 cacheline。對 connection table 這類常存取的結構意義特別大。</p>
+
+<h3>22.7.3 避免 unaligned access</h3>
+
+<p>verifier 預設要求對齊存取（除非加 <code>BPF_F_ANY_ALIGNMENT</code> flag）。對齊存取在多數架構上更快，是雙贏。</p>
+
+<h2 id="sec-22-8">22.8 JIT 觀察與機器碼層級優化</h2>
+
+<h3>22.8.1 jited dump：看 BPF 變成什麼機器碼</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="jit-dump" aria-selected="true"><span class="code-tab-icon shell"></span>shell</button>
+</div>
+<div class="code-tab-panel" data-id="jit-dump" data-active="true">
+<div class="code-tab-filename">看 JIT 後的 x86_64 機器碼</div>
+<pre><code>$ sudo bpftool prog dump jited id 12
+0xffffffffc0123456:
+   0:   nopl   0x0(%rax,%rax,1)        ; alignment padding
+   5:   xchg   %ax,%ax
+   7:   push   %rbp                     ; function prologue
+   8:   mov    %rsp,%rbp
+   b:   sub    $0x10,%rsp                ; stack frame
+   f:   mov    0x0(%rdi),%rsi            ; load ctx-&gt;data
+  13:   mov    0x4(%rdi),%rdx            ; load ctx-&gt;data_end
+  17:   add    $0xe,%rsi                 ; data + 14 (ETH header)
+  1b:   cmp    %rdx,%rsi
+  1e:   ja     L_drop                    ; bounds check
+  20:   ...
+
+# 看 helper call 是否被 inline（直接跳到 helper code）
+$ sudo bpftool prog dump jited id 12 | grep call
+   3a:   call   0xffffffff8d6b1110      ; bpf_map_lookup_elem JIT'd</code></pre>
+</div>
+</div>
+
+<h3>22.8.2 retpoline 對 indirect call 的影響</h3>
+
+<p>Spectre v2 緩解：tail call 與 helper call 用 indirect jump（<code>call *%rax</code>）受影響。<code>retpoline</code> 把 indirect jump 改成保守的 lfence + ret，每次 ~10 cycles 額外開銷。</p>
+
+<p>新 Kernel（5.17+）配新 CPU（Intel eIBRS、AMD branch type retire）可關 retpoline，BPF tail call 與 helper call 可恢復原速：</p>
+
+<pre><code>$ cat /sys/devices/system/cpu/vulnerabilities/spectre_v2
+Mitigation: Enhanced IBRS, IBPB: conditional, RSB filling
+# 看到 Enhanced IBRS = 不需 retpoline，indirect call 不慢</code></pre>
+
+<h3>22.8.3 nocopy 與 inline 的合作</h3>
+
+<p>為什麼 helper call 也常被 JIT inline？因為 verifier 把已知 helper（lookup_elem 等）標記為「可內聯」，JIT 會直接展開。但 BPF-to-BPF call 不會，所以 inline 寫法在 instruction 層級更便宜。</p>
+
+<h2 id="sec-22-9">22.9 Kernel 參數調校</h2>
+
+<table>
+<thead>
+<tr><th>參數</th><th>路徑</th><th>用途</th></tr>
+</thead>
+<tbody>
+<tr><td><code>kernel.bpf_stats_enabled</code></td><td>sysctl</td><td>啟用 run_count / run_time_ns（第 17 章）</td></tr>
+<tr><td><code>RLIMIT_MEMLOCK</code></td><td>limits.conf / systemd</td><td>5.10 以下：BPF map memory；5.11+ 不需要設</td></tr>
+<tr><td><code>kernel.unprivileged_bpf_disabled</code></td><td>sysctl</td><td>0 = 允許非 root（不安全）/ 1 = 禁止（5.16+ 預設）/ 2 = 禁止可寫</td></tr>
+<tr><td><code>net.core.bpf_jit_enable</code></td><td>sysctl</td><td>BPF JIT 開關，預設 1。除非你 dev 需要直譯否則別關</td></tr>
+<tr><td><code>net.core.bpf_jit_harden</code></td><td>sysctl</td><td>JIT spray 防護等級</td></tr>
+<tr><td><code>net.core.bpf_jit_kallsyms</code></td><td>sysctl</td><td>把 BPF JIT'd 函式註冊到 /proc/kallsyms（perf / 火焰圖能看到名稱）</td></tr>
+<tr><td><code>kernel.perf_event_max_stack</code></td><td>sysctl</td><td>STACK_TRACE map 深度上限（預設 127）</td></tr>
+</tbody>
+</table>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="kparam" aria-selected="true"><span class="code-tab-icon shell"></span>shell</button>
+</div>
+<div class="code-tab-panel" data-id="kparam" data-active="true">
+<div class="code-tab-filename">production 推薦設定</div>
+<pre><code># /etc/sysctl.d/99-bpf.conf
+
+# 啟用 stats（建議常駐）
+kernel.bpf_stats_enabled = 1
+
+# JIT kallsyms：讓 perf 能看到 BPF 程式名
+net.core.bpf_jit_kallsyms = 1
+
+# 安全：禁止非 root 載入
+kernel.unprivileged_bpf_disabled = 1
+
+# 套用
+$ sudo sysctl --system</code></pre>
+</div>
+</div>
+
+<h2 id="sec-22-10">22.10 建立效能 baseline 與長期趨勢</h2>
+
+<p>「為什麼今天比上週慢 10%」這類問題只能靠 baseline 回答。建議流程：</p>
+
+<ol>
+<li>每次 release，跑固定 benchmark suite（用 PROG_TEST_RUN + Repeat）。</li>
+<li>記錄每個 program 的 <strong>p50 / p99 nanoseconds per invocation</strong>。</li>
+<li>記錄 ringbuf drops、verifier 失敗次數、memlock 使用率。</li>
+<li>所有指標進 Prometheus，繪 Grafana dashboard。</li>
+<li>新版本 deploy 後對比 24 hours，p99 退化超過 20% 自動 alert。</li>
+</ol>
+
+<div class="callout callout-info">
+<div class="callout-title">CI 流程整合</div>
+<p>把 benchmark 跑進 GitHub Actions / GitLab CI：每 PR 跑一次，diff 顯示在 PR comment。Cilium、cilium/ebpf 自己的 CI 都這樣做，避免合併後才發現迴歸。</p>
+</div>
+
+<h2 id="sec-22-11">22.11 第 22 章小結</h2>
+
+<ol>
+<li>BPF 效能調校四層：<strong>程式邏輯 → map 設計 → resource 配置 → kernel 參數</strong>。先看上層演算法。</li>
+<li>verifier-friendly 五原則：<strong>inline、early return、減少 pointer 共線、bpf_assert hint、bpf_loop helper</strong>。</li>
+<li>Map 選型對照表記下來：HASH / LRU_HASH / RINGBUF / PERCPU / PROG_ARRAY / LPM_TRIE 各有所長。</li>
+<li><strong>RINGBUF</strong>（5.8+）是新工具預設，比 PERF_EVENT_ARRAY 省記憶體 + 跨 CPU 順序。</li>
+<li><strong>PERCPU_ARRAY max_entries=1</strong> 是取代 BPF stack 大 buffer 的標準慣例。</li>
+<li>Tail call vs BPF-to-BPF call vs bpf_loop：複雜邏輯首選 tail call，共用工具函式 BPF-to-BPF，迴圈用 bpf_loop。</li>
+<li>Cache locality 三點：struct 對齊、熱欄位前置、避免 unaligned。</li>
+<li>JIT 觀察用 <code>bpftool prog dump jited</code>；retpoline 在新 CPU + 新 Kernel 已不是負擔。</li>
+<li>Kernel sysctl：<strong>bpf_stats_enabled / bpf_jit_kallsyms / unprivileged_bpf_disabled</strong> 是 production 標配。</li>
+<li>建立 baseline 並讓 CI 跑 benchmark，是長期防止效能迴歸的唯一方式。</li>
+</ol>
+
+<hr>
+
+<h1>第 23 章　故障排除手冊</h1>
+
+<div class="audience-tags">
+  <span class="tag tag-developer">🟡 開發者</span>
+  <span class="tag tag-ops">🔴 SRE</span>
+</div>
+
+<div class="meta-bar">
+  <span><strong>章節</strong>第五部 DevOps / SRE 視角</span>
+  <span><strong>對應原始碼</strong>linux/Documentation/bpf/ + 各 loader troubleshooting 文件</span>
+  <span><strong>預期閱讀時間</strong>90–120 分鐘</span>
+  <span><strong>前置知識</strong>第 5 章 Verifier、第 16 章 Loader、第 17 章除錯</span>
+</div>
+
+<blockquote>
+<p><strong>本章學習目標</strong></p>
+<ul>
+<li>建立 BPF 故障排除的<strong>系統化心智模型</strong>。</li>
+<li>掌握 7 大類常見問題的對症下藥流程：<strong>load 失敗 / verifier 拒絕 / CO-RE relocation 失敗 / attach 失敗 / map 操作失敗 / runtime 行為錯誤 / 效能突降</strong>。</li>
+<li>看懂常見 verifier error 訊息並能<strong>翻譯成原始碼問題</strong>。</li>
+<li>學會 <code>bpftool</code> 在故障排除中的<strong>偵察用法</strong>。</li>
+<li>掌握 <strong>kernel ring buffer log</strong>（dmesg）與 BPF 的關聯。</li>
+<li>了解 BPF 工具導致的常見<strong>系統異常</strong>（OOM、CPU spike、kernel panic）。</li>
+<li>學會用 <strong>bpftrace</strong> 自己快速 debug。</li>
+</ul>
+</blockquote>
+
+<div class="toc">
+<h3>本章目錄</h3>
+<ol>
+<li><a href="#sec-23-1">23.1 故障排除心智模型</a></li>
+<li><a href="#sec-23-2">23.2 Load 失敗</a></li>
+<li><a href="#sec-23-3">23.3 Verifier 拒絕：常見訊息翻譯</a></li>
+<li><a href="#sec-23-4">23.4 CO-RE relocation 失敗</a></li>
+<li><a href="#sec-23-5">23.5 Attach 失敗</a></li>
+<li><a href="#sec-23-6">23.6 Map 操作失敗</a></li>
+<li><a href="#sec-23-7">23.7 Runtime 行為錯誤（程式跑了但不對）</a></li>
+<li><a href="#sec-23-8">23.8 效能突降排查</a></li>
+<li><a href="#sec-23-9">23.9 系統異常：OOM / CPU / kernel taint</a></li>
+<li><a href="#sec-23-10">23.10 bpftrace：5 分鐘 debug 利器</a></li>
+<li><a href="#sec-23-11">23.11 第 23 章小結</a></li>
+</ol>
+</div>
+
+<hr>
+
+<h2 id="sec-23-1">23.1 故障排除心智模型</h2>
+
+<p>BPF 故障排除的關鍵：找出問題發生在<strong>哪個階段</strong>，然後對症下藥。生命週期七階段（第 16 章）每階段都可能出問題：</p>
+
+<div class="mermaid-wrap"><div class="mermaid">
+flowchart LR
+    P1["1. Load<br/>(讀 ELF + 解析)"]
+    P2["2. Verifier<br/>(驗證安全性)"]
+    P3["3. CO-RE<br/>(relocation)"]
+    P4["4. Map create"]
+    P5["5. Attach"]
+    P6["6. Runtime<br/>(實際跑)"]
+    P7["7. User space<br/>(讀資料)"]
+
+    P1 -->|"ELF 壞 / btf 不存在"| E1["§23.2"]
+    P2 -->|"verifier reject"| E2["§23.3"]
+    P3 -->|"target type 不存在"| E3["§23.4"]
+    P4 -->|"memlock / 規格錯"| E6["§23.6"]
+    P5 -->|"hook busy / 權限不足"| E5["§23.5"]
+    P6 -->|"邏輯錯 / 高 overhead"| E78["§23.7-8"]
+    P7 -->|"ringbuf drop / 慢"| E78
+</div></div>
+
+<h3>23.1.1 排查前置：確認你看到的是什麼</h3>
+
+<p>第一步永遠是<strong>確認當前狀態</strong>，不是猜：</p>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="triage" aria-selected="true"><span class="code-tab-icon shell"></span>shell</button>
+</div>
+<div class="code-tab-panel" data-id="triage" data-active="true">
+<div class="code-tab-filename">5 行確認當前 BPF 狀態</div>
+<pre><code># 1. 看載入的 program
+$ sudo bpftool prog list
+6: tracepoint  name handle_execve  tag d8b46e7f8b3a99f3  gpl
+        loaded_at 2026-05-06T14:00  uid 0
+        xlated 152B  jited 96B  memlock 4096B
+        run_time_ns 12345678  run_cnt 9876
+
+# 2. 看載入的 map
+$ sudo bpftool map list
+
+# 3. 看 link（attach 狀態）
+$ sudo bpftool link list
+
+# 4. 看 cgroup attach
+$ sudo bpftool cgroup tree
+
+# 5. 看 dmesg（最後 50 行 BPF 相關）
+$ sudo dmesg | grep -iE "bpf|verifier" | tail -50</code></pre>
+</div>
+</div>
+
+<h2 id="sec-23-2">23.2 Load 失敗</h2>
+
+<h3>23.2.1 「BTF object not found」</h3>
+
+<table>
+<thead>
+<tr><th>原因</th><th>解法</th></tr>
+</thead>
+<tbody>
+<tr><td>Kernel 沒編 <code>CONFIG_DEBUG_INFO_BTF</code></td><td>用 BTFhub 提供外部 BTF（第 15.8 節）</td></tr>
+<tr><td>BTF 路徑與工具預期不同</td><td>確認 <code>/sys/kernel/btf/vmlinux</code> 存在；K8s 容器確認有掛 hostPath</td></tr>
+<tr><td>用了 module 的 type 但 module BTF 沒載入</td><td>確認 module 已 modprobe，<code>/sys/kernel/btf/&lt;module&gt;</code> 存在</td></tr>
+</tbody>
+</table>
+
+<h3>23.2.2 「invalid argument」載入失敗</h3>
+
+<p>多半是 <code>bpf_attr</code> 欄位設定錯。常見排查：</p>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="strace" aria-selected="true"><span class="code-tab-icon shell"></span>shell</button>
+</div>
+<div class="code-tab-panel" data-id="strace" data-active="true">
+<div class="code-tab-filename">用 strace 看 BPF syscall</div>
+<pre><code>$ sudo strace -e bpf -v ./mytool 2&gt;&amp;1 | head -30
+bpf(BPF_BTF_LOAD, {btf="...", btf_log_buf=0x0, btf_size=1234, btf_log_size=0, ...}, 144) = 5
+bpf(BPF_MAP_CREATE, {map_type=BPF_MAP_TYPE_HASH, key_size=4, value_size=8, max_entries=1024, ...}, 96) = 6
+bpf(BPF_PROG_LOAD, {prog_type=BPF_PROG_TYPE_TRACEPOINT, ..., expected_attach_type=BPF_TRACE_RAW_TP}, 144) = -1 EINVAL
+                                                                                                       ^^^^^^
+                                                                                                       這裡失敗
+
+# 看 attr 欄位，常見錯誤：
+# - expected_attach_type 與 prog_type 不對應
+# - prog_btf_fd 沒帶或失效
+# - attach_btf_id 對 fentry 必須有效</code></pre>
+</div>
+</div>
+
+<h2 id="sec-23-3">23.3 Verifier 拒絕：常見訊息翻譯</h2>
+
+<p>verifier log 是 BPF 開發最常踩的痛點。下表是<strong>八個經典訊息與翻譯</strong>：</p>
+
+<table>
+<thead>
+<tr><th>verifier 訊息</th><th>意思</th><th>解法</th></tr>
+</thead>
+<tbody>
+<tr><td><code>R1 type=ctx expected=fp</code></td><td>用了 ctx 當記憶體位址直接寫</td><td>不能直接寫 ctx；需經 helper</td></tr>
+<tr><td><code>invalid mem access 'inv'</code></td><td>對 PTR_TO_PACKET 之類存取超出已知範圍</td><td>加上 <code>if (data + N &lt;= data_end)</code> bounds check</td></tr>
+<tr><td><code>R2 unbounded memory access</code></td><td>Variable-length read 沒有上界</td><td>加 <code>if (n &lt; MAX) ...</code> 限制</td></tr>
+<tr><td><code>back-edge from insn N to M</code></td><td>有非 bounded loop（5.3 之前完全禁止迴圈）</td><td>用 bounded loop / bpf_loop / 改 unrolled</td></tr>
+<tr><td><code>BPF program is too large. Processed N insn</code></td><td>超過 1M instruction 上限</td><td>拆 tail call / inline 撤掉</td></tr>
+<tr><td><code>complexity limit exceeded</code></td><td>verifier 路徑展開超過 1M states</td><td>同上 + 簡化條件</td></tr>
+<tr><td><code>cannot return stack pointer to the caller</code></td><td>BPF function 回傳 stack 上的 pointer</td><td>改回傳 map value 指標或 by-value</td></tr>
+<tr><td><code>R0 invalid mem access 'scalar'</code></td><td>map_lookup 後沒檢查 NULL 就用</td><td>必須 <code>if (!ptr) return ...;</code></td></tr>
+</tbody>
+</table>
+
+<h3>23.3.1 看 verifier log 的訣竅</h3>
+
+<p>設高 LogLevel 後，log 會顯示「<strong>verifier 模擬執行的每一步</strong>」。錯誤訊息附近的<strong>幾行之前</strong>就是 verifier 認為的真實狀態，常常是定位問題的關鍵：</p>
+
+<pre><code>; if (data + sizeof(*eth) &gt; data_end)
+0: (61) r2 = *(u32 *)(r1 +0)        ; r2 = data
+1: (61) r3 = *(u32 *)(r1 +4)        ; r3 = data_end
+2: (07) r2 += 14                    ; r2 = data + 14
+3: (2d) if r2 &gt; r3 goto pc+8        ; bounds check OK
+; eth-&gt;h_proto
+4: (71) r4 = *(u8 *)(r2 -2)         ; load h_proto byte 0
+5: ...
+; 假設第 14 行 verifier 拒絕
+14: R2 type=invalid expected=...   ← 重點看 14 行前的 r2 是怎麼變成 invalid</code></pre>
+
+<h2 id="sec-23-4">23.4 CO-RE relocation 失敗</h2>
+
+<p>CO-RE 在<strong>載入時</strong>對照 Kernel BTF 修正 offset。失敗訊息常見：</p>
+
+<table>
+<thead>
+<tr><th>訊息</th><th>意思</th><th>解法</th></tr>
+</thead>
+<tbody>
+<tr><td><code>relo failed: type 'foo' does not exist</code></td><td>目標 Kernel 沒有此 type（被 rename / 刪除）</td><td>用 <code>bpf_core_type_exists</code> 條件包起來</td></tr>
+<tr><td><code>field 'bar' not found in 'struct foo'</code></td><td>欄位被 rename / 移除</td><td>用 flavors（<code>foo___pre_X</code> / <code>foo___post_X</code>）</td></tr>
+<tr><td><code>multiple matches for type 'foo'</code></td><td>同名 type 在 vmlinux + module 都存在</td><td>用更明確的 type name（含 module prefix）</td></tr>
+<tr><td><code>enum value 'BAR' not found</code></td><td>enum 值不存在</td><td><code>bpf_core_enum_value_exists</code></td></tr>
+<tr><td><code>relocation kind 'X' not supported</code></td><td>libbpf 版本太舊</td><td>升級 libbpf / cilium-ebpf</td></tr>
+</tbody>
+</table>
+
+<h3>23.4.1 排查工具</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="core-debug" aria-selected="true"><span class="code-tab-icon shell"></span>shell</button>
+</div>
+<div class="code-tab-panel" data-id="core-debug" data-active="true">
+<div class="code-tab-filename">CO-RE 排查指令</div>
+<pre><code># 看 BPF .o 自帶的 .BTF.ext relocation 紀錄
+$ llvm-objdump --section=.BTF.ext mytool.bpf.o
+# 顯示每筆 relocation 對應的 type name + access path
+
+# 看 vmlinux BTF 裡有沒有目標 type
+$ sudo bpftool btf dump file /sys/kernel/btf/vmlinux | grep -A2 "STRUCT 'task_struct'"
+
+# 看 cilium/ebpf 的 detail log
+opts := ebpf.CollectionOptions{
+    Programs: ebpf.ProgramOptions{
+        LogLevel: ebpf.LogLevelInstruction,
+    },
+}
+/* error 會印出失敗的 core_relo 詳情 */</code></pre>
+</div>
+</div>
+
+<h2 id="sec-23-5">23.5 Attach 失敗</h2>
+
+<table>
+<thead>
+<tr><th>訊息</th><th>場景</th><th>解法</th></tr>
+</thead>
+<tbody>
+<tr><td><code>device or resource busy (EBUSY)</code></td><td>該 hook 已有 BPF 程式（XDP, cgroup）</td><td>先 detach 舊的，或用 link priority（tcx / netkit）</td></tr>
+<tr><td><code>operation not permitted (EPERM)</code></td><td>權限不足</td><td>檢查 cap / SCC / BPF Token</td></tr>
+<tr><td><code>no such file or directory (ENOENT)</code></td><td>kprobe 目標函式不存在 / cgroup 路徑錯</td><td>確認 kernel 版本有此 symbol（<code>cat /proc/kallsyms | grep ...</code>）</td></tr>
+<tr><td><code>invalid argument (EINVAL)</code></td><td>attach_type 與 program type 對不上</td><td>對照第 14.5.3 節 attach_type 表</td></tr>
+<tr><td>XDP attach 失敗 但 XDP_GENERIC 成功</td><td>NIC driver 不支援 native XDP</td><td>用 XDP_GENERIC（慢但相容）或換驅動</td></tr>
+</tbody>
+</table>
+
+<h3>23.5.1 XDP attach 排查流程</h3>
+
+<div class="mermaid-wrap"><div class="mermaid">
+flowchart TD
+    Q1{"native attach 成功？"}
+    Q1 -->|"是"| OK["✓"]
+    Q1 -->|"否 EOPNOTSUPP"| Q2{"NIC driver 是 mlx5/i40e/<br/>ixgbe/bnxt/igb 等？"}
+    Q2 -->|"是"| TUNE["檢查 driver 版本與<br/>num queues 設定"]
+    Q2 -->|"否"| GEN["fallback XDP_GENERIC<br/>(driver 無關)"]
+</div></div>
+
+<h2 id="sec-23-6">23.6 Map 操作失敗</h2>
+
+<table>
+<thead>
+<tr><th>錯誤</th><th>原因</th><th>解法</th></tr>
+</thead>
+<tbody>
+<tr><td><code>cannot allocate memory (ENOMEM)</code></td><td>memlock 不足；map 太大</td><td>5.10-：增 RLIMIT_MEMLOCK；5.11+：減 max_entries</td></tr>
+<tr><td><code>map_lookup_elem returned NULL</code> 但 key 該存在</td><td>BPF 端與 user space 端 byte order 不一致</td><td>用 network byte order 統一（<code>htonl</code>）</td></tr>
+<tr><td><code>BPF_EXIST update failed (ENOENT)</code></td><td>用 BPF_EXIST flag 但 key 不存在</td><td>第一次用 BPF_NOEXIST 或 BPF_ANY</td></tr>
+<tr><td>HASH map 看似漏資料</td><td>達到 max_entries，新插入失敗</td><td>用 LRU_HASH 自動 evict 或加大</td></tr>
+<tr><td>PERCPU map user space 讀只看到一個 CPU 的值</td><td>API 用法錯</td><td>用 PERCPU 專屬 read API（cilium/ebpf <code>map.Lookup</code> 自動處理）</td></tr>
+</tbody>
+</table>
+
+<h2 id="sec-23-7">23.7 Runtime 行為錯誤（程式跑了但不對）</h2>
+
+<p>verifier 通過、attach 成功，但行為不符預期。最棘手。常見原因：</p>
+
+<table>
+<thead>
+<tr><th>症狀</th><th>常見原因</th></tr>
+</thead>
+<tbody>
+<tr><td>kprobe / fentry 完全不觸發</td><td>(a) 函式被 inline；(b) symbol name 對不上（kfunc rename）；(c) 某 fastpath 不經過該函式</td></tr>
+<tr><td>Counter 數值跳動奇怪</td><td>(a) 跨 CPU race（沒用 PERCPU 或 atomic）；(b) overflow 被截斷</td></tr>
+<tr><td>偶發性 event 不上送</td><td>(a) ringbuf drop（buffer 太小）；(b) BPF 用了 sampling 但忘了關掉</td></tr>
+<tr><td>讀字串只有 1 個字元</td><td>用了 <code>bpf_probe_read_kernel</code> 而不是 <code>_str</code> 變體；string 不是 NUL-terminated</td></tr>
+<tr><td>BPF 程式跑了但 user space 沒看到資料</td><td>BPF 在 wrong cgroup / wrong namespace 觸發；selectors 過濾掉了</td></tr>
+</tbody>
+</table>
+
+<h3>23.7.1 確認 BPF 真有跑：run_count 偵察</h3>
+
+<pre><code>$ sudo bpftool prog show id 12
+12: kprobe  name myprog  ...
+        run_time_ns 12345678  run_cnt 9876</code></pre>
+
+<p><code>run_cnt</code> 是 0 = 從未被觸發。<strong>多數「行為錯」其實是「沒被觸發」</strong>。</p>
+
+<h2 id="sec-23-8">23.8 效能突降排查</h2>
+
+<p>「上週還好，這週慢 30%」。系統化排查：</p>
+
+<ol>
+<li><strong>看 BPF run_time_ns avg</strong>：是 BPF 變慢還是別處變慢？</li>
+<li><strong>看 perf top</strong>：哪個函式最熱？是 BPF 程式 still、helper、還是 user space？</li>
+<li><strong>看 ringbuf drop rate</strong>：drop 上升 = consumer 慢或 producer 暴增。</li>
+<li><strong>看 map 大小 / hash collision</strong>：HASH map 達到飽和會降速。</li>
+<li><strong>看 kernel 版本</strong>：升級後 verifier 可能展開不同 instructions。</li>
+</ol>
+
+<h3>23.8.1 一個典型 case</h3>
+
+<div class="callout callout-info">
+<div class="callout-title">案例：HASH map 飽和導致 latency 雙倍</div>
+<p>某 BPF connection tracking 工具：max_entries 設 10K。叢集擴張後同時連線數常 8K-12K，<strong>達到 max_entries 後新插入失敗，BPF 程式進入 fallback 路徑</strong>，慢 2-3 倍。<br>
+解法：改用 LRU_HASH，或把 max_entries 加到峰值的 1.5 倍。<br>
+偵察線索：<code>run_time_ns avg</code> 從 100ns 跳到 250ns，但 run_cnt 沒變。</p>
+</div>
+
+<h2 id="sec-23-9">23.9 系統異常：OOM / CPU / kernel taint</h2>
+
+<h3>23.9.1 BPF 引發 OOM</h3>
+
+<p>BPF map 是 kernel memory，<strong>不會 swap</strong>。設太大可能觸發 OOM killer 殺死 user space process。排查：</p>
+
+<pre><code># 看 BPF 占用了多少
+$ sudo bpftool map list | awk '/memlock/ {sum+=$NF} END {print sum/1024/1024" MB"}'
+
+# 個別 map 占用
+$ sudo bpftool map list -j | jq '[.[]|{name, memlock: .memlock_bytes}] | sort_by(-.memlock) | .[0:5]'</code></pre>
+
+<h3>23.9.2 BPF 引發 CPU 高</h3>
+
+<p>BPF program 在 hot path 變成 hot 函式：</p>
+
+<pre><code># 開啟 stats
+$ sudo sysctl -w kernel.bpf_stats_enabled=1
+
+# 30 秒後看
+$ sudo bpftool prog show -j | jq '[.[]|{name, run_time_ns, run_cnt, avg_ns: (.run_time_ns / .run_cnt)}] | sort_by(-.run_time_ns) | .[0:10]'
+
+# 用 perf 看 BPF 占多少 CPU
+$ sudo perf top --no-children
+# BPF 程式名會出現（前提：bpf_jit_kallsyms=1）</code></pre>
+
+<h3>23.9.3 Kernel taint：kernel 層級的紅旗</h3>
+
+<pre><code>$ cat /proc/sys/kernel/tainted
+4096    # 不為 0 表示 kernel 進入「不純淨」狀態
+
+# 解讀
+$ awk '{ for (i=0; i&lt;28; i++) if (and($0, lshift(1, i))) print i }' /proc/sys/kernel/tainted</code></pre>
+
+<p>BPF JIT spray 被 spectre 防護擋下會增加 taint bit。注意這代表已有<strong>潛在攻擊嘗試</strong>，是安全 alert。</p>
+
+<h2 id="sec-23-10">23.10 bpftrace：5 分鐘 debug 利器</h2>
+
+<p>對於「臨時想看 kernel 在做什麼」，<strong>bpftrace</strong> 是 awk 級的快速腳本：</p>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="bt-1" aria-selected="true"><span class="code-tab-icon shell"></span>1. one-liner</button>
+<button class="code-tab-btn" data-target="bt-2"><span class="code-tab-icon shell"></span>2. 寫腳本</button>
+<button class="code-tab-btn" data-target="bt-3"><span class="code-tab-icon shell"></span>3. 視覺化</button>
+</div>
+<div class="code-tab-panel" data-id="bt-1" data-active="true">
+<div class="code-tab-filename">常用 one-liner</div>
+<pre><code># 統計每秒 syscall 數
+$ sudo bpftrace -e 'tracepoint:raw_syscalls:sys_enter { @[comm] = count(); } interval:s:1 { print(@); clear(@); }'
+
+# 看哪些 process open 了 /etc/passwd
+$ sudo bpftrace -e 'tracepoint:syscalls:sys_enter_openat { if (str(args-&gt;filename) == "/etc/passwd") { printf("%s\n", comm); } }'
+
+# tcp 連線目的地分布
+$ sudo bpftrace -e 'kprobe:tcp_v4_connect { @[ntop(((struct sock *)arg0)-&gt;__sk_common.skc_daddr)] = count(); }'
+
+# fsync 延遲 histogram
+$ sudo bpftrace -e 'kprobe:vfs_fsync { @start[tid] = nsecs; } kretprobe:vfs_fsync /@start[tid]/ { @us = hist((nsecs - @start[tid]) / 1000); delete(@start[tid]); }'</code></pre>
+</div>
+<div class="code-tab-panel" data-id="bt-2">
+<div class="code-tab-filename">腳本檔（trace-execve.bt）</div>
+<pre><code>#!/usr/bin/env bpftrace
+
+BEGIN {
+    printf("Tracing execve... Ctrl-C to end\n");
+    printf("%-8s %-16s %s\n", "PID", "COMM", "ARGS");
+}
+
+tracepoint:syscalls:sys_enter_execve {
+    printf("%-8d %-16s %s\n", pid, comm, str(args-&gt;filename));
+}
+
+END {
+    printf("Done.\n");
+}
+
+# 執行
+$ sudo bpftrace ./trace-execve.bt</code></pre>
+</div>
+<div class="code-tab-panel" data-id="bt-3">
+<div class="code-tab-filename">產生 histogram + heatmap</div>
+<pre><code># bpftrace 內建 hist / lhist / count / sum / avg / min / max / stats
+
+$ sudo bpftrace -e '
+kprobe:vfs_read {
+    @start[tid] = nsecs;
+}
+kretprobe:vfs_read /@start[tid]/ {
+    @latency_us = hist((nsecs - @start[tid]) / 1000);
+    delete(@start[tid]);
+}
+'
+^C
+@latency_us:
+[1]                  234 |@@                                                  |
+[2, 4)              4321 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
+[4, 8)              2103 |@@@@@@@@@@@@@@@@@@@@@@@@@                           |
+[8, 16)              812 |@@@@@@@@@                                           |
+[16, 32)             123 |@                                                   |
+[32, 64)              23 |                                                    |
+[64, 128)              4 |                                                    |</code></pre>
+</div>
+</div>
+
+<h3>23.10.1 bpftrace 在 production 的位置</h3>
+
+<table>
+<thead>
+<tr><th>場景</th><th>適合用 bpftrace？</th></tr>
+</thead>
+<tbody>
+<tr><td>incident 期間臨時 trace</td><td>✓ 最適合</td></tr>
+<tr><td>Production daemon 長期觀察</td><td>✗ 用 cilium/ebpf 寫專屬工具</td></tr>
+<tr><td>規則複雜的 enforcement</td><td>✗ 用 Tetragon</td></tr>
+<tr><td>學習 BPF 概念</td><td>✓ 比寫 C 快</td></tr>
+<tr><td>Brendan Gregg 的 perf 工具集等價</td><td>✓ BCC tools 也大多 bpftrace 有對應</td></tr>
+</tbody>
+</table>
+
+<h2 id="sec-23-11">23.11 第 23 章小結</h2>
+
+<ol>
+<li>故障排查心智模型：BPF 七階段每個階段都可能出問題，先定位<strong>哪個階段</strong>。</li>
+<li>排查前置 5 行：<code>bpftool prog/map/link list</code> + <code>bpftool cgroup tree</code> + <code>dmesg | grep -i bpf</code>。</li>
+<li>Verifier 訊息 8 種經典翻譯背下來，多半都遇得到。</li>
+<li>CO-RE relocation 失敗 5 種典型，配 <code>llvm-objdump --section=.BTF.ext</code> 與 <code>bpftool btf dump</code> 排查。</li>
+<li>Attach 失敗看 <strong>EBUSY / EPERM / ENOENT / EINVAL</strong> 錯誤碼分流；XDP 不支援 native 時 fallback 到 GENERIC。</li>
+<li>Map 失敗常見：memlock、byte order、flag 用錯、HASH 飽和、PERCPU 讀法錯。</li>
+<li>「Verifier 通過但行為不對」最常見實際是 <strong>沒被觸發</strong>——先看 <code>run_cnt</code>。</li>
+<li>效能突降系統化看：BPF run_time → perf top → ringbuf drop → map 飽和 → kernel 升版。</li>
+<li>BPF 引發 OOM 看 <code>bpftool map list</code> 的 memlock；引發高 CPU 用 <code>bpf_stats_enabled</code> + perf。</li>
+<li><strong>bpftrace</strong> 是 incident 期間最快的 debug 工具，long-running daemon 仍用 cilium/ebpf。</li>
+</ol>
+
+<h3>23.11.1 自我檢驗</h3>
+
+<ol>
+<li>BPF 排查的 5 行前置指令分別查什麼？</li>
+<li>「R0 invalid mem access 'scalar'」要怎麼修？</li>
+<li>CO-RE 找不到 type 時，可以用哪個巨集條件包起來？</li>
+<li>XDP attach 失敗 EOPNOTSUPP 後的 fallback 是什麼？</li>
+<li>kprobe attach 後 run_cnt 一直是 0，可能哪些原因？</li>
+<li>BPF map 引發 OOM 時，先看哪個指令？</li>
+<li>bpftrace vs Tetragon vs cilium/ebpf 各自適合什麼場景？</li>
+</ol>
+
+<h3>23.11.2 延伸閱讀</h3>
+
+<ul>
+<li><a href="https://github.com/bpftrace/bpftrace">bpftrace GitHub</a></li>
+<li><a href="https://github.com/bpftrace/bpftrace/blob/master/man/adoc/bpftrace.adoc">bpftrace Reference</a></li>
+<li><a href="https://www.brendangregg.com/blog/2019-01-01/learn-ebpf-tracing.html">Brendan Gregg — Learn eBPF tracing</a></li>
+<li><a href="https://docs.kernel.org/bpf/test_debug.html">Kernel BPF testing & debug</a></li>
+<li><a href="https://nakryiko.com/posts/libbpf-bootstrap/">libbpf bootstrap & best practices</a></li>
+<li><a href="https://docs.cilium.io/en/stable/operations/troubleshooting/">Cilium troubleshooting guide</a></li>
+<li><a href="https://github.com/iovisor/bcc/blob/master/docs/reference_guide.md">BCC Reference</a></li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+  <p>eBPF 教學手冊 · 冊五-3 · 第 22 章 效能調校 + 第 23 章 故障排除<br>
+  <strong>第五部 DevOps / SRE 視角完成。</strong>下一冊：<strong>冊六-1 · 附錄 A Helpers + 附錄 B KFuncs 速查表</strong></p>
+</footer>
+
+</body>
+</html>

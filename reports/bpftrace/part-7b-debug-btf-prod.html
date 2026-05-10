@@ -1,0 +1,841 @@
+<!doctype html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bpftrace 0.25 中文教學手冊 — Part VII-B：Debug · BTF · Production 模式</title>
+<style>
+:root{
+  --tk-hue:200;--tk-chroma:.11;
+  --color-success:#16a34a;--color-success-soft:#dcfce7;
+  --color-warning:#d97706;--color-warning-soft:#fef3c7;
+  --color-danger:#dc2626;--color-danger-soft:#fee2e2;
+  --color-info:#0891b2;--color-info-soft:#cffafe;
+  --color-neutral-accent:#7c3aed;
+  --color-primary:oklch(.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:oklch(.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:oklch(.96 calc(var(--tk-chroma)*.25) var(--tk-hue));
+  --color-primary-text:oklch(.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas:oklch(.985 .004 60);--bg-surface:oklch(.995 .003 60);
+  --bg-muted:oklch(.96 .005 60);--bg-code:oklch(.975 .006 60);
+  --border-soft:oklch(.92 .006 60);--border-mid:oklch(.85 .008 60);
+  --text-primary:oklch(.22 .008 60);--text-secondary:oklch(.42 .008 60);
+  --text-muted:oklch(.58 .008 60);
+  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --font-sans:"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif;
+  --font-serif:"Playfair Display","Source Serif 4","Noto Serif TC",Georgia,serif;
+  --font-serif-body:"Source Serif 4","Noto Serif TC",Georgia,serif;
+  --text-xs:12px;--text-sm:14px;--text-base:16px;--text-md:18px;--text-lg:20px;
+  --text-xl:24px;--text-2xl:32px;--text-3xl:44px;--text-4xl:64px;
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;
+  --space-6:32px;--space-7:48px;--space-8:64px;--space-9:96px;
+  --container-narrow:720px;--container-wide:1280px;
+  --radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:16px;
+  --shadow-sm:0 1px 2px oklch(.20 .01 60/.06);
+  --shadow-md:0 4px 12px oklch(.20 .01 60/.08);
+  --shadow-lg:0 12px 32px oklch(.20 .01 60/.10);
+}
+:root[data-theme="dark"]{
+  --color-success:#4ade80;--color-success-soft:oklch(.30 .08 145);
+  --color-warning:#fbbf24;--color-warning-soft:oklch(.32 .10 70);
+  --color-danger:#f87171;--color-danger-soft:oklch(.32 .10 27);
+  --color-info:#22d3ee;--color-info-soft:oklch(.32 .08 200);
+  --color-neutral-accent:#a78bfa;
+  --color-primary:oklch(.72 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-hover:oklch(.80 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-soft:oklch(.30 calc(var(--tk-chroma)*.6) var(--tk-hue));
+  --color-primary-text:oklch(.85 calc(var(--tk-chroma)*.6) var(--tk-hue));
+  --bg-canvas:oklch(.16 .008 50);--bg-surface:oklch(.20 .009 50);
+  --bg-muted:oklch(.23 .010 50);--bg-code:oklch(.18 .009 50);
+  --border-soft:oklch(.28 .010 50);--border-mid:oklch(.36 .012 50);
+  --text-primary:oklch(.93 .005 60);--text-secondary:oklch(.74 .006 60);
+  --text-muted:oklch(.58 .007 60);
+  --shadow-sm:0 1px 2px oklch(.05 0 0/.4);
+  --shadow-md:0 4px 12px oklch(.05 0 0/.5);
+  --shadow-lg:0 12px 32px oklch(.05 0 0/.6);
+}
+html{color-scheme:light dark}html[data-theme="light"]{color-scheme:light}html[data-theme="dark"]{color-scheme:dark}
+body{background:var(--bg-canvas);color:var(--text-primary);transition:background .25s,color .25s}
+*{box-sizing:border-box}
+body{margin:0;font-family:var(--font-serif-body);font-size:var(--text-md);line-height:1.75;-webkit-font-smoothing:antialiased}
+.layout{max-width:var(--container-narrow);margin:0 auto;padding:var(--space-8) var(--space-5) var(--space-9)}
+header.masthead{border-bottom:1px solid var(--border-soft);padding-bottom:var(--space-6);margin-bottom:var(--space-7)}
+.eyebrow{font-family:var(--font-mono);font-size:var(--text-xs);letter-spacing:.18em;text-transform:uppercase;color:var(--color-primary-text);margin:0 0 var(--space-3)}
+h1.book-title{font-family:var(--font-serif);font-weight:700;font-size:var(--text-3xl);line-height:1.15;margin:0 0 var(--space-3);letter-spacing:-.02em}
+.book-subtitle{font-family:var(--font-sans);color:var(--text-secondary);font-size:var(--text-md);margin:0 0 var(--space-5)}
+.meta{display:flex;flex-wrap:wrap;gap:var(--space-3) var(--space-5);font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted)}
+.meta-item strong{color:var(--text-secondary);font-weight:500;margin-right:var(--space-2)}
+[data-theme-toggle]{position:fixed;top:var(--space-4);right:var(--space-4);z-index:50;display:inline-flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-mid);border-radius:var(--radius-md);font-family:var(--font-mono);font-size:var(--text-xs);cursor:pointer;box-shadow:var(--shadow-sm);transition:all .2s}
+[data-theme-toggle]:hover{border-color:var(--color-primary);color:var(--color-primary-text);box-shadow:var(--shadow-md)}
+.theme-icon{font-size:var(--text-sm);line-height:1}
+h2.chapter{font-family:var(--font-serif);font-weight:700;font-size:var(--text-2xl);line-height:1.2;letter-spacing:-.015em;margin:var(--space-9) 0 var(--space-2);padding-top:var(--space-7);border-top:2px solid var(--border-mid)}
+h2.chapter:first-of-type{margin-top:0;border-top:none;padding-top:0}
+.chapter-no{display:block;font-family:var(--font-mono);font-size:var(--text-xs);letter-spacing:.2em;color:var(--color-primary-text);font-weight:500;margin-bottom:var(--space-3)}
+.chapter-tagline{color:var(--text-secondary);font-size:var(--text-base);font-style:italic;margin:0 0 var(--space-6);border-left:3px solid var(--color-primary);padding-left:var(--space-4)}
+h3{font-family:var(--font-sans);font-weight:600;font-size:var(--text-xl);margin:var(--space-7) 0 var(--space-3);color:var(--text-primary);letter-spacing:-.005em}
+h4{font-family:var(--font-sans);font-weight:600;font-size:var(--text-md);margin:var(--space-5) 0 var(--space-2);color:var(--text-primary)}
+p{margin:0 0 var(--space-4)}
+strong{color:var(--text-primary);font-weight:600}
+em{color:var(--text-secondary)}
+code{font-family:var(--font-mono);font-size:.92em;background:var(--bg-code);padding:.1em .35em;border-radius:var(--radius-sm);border:1px solid var(--border-soft);color:var(--color-primary-text)}
+pre{background:var(--bg-code);border:1px solid var(--border-soft);border-radius:var(--radius-md);padding:var(--space-4) var(--space-5);margin:var(--space-4) 0;overflow-x:auto;font-size:var(--text-sm);line-height:1.65;box-shadow:var(--shadow-sm)}
+pre code{background:none;border:none;padding:0;color:var(--text-primary);font-size:inherit}
+pre.shell::before{content:"$ shell";display:block;font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);letter-spacing:.1em;margin-bottom:var(--space-2);padding-bottom:var(--space-2);border-bottom:1px dashed var(--border-soft)}
+pre.bt::before{content:"# bpftrace script (.bt)";display:block;font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);letter-spacing:.1em;margin-bottom:var(--space-2);padding-bottom:var(--space-2);border-bottom:1px dashed var(--border-soft)}
+pre.out::before{content:"# output";display:block;font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);letter-spacing:.1em;margin-bottom:var(--space-2);padding-bottom:var(--space-2);border-bottom:1px dashed var(--border-soft)}
+pre.systemd::before{content:"# /etc/systemd/system/*.service";display:block;font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);letter-spacing:.1em;margin-bottom:var(--space-2);padding-bottom:var(--space-2);border-bottom:1px dashed var(--border-soft)}
+.audience{display:inline-flex;align-items:center;gap:var(--space-1);padding:2px 8px;border-radius:99px;font-family:var(--font-mono);font-size:var(--text-xs);font-weight:500;letter-spacing:.05em;margin-left:var(--space-2);vertical-align:middle}
+.audience.beg{background:var(--color-success-soft);color:var(--color-success)}
+.audience.dev{background:var(--color-info-soft);color:var(--color-info)}
+.audience.ops{background:var(--color-warning-soft);color:var(--color-warning)}
+.callout{border-left:4px solid;border-radius:var(--radius-md);padding:var(--space-4) var(--space-5);margin:var(--space-5) 0;background:var(--bg-surface);box-shadow:var(--shadow-sm)}
+.callout-title{font-family:var(--font-sans);font-weight:600;font-size:var(--text-sm);letter-spacing:.05em;text-transform:uppercase;margin:0 0 var(--space-2);display:flex;align-items:center;gap:var(--space-2)}
+.callout p:last-child{margin-bottom:0}
+.callout.tip{border-color:var(--color-info);background:var(--color-info-soft)}
+.callout.tip .callout-title{color:var(--color-info)}
+.callout.warn{border-color:var(--color-warning);background:var(--color-warning-soft)}
+.callout.warn .callout-title{color:var(--color-warning)}
+.callout.danger{border-color:var(--color-danger);background:var(--color-danger-soft)}
+.callout.danger .callout-title{color:var(--color-danger)}
+.callout.note{border-color:var(--color-primary);background:var(--color-primary-soft)}
+.callout.note .callout-title{color:var(--color-primary-text)}
+:root[data-theme="dark"] .callout{background:var(--bg-muted)}
+:root[data-theme="dark"] .callout.tip,:root[data-theme="dark"] .callout.warn,:root[data-theme="dark"] .callout.danger,:root[data-theme="dark"] .callout.note{background:var(--bg-muted)}
+.cmp-table{width:100%;border-collapse:collapse;margin:var(--space-5) 0;font-size:var(--text-sm);font-family:var(--font-sans);border:1px solid var(--border-soft);border-radius:var(--radius-md);overflow:hidden}
+.cmp-table th,.cmp-table td{padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--border-soft);text-align:left;vertical-align:top}
+.cmp-table th{background:var(--bg-muted);font-weight:600;color:var(--text-primary);font-size:var(--text-xs);letter-spacing:.05em;text-transform:uppercase}
+.cmp-table tbody tr:last-child td{border-bottom:none}
+.cmp-table tbody tr:hover{background:var(--bg-muted)}
+.cmp-table.compact td,.cmp-table.compact th{padding:var(--space-2) var(--space-3);font-size:var(--text-xs)}
+ul,ol{padding-left:var(--space-6);margin:0 0 var(--space-4)}
+li{margin-bottom:var(--space-2)}
+li::marker{color:var(--color-primary)}
+.xref{margin:var(--space-5) 0;padding:var(--space-3) var(--space-4);border:1px dashed var(--border-mid);border-radius:var(--radius-md);font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);background:var(--bg-surface)}
+.xref strong{color:var(--text-secondary);text-transform:uppercase;letter-spacing:.08em;font-size:var(--text-xs)}
+.xref a{color:var(--color-primary);text-decoration:none;border-bottom:1px solid var(--border-mid)}
+.xref a:hover{color:var(--color-primary-hover);border-color:var(--color-primary)}
+.toc{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-5);margin:var(--space-7) 0;box-shadow:var(--shadow-sm)}
+.toc h3{font-family:var(--font-sans);font-size:var(--text-md);margin:0 0 var(--space-3);color:var(--color-primary-text);letter-spacing:.05em;text-transform:uppercase;font-weight:600}
+.toc ol{padding-left:var(--space-5);font-family:var(--font-sans);font-size:var(--text-sm)}
+.toc a{color:var(--text-secondary);text-decoration:none}
+.toc a:hover{color:var(--color-primary-hover)}
+.diagram{margin:var(--space-5) 0;padding:var(--space-5);background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-md);box-shadow:var(--shadow-sm)}
+.diagram svg{max-width:100%;height:auto;display:block;margin:0 auto}
+.diagram-cap{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);text-align:center;margin-top:var(--space-3);letter-spacing:.05em}
+.errcard{margin:var(--space-4) 0;padding:var(--space-4);background:var(--bg-surface);border:1px solid var(--border-soft);border-left:4px solid var(--color-danger);border-radius:var(--radius-md)}
+.errcard .err-msg{font-family:var(--font-mono);font-size:var(--text-sm);color:var(--color-danger);font-weight:600;margin:0 0 var(--space-2)}
+.errcard .err-cause{font-family:var(--font-sans);font-size:var(--text-sm);color:var(--text-secondary);margin:var(--space-2) 0}
+.errcard .err-fix{margin:var(--space-2) 0 0;padding:var(--space-2) var(--space-3);background:var(--color-success-soft);border-radius:var(--radius-sm);font-size:var(--text-sm);font-family:var(--font-sans)}
+.errcard .err-fix strong{color:var(--color-success)}
+:root[data-theme="dark"] .errcard .err-fix{background:var(--bg-muted)}
+footer{margin-top:var(--space-9);padding-top:var(--space-5);border-top:1px solid var(--border-soft);font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);display:flex;justify-content:space-between;flex-wrap:wrap;gap:var(--space-3)}
+::selection{background:var(--color-primary-soft);color:var(--color-primary-text)}
+@media (max-width:640px){.layout{padding:var(--space-6) var(--space-4)}h1.book-title{font-size:var(--text-2xl)}h2.chapter{font-size:var(--text-xl)}pre{padding:var(--space-3)}}
+</style>
+<script>
+(function(){'use strict';
+  const STORAGE_KEY='jhsun-theme';
+  const ICONS={light:'☀',dark:'☾',system:'◐'};
+  const LABELS={light:'Light',dark:'Dark',system:'System'};
+  function getStored(){try{return localStorage.getItem(STORAGE_KEY)}catch(_){return null}}
+  function setStored(v){try{if(v==='system'||v==null)localStorage.removeItem(STORAGE_KEY);else localStorage.setItem(STORAGE_KEY,v)}catch(_){}}
+  function systemPref(){return window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}
+  function effective(m){return m==='system'?systemPref():m}
+  function applyTheme(m){
+    const eff=effective(m);
+    document.documentElement.dataset.theme=eff;
+    document.documentElement.dataset.themeMode=m;
+    updateButtons(m);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed',{detail:{theme:eff,mode:m}}));
+  }
+  function updateButtons(m){
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn=>{
+      btn.dataset.themeMode=m;
+      btn.setAttribute('aria-label',`Theme: ${LABELS[m]} (click to change)`);
+      btn.title=`Theme: ${LABELS[m]}`;
+      if(!btn.dataset.themeToggleStyled){
+        btn.innerHTML=`<span class="theme-icon">${ICONS[m]}</span><span class="theme-label">${LABELS[m]}</span>`;
+      }
+    });
+  }
+  function cycle(c){return c==='light'?'dark':c==='dark'?'system':'light'}
+  function getCurrentMode(){return getStored()||'system'}
+  function init(){
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        const next=cycle(getCurrentMode());
+        setStored(next);applyTheme(next);
+      });
+    });
+    const mq=window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change',()=>{if(getCurrentMode()==='system')applyTheme('system')});
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);
+  else init();
+  window.JHsunTheme={get:getCurrentMode,set:m=>{setStored(m);applyTheme(m)},toggle:()=>{const n=cycle(getCurrentMode());setStored(n);applyTheme(n)}};
+})();
+</script>
+</head>
+<body>
+
+<button data-theme-toggle aria-label="Toggle theme"></button>
+
+<main class="layout">
+
+<header class="masthead">
+  <p class="eyebrow">bpftrace 0.25 中文教學手冊 · Part VII-B of VIII</p>
+  <h1 class="book-title">Debug · BTF · Production 模式</h1>
+  <p class="book-subtitle">Verifier 輸出解讀 · 常見錯誤對照 · BTF 與相容性策略 · systemd 整合 · 何時升級到 bcc —— 把腳本搬上 production 的最後一哩。</p>
+  <div class="meta">
+    <span class="meta-item"><strong>對應官方版本</strong>0.25 (latest)</span>
+    <span class="meta-item"><strong>章節</strong>第 35–36 章</span>
+    <span class="meta-item"><strong>更新日期</strong>2026-05-05</span>
+    <span class="meta-item"><strong>讀者</strong>SRE · Production 工程師</span>
+  </div>
+</header>
+
+<section class="toc">
+  <h3>本冊目錄</h3>
+  <ol>
+    <li><a href="#ch35">第 35 章 Debug、BTF 與相容性</a></li>
+    <li><a href="#ch36">第 36 章 Production 執行模式</a></li>
+  </ol>
+</section>
+
+<!-- =============================================================
+     CHAPTER 35
+============================================================== -->
+<h2 class="chapter" id="ch35">
+  <span class="chapter-no">CHAPTER 35</span>
+  Debug、BTF 與相容性
+  <span class="audience dev">🛠 開發</span>
+  <span class="audience ops">⚙️ SRE</span>
+</h2>
+<p class="chapter-tagline">
+  腳本不能跑時，<code>-d</code> 與 <code>-v</code> 是你的偵探放大鏡；BTF 是讓腳本跨 kernel 版本能跑的關鍵基礎設施。
+</p>
+
+<h3 id="ch35-1">35.1 編譯流程與 -d 階段</h3>
+
+<p>bpftrace 從 .bt 到 BPF bytecode 的編譯流程如下：</p>
+
+<div class="diagram">
+  <svg viewBox="0 0 720 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="bpftrace 編譯流程與 -d 階段">
+    <style>
+      .lbl{font-family:var(--font-sans);font-size:13px;fill:var(--text-primary);font-weight:600}
+      .desc{font-family:var(--font-mono);font-size:10px;fill:var(--text-secondary)}
+      .flag{font-family:var(--font-mono);font-size:10px;fill:var(--color-primary-text);font-weight:600}
+      .stage{stroke:var(--border-mid);stroke-width:1.5;rx:6;ry:6}
+      .stage-bg{fill:var(--bg-surface)}
+      .arrow{stroke:var(--color-primary);stroke-width:1.5;fill:none;marker-end:url(#ah-d2)}
+    </style>
+    <defs>
+      <marker id="ah-d2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" fill="var(--color-primary)"/>
+      </marker>
+    </defs>
+
+    <rect x="20" y="60" width="115" height="60" class="stage stage-bg"/>
+    <text x="78" y="82" text-anchor="middle" class="lbl">.bt 原始碼</text>
+    <text x="78" y="100" text-anchor="middle" class="desc">parser</text>
+
+    <path d="M140,90 L160,90" class="arrow"/>
+
+    <rect x="165" y="60" width="115" height="60" class="stage stage-bg"/>
+    <text x="223" y="82" text-anchor="middle" class="lbl">AST</text>
+    <text x="223" y="100" text-anchor="middle" class="flag">-d ast</text>
+
+    <path d="M285,90 L305,90" class="arrow"/>
+
+    <rect x="310" y="60" width="115" height="60" class="stage stage-bg"/>
+    <text x="368" y="82" text-anchor="middle" class="lbl">LLVM IR</text>
+    <text x="368" y="100" text-anchor="middle" class="flag">-d codegen</text>
+
+    <path d="M430,90 L450,90" class="arrow"/>
+
+    <rect x="455" y="60" width="115" height="60" class="stage stage-bg"/>
+    <text x="513" y="82" text-anchor="middle" class="lbl">優化後 IR</text>
+    <text x="513" y="100" text-anchor="middle" class="flag">-d codegen-opt</text>
+
+    <path d="M575,90 L595,90" class="arrow"/>
+
+    <rect x="600" y="60" width="100" height="60" class="stage stage-bg"/>
+    <text x="650" y="82" text-anchor="middle" class="lbl">BPF bytecode</text>
+    <text x="650" y="100" text-anchor="middle" class="flag">-d dis</text>
+
+    <path d="M650,125 L650,145" class="arrow"/>
+
+    <rect x="490" y="150" width="210" height="60" class="stage stage-bg"/>
+    <text x="595" y="172" text-anchor="middle" class="lbl">load 到 kernel</text>
+    <text x="595" y="190" text-anchor="middle" class="flag">-d libbpf · -d verifier</text>
+
+    <text x="20" y="190" class="lbl">-d all</text>
+    <text x="20" y="206" class="desc">= 全部都印</text>
+  </svg>
+  <div class="diagram-cap">圖 35.1 — bpftrace 編譯各階段對應的 -d 旗標</div>
+</div>
+
+<h4>各 stage 看什麼</h4>
+
+<table class="cmp-table compact">
+  <thead><tr><th>Stage</th><th>輸出內容</th><th>適用場景</th></tr></thead>
+  <tbody>
+    <tr><td><code>-d ast</code></td><td>解析後的抽象語法樹</td><td>Parse 失敗、struct 定義被怪異解讀</td></tr>
+    <tr><td><code>-d codegen</code></td><td>未優化 LLVM IR</td><td>看 type promotion、cast、欄位 offset</td></tr>
+    <tr><td><code>-d codegen-opt</code></td><td>優化後 LLVM IR</td><td>實際送到 BPF 後端的程式</td></tr>
+    <tr><td><code>-d dis</code></td><td>反組譯後的 BPF 指令</td><td>verifier reject 時對照指令位置</td></tr>
+    <tr><td><code>-d libbpf</code></td><td>libbpf 載入時的詳細訊息</td><td>load failed but no other clue</td></tr>
+    <tr><td><code>-d verifier</code></td><td>BPF verifier log（成功與失敗）</td><td><strong>verifier reject 必看</strong></td></tr>
+    <tr><td><code>-d all</code></td><td>以上全部</td><td>蒐證貼到 GitHub issue</td></tr>
+  </tbody>
+</table>
+
+<h3 id="ch35-2">35.2 verifier reject 的解讀</h3>
+
+<p>BPF verifier 是 kernel 內的「靜態分析器」—— 它要在你的 BPF 程式執行<em>前</em>，證明程式不會崩潰、不會無窮迴圈、不會讀寫錯位址。verifier 拒絕 = 你的腳本沒掛上去。</p>
+
+<pre class="shell"><code>sudo bpftrace -d verifier myscript.bt</code></pre>
+
+<pre class="out"><code>libbpf: load bpf program failed: Permission denied
+libbpf: -- BEGIN DUMP LOG ---
+0: (b7) r6 = 0
+1: (bf) r1 = r6
+2: (b7) r2 = 4
+...
+142: (79) r3 = *(u64 *)(r1 +8)
+143: (b7) r4 = 1024
+144: (85) call bpf_probe_read_kernel#113
+math between map_value pointer and unbounded register
+processed 145 insns (limit 1000000) ...
+-- END DUMP LOG ---</code></pre>
+
+<p>解讀邏輯：</p>
+<ol>
+  <li>看<em>最後</em>一行錯誤訊息（最有意義）。</li>
+  <li>對應指令編號（<code>144:</code>）找具體那行做什麼。</li>
+  <li>映射回 .bt 原始碼 —— <code>-d codegen</code> 能幫你對照。</li>
+</ol>
+
+<h4>verifier 常見錯誤對照表</h4>
+
+<div class="errcard">
+  <p class="err-msg">stack/frame size limit exceeded</p>
+  <p class="err-cause">scratch 變數（特別是字串）總和超過 512 bytes BPF stack 上限。</p>
+  <p class="err-fix"><strong>解法：</strong>降 <code>max_strlen</code> 到 64-128；少用 string scratch；複用同一變數。</p>
+</div>
+
+<div class="errcard">
+  <p class="err-msg">unbounded loop</p>
+  <p class="err-cause">用 <code>for</code> 但 verifier 算不出迴圈邊界（key/value 取自 map、又繼續 modify map）。</p>
+  <p class="err-fix"><strong>解法：</strong>改用 <code>unroll(N)</code> 編譯期展開；或 range 用 const 上限。</p>
+</div>
+
+<div class="errcard">
+  <p class="err-msg">math between map_value pointer and unbounded register</p>
+  <p class="err-cause">對 map 取值的指標做了 verifier 算不出範圍的算術。</p>
+  <p class="err-fix"><strong>解法：</strong>把運算改成 mask（如 <code>x &amp; 0xff</code>）讓 verifier 知道上界；或先存到 scratch 再操作。</p>
+</div>
+
+<div class="errcard">
+  <p class="err-msg">invalid access to map value, value_size=N off=M size=K</p>
+  <p class="err-cause">讀寫 map value 時超出 value 的範圍。常見於 multi-key map 用了錯的 key 結構。</p>
+  <p class="err-fix"><strong>解法：</strong>檢查 map 宣告的 value type 與實際使用一致。</p>
+</div>
+
+<div class="errcard">
+  <p class="err-msg">R1 type=ctx expected=fp</p>
+  <p class="err-cause">把 probe context 當成普通 pointer 用了某個只接受 stack pointer 的 helper。</p>
+  <p class="err-fix"><strong>解法：</strong>先把資料 copy 到 scratch（stack）再處理。</p>
+</div>
+
+<div class="errcard">
+  <p class="err-msg">BPF program is too large. Processed N insn</p>
+  <p class="err-cause">單一 probe 的 BPF program 超過內核指令上限（通常 100 萬條，v5.2+）。</p>
+  <p class="err-fix"><strong>解法：</strong>把單 probe 拆成多個；用 macro 重構但避免過多 inline；簡化邏輯。</p>
+</div>
+
+<h3 id="ch35-3">35.3 常見執行錯誤對照</h3>
+
+<div class="errcard">
+  <p class="err-msg">ERROR: Could not find BTF</p>
+  <p class="err-cause">系統沒提供 vmlinux BTF。所有 fentry / 結構欄位存取都不能用。</p>
+  <p class="err-fix"><strong>解法：</strong>檢查 <code>ls /sys/kernel/btf/vmlinux</code>。沒有的話：(1) 升 kernel 到 5.4+ 並啟用 <code>CONFIG_DEBUG_INFO_BTF</code>；(2) 安裝 distro 的 <code>kernel-debuginfo</code>；(3) 用 <code>BPFTRACE_BTF</code> 環境變數指向自取的 BTF。</p>
+</div>
+
+<div class="errcard">
+  <p class="err-msg">No probes to attach</p>
+  <p class="err-cause">wildcard 比對到 0 個 probe，或 probe 名稱拼錯。</p>
+  <p class="err-fix"><strong>解法：</strong>先用 <code>bpftrace -l 'pattern'</code> 確認；檢查 kernel 版本是否有該 tracepoint / function。</p>
+</div>
+
+<div class="errcard">
+  <p class="err-msg">Cannot read /sys/kernel/debug/tracing/...</p>
+  <p class="err-cause">tracefs 沒掛載，或 bpftrace 不是以 root 跑。</p>
+  <p class="err-fix"><strong>解法：</strong><code>sudo mount -t tracefs nodev /sys/kernel/tracing</code>；用 <code>sudo</code> 執行。</p>
+</div>
+
+<div class="errcard">
+  <p class="err-msg">WARNING: lost N events</p>
+  <p class="err-cause">perf ring buffer 滿，user space 來不及處理。</p>
+  <p class="err-fix"><strong>解法：</strong>(1) 減少 hot path async helper（聚合代替 printf）；(2) 調大 <code>perf_rb_pages</code>；(3) 用 <code>-q</code> 抑制次要訊息減負擔。</p>
+</div>
+
+<div class="errcard">
+  <p class="err-msg">probe full</p>
+  <p class="err-cause">attach 的 probe 數超過 <code>max_probes</code>（預設 1024）。</p>
+  <p class="err-fix"><strong>解法：</strong>config <code>max_probes = 5000</code>；或用更窄的 wildcard。</p>
+</div>
+
+<div class="errcard">
+  <p class="err-msg">Failed to attach uprobe to PID X: No such file</p>
+  <p class="err-cause">target binary 路徑錯誤、或容器內 binary host 看不到。</p>
+  <p class="err-fix"><strong>解法：</strong>檢查 <code>ls -l /proc/&lt;PID&gt;/exe</code>；容器情境用 <code>/proc/&lt;PID&gt;/root/...</code> 路徑。</p>
+</div>
+
+<h3 id="ch35-4">35.4 BTF 詳解</h3>
+
+<p>BTF（BPF Type Format）是 kernel 把 C 型別資訊以 BPF runtime 可讀格式嵌入 vmlinux。沒有 BTF，bpftrace 寫 <code>args.file.f_path.dentry.d_name.name</code> 時根本不知道 <code>struct file</code> 的記憶體佈局。</p>
+
+<h4>檢查 BTF 是否可用</h4>
+
+<pre class="shell"><code># 1. 看 kernel 是否帶 BTF
+ls -lh /sys/kernel/btf/vmlinux
+# -r--r--r-- 1 root root 4.8M ... /sys/kernel/btf/vmlinux ✅
+
+# 2. bpftrace --info 確認
+sudo bpftrace --info 2&gt;&amp;1 | grep -i btf
+# btf (depends on Build:libbpf bpf_object__btf): yes
+# module btf: yes
+
+# 3. 看 BTF 內含哪些 struct
+bpftool btf dump file /sys/kernel/btf/vmlinux | grep -E '^\[\d+\] STRUCT' | head -20</code></pre>
+
+<h4>BTF 在 bpftrace 的三個關鍵作用</h4>
+
+<table class="cmp-table">
+  <thead><tr><th>作用</th><th>沒 BTF 替代方案</th><th>有 BTF 寫法</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>取 struct 欄位</td>
+      <td>自訂 struct + #include kernel header</td>
+      <td>直接 <code>$f.f_path.dentry.d_name.name</code></td>
+    </tr>
+    <tr>
+      <td>fentry / fexit</td>
+      <td>不可用</td>
+      <td><code>fentry:vfs_read { args.file ... }</code></td>
+    </tr>
+    <tr>
+      <td>引數型別自動化</td>
+      <td><code>arg0</code> 都是 int64，要手動 cast</td>
+      <td><code>args</code> 已是型別化結構</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4>kernel module 的 BTF（5.11+）</h4>
+
+<pre class="shell"><code># 各 module 自己的 BTF
+ls /sys/kernel/btf/
+# vmlinux  ext4  i915  nvme  ...
+
+sudo bpftrace --info 2&gt;&amp;1 | grep 'module btf'
+# module btf: yes</code></pre>
+
+<p>有 module BTF 後，<code>fentry:nvme_setup_cmd</code> 這類 module 函式才能被 bpftrace 透過 BTF 解析。</p>
+
+<h4>BPFTRACE_HAVE_BTF 預處理巨集</h4>
+
+<p>寫跨環境腳本時可以條件編譯：</p>
+
+<pre class="bt"><code>#ifdef BPFTRACE_HAVE_BTF
+fentry:vfs_read {
+  printf("read %d bytes from %s\n",
+         args.count,
+         str(args.file.f_path.dentry.d_name.name));
+}
+#else
+kprobe:vfs_read {
+  // 沒 BTF 的環境：手動定義 struct 後 cast arg0
+  let $count = (size_t)arg2;
+  printf("read %d bytes\n", $count);
+}
+#endif</code></pre>
+
+<h3 id="ch35-5">35.5 跨 kernel 版本相容性策略</h3>
+
+<p>bpftrace 不是 CO-RE（Compile Once - Run Everywhere）—— 它在 <em>當下 kernel</em> 編譯腳本，所以同一支 .bt 在不同 kernel 上跑可能：</p>
+
+<ul>
+  <li><strong>kprobe：函式不存在或簽章變了</strong> → attach 失敗或拿到錯資料。</li>
+  <li><strong>tracepoint：欄位被改名</strong> → <code>args.field</code> 編譯失敗。</li>
+  <li><strong>helper：新 helper 在舊 kernel 沒有</strong> → 編譯失敗。</li>
+</ul>
+
+<h4>三條防禦策略</h4>
+
+<pre class="bt"><code>// 1. 編譯期檢查 helper / function
+BEGIN {
+  if (!kfunc_exist("tcp_set_state")) {
+    fail("tcp_set_state not available on this kernel");
+  }
+}
+
+// 2. wildcard + missing_probes=warn
+config = { missing_probes = "warn"; }
+kprobe:tcp_v4_connect, kprobe:__tcp_v4_connect {  // 不同 kernel 名稱不同
+  ...
+}
+
+// 3. tracepoint 優先（最穩定）
+// 而非 kprobe（最不穩定）</code></pre>
+
+<div class="callout note">
+  <p class="callout-title">📌 寫工具的人遇到 kernel 升級該怎麼辦</p>
+  <p>大型 fleet 跑多種 kernel 版本時：</p>
+  <ul>
+    <li>用 tracepoint（穩定 ABI）優先，避開 kprobe。</li>
+    <li>fentry args 來自 BTF，比 kprobe argN 穩定很多。</li>
+    <li>把腳本標記支援的 kernel 範圍（透過 <code>BEGIN { fail() }</code> 主動拒絕）。</li>
+    <li>在 staging fleet 跑 <code>--dry-run</code> 提早發現問題。</li>
+  </ul>
+</div>
+
+<div class="xref">
+  <strong>對應官方</strong>
+  <a href="https://bpftrace.org/docs/release_025/cli#debug-output" target="_blank" rel="noopener">CLI § Debug Output</a> ·
+  <a href="https://www.kernel.org/doc/html/latest/bpf/btf.html" target="_blank" rel="noopener">Kernel BTF documentation</a>
+</div>
+
+<!-- =============================================================
+     CHAPTER 36
+============================================================== -->
+<h2 class="chapter" id="ch36">
+  <span class="chapter-no">CHAPTER 36</span>
+  Production 執行模式
+  <span class="audience ops">⚙️ SRE</span>
+</h2>
+<p class="chapter-tagline">
+  把 ad-hoc 腳本進化成 production 服務 —— systemd 整合、early boot tracing、長跑的記憶體管理、AOT 編譯展望、何時該升級到 bcc。
+</p>
+
+<h3 id="ch36-1">36.1 systemd 整合</h3>
+
+<p>當你需要 bpftrace 腳本「跟服務一起啟動、跟服務一起停止、自動 restart」，systemd unit 是首選做法。</p>
+
+<h4>基本 service unit</h4>
+
+<pre class="systemd"><code>[Unit]
+Description=bpftrace - I/O latency monitor
+After=network-online.target
+Documentation=internal-runbook.example.com/io_lat
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/bpftrace /etc/bpftrace/io_lat.bt
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bpftrace-io-lat
+
+# 失敗自動重啟
+Restart=on-failure
+RestartSec=10
+
+# 資源限制（避免 bpftrace 自己吃太多）
+MemoryMax=256M
+CPUQuota=10%
+
+# 安全
+User=root              # bpftrace 必須 root
+NoNewPrivileges=false  # 但需保留 BPF capability
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+<pre class="shell"><code>sudo systemctl daemon-reload
+sudo systemctl enable --now bpftrace-io-lat.service
+journalctl -u bpftrace-io-lat -f</code></pre>
+
+<h4>Type=notify 與 systemd-run（早期啟動）</h4>
+
+<p>需要在系統啟動<em>非常早</em>就掛上 probe（例如追早期 kernel 行為）—— 用 systemd-run + Type=notify：</p>
+
+<pre class="shell"><code>sudo systemd-run --service-type=notify \
+  /usr/local/bin/bpftrace /etc/bpftrace/early_boot.bt</code></pre>
+
+<p>bpftrace 0.24+ 在所有探針 attach 完成後會發送 systemd readiness signal（透過 sd_notify）。配 Type=notify 後，<em>依賴此 service 的其他 unit 會等到 bpftrace 真的開始追蹤才啟動</em>。這對「我想抓某個服務啟動時的行為」極為關鍵。</p>
+
+<h4>Early-boot 完整流程：追 systemd 啟動的 open syscall</h4>
+
+<pre class="systemd"><code>[Unit]
+Description=Trace open() during boot
+DefaultDependencies=no
+After=local-fs.target
+Before=basic.target
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/bpftrace -e '
+tracepoint:syscalls:sys_enter_openat {
+  printf("[%d] %s opens %s\n", pid, comm, str(args.filename));
+}'
+StandardOutput=journal
+
+[Install]
+WantedBy=basic.target</code></pre>
+
+<pre class="shell"><code>sudo systemctl enable bpftrace-boot.service
+sudo reboot
+
+# 重啟後查看
+journalctl -b -u bpftrace-boot.service | head -100</code></pre>
+
+<h3 id="ch36-2">36.2 長跑腳本的記憶體與穩定性</h3>
+
+<p>跑 24x7 的 bpftrace 腳本要特別注意：</p>
+
+<table class="cmp-table">
+  <thead><tr><th>問題</th><th>對策</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Map 持續成長爆 RAM</td>
+      <td>用 <code>lruhash</code> 替代 <code>hash</code>；限定明確 max entries；定期 <code>clear()</code></td>
+    </tr>
+    <tr>
+      <td>Per-thread 變數沒清</td>
+      <td>kretprobe 用 <code>delete()</code>；超時用 interval flush</td>
+    </tr>
+    <tr>
+      <td>輸出量隨時間擴大</td>
+      <td>避免 hot path printf；改用 hist 聚合</td>
+    </tr>
+    <tr>
+      <td>Symbol cache 持續累積</td>
+      <td>用 <code>cache_user_symbols=NONE</code> 或 PER_PROGRAM；限定 PID</td>
+    </tr>
+    <tr>
+      <td>跑太久後 BPF prog 占資源</td>
+      <td>定期 systemd <code>RestartSec</code> 重新載入；外部 watchdog 監控 RSS</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4>長跑腳本範本</h4>
+
+<pre class="bt"><code>#!/usr/bin/env bpftrace
+// long_running_safe.bt — 設計給 24/7 跑的安全範本
+
+config = {
+  max_map_keys      = 32768;
+  max_strlen        = 64;       // 最小化 stack 用量
+  perf_rb_pages     = 256;       // 1 MB/CPU 給 hot path
+  print_maps_on_exit = false;    // 避免結束時暴量輸出
+  cache_user_symbols = "NONE";   // 避免 symbol cache 持續吃 RAM
+}
+
+let @lat_us = lruhash(8192);     // ⚠ 必用 lruhash，避免無限成長
+let @start  = lruhash(4096);
+
+BEGIN {
+  printf("=== Started at %s ===\n", strftime("%Y-%m-%d %H:%M:%S", nsecs));
+}
+
+fentry:vfs_read { @start[tid] = nsecs; }
+
+fexit:vfs_read /has_key(@start, tid)/ {
+  @lat_us = hist((nsecs - @start[tid]) / 1000);
+  delete(@start, tid);          // ⚠ 必 delete，否則 map 會慢慢膨脹
+}
+
+// 每 5 分鐘 flush 一次
+interval:s:300 {
+  printf("\n=== %s ===\n", strftime("%H:%M:%S", nsecs));
+  print(@lat_us);
+  clear(@lat_us);
+  // @start 不 clear（它是 in-flight 量測，clear 會破壞配對）
+}
+
+// 每小時也清掉所有 stale @start（沒配對到的孤兒）
+interval:s:3600 {
+  // BPF 沒辦法看哪個 entry 是 stale，只能整批 clear
+  clear(@start);
+}</code></pre>
+
+<h3 id="ch36-3">36.3 AOT 編譯展望</h3>
+
+<p>傳統 bpftrace 每次啟動都要：</p>
+<ol>
+  <li>把 .bt 解析成 AST。</li>
+  <li>透過 LLVM 編譯成 BPF bytecode。</li>
+  <li>解析 BTF / kallsyms 等。</li>
+  <li>送進 kernel verifier。</li>
+</ol>
+
+<p>對 production fleet 來說缺點：<strong>每台機器都要裝 LLVM</strong>（200+ MB）、<em>啟動慢</em>（編譯期 1-3 秒）、bytecode 不易簽章。</p>
+
+<p><strong>AOT (Ahead-Of-Time) compilation</strong> 是 bpftrace 社群長期工作項目，目標：</p>
+<ul>
+  <li>在 build server 把 .bt 預先編成自包含執行檔。</li>
+  <li>Production 機器只跑 runtime shim（不需 LLVM）。</li>
+  <li>啟動只需 setup 而非 compile，快非常多。</li>
+  <li>Bytecode 可簽章驗證。</li>
+</ul>
+
+<div class="callout note">
+  <p class="callout-title">📌 0.25 的 AOT 狀態</p>
+  <p>0.25 版本已有<em>實驗性</em> AOT 支援，但仍有限制：部分 helper（如 <code>cgroup_path</code>）AOT 不可用、容器/cgroup 路徑解析等需要 host context 的功能要謹慎使用。production 級 AOT 預計仍要幾個 release 才完備。</p>
+  <p>需要立即「免 LLVM」部署的方案：</p>
+  <ul>
+    <li>使用 <strong>portable static build</strong>（GitHub releases 提供）—— 一個 binary 含 LLVM，靜態連結，不依賴 distro。</li>
+    <li>或用容器化部署（quay.io/iovisor/bpftrace）。</li>
+  </ul>
+</div>
+
+<h3 id="ch36-4">36.4 Portable static build</h3>
+
+<p>適用於需在多種 distro / kernel 上跑同一 bpftrace 的情境。</p>
+
+<pre class="shell"><code># 從 GitHub releases 下載
+ARCH=$(uname -m)
+curl -LO https://github.com/bpftrace/bpftrace/releases/download/v0.25.0/bpftrace-v0.25.0-${ARCH}.tar.gz
+tar xzf bpftrace-v0.25.0-${ARCH}.tar.gz
+sudo install -m 755 bpftrace /usr/local/bin/
+
+# 驗證
+bpftrace --version
+bpftrace --info | head</code></pre>
+
+<h3 id="ch36-5">36.5 何時該升級到 bcc</h3>
+
+<p>bpftrace 適合 90% 的觀測需求，但有些情境 bcc 更適合：</p>
+
+<table class="cmp-table">
+  <thead><tr><th>情境</th><th>建議工具</th><th>原因</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>One-liner、ad-hoc 排查</td>
+      <td>bpftrace ✅</td>
+      <td>輸入字數最少</td>
+    </tr>
+    <tr>
+      <td>固定腳本、長期維護</td>
+      <td>bpftrace ✅</td>
+      <td>.bt 檔簡潔，easy review</td>
+    </tr>
+    <tr>
+      <td>複雜命令列參數（&gt; 5 個 named）</td>
+      <td>bcc</td>
+      <td>Python argparse 更清楚</td>
+    </tr>
+    <tr>
+      <td>客製化輸出格式（JSON 嵌套、Prometheus expose）</td>
+      <td>bcc</td>
+      <td>Python 完整生態</td>
+    </tr>
+    <tr>
+      <td>整合既有 Python 系統（資料分析、繪圖、寫 DB）</td>
+      <td>bcc</td>
+      <td>同一程序內處理</td>
+    </tr>
+    <tr>
+      <td>需要 conditionally maintained per-PID 結構</td>
+      <td>bcc / libbpf-tools</td>
+      <td>更精細控制 BPF map life-cycle</td>
+    </tr>
+    <tr>
+      <td>長期 metrics agent（取代 node_exporter 模組）</td>
+      <td>libbpf-tools / Cilium Tetragon / Pixie</td>
+      <td>專業生態系</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout tip">
+  <p class="callout-title">💡 升級遷移路徑</p>
+  <ol>
+    <li>先用 bpftrace 寫 prototype 證明可行 + 量出指標。</li>
+    <li>達到「不能再進步」時（命令列複雜、輸出格式特殊）再升級到 bcc。</li>
+    <li>絕大多數情況不需要這個升級 —— bpftrace 足夠。</li>
+  </ol>
+</div>
+
+<h3 id="ch36-6">36.6 與其他工具的協同</h3>
+
+<table class="cmp-table">
+  <thead><tr><th>工具</th><th>用途</th><th>與 bpftrace 配合</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>perf</code></td>
+      <td>採樣 / PMC / 系統等待事件</td>
+      <td>bpftrace 採 stack 後 perf script 後處理；perf 拿不到 BPF map</td>
+    </tr>
+    <tr>
+      <td><code>ftrace</code></td>
+      <td>function trace 全量輸出</td>
+      <td>ftrace 沒有聚合，bpftrace 有 hist；ftrace 不需 BTF</td>
+    </tr>
+    <tr>
+      <td><code>bcc tools</code></td>
+      <td>固定 production 工具（biolatency / opensnoop ...）</td>
+      <td>許多 bcc tools 已被改寫成 bpftrace；可互相借鑒</td>
+    </tr>
+    <tr>
+      <td><code>FlameGraph</code></td>
+      <td>視覺化 stack</td>
+      <td>bpftrace ustack(perf) 是其 input</td>
+    </tr>
+    <tr>
+      <td><code>kubectl-trace</code></td>
+      <td>K8s 集群跑 bpftrace</td>
+      <td>把 .bt 包成 Job 排到指定 node</td>
+    </tr>
+    <tr>
+      <td><code>BCC's Pixie / Cilium Tetragon</code></td>
+      <td>長跑 observability agent</td>
+      <td>bpftrace 適合 prototype / ad-hoc，agent 適合常駐</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="ch36-7">36.7 production 部署 checklist</h3>
+
+<div class="callout note">
+  <p class="callout-title">📋 上 production 前的最終檢查</p>
+  <ol>
+    <li><strong>環境健檢</strong>：<code>bpftrace --info</code> 確認 BTF / probe types 都支援。</li>
+    <li><strong>腳本驗證</strong>：<code>--dry-run</code> 確認能 attach。</li>
+    <li><strong>Config 顯式設定</strong>：<code>max_map_keys</code> / <code>max_strlen</code> / <code>perf_rb_pages</code> 都設好，不依賴預設。</li>
+    <li><strong>Map 用 lruhash</strong>：長跑必備。</li>
+    <li><strong>Per-thread 配對加 has_key + delete</strong>：避免孤兒。</li>
+    <li><strong>定期 flush 與 clear</strong>：interval probe 控制 map 大小。</li>
+    <li><strong>missing_probes = warn</strong>：避免單一 probe 掛不上整支 fail。</li>
+    <li><strong>kfunc_exist 檢查</strong>：BEGIN 內驗證 kernel 支援。</li>
+    <li><strong>輸出 buffer 控制</strong>：<code>-B line</code> 適合 streaming，<code>-B full</code> 適合批次。</li>
+    <li><strong>systemd 包裝</strong>：MemoryMax / CPUQuota / Restart=on-failure。</li>
+    <li><strong>監控 bpftrace 自己</strong>：journald 看 lost events / verifier warnings。</li>
+    <li><strong>Stage rollout</strong>：先在 1 台 → 一個 zone → 全 fleet。</li>
+  </ol>
+</div>
+
+<h3 id="ch36-8">36.8 結語</h3>
+
+<p>讀完 Part VII 你已經掌握 bpftrace 從 ad-hoc 工具升級為 production-grade observability 元件的所有環節：CLI 完整選項、Config 精細調校、Debug 流程、BTF 與相容性、systemd 整合、長跑穩定性、與其他工具的分工。</p>
+
+<p>剩下的 Part VIII 附錄會把整本手冊的所有 reference 表格彙整成一份單獨的「速查工具」—— 寫腳本時開著它就行。</p>
+
+<div class="xref">
+  <strong>對應官方</strong>
+  <a href="https://bpftrace.org/docs/release_025/cli" target="_blank" rel="noopener">CLI Documentation</a> ·
+  <a href="https://github.com/bpftrace/bpftrace/blob/master/docs/development/aot.md" target="_blank" rel="noopener">AOT Design Document</a> ·
+  <a href="https://github.com/iovisor/kubectl-trace" target="_blank" rel="noopener">kubectl-trace</a>
+</div>
+
+<footer>
+  <span>bpftrace 0.25 中文教學手冊 · Part VII-B / VIII</span>
+  <span>下一冊 → Part VIII 附錄（Probe / Builtin / Function / Config 速查 + 錯誤對照 + 延伸資源）</span>
+</footer>
+
+</main>
+</body>
+</html>

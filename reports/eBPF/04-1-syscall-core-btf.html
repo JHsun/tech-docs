@@ -1,0 +1,1400 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>eBPF 教學手冊 · 冊四-1 · Syscall 介面 + CO-RE / BTF 深入</title>
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger:  #dc2626; --color-danger-soft:  #fee2e2;
+  --color-info:    #0891b2; --color-info-soft:    #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60); --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60); --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60); --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60); --text-secondary: oklch(0.42 0.008 60); --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px; --text-sm: 14px; --text-base: 16px; --text-md: 18px; --text-lg: 20px;
+  --text-xl: 24px; --text-2xl: 32px; --text-3xl: 44px; --text-4xl: 64px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger:  #f87171; --color-danger-soft:  oklch(0.32 0.10 27);
+  --color-info:    #22d3ee; --color-info-soft:    oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50); --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50); --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50); --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60); --text-secondary: oklch(0.74 0.006 60); --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font-serif-body); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.container { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-7) var(--space-5); }
+header.site-header { border-bottom: 1px solid var(--border-soft); background: var(--bg-surface); position: sticky; top: 0; z-index: 50; backdrop-filter: blur(8px); }
+.header-inner { max-width: var(--container-wide); margin: 0 auto; padding: var(--space-3) var(--space-5); display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); }
+.brand { font-family: var(--font-sans); font-weight: 600; font-size: var(--text-sm); color: var(--text-secondary); letter-spacing: 0.02em; }
+.brand strong { color: var(--color-primary); }
+[data-theme-toggle] { appearance: none; border: 1px solid var(--border-mid); background: var(--bg-muted); color: var(--text-primary); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); font-family: var(--font-sans); font-size: var(--text-sm); cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-2); transition: background 0.15s, border-color 0.15s; }
+[data-theme-toggle]:hover { background: var(--color-primary-soft); border-color: var(--color-primary); }
+.theme-icon { font-size: var(--text-md); }
+h1, h2, h3, h4 { font-family: var(--font-serif); color: var(--text-primary); line-height: 1.25; margin-top: var(--space-7); margin-bottom: var(--space-4); }
+h1 { font-size: var(--text-3xl); margin-top: var(--space-5); letter-spacing: -0.01em; }
+h2 { font-size: var(--text-2xl); border-bottom: 1px solid var(--border-soft); padding-bottom: var(--space-3); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-md); color: var(--color-primary-text); }
+p { margin: var(--space-4) 0; color: var(--text-primary); }
+strong { color: var(--text-primary); font-weight: 600; }
+em { color: var(--text-secondary); }
+a { color: var(--color-primary); text-decoration: none; border-bottom: 1px dotted var(--color-primary); }
+a:hover { color: var(--color-primary-hover); border-bottom-style: solid; }
+ul, ol { padding-left: var(--space-5); }
+li { margin: var(--space-2) 0; }
+code { font-family: var(--font-mono); font-size: 0.92em; background: var(--bg-muted); padding: 2px 6px; border-radius: var(--radius-sm); color: var(--color-primary-text); border: 1px solid var(--border-soft); }
+pre { background: var(--bg-code); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-4); overflow-x: auto; font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.6; margin: var(--space-4) 0; }
+pre code { background: transparent; padding: 0; border: none; color: var(--text-primary); font-size: inherit; }
+blockquote { margin: var(--space-5) 0; padding: var(--space-4) var(--space-5); background: var(--color-primary-soft); border-left: 4px solid var(--color-primary); border-radius: var(--radius-md); color: var(--text-primary); }
+blockquote p:first-child { margin-top: 0; }
+blockquote p:last-child { margin-bottom: 0; }
+.callout { margin: var(--space-5) 0; padding: var(--space-4) var(--space-5); border-radius: var(--radius-md); border-left: 4px solid; background: var(--bg-surface); }
+.callout-title { font-family: var(--font-sans); font-weight: 600; font-size: var(--text-sm); letter-spacing: 0.02em; text-transform: uppercase; margin-bottom: var(--space-2); }
+.callout-info { border-color: var(--color-info); background: var(--color-info-soft); }
+.callout-info .callout-title { color: var(--color-info); }
+.callout-warning { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout-warning .callout-title { color: var(--color-warning); }
+.callout-success { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout-success .callout-title { color: var(--color-success); }
+.callout-danger { border-color: var(--color-danger); background: var(--color-danger-soft); }
+.callout-danger .callout-title { color: var(--color-danger); }
+table { width: 100%; border-collapse: collapse; margin: var(--space-5) 0; font-family: var(--font-sans); font-size: var(--text-sm); }
+th, td { padding: var(--space-3); border-bottom: 1px solid var(--border-soft); text-align: left; vertical-align: top; }
+th { background: var(--bg-muted); color: var(--text-primary); font-weight: 600; }
+tr:hover td { background: var(--bg-muted); }
+.audience-tags { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-3) 0; }
+.tag { display: inline-block; padding: 2px 10px; border-radius: 999px; font-family: var(--font-sans); font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.02em; border: 1px solid transparent; }
+.tag-beginner { background: var(--color-success-soft); color: var(--color-success); border-color: var(--color-success); }
+.tag-developer { background: var(--color-warning-soft); color: var(--color-warning); border-color: var(--color-warning); }
+.tag-ops { background: var(--color-danger-soft); color: var(--color-danger); border-color: var(--color-danger); }
+.meta-bar { font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-muted); border-top: 1px dashed var(--border-soft); border-bottom: 1px dashed var(--border-soft); padding: var(--space-3) 0; margin: var(--space-5) 0 var(--space-7); display: flex; flex-wrap: wrap; gap: var(--space-5); }
+.meta-bar span strong { color: var(--text-secondary); font-weight: 600; margin-right: var(--space-2); }
+hr { border: none; border-top: 1px solid var(--border-soft); margin: var(--space-7) 0; }
+.toc { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); padding: var(--space-5); margin: var(--space-5) 0; font-family: var(--font-sans); font-size: var(--text-sm); }
+.toc h3 { margin: 0 0 var(--space-3); font-family: var(--font-sans); font-size: var(--text-sm); text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border: none; }
+.toc ol { margin: 0; padding-left: var(--space-5); }
+.toc li { margin: var(--space-2) 0; }
+.toc a { color: var(--text-primary); border-bottom: none; }
+.toc a:hover { color: var(--color-primary); }
+footer.site-footer { border-top: 1px solid var(--border-soft); margin-top: var(--space-8); padding: var(--space-5); text-align: center; color: var(--text-muted); font-family: var(--font-sans); font-size: var(--text-sm); }
+.mermaid-wrap { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); margin: var(--space-5) 0; overflow-x: auto; text-align: center; }
+.mermaid-wrap .mermaid { display: inline-block; min-width: 100%; }
+.mermaid-wrap .mermaid svg { max-width: 100%; height: auto; }
+.code-tabs { margin: var(--space-5) 0; border: 1px solid var(--border-soft); border-radius: var(--radius-md); overflow: hidden; background: var(--bg-surface); }
+.code-tabs-header { display: flex; background: var(--bg-muted); border-bottom: 1px solid var(--border-soft); padding: 0; margin: 0; flex-wrap: wrap; }
+.code-tab-btn { appearance: none; border: none; background: transparent; color: var(--text-secondary); font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500; padding: var(--space-3) var(--space-5); cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-2); border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s, background 0.15s; }
+.code-tab-btn:hover { background: var(--bg-surface); color: var(--text-primary); }
+.code-tab-btn[aria-selected="true"] { color: var(--color-primary); border-bottom-color: var(--color-primary); background: var(--bg-surface); }
+.code-tab-icon { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.code-tab-icon.go { background: #00add8; }
+.code-tab-icon.rust { background: #ce422b; }
+.code-tab-icon.shell { background: var(--color-success); }
+.code-tab-icon.c { background: var(--color-neutral-accent); }
+.code-tab-panel { display: none; padding: 0; }
+.code-tab-panel[data-active="true"] { display: block; }
+.code-tab-panel pre { margin: 0; border: none; border-radius: 0; background: var(--bg-code); }
+.code-tab-filename { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); padding: var(--space-2) var(--space-4); background: var(--bg-muted); border-bottom: 1px solid var(--border-soft); }
+.step-badge { display: inline-block; background: var(--color-primary); color: var(--bg-canvas); font-family: var(--font-sans); font-size: var(--text-xs); font-weight: 700; padding: 2px 10px; border-radius: 999px; margin-right: var(--space-2); letter-spacing: 0.05em; }
+.cat-badge { display: inline-block; background: var(--bg-muted); border: 1px solid var(--border-mid); color: var(--text-secondary); font-family: var(--font-sans); font-size: var(--text-xs); font-weight: 600; padding: 2px 8px; border-radius: var(--radius-sm); margin-right: var(--space-2); }
+
+/* Verifier reg-state notation styling */
+.regstate {
+  font-family: var(--font-mono); font-size: var(--text-sm);
+  background: var(--bg-code); padding: 2px 6px; border-radius: var(--radius-sm);
+  color: var(--color-primary-text); border: 1px solid var(--border-soft);
+  white-space: nowrap;
+}
+/* Helper category cards */
+.helper-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-4); margin: var(--space-5) 0;
+}
+.helper-card {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  font-family: var(--font-sans);
+}
+.helper-card h4 {
+  margin: 0 0 var(--space-2); font-family: var(--font-sans);
+  color: var(--color-primary); font-size: var(--text-base);
+}
+.helper-card .helper-list {
+  font-family: var(--font-mono); font-size: var(--text-xs);
+  color: var(--text-secondary); line-height: 1.7;
+  list-style: none; padding-left: 0; margin: var(--space-2) 0 0;
+}
+.helper-card .helper-list li { margin: 0; }
+.helper-card .helper-list li::before {
+  content: "• "; color: var(--color-primary);
+}
+
+@media (max-width: 640px) {
+  h1 { font-size: var(--text-2xl); }
+  h2 { font-size: var(--text-xl); }
+  .container { padding: var(--space-4); }
+}
+</style>
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]}`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  function buildConfig(theme) {
+    const isDark = theme === 'dark';
+    return {
+      startOnLoad: false, theme: 'base',
+      fontFamily: '"DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif',
+      themeVariables: isDark ? {
+        background: '#262421',
+        primaryColor: '#1f3a4a', primaryTextColor: '#e8e6e3', primaryBorderColor: '#5aa9c4',
+        secondaryColor: '#2a3640', secondaryTextColor: '#e8e6e3', secondaryBorderColor: '#4a6b7a',
+        tertiaryColor: '#332e2a', tertiaryTextColor: '#e8e6e3', tertiaryBorderColor: '#5a5550',
+        lineColor: '#94c5d4', textColor: '#e8e6e3', mainBkg: '#1f3a4a',
+        edgeLabelBackground: '#262421', clusterBkg: '#262421', clusterBorder: '#4a4540',
+        nodeBorder: '#5aa9c4', labelBackground: '#262421', titleColor: '#e8e6e3',
+      } : {
+        background: '#fdfcfb',
+        primaryColor: '#e6f4f7', primaryTextColor: '#3a3631', primaryBorderColor: '#3a8aa3',
+        secondaryColor: '#f1ede8', secondaryTextColor: '#3a3631', secondaryBorderColor: '#9a8e7e',
+        tertiaryColor: '#f7f1e8', tertiaryTextColor: '#3a3631', tertiaryBorderColor: '#c0a988',
+        lineColor: '#3a8aa3', textColor: '#3a3631', mainBkg: '#e6f4f7',
+        edgeLabelBackground: '#fdfcfb', clusterBkg: '#f5f1ec', clusterBorder: '#c4bbae',
+        nodeBorder: '#3a8aa3', labelBackground: '#fdfcfb', titleColor: '#3a3631',
+      },
+      flowchart: { curve: 'basis', padding: 16, htmlLabels: true },
+      sequence: { diagramMarginX: 30, diagramMarginY: 10, actorMargin: 50 },
+    };
+  }
+  function snapshotSources() { document.querySelectorAll('.mermaid').forEach((el) => { if (!el.dataset.source) el.dataset.source = el.textContent.trim(); }); }
+  async function renderAll(theme) {
+    if (typeof mermaid === 'undefined') return;
+    snapshotSources();
+    mermaid.initialize(buildConfig(theme));
+    const nodes = document.querySelectorAll('.mermaid');
+    let i = 0;
+    for (const node of nodes) {
+      const id = 'mmd-' + (i++) + '-' + Date.now();
+      try { const { svg } = await mermaid.render(id, node.dataset.source); node.innerHTML = svg; node.removeAttribute('data-processed'); }
+      catch (err) { console.error('mermaid render error', err); }
+    }
+  }
+  function getEffectiveTheme() { return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'; }
+  function init() {
+    snapshotSources();
+    renderAll(getEffectiveTheme());
+    window.addEventListener('jhsun:theme-changed', (e) => { const t = (e.detail && e.detail.theme) || getEffectiveTheme(); renderAll(t); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+<script>
+(function() {
+  'use strict';
+  function init() {
+    document.querySelectorAll('.code-tabs').forEach((tabs) => {
+      const btns = tabs.querySelectorAll('.code-tab-btn');
+      const panels = tabs.querySelectorAll('.code-tab-panel');
+      btns.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const target = btn.dataset.target;
+          btns.forEach((b) => b.setAttribute('aria-selected', b === btn ? 'true' : 'false'));
+          panels.forEach((p) => p.dataset.active = (p.dataset.id === target ? 'true' : 'false'));
+        });
+      });
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-inner">
+    <div class="brand">eBPF 教學手冊 · <strong>冊四-1</strong> · Syscall 介面 + CO-RE / BTF 深入</div>
+    <button data-theme-toggle aria-label="Toggle theme"></button>
+  </div>
+</header>
+
+<main class="container">
+
+<h1>第 14 章　bpf() Syscall 介面深入</h1>
+
+<div class="audience-tags">
+  <span class="tag tag-developer">🟡 開發者</span>
+</div>
+
+<div class="meta-bar">
+  <span><strong>章節</strong>第四部 開發者深入</span>
+  <span><strong>對應官方文件</strong>docs.kernel.org/userspace-api/ebpf/syscall.html</span>
+  <span><strong>預期閱讀時間</strong>90–120 分鐘</span>
+  <span><strong>前置知識</strong>冊一 §3.2 syscall 概覽、第 4 章 Maps、第 5 章 Verifier</span>
+</div>
+
+<blockquote>
+<p><strong>本章學習目標</strong></p>
+<ul>
+<li>掌握 <code>bpf()</code> syscall 的<strong>全部 40+ 個 cmd</strong>，依七大類分組理解。</li>
+<li>深入 <strong><code>BPF_PROG_LOAD</code></strong>：理解 <code>union bpf_attr</code> 完整欄位、Verifier log 控制、CO-RE relocation 注入。</li>
+<li>掌握 <strong><code>BPF_LINK_CREATE</code></strong>：現代 attach 機制，取代 <code>BPF_PROG_ATTACH</code>。</li>
+<li>掌握 <strong><code>BPF_PROG_TEST_RUN</code> / <code>BPF_PROG_RUN</code></strong>：在 Kernel 中 dry-run BPF 程式做 unit test。</li>
+<li>掌握 <strong>BPF iterator</strong>（5.8+）：用 BPF 程式作為「遍歷 Kernel 物件的回呼」。</li>
+<li>掌握 <strong>BPF_OBJ_PIN</strong> / <strong>BPF_OBJ_GET</strong> / <strong>BPF_OBJ_GET_INFO_BY_FD</strong> 等管理命令。</li>
+<li>了解 cilium/ebpf、aya、libbpf 三個 loader 是<strong>如何包裝這些 syscall</strong> 的。</li>
+</ul>
+</blockquote>
+
+<div class="toc">
+<h3>本章目錄</h3>
+<ol>
+<li><a href="#sec-14-1">14.1 bpf() syscall 七大類完整對照</a></li>
+<li><a href="#sec-14-2">14.2 BPF_PROG_LOAD 全攻略</a></li>
+<li><a href="#sec-14-3">14.3 Map 操作命令</a></li>
+<li><a href="#sec-14-4">14.4 BPF_LINK_CREATE：現代 attach 機制</a></li>
+<li><a href="#sec-14-5">14.5 BPF_PROG_TEST_RUN：在 Kernel 內 dry-run</a></li>
+<li><a href="#sec-14-6">14.6 BPF Iterator</a></li>
+<li><a href="#sec-14-7">14.7 Pinning：BPF_OBJ_PIN / BPF_OBJ_GET</a></li>
+<li><a href="#sec-14-8">14.8 物件發現：BPF_*_GET_NEXT_ID</a></li>
+<li><a href="#sec-14-9">14.9 Loader 內部：cilium/ebpf 如何包裝 syscall</a></li>
+<li><a href="#sec-14-10">14.10 第 14 章小結</a></li>
+</ol>
+</div>
+
+<hr>
+
+<h2 id="sec-14-1">14.1 <code>bpf()</code> syscall 七大類完整對照</h2>
+
+<p>冊一 §3.2 給過七大類概覽。本章把每一類的所有 cmd 列出，並標明何時用、誰會用。</p>
+
+<div class="mermaid-wrap"><div class="mermaid">
+flowchart TB
+    BPF["bpf() syscall<br/>40+ cmd"]
+    CAT1["1. Object Creation"]
+    CAT2["2. Map Commands"]
+    CAT3["3. Program Commands"]
+    CAT4["4. Link Commands"]
+    CAT5["5. Iteration / Discovery"]
+    CAT6["6. Pin Commands"]
+    CAT7["7. Security / Token"]
+
+    BPF --> CAT1
+    BPF --> CAT2
+    BPF --> CAT3
+    BPF --> CAT4
+    BPF --> CAT5
+    BPF --> CAT6
+    BPF --> CAT7
+</div></div>
+
+<h3>14.1.1 Object Creation（建立物件）</h3>
+
+<table>
+<thead>
+<tr><th>cmd</th><th>用途</th><th>誰呼叫</th></tr>
+</thead>
+<tbody>
+<tr><td><code>BPF_MAP_CREATE</code></td><td>建立 map</td><td>所有 loader</td></tr>
+<tr><td><code>BPF_PROG_LOAD</code></td><td>驗證並載入 program</td><td>所有 loader（最關鍵）</td></tr>
+<tr><td><code>BPF_BTF_LOAD</code></td><td>載入 BTF blob</td><td>CO-RE 程式必經</td></tr>
+<tr><td><code>BPF_LINK_CREATE</code></td><td>建立 link 並 attach 到 hook</td><td>現代 attach 主路徑</td></tr>
+</tbody>
+</table>
+
+<h3>14.1.2 Map Commands（Map 操作）</h3>
+
+<table>
+<thead>
+<tr><th>cmd</th><th>用途</th></tr>
+</thead>
+<tbody>
+<tr><td><code>BPF_MAP_LOOKUP_ELEM</code></td><td>查 map 中 key 對應的 value</td></tr>
+<tr><td><code>BPF_MAP_UPDATE_ELEM</code></td><td>插入或更新 entry</td></tr>
+<tr><td><code>BPF_MAP_DELETE_ELEM</code></td><td>刪除 entry</td></tr>
+<tr><td><code>BPF_MAP_GET_NEXT_KEY</code></td><td>iterate map（單條）</td></tr>
+<tr><td><code>BPF_MAP_LOOKUP_BATCH</code></td><td>批次查（5.6+）</td></tr>
+<tr><td><code>BPF_MAP_LOOKUP_AND_DELETE_BATCH</code></td><td>批次查 + 刪</td></tr>
+<tr><td><code>BPF_MAP_UPDATE_BATCH</code></td><td>批次更新</td></tr>
+<tr><td><code>BPF_MAP_DELETE_BATCH</code></td><td>批次刪</td></tr>
+<tr><td><code>BPF_MAP_LOOKUP_AND_DELETE_ELEM</code></td><td>查 + 刪（QUEUE / STACK 用 pop）</td></tr>
+<tr><td><code>BPF_MAP_FREEZE</code></td><td>凍結 map（變唯讀）</td></tr>
+</tbody>
+</table>
+
+<h3>14.1.3 Program Commands（Program 操作）</h3>
+
+<table>
+<thead>
+<tr><th>cmd</th><th>用途</th></tr>
+</thead>
+<tbody>
+<tr><td><code>BPF_PROG_ATTACH</code></td><td>傳統 attach（被 BPF_LINK_CREATE 取代）</td></tr>
+<tr><td><code>BPF_PROG_DETACH</code></td><td>傳統 detach</td></tr>
+<tr><td><code>BPF_PROG_TEST_RUN</code> / <code>BPF_PROG_RUN</code></td><td>在 Kernel 內 dry-run（單元測試）</td></tr>
+<tr><td><code>BPF_PROG_BIND_MAP</code></td><td>把 map 綁到 program 而不直接寫入 program 內</td></tr>
+<tr><td><code>BPF_RAW_TRACEPOINT_OPEN</code></td><td>raw tracepoint attach（部分情境）</td></tr>
+</tbody>
+</table>
+
+<h3>14.1.4 Link Commands（Link 管理）</h3>
+
+<table>
+<thead>
+<tr><th>cmd</th><th>用途</th></tr>
+</thead>
+<tbody>
+<tr><td><code>BPF_LINK_CREATE</code></td><td>建立 link（attach）</td></tr>
+<tr><td><code>BPF_LINK_UPDATE</code></td><td>原子替換 link 的 program</td></tr>
+<tr><td><code>BPF_LINK_DETACH</code></td><td>主動 detach</td></tr>
+<tr><td><code>BPF_LINK_GET_FD_BY_ID</code></td><td>從 ID 取得 link FD</td></tr>
+<tr><td><code>BPF_LINK_GET_NEXT_ID</code></td><td>iterate 全部 link</td></tr>
+</tbody>
+</table>
+
+<h3>14.1.5 Iteration / Discovery（發現）</h3>
+
+<table>
+<thead>
+<tr><th>cmd</th><th>用途</th></tr>
+</thead>
+<tbody>
+<tr><td><code>BPF_PROG_GET_NEXT_ID</code></td><td>iterate 全部 program</td></tr>
+<tr><td><code>BPF_MAP_GET_NEXT_ID</code></td><td>iterate 全部 map</td></tr>
+<tr><td><code>BPF_BTF_GET_NEXT_ID</code></td><td>iterate 全部 BTF</td></tr>
+<tr><td><code>BPF_PROG_GET_FD_BY_ID</code></td><td>從 ID 取得 program FD</td></tr>
+<tr><td><code>BPF_MAP_GET_FD_BY_ID</code></td><td>從 ID 取得 map FD</td></tr>
+<tr><td><code>BPF_BTF_GET_FD_BY_ID</code></td><td>從 ID 取得 BTF FD</td></tr>
+<tr><td><code>BPF_OBJ_GET_INFO_BY_FD</code></td><td>查詢物件詳細資訊</td></tr>
+<tr><td><code>BPF_TASK_FD_QUERY</code></td><td>查 task 上 attach 了哪些 BPF</td></tr>
+<tr><td><code>BPF_PROG_QUERY</code></td><td>查 cgroup attached 的 program</td></tr>
+<tr><td><code>BPF_ENABLE_STATS</code></td><td>啟用 program 執行統計</td></tr>
+</tbody>
+</table>
+
+<h3>14.1.6 Pin Commands（持久化）</h3>
+
+<table>
+<thead>
+<tr><th>cmd</th><th>用途</th></tr>
+</thead>
+<tbody>
+<tr><td><code>BPF_OBJ_PIN</code></td><td>把 program / map / link 釘到 bpffs</td></tr>
+<tr><td><code>BPF_OBJ_GET</code></td><td>從 bpffs 路徑取回 FD</td></tr>
+</tbody>
+</table>
+
+<h3>14.1.7 Security（安全 / Token）</h3>
+
+<table>
+<thead>
+<tr><th>cmd</th><th>用途</th><th>支援版本</th></tr>
+</thead>
+<tbody>
+<tr><td><code>BPF_TOKEN_CREATE</code></td><td>建立 BPF Token（受限權限）</td><td>6.9</td></tr>
+</tbody>
+</table>
+
+<h2 id="sec-14-2">14.2 <code>BPF_PROG_LOAD</code> 全攻略</h2>
+
+<p><code>BPF_PROG_LOAD</code> 是<strong>所有 cmd 中最複雜</strong>的——它觸發 Verifier、CO-RE relocation、JIT 三件大事。理解它的 attr 欄位等同理解 BPF 載入的全貌。</p>
+
+<h3>14.2.1 <code>union bpf_attr</code> 中與 PROG_LOAD 相關的欄位</h3>
+
+<table>
+<thead>
+<tr><th>欄位</th><th>意義</th><th>誰會填</th></tr>
+</thead>
+<tbody>
+<tr><td><code>prog_type</code></td><td>program type（XDP、KPROBE、TRACEPOINT...）</td><td>必填</td></tr>
+<tr><td><code>insn_cnt</code> / <code>insns</code></td><td>BPF instruction 陣列</td><td>必填</td></tr>
+<tr><td><code>license</code></td><td>授權字串（必須 GPL 相容才可用部分 helper）</td><td>必填</td></tr>
+<tr><td><code>log_level</code></td><td>verifier log 詳細度（0=無、1=錯誤、2=指令、4=stats）</td><td>除錯時填</td></tr>
+<tr><td><code>log_buf</code> / <code>log_size</code></td><td>verifier log 輸出緩衝</td><td>同上</td></tr>
+<tr><td><code>kern_version</code></td><td>kprobe 程式預期的 Kernel 版本（4.18 後對多數 program type 取消檢查）</td><td>較舊 kprobe</td></tr>
+<tr><td><code>prog_flags</code></td><td>flags：<code>BPF_F_STRICT_ALIGNMENT</code>、<code>BPF_F_ANY_ALIGNMENT</code>、<code>BPF_F_TEST_RND_HI32</code>、<code>BPF_F_SLEEPABLE</code>...</td><td>進階情境</td></tr>
+<tr><td><code>prog_name</code></td><td>顯示名稱（最多 16 字元）</td><td>建議填</td></tr>
+<tr><td><code>prog_ifindex</code></td><td>HW offload 用的 ifindex</td><td>SmartNIC offload</td></tr>
+<tr><td><code>expected_attach_type</code></td><td>預期的 attach type（影響 verifier 對 helper 與 return 的檢查）</td><td>多數 program 必填</td></tr>
+<tr><td><code>prog_btf_fd</code></td><td>同時提交的 BTF 物件 FD</td><td>CO-RE 程式必填</td></tr>
+<tr><td><code>func_info_rec_size</code> / <code>func_info</code></td><td>BTF 函式 metadata（subprogram 對應）</td><td>libbpf / cilium-ebpf 自動處理</td></tr>
+<tr><td><code>line_info_rec_size</code> / <code>line_info</code></td><td>BTF 行號 metadata（除錯用）</td><td>同上</td></tr>
+<tr><td><code>core_relos</code> / <code>core_relo_rec_size</code></td><td>CO-RE relocation 資訊</td><td>同上（第 15 章詳解）</td></tr>
+<tr><td><code>attach_btf_id</code></td><td>fentry/fexit/LSM/tp_btf 的目標 BTF ID</td><td>tracing program</td></tr>
+<tr><td><code>attach_prog_fd</code></td><td>EXT (freplace) 的目標 program</td><td>EXT</td></tr>
+<tr><td><code>attach_btf_obj_fd</code></td><td>跨 kernel module 的 BTF 物件</td><td>module attach</td></tr>
+<tr><td><code>fd_array</code></td><td>map FD 陣列（BPF_PSEUDO_MAP_IDX 用）</td><td>libbpf 自動處理</td></tr>
+<tr><td><code>prog_token_fd</code></td><td>BPF Token FD（6.9+）</td><td>受限權限載入</td></tr>
+</tbody>
+</table>
+
+<h3>14.2.2 PROG_LOAD 內部流程</h3>
+
+<div class="mermaid-wrap"><div class="mermaid">
+sequenceDiagram
+    participant U as User space (loader)
+    participant K as Kernel
+    participant V as Verifier
+    participant C as CO-RE relocator
+    participant J as JIT
+
+    U->>K: bpf(PROG_LOAD, attr)
+    K->>K: 複製 attr 到 kernel 空間
+    K->>K: 配置 bpf_prog 結構
+    K->>V: 開始驗證
+
+    V->>V: Layer 1: CFG 檢查
+    V->>V: Layer 2: 模擬執行 + reg state tracking
+    V->>V: Layer 3: helper / context 約束
+    V->>C: 對 instruction 套用 CO-RE relocation
+    C->>C: 比對 BTF，改寫 offset / type
+    C-->>V: relocated instructions
+    V-->>K: 通過
+
+    K->>J: 編譯為原生機器碼
+    J-->>K: 完成
+    K-->>U: 回傳 prog_fd
+</div></div>
+
+<h3>14.2.3 經典載入錯誤排查</h3>
+
+<table>
+<thead>
+<tr><th>錯誤</th><th>常見原因</th><th>解法</th></tr>
+</thead>
+<tbody>
+<tr><td><code>EINVAL</code> + verifier log</td><td>程式違反 verifier 規則</td><td>讀 verifier log（§14.2.4）</td></tr>
+<tr><td><code>EACCES</code></td><td>權限不足</td><td>用 root 或 setcap CAP_BPF</td></tr>
+<tr><td><code>ENOMEM</code></td><td>locked memory 用盡（&lt;5.11 Kernel）</td><td><code>RLIMIT_MEMLOCK</code> unlimit</td></tr>
+<tr><td><code>EAGAIN</code></td><td>verifier 受 signal 中斷</td><td>retry</td></tr>
+<tr><td><code>E2BIG</code></td><td>程式 instruction 數超 1M</td><td>用 tail call 或 BPF-to-BPF 拆解</td></tr>
+</tbody>
+</table>
+
+<h3>14.2.4 取得詳細 Verifier log</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="vlog-go" aria-selected="true"><span class="code-tab-icon go"></span>Go</button>
+<button class="code-tab-btn" data-target="vlog-rs"><span class="code-tab-icon rust"></span>Rust</button>
+<button class="code-tab-btn" data-target="vlog-libbpf"><span class="code-tab-icon c"></span>libbpf</button>
+</div>
+<div class="code-tab-panel" data-id="vlog-go" data-active="true">
+<div class="code-tab-filename">cilium/ebpf 取得 verifier log</div>
+<pre><code>opts := &amp;ebpf.CollectionOptions{
+    Programs: ebpf.ProgramOptions{
+        LogLevel:    ebpf.LogLevelInstruction | ebpf.LogLevelStats,
+        LogSizeStart: 64 * 1024 * 1024,
+    },
+}
+if err := loadObjs(&amp;objs, opts); err != nil {
+    var ve *ebpf.VerifierError
+    if errors.As(err, &amp;ve) {
+        fmt.Printf("verifier rejected:\n%+v\n", ve)
+    }
+    log.Fatal(err)
+}</code></pre>
+</div>
+<div class="code-tab-panel" data-id="vlog-rs">
+<div class="code-tab-filename">aya 取得 verifier log</div>
+<pre><code>use aya::{EbpfLoader, VerifierLogLevel};
+
+let mut bpf = EbpfLoader::new()
+    .verifier_log_level(VerifierLogLevel::DEBUG | VerifierLogLevel::STATS)
+    .load_file("/path/to/program.o")?;</code></pre>
+</div>
+<div class="code-tab-panel" data-id="vlog-libbpf">
+<div class="code-tab-filename">libbpf 直接呼叫 syscall</div>
+<pre><code>#include &lt;linux/bpf.h&gt;
+#include &lt;sys/syscall.h&gt;
+#include &lt;unistd.h&gt;
+
+char log_buf[64 * 1024 * 1024];
+union bpf_attr attr = {
+    .prog_type = BPF_PROG_TYPE_TRACEPOINT,
+    .insns     = (__u64)insns,
+    .insn_cnt  = ARRAY_SIZE(insns),
+    .license   = (__u64)"GPL",
+    .log_level = 2,                     // 1=err, 2=instr, 4=stats
+    .log_buf   = (__u64)log_buf,
+    .log_size  = sizeof(log_buf),
+};
+int prog_fd = syscall(__NR_bpf, BPF_PROG_LOAD, &amp;attr, sizeof(attr));
+if (prog_fd &lt; 0) {
+    fprintf(stderr, "verifier log:\n%s\n", log_buf);
+}</code></pre>
+</div>
+</div>
+
+<h2 id="sec-14-3">14.3 Map 操作命令</h2>
+
+<p>第 4 章已介紹 user space 與 BPF 兩條 map 存取路徑。本節聚焦 user space 端的 syscall 細節，特別是<strong>批次操作</strong>。</p>
+
+<h3>14.3.1 單條 vs 批次 lookup</h3>
+
+<p>大量資料時，單條 lookup 每 entry 一次 syscall 過於耗費。<strong>BPF_MAP_LOOKUP_BATCH</strong>（5.6+）讓你一次取多筆：</p>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="batch-go" aria-selected="true"><span class="code-tab-icon go"></span>Go</button>
+</div>
+<div class="code-tab-panel" data-id="batch-go" data-active="true">
+<div class="code-tab-filename">cilium/ebpf 批次讀</div>
+<pre><code>// 一次讀 1024 筆
+const batch = 1024
+keys := make([]uint32, batch)
+vals := make([]uint64, batch)
+var cursor ebpf.MapBatchCursor
+
+for {
+    n, err := m.BatchLookup(&amp;cursor, keys, vals, nil)
+    if err != nil &amp;&amp; !errors.Is(err, ebpf.ErrKeyNotExist) {
+        return err
+    }
+    for i := 0; i &lt; n; i++ {
+        fmt.Printf("key=%d val=%d\n", keys[i], vals[i])
+    }
+    if errors.Is(err, ebpf.ErrKeyNotExist) {
+        break   // map 已 iterate 完
+    }
+}</code></pre>
+</div>
+</div>
+
+<h3>14.3.2 BPF_MAP_FREEZE：建好後變唯讀</h3>
+
+<p>常見場景：user space 建立 array 載入 config 後 freeze，BPF 程式只讀不寫，避免後續手滑改錯。Verifier 在 frozen map 上會把 value 視為 const，啟用更積極的優化。</p>
+
+<h2 id="sec-14-4">14.4 <code>BPF_LINK_CREATE</code>：現代 attach 機制</h2>
+
+<p>過去 BPF 程式 attach 透過 <code>BPF_PROG_ATTACH</code>（cgroup）、netlink（XDP / tc）、perf event（kprobe / tracepoint）等多套機制，<strong>沒有統一介面</strong>。<code>BPF_LINK_CREATE</code>（5.7+）統一了所有 attach 路徑：</p>
+
+<div class="mermaid-wrap"><div class="mermaid">
+flowchart LR
+    OLD["傳統路徑（碎片化）"]
+    NEW["BPF_LINK_CREATE<br/>(統一)"]
+
+    OLD --> O1["BPF_PROG_ATTACH<br/>(cgroup / sockmap)"]
+    OLD --> O2["netlink IFLA_XDP<br/>(XDP)"]
+    OLD --> O3["perf_event_open + ioctl<br/>(kprobe / tracepoint)"]
+    OLD --> O4["setsockopt<br/>(socket filter)"]
+
+    NEW --> N1["回傳 link_fd<br/>(統一物件)"]
+    N1 --> N2["可 BPF_LINK_UPDATE<br/>原子替換"]
+    N1 --> N3["可 BPF_LINK_DETACH"]
+    N1 --> N4["可 BPF_OBJ_PIN"]
+</div></div>
+
+<h3>14.4.1 Link 的優勢</h3>
+
+<ul>
+<li><strong>統一物件</strong>：所有 attach 結果都是 link FD，FD 關閉即 detach。</li>
+<li><strong>原子更新</strong>：<code>BPF_LINK_UPDATE</code> 可在不中斷的情況下替換 program（zero-downtime）。</li>
+<li><strong>可 pinning</strong>：link 本身能釘到 bpffs，重啟 loader 不影響 attach。</li>
+<li><strong>可發現</strong>：用 <code>BPF_LINK_GET_NEXT_ID</code> 列出系統內所有 link。</li>
+</ul>
+
+<h3>14.4.2 LINK_CREATE 的 attr 變化最大</h3>
+
+<p>不同 program type 用不同欄位。常見組合：</p>
+
+<table>
+<thead>
+<tr><th>Program Type</th><th>關鍵欄位</th></tr>
+</thead>
+<tbody>
+<tr><td>XDP</td><td><code>target_ifindex</code> + <code>flags</code>（DRV_MODE / SKB_MODE / HW_MODE）</td></tr>
+<tr><td>cgroup</td><td><code>target_fd</code>（cgroup directory FD）+ <code>attach_type</code></td></tr>
+<tr><td>tracing (fentry / fexit / LSM)</td><td><code>target_btf_id</code></td></tr>
+<tr><td>tracepoint</td><td><code>perf_event</code> sub-struct</td></tr>
+<tr><td>kprobe.multi</td><td><code>kprobe_multi</code> sub-struct（syms / addrs / cookies）</td></tr>
+<tr><td>uprobe.multi</td><td><code>uprobe_multi</code> sub-struct（path / offsets / cookies）</td></tr>
+<tr><td>SK_LOOKUP / FLOW_DISSECTOR</td><td><code>target_fd</code>（netns FD）</td></tr>
+<tr><td>iter</td><td><code>iter_info</code>（指向 union bpf_iter_link_info）</td></tr>
+<tr><td>tcx (6.6+)</td><td><code>target_ifindex</code> + <code>relative_fd</code> / <code>relative_id</code> + <code>flags</code></td></tr>
+</tbody>
+</table>
+
+<h2 id="sec-14-5">14.5 <code>BPF_PROG_TEST_RUN</code>：在 Kernel 內 dry-run</h2>
+
+<p>BPF 程式很難用傳統 unit test 框架測——它得跑在 Kernel。<code>BPF_PROG_TEST_RUN</code>（4.12+，後改名 <code>BPF_PROG_RUN</code>）讓你在 user space <strong>提供假 context + 封包資料，請 Kernel 在受控環境下執行 BPF 程式</strong>，回傳結果。</p>
+
+<h3>14.5.1 支援的 program type</h3>
+
+<ul>
+<li>XDP（含 <strong>live frame mode</strong>，6.0+ 可真正注入封包到網路堆疊）</li>
+<li>SCHED_CLS（tc）</li>
+<li>SOCKET_FILTER</li>
+<li>RAW_TRACEPOINT</li>
+<li>FLOW_DISSECTOR</li>
+<li>SOCK_OPS</li>
+<li>SK_LOOKUP</li>
+<li><strong>SYSCALL</strong>（這是它<strong>唯一</strong>的執行方式！）</li>
+</ul>
+
+<h3>14.5.2 測試 XDP 的範例</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="testrun-go" aria-selected="true"><span class="code-tab-icon go"></span>Go</button>
+</div>
+<div class="code-tab-panel" data-id="testrun-go" data-active="true">
+<div class="code-tab-filename">cilium/ebpf 跑 XDP test</div>
+<pre><code>// 準備一個假封包：Ethernet + IPv4 header
+pkt := []byte{
+    /* eth dst */ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    /* eth src */ 0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
+    /* eth proto IPv4 */ 0x08, 0x00,
+    /* IPv4 header */ 0x45, 0x00, 0x00, 0x14,
+    0x00, 0x01, 0x00, 0x00, 0x40, 0x06, 0x00, 0x00,
+    0x01, 0x02, 0x03, 0x04,    /* src IP 1.2.3.4 */
+    0x05, 0x06, 0x07, 0x08,    /* dst IP 5.6.7.8 */
+}
+
+// 直接呼叫 BPF_PROG_TEST_RUN
+ret, _, err := objs.XdpFilter.Test(pkt)
+if err != nil { log.Fatal(err) }
+
+switch ret {
+case 1: log.Println("XDP_DROP")
+case 2: log.Println("XDP_PASS")
+case 3: log.Println("XDP_TX")
+}</code></pre>
+</div>
+</div>
+
+<h3>14.5.3 XDP Live Frame Mode（6.0+）</h3>
+
+<p>傳統 TEST_RUN 跑完不會把封包注入網路堆疊；live frame mode 改為「<strong>真的把封包送進去</strong>」，可作為極簡 traffic generator：</p>
+
+<ul>
+<li>單次 syscall 執行 BPF 數百萬次</li>
+<li>每次都是新的封包副本</li>
+<li>由 program return code 決定真實命運（drop / redirect / tx）</li>
+<li>用 <code>BPF_F_TEST_XDP_LIVE_FRAMES</code> flag 啟用</li>
+</ul>
+
+<h2 id="sec-14-6">14.6 BPF Iterator</h2>
+
+<p>BPF Iterator（5.8+）是個聰明的 hybrid：BPF 程式擔任「<strong>遍歷 Kernel 物件的回呼</strong>」，user space 透過<strong>讀檔案</strong>取得結果。</p>
+
+<h3>14.6.1 工作流程</h3>
+
+<div class="mermaid-wrap"><div class="mermaid">
+sequenceDiagram
+    participant U as User space
+    participant L as bpf_link
+    participant I as Iterator (kernel)
+    participant P as BPF program
+
+    U->>U: 載入 BPF program (SEC("iter/task"))
+    U->>L: bpf(LINK_CREATE, iter_info)
+    L-->>U: link_fd
+
+    U->>L: bpf_iter_create(link_fd)
+    L-->>U: iter_fd (檔案描述子)
+
+    loop 每次 read
+        U->>I: read(iter_fd, buf, size)
+        I->>P: 對每個 task 呼叫 BPF
+        P->>P: 把資訊寫到 seq_file buffer
+        I-->>U: 回傳 buffer 內容
+    end
+</div></div>
+
+<h3>14.6.2 支援的 iterator 類型</h3>
+
+<table>
+<thead>
+<tr><th>Iterator</th><th>遍歷對象</th></tr>
+</thead>
+<tbody>
+<tr><td><code>iter/task</code></td><td>系統內所有 task</td></tr>
+<tr><td><code>iter/task_file</code></td><td>每個 task 的所有 open file</td></tr>
+<tr><td><code>iter/task_vma</code></td><td>每個 task 的記憶體區段</td></tr>
+<tr><td><code>iter/tcp</code> / <code>iter/udp</code></td><td>所有 TCP / UDP socket</td></tr>
+<tr><td><code>iter/bpf_map</code></td><td>系統內所有 BPF map</td></tr>
+<tr><td><code>iter/bpf_prog</code></td><td>系統內所有 BPF program</td></tr>
+<tr><td><code>iter/bpf_link</code></td><td>系統內所有 BPF link</td></tr>
+<tr><td><code>iter/cgroup</code></td><td>cgroup 階層</td></tr>
+<tr><td><code>iter/sockmap</code></td><td>sockmap 內 socket</td></tr>
+</tbody>
+</table>
+
+<p>意義：<code>ss</code>、<code>ps</code>、<code>lsof</code> 等系統工具的<strong>下一代實作</strong>都可以用 BPF iterator 取代，效能更好、無需 <code>/proc</code> 解析。</p>
+
+<h2 id="sec-14-7">14.7 Pinning：<code>BPF_OBJ_PIN</code> / <code>BPF_OBJ_GET</code></h2>
+
+<p>第 7 章 §7.2 已介紹過 pinning 概念。本節補充 syscall 細節：</p>
+
+<table>
+<thead>
+<tr><th>cmd</th><th>意義</th><th>備註</th></tr>
+</thead>
+<tbody>
+<tr><td><code>BPF_OBJ_PIN</code></td><td>把 program / map / link 釘到 <code>bpffs</code> 路徑</td><td>該路徑的 inode 持有 reference</td></tr>
+<tr><td><code>BPF_OBJ_GET</code></td><td>從 bpffs 路徑取回 FD</td><td>不論程式類型都可開</td></tr>
+</tbody>
+</table>
+
+<p>Pinning 的細節：</p>
+
+<ul>
+<li>路徑必須在 <strong>bpffs</strong>（<code>/sys/fs/bpf</code>）下，不可在普通 fs。</li>
+<li>同一物件可釘多個路徑，每個路徑各持一份 reference。</li>
+<li>解除釘住：<code>rm /sys/fs/bpf/&lt;name&gt;</code> 或 <code>unlink()</code> syscall。</li>
+<li>libbpf 的 <code>LIBBPF_PIN_BY_NAME</code> 約定：自動釘到 <code>/sys/fs/bpf/&lt;map_name&gt;</code>。</li>
+</ul>
+
+<h2 id="sec-14-8">14.8 物件發現：<code>BPF_*_GET_NEXT_ID</code></h2>
+
+<p>Kernel 為每個 BPF 物件分配唯一 ID（<code>prog_id</code>、<code>map_id</code>、<code>link_id</code>、<code>btf_id</code>）。透過 <code>GET_NEXT_ID</code> + <code>GET_FD_BY_ID</code> + <code>GET_INFO_BY_FD</code> 三個 syscall 組合，可以列出系統內<strong>所有</strong> BPF 物件。</p>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="discover-shell" aria-selected="true"><span class="code-tab-icon shell"></span>shell</button>
+</div>
+<div class="code-tab-panel" data-id="discover-shell" data-active="true">
+<div class="code-tab-filename">bpftool 就是這套 syscall 組合的 wrapper</div>
+<pre><code># 列出所有 program（內部用 PROG_GET_NEXT_ID + PROG_GET_FD_BY_ID + OBJ_GET_INFO_BY_FD）
+$ sudo bpftool prog list
+3: tracepoint  name handle_execve  tag d8b46e7f8b3a99f3  gpl
+   loaded_at 2026-05-06T13:42  uid 0
+   xlated 152B  jited 96B
+
+# 列出所有 map
+$ sudo bpftool map list
+12: ringbuf  name events  flags 0x0
+    key 0B  value 0B  max_entries 262144  memlock 12288B
+
+# 列出所有 link
+$ sudo bpftool link list
+4: tracing  prog 3
+    prog_type tracepoint  attach_type 1
+    pids hello(15234)
+
+# 顯示所有 BTF
+$ sudo bpftool btf list
+6: name [vmlinux]  size 5234567B</code></pre>
+</div>
+</div>
+
+<h2 id="sec-14-9">14.9 Loader 內部：cilium/ebpf 如何包裝 syscall</h2>
+
+<p>用 cilium/ebpf 載入一支 BPF 程式時，背後會經歷數十次 <code>bpf()</code> syscall。下面這張表把<strong>常見 Hello World 流程</strong>對應到實際 syscall：</p>
+
+<table>
+<thead>
+<tr><th>cilium/ebpf API</th><th>對應 syscall</th><th>順序</th></tr>
+</thead>
+<tbody>
+<tr><td><code>ebpf.LoadCollectionSpec(...)</code></td><td>不直接 syscall，從 ELF 解析 spec</td><td>—</td></tr>
+<tr><td><code>collection := ebpf.NewCollection(spec)</code></td><td><code>BPF_BTF_LOAD</code></td><td>1</td></tr>
+<tr><td>同上</td><td><code>BPF_MAP_CREATE</code> × N</td><td>2</td></tr>
+<tr><td>同上</td><td><code>BPF_PROG_LOAD</code></td><td>3（含 verifier + JIT）</td></tr>
+<tr><td><code>link.Tracepoint(...)</code></td><td><code>BPF_LINK_CREATE</code></td><td>4</td></tr>
+<tr><td>程式運行中</td><td>(BPF 程式在 kernel 內執行，不 syscall)</td><td>5</td></tr>
+<tr><td><code>m.Lookup(key, &amp;val)</code></td><td><code>BPF_MAP_LOOKUP_ELEM</code></td><td>6 (運行中重複)</td></tr>
+<tr><td><code>l.Close()</code></td><td><code>close(link_fd)</code> → kernel 自動 detach</td><td>結束</td></tr>
+<tr><td><code>m.Pin(...)</code></td><td><code>BPF_OBJ_PIN</code>（如有需要）</td><td>選用</td></tr>
+</tbody>
+</table>
+
+<div class="callout callout-info">
+<div class="callout-title">想直接呼叫 syscall？</div>
+<p>cilium/ebpf 的 <code>internal/sys</code> package、aya 的 <code>aya-obj</code>、libbpf 的 <code>bpf_load_program_xattr</code> 都是包裝層。學完本章後你可以用 <code>strace -e trace=bpf ./your-tool</code> 觀察實際 syscall 順序，與這些 library 的內部行為對照。</p>
+</div>
+
+<h2 id="sec-14-10">14.10 第 14 章小結</h2>
+
+<ol>
+<li><code>bpf()</code> syscall 共 40+ 個 cmd，分七大類：建立 / Map / Program / Link / 發現 / Pin / Token。</li>
+<li><strong>BPF_PROG_LOAD</strong> 是最複雜的 cmd，內含 verifier、CO-RE relocation、JIT 三道處理。</li>
+<li><strong>BPF_LINK_CREATE</strong>（5.7+）統一 attach 路徑，取代碎片化的 PROG_ATTACH / netlink / perf_event 等老路。</li>
+<li><strong>BPF_PROG_TEST_RUN</strong> 讓 BPF 程式可以 unit test，6.0+ XDP live frame mode 還能當 traffic generator。</li>
+<li><strong>BPF Iterator</strong> 用 BPF 寫 Kernel 物件遍歷器，是 ss/ps/lsof 的下一代實作。</li>
+<li>三種 loader（cilium/ebpf、aya、libbpf）內部都是包裝這些 syscall，<code>strace</code> 可看到實際呼叫。</li>
+</ol>
+
+<hr>
+
+<h1>第 15 章　CO-RE / BTF 深入</h1>
+
+<div class="audience-tags">
+  <span class="tag tag-developer">🟡 開發者</span>
+</div>
+
+<div class="meta-bar">
+  <span><strong>章節</strong>第四部 開發者深入</span>
+  <span><strong>對應官方文件</strong>docs.kernel.org/bpf/btf.html + nakryiko.com CO-RE Reference Guide</span>
+  <span><strong>預期閱讀時間</strong>90–120 分鐘</span>
+  <span><strong>前置知識</strong>冊一 §3.5 BTF 概覽、§3.6 CO-RE 概覽</span>
+</div>
+
+<blockquote>
+<p><strong>本章學習目標</strong></p>
+<ul>
+<li>深入 <strong>BTF wire format</strong>：<code>btf_header</code>、<code>btf_type</code>、type kind 編碼、string section。</li>
+<li>掌握 <strong>BTF 18+ 種 kind</strong> 的具體 encoding（INT、PTR、ARRAY、STRUCT、UNION、ENUM、ENUM64、TYPEDEF、FUNC、FUNC_PROTO、VAR、DATASEC、DECL_TAG、TYPE_TAG、FLOAT 等）。</li>
+<li>理解 <strong>BTF deduplication</strong>：為何 5MB 的 BTF 比 200MB 的 DWARF 緊湊。</li>
+<li>掌握 <strong>CO-RE relocation</strong> 完整種類：FIELD_BYTE_OFFSET、FIELD_EXISTS、TYPE_EXISTS、ENUMVAL_VALUE 等 11 種 relo kind。</li>
+<li>掌握 CO-RE 巨集（<code>BPF_CORE_READ</code>、<code>bpf_core_field_exists</code>、<code>bpf_core_type_id_local</code> 等）背後的 mechanism。</li>
+<li>學會 <strong>BTFhub / BTFGen</strong> 解決老 Kernel（無 BTF）的可攜性問題。</li>
+</ul>
+</blockquote>
+
+<div class="toc">
+<h3>本章目錄</h3>
+<ol>
+<li><a href="#sec-15-1">15.1 為何 BTF + CO-RE 是現代 BPF 的命脈</a></li>
+<li><a href="#sec-15-2">15.2 BTF Wire Format</a></li>
+<li><a href="#sec-15-3">15.3 BTF 全部 18 種 kind</a></li>
+<li><a href="#sec-15-4">15.4 BTF Deduplication</a></li>
+<li><a href="#sec-15-5">15.5 CO-RE Relocation 完整 kind 列表</a></li>
+<li><a href="#sec-15-6">15.6 CO-RE 巨集背後的機制</a></li>
+<li><a href="#sec-15-7">15.7 用 bpftool 探索 BTF</a></li>
+<li><a href="#sec-15-8">15.8 老 Kernel 的可攜性：BTFhub / BTFGen</a></li>
+<li><a href="#sec-15-9">15.9 第 15 章小結</a></li>
+</ol>
+</div>
+
+<hr>
+
+<h2 id="sec-15-1">15.1 為何 BTF + CO-RE 是現代 BPF 的命脈</h2>
+
+<p>第 3 章已介紹 BTF 與 CO-RE 概念。本章把它們<strong>從原理到 wire format 完全攤開</strong>，因為這個機制是：</p>
+
+<ul>
+<li>所有現代 BPF 工具<strong>跨 Kernel 版本部署</strong>的基礎。</li>
+<li><strong>fentry / fexit / LSM / tp_btf</strong> 等 BTF-typed program 的前提。</li>
+<li><strong>kfunc</strong> 機制（用 BTF func name 呼叫）的底層支撐。</li>
+<li>K8s DaemonSet 部署 BPF 工具<strong>不需要在 node 上重新編譯</strong>的關鍵。</li>
+</ul>
+
+<blockquote>
+<p>「<strong>沒有 BTF / CO-RE，BPF 只是研究工具；有了它，BPF 才是工程化技術。</strong>」</p>
+</blockquote>
+
+<h2 id="sec-15-2">15.2 BTF Wire Format</h2>
+
+<p>BTF 是<strong>緊湊的 binary 格式</strong>，由 <code>pahole --btf_encode</code> 從 DWARF 轉出。整體結構：</p>
+
+<div class="mermaid-wrap"><div class="mermaid">
+flowchart LR
+    H["btf_header<br/>(24 bytes)"]
+    T["Type Section<br/>(btf_type 陣列)"]
+    S["String Section<br/>(\\0 分隔字串池)"]
+
+    H --> T --> S
+</div></div>
+
+<h3>15.2.1 <code>btf_header</code></h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="btf-hdr" aria-selected="true"><span class="code-tab-icon c"></span>linux/btf.h</button>
+</div>
+<div class="code-tab-panel" data-id="btf-hdr" data-active="true">
+<div class="code-tab-filename">btf_header 結構（24 bytes）</div>
+<pre><code>struct btf_header {
+    __u16   magic;       /* 0xeB9F (LE) 或 0x9FeB (BE) */
+    __u8    version;     /* 1 */
+    __u8    flags;
+    __u32   hdr_len;     /* 通常 24 */
+
+    /* type 與 string 兩個 section 的 offset / length */
+    __u32   type_off;
+    __u32   type_len;
+    __u32   str_off;
+    __u32   str_len;
+};</code></pre>
+</div>
+</div>
+
+<h3>15.2.2 <code>btf_type</code></h3>
+
+<p>每個 type 都用 <code>struct btf_type</code> 開頭：</p>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="btf-type" aria-selected="true"><span class="code-tab-icon c"></span>linux/btf.h</button>
+</div>
+<div class="code-tab-panel" data-id="btf-type" data-active="true">
+<div class="code-tab-filename">btf_type 共用 header（12 bytes）</div>
+<pre><code>struct btf_type {
+    __u32 name_off;       /* 指向 string section */
+    __u32 info;           /* 三段：kind / kind_flag / vlen */
+    union {
+        __u32 size;       /* 對 INT / STRUCT / UNION / ENUM 等 */
+        __u32 type;       /* 對 PTR / TYPEDEF / VOLATILE / CONST 等 */
+    };
+};
+
+/* info 的 bit layout：
+ *   bits  0-15: vlen   （該 type 的 child 數量）
+ *   bits 16-23: 未用
+ *   bits 24-28: kind   （type 種類）
+ *   bit     31: kind_flag （某些 kind 的特殊 flag）
+ */
+#define BTF_INFO_KIND(info) (((info) &gt;&gt; 24) &amp; 0x1f)
+#define BTF_INFO_VLEN(info) ((info) &amp; 0xffff)</code></pre>
+</div>
+</div>
+
+<p><strong>每種 kind 後面接的「extra data」不同</strong>，下節詳解。</p>
+
+<h3>15.2.3 String Section</h3>
+
+<p>所有名稱都集中在 string section，用 NUL 分隔。<code>name_off</code> 是該名稱在 section 內的 byte offset。第一個字節保留為 0（空字串）。</p>
+
+<h2 id="sec-15-3">15.3 BTF 全部 18 種 kind</h2>
+
+<p>每個 kind 有自己的 extra data 格式。下表整理（以 6.16 為基礎）：</p>
+
+<table>
+<thead>
+<tr><th>Kind</th><th>編號</th><th>意義</th><th>extra data</th></tr>
+</thead>
+<tbody>
+<tr><td><code>BTF_KIND_INT</code></td><td>1</td><td>整數型別</td><td>1 個 u32（bits / encoding / offset）</td></tr>
+<tr><td><code>BTF_KIND_PTR</code></td><td>2</td><td>指標</td><td>無（用 type 欄位）</td></tr>
+<tr><td><code>BTF_KIND_ARRAY</code></td><td>3</td><td>陣列</td><td><code>btf_array</code>（type / index_type / nelems）</td></tr>
+<tr><td><code>BTF_KIND_STRUCT</code></td><td>4</td><td>結構</td><td>vlen 個 <code>btf_member</code></td></tr>
+<tr><td><code>BTF_KIND_UNION</code></td><td>5</td><td>聯合</td><td>同上</td></tr>
+<tr><td><code>BTF_KIND_ENUM</code></td><td>6</td><td>列舉（32-bit）</td><td>vlen 個 <code>btf_enum</code></td></tr>
+<tr><td><code>BTF_KIND_FWD</code></td><td>7</td><td>前向宣告</td><td>無</td></tr>
+<tr><td><code>BTF_KIND_TYPEDEF</code></td><td>8</td><td>type alias</td><td>無</td></tr>
+<tr><td><code>BTF_KIND_VOLATILE</code></td><td>9</td><td>volatile 修飾</td><td>無</td></tr>
+<tr><td><code>BTF_KIND_CONST</code></td><td>10</td><td>const 修飾</td><td>無</td></tr>
+<tr><td><code>BTF_KIND_RESTRICT</code></td><td>11</td><td>restrict 修飾</td><td>無</td></tr>
+<tr><td><code>BTF_KIND_FUNC</code></td><td>12</td><td>函式定義</td><td>無</td></tr>
+<tr><td><code>BTF_KIND_FUNC_PROTO</code></td><td>13</td><td>函式 prototype</td><td>vlen 個 <code>btf_param</code></td></tr>
+<tr><td><code>BTF_KIND_VAR</code></td><td>14</td><td>全域變數</td><td>1 個 u32（linkage）</td></tr>
+<tr><td><code>BTF_KIND_DATASEC</code></td><td>15</td><td>data section</td><td>vlen 個 <code>btf_var_secinfo</code></td></tr>
+<tr><td><code>BTF_KIND_FLOAT</code></td><td>16</td><td>浮點</td><td>無</td></tr>
+<tr><td><code>BTF_KIND_DECL_TAG</code></td><td>17</td><td>declaration metadata（kfunc 標記等）</td><td>1 個 u32（component_idx）</td></tr>
+<tr><td><code>BTF_KIND_TYPE_TAG</code></td><td>18</td><td>type 修飾標記（__user / __kernel）</td><td>無</td></tr>
+<tr><td><code>BTF_KIND_ENUM64</code></td><td>19</td><td>64-bit 列舉（5.16+）</td><td>vlen 個 <code>btf_enum64</code></td></tr>
+</tbody>
+</table>
+
+<h3>15.3.1 STRUCT 編碼範例</h3>
+
+<p>來看 <code>struct task_struct { int pid; ... }</code>（簡化）的 BTF 編碼：</p>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="btf-struct" aria-selected="true"><span class="code-tab-icon c"></span>BTF struct 編碼</button>
+</div>
+<div class="code-tab-panel" data-id="btf-struct" data-active="true">
+<div class="code-tab-filename">struct task_struct 的 BTF binary 描述</div>
+<pre><code>// type id = 5 (假設)
+struct btf_type {
+    name_off = 100,                          // string section 中 "task_struct"
+    info = BTF_KIND_STRUCT &lt;&lt; 24 | 1,        // kind=4, vlen=1
+    size = 1024,                             // sizeof(struct task_struct)
+};
+// 後接 vlen=1 個 btf_member：
+struct btf_member {
+    name_off = 200,                          // string section "pid"
+    type     = 1,                            // type id of 'int'
+    offset   = 1232 * 8,                     // bit offset (1232 bytes)
+};</code></pre>
+</div>
+</div>
+
+<h3>15.3.2 為何要這麼設計</h3>
+
+<ul>
+<li>所有名稱集中在 string section → <strong>同名重複的 type 共享字串</strong>。</li>
+<li>type 之間用 ID 互相參照 → <strong>無循環指標</strong>，避免序列化問題。</li>
+<li>kind / vlen 編碼在 32-bit info → <strong>固定 12 bytes</strong> header，緊湊。</li>
+<li>extra data 隨 kind 變化 → <strong>每種 kind 只存必要資訊</strong>。</li>
+</ul>
+
+<h2 id="sec-15-4">15.4 BTF Deduplication</h2>
+
+<p>Kernel 編譯時的 DWARF 資訊約 <strong>200MB</strong>。BTF 透過 deduplication 把它壓到 <strong>5MB 以下</strong>。為何能這麼小？</p>
+
+<h3>15.4.1 為何 DWARF 會這麼大</h3>
+
+<p>因為 C 編譯模型，<strong>每個 .c 檔都會產生一份完整的 type 描述</strong>。<code>struct task_struct</code> 在 <code>kernel/sched.c</code>、<code>kernel/fork.c</code>、<code>kernel/exit.c</code> 等檔案中各被描述一次。Kernel 數千個 .c 檔加起來，重複嚴重。</p>
+
+<h3>15.4.2 BTF deduplication 演算法</h3>
+
+<div class="mermaid-wrap"><div class="mermaid">
+flowchart TB
+    DWARF["DWARF<br/>(每 .c 檔重複)"]
+    PARSE["pahole 解析"]
+    HASH["每個 type 計算<br/>結構 hash"]
+    MERGE["相同 hash 合併<br/>(僅留一份)"]
+    REWIRE["所有 reference<br/>改指向新 ID"]
+    BTF["BTF<br/>(極度緊湊)"]
+
+    DWARF --> PARSE --> HASH --> MERGE --> REWIRE --> BTF
+</div></div>
+
+<p>關鍵想法：「<strong>結構等價</strong>的兩個 type（同名 + 同欄位 + 同型別）視為同一個」。pahole 用 hash + struct walking 偵測等價，合併。最後得到去重 type 集合。</p>
+
+<h3>15.4.3 數字感受</h3>
+
+<table>
+<thead>
+<tr><th>Kernel Component</th><th>DWARF 大小</th><th>BTF 大小</th><th>壓縮比</th></tr>
+</thead>
+<tbody>
+<tr><td>vmlinux（典型 6.x）</td><td>~200 MB</td><td>~5 MB</td><td>40×</td></tr>
+<tr><td>kernel module（中型）</td><td>~5 MB</td><td>~150 KB</td><td>33×</td></tr>
+<tr><td>BPF program（典型）</td><td>數十 KB</td><td>數 KB</td><td>10–20×</td></tr>
+</tbody>
+</table>
+
+<h2 id="sec-15-5">15.5 CO-RE Relocation 完整 kind 列表</h2>
+
+<p>當 Clang 編譯 BPF 程式遇到 <code>task-&gt;pid</code> 這類 kernel 結構存取，它<strong>不</strong>直接 emit 常數 offset，而是 emit 一條<strong>「pseudo instruction + CO-RE relocation 紀錄」</strong>。Loader 載入時根據目標 Kernel BTF 改寫 instruction。</p>
+
+<h3>15.5.1 11 種 relocation kind</h3>
+
+<table>
+<thead>
+<tr><th>Kind</th><th>意義</th><th>對應巨集 / 用途</th></tr>
+</thead>
+<tbody>
+<tr><td><code>FIELD_BYTE_OFFSET</code></td><td>欄位 byte offset</td><td><code>BPF_CORE_READ(t, f)</code> 取資料</td></tr>
+<tr><td><code>FIELD_BYTE_SIZE</code></td><td>欄位 byte size</td><td>計算讀取大小</td></tr>
+<tr><td><code>FIELD_EXISTS</code></td><td>欄位是否存在</td><td><code>bpf_core_field_exists(t-&gt;f)</code></td></tr>
+<tr><td><code>FIELD_SIGNED</code></td><td>欄位是否 signed</td><td>類型推斷</td></tr>
+<tr><td><code>FIELD_LSHIFT_U64</code> / <code>FIELD_RSHIFT_U64</code></td><td>bitfield 取值用的位移</td><td>讀 bitfield</td></tr>
+<tr><td><code>TYPE_ID_LOCAL</code></td><td>本地 type 的 BTF ID</td><td><code>bpf_core_type_id_local(t)</code></td></tr>
+<tr><td><code>TYPE_ID_TARGET</code></td><td>目標 Kernel type 的 BTF ID</td><td><code>bpf_core_type_id_kernel(t)</code></td></tr>
+<tr><td><code>TYPE_EXISTS</code></td><td>type 是否存在於目標</td><td><code>bpf_core_type_exists(t)</code></td></tr>
+<tr><td><code>TYPE_MATCHES</code></td><td>type 完全相符</td><td><code>bpf_core_type_matches(t)</code></td></tr>
+<tr><td><code>TYPE_SIZE</code></td><td>type 的 size</td><td><code>bpf_core_type_size(t)</code></td></tr>
+<tr><td><code>ENUMVAL_EXISTS</code></td><td>enum 值是否存在</td><td><code>bpf_core_enum_value_exists()</code></td></tr>
+<tr><td><code>ENUMVAL_VALUE</code></td><td>enum 值在目標 Kernel 的數值</td><td><code>bpf_core_enum_value()</code></td></tr>
+</tbody>
+</table>
+
+<h3>15.5.2 Relocation 的 wire format</h3>
+
+<p>編譯時，clang 把 relocation 紀錄存在 ELF 的 <code>.BTF.ext</code> section：</p>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="relo-fmt" aria-selected="true"><span class="code-tab-icon c"></span>relocation 結構</button>
+</div>
+<div class="code-tab-panel" data-id="relo-fmt" data-active="true">
+<div class="code-tab-filename">每筆 relocation</div>
+<pre><code>struct bpf_core_relo {
+    __u32   insn_off;        /* 程式中對應 instruction 的位元組 offset */
+    __u32   type_id;         /* 本地 BTF 中的 type ID */
+    __u32   access_str_off;  /* 存取路徑（"0:1:2" 之類） */
+    enum bpf_core_relo_kind kind;
+};</code></pre>
+</div>
+</div>
+
+<h3>15.5.3 Relocation 的計算流程</h3>
+
+<div class="mermaid-wrap"><div class="mermaid">
+flowchart TB
+    SRC["BPF 原始碼<br/>task-&gt;pid"]
+    CLANG["Clang 編譯"]
+    INS["instruction:<br/>r1 = *(u32 *)(r0 + ?)"]
+    RELO["bpf_core_relo:<br/>type=task_struct<br/>access=pid<br/>kind=FIELD_BYTE_OFFSET"]
+    LOAD["Loader 載入時"]
+    KBTF["查 Kernel BTF<br/>task_struct.pid 真實 offset = 1232"]
+    PATCH["把 instruction 中的 ? 改寫為 1232"]
+    DONE["送進 Kernel 載入"]
+
+    SRC --> CLANG
+    CLANG --> INS
+    CLANG --> RELO
+    INS --> LOAD
+    RELO --> LOAD
+    LOAD --> KBTF
+    KBTF --> PATCH
+    PATCH --> DONE
+</div></div>
+
+<h2 id="sec-15-6">15.6 CO-RE 巨集背後的機制</h2>
+
+<p>libbpf 提供的 <code>BPF_CORE_READ</code>、<code>bpf_core_field_exists</code> 等巨集，本質上是 <strong>clang 內建的 builtin</strong> 包裝。每個巨集對應一個 builtin call：</p>
+
+<table>
+<thead>
+<tr><th>巨集</th><th>對應 builtin</th><th>產生的 relocation kind</th></tr>
+</thead>
+<tbody>
+<tr><td><code>BPF_CORE_READ(t, f)</code></td><td><code>__builtin_preserve_access_index</code></td><td>FIELD_BYTE_OFFSET + LSHIFT/RSHIFT for bitfield</td></tr>
+<tr><td><code>bpf_core_field_exists(t-&gt;f)</code></td><td><code>__builtin_preserve_field_info(..., 2)</code></td><td>FIELD_EXISTS</td></tr>
+<tr><td><code>bpf_core_field_size(t-&gt;f)</code></td><td><code>__builtin_preserve_field_info(..., 1)</code></td><td>FIELD_BYTE_SIZE</td></tr>
+<tr><td><code>bpf_core_type_exists(T)</code></td><td><code>__builtin_preserve_type_info(..., 0)</code></td><td>TYPE_EXISTS</td></tr>
+<tr><td><code>bpf_core_type_size(T)</code></td><td><code>__builtin_preserve_type_info(..., 1)</code></td><td>TYPE_SIZE</td></tr>
+<tr><td><code>bpf_core_type_id_local(T)</code></td><td><code>__builtin_btf_type_id(..., 0)</code></td><td>TYPE_ID_LOCAL</td></tr>
+<tr><td><code>bpf_core_type_id_kernel(T)</code></td><td><code>__builtin_btf_type_id(..., 1)</code></td><td>TYPE_ID_TARGET</td></tr>
+<tr><td><code>bpf_core_enum_value_exists(E, V)</code></td><td><code>__builtin_preserve_enum_value(...)</code></td><td>ENUMVAL_EXISTS</td></tr>
+<tr><td><code>bpf_core_enum_value(E, V)</code></td><td><code>__builtin_preserve_enum_value(...)</code></td><td>ENUMVAL_VALUE</td></tr>
+</tbody>
+</table>
+
+<h3>15.6.1 完整使用範例</h3>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="core-macros" aria-selected="true"><span class="code-tab-icon c"></span>BPF C</button>
+</div>
+<div class="code-tab-panel" data-id="core-macros" data-active="true">
+<div class="code-tab-filename">用 CO-RE 巨集兼容多版本 Kernel</div>
+<pre><code>#include "vmlinux.h"
+#include &lt;bpf/bpf_helpers.h&gt;
+#include &lt;bpf/bpf_core_read.h&gt;
+#include &lt;bpf/bpf_tracing.h&gt;
+
+SEC("kprobe/do_open")
+int trace_open(struct pt_regs *ctx) {
+    struct task_struct *task = (void *)bpf_get_current_task();
+
+    /* 1. 直接讀 typed 欄位（CO-RE 自動處理 offset） */
+    pid_t pid;
+    BPF_CORE_READ_INTO(&amp;pid, task, pid);
+
+    /* 2. 巢狀讀取 task-&gt;real_parent-&gt;pid */
+    pid_t ppid = BPF_CORE_READ(task, real_parent, pid);
+
+    /* 3. 條件性讀取：欄位是否存在於目標 Kernel */
+    if (bpf_core_field_exists(task-&gt;exit_code)) {
+        int code = BPF_CORE_READ(task, exit_code);
+        bpf_printk("has exit_code=%d", code);
+    }
+
+    /* 4. 條件性讀取：type 是否存在 */
+    if (bpf_core_type_exists(struct mm_struct)) {
+        bpf_printk("kernel has mm_struct");
+    }
+
+    /* 5. 取 enum 在目標 Kernel 的真實值 */
+    int task_running = bpf_core_enum_value(enum task_state, TASK_RUNNING);
+
+    return 0;
+}</code></pre>
+</div>
+</div>
+
+<h3>15.6.2 為何 CO-RE 巨集這麼重要</h3>
+
+<p>沒有 CO-RE 之前，跨 Kernel 的 BPF 工具只有兩條路：</p>
+
+<ol>
+<li><strong>BCC 路線</strong>：在 target machine 上用 LLVM 重新編譯。每次啟動慢、需要 LLVM toolchain、極佔資源。</li>
+<li><strong>逐版本維護</strong>：為每個 Kernel 版本維護一份 .o，發行時打包數百個版本。極不可行。</li>
+</ol>
+
+<p>有了 CO-RE：<strong>一份 .o，跨數百個 Kernel 版本</strong>。這是工程化轉折點。</p>
+
+<h2 id="sec-15-7">15.7 用 bpftool 探索 BTF</h2>
+
+<div class="code-tabs">
+<div class="code-tabs-header">
+<button class="code-tab-btn" data-target="btf-tool" aria-selected="true"><span class="code-tab-icon shell"></span>shell</button>
+</div>
+<div class="code-tab-panel" data-id="btf-tool" data-active="true">
+<div class="code-tab-filename">bpftool BTF 操作</div>
+<pre><code># 1. 列出系統內所有 BTF
+$ sudo bpftool btf list
+1: name [vmlinux]  size 5234567B
+12: name [hello]  size 4321B  prog_ids 3
+
+# 2. dump 某個 BTF（人類可讀）
+$ sudo bpftool btf dump id 1 | head -10
+[1] INT 'long unsigned int' size=8 bits_offset=0 nr_bits=64 encoding=(none)
+[2] CONST '(anon)' type_id=1
+[3] PTR '(anon)' type_id=4
+...
+
+# 3. 查特定 type
+$ sudo bpftool btf dump file /sys/kernel/btf/vmlinux | grep -A 20 "STRUCT 'task_struct'" | head -25
+
+# 4. 把 vmlinux BTF dump 為 C header（給 BPF 程式 #include）
+$ sudo bpftool btf dump file /sys/kernel/btf/vmlinux format c &gt; vmlinux.h
+
+# 5. 查程式自帶的 BTF
+$ sudo bpftool btf dump prog id 3
+[1] INT 'unsigned int' ...
+[2] STRUCT 'event' size=20 vlen=2
+        'pid' type_id=1 bits_offset=0
+        'comm' type_id=3 bits_offset=32
+
+# 6. 看 program 的 CO-RE relocation 紀錄（含 .BTF.ext）
+$ readelf -a hello.o | grep -A 30 "BTF.ext"</code></pre>
+</div>
+</div>
+
+<h2 id="sec-15-8">15.8 老 Kernel 的可攜性：BTFhub / BTFGen</h2>
+
+<p>CO-RE 的前提是<strong>目標 Kernel 提供 BTF</strong>。但 Kernel 5.2 之前都沒 BTF；某些早期發行版（CentOS 7、Ubuntu 18.04 等）即使編譯支援，也沒啟用 <code>CONFIG_DEBUG_INFO_BTF</code>。怎麼辦？</p>
+
+<h3>15.8.1 BTFhub：補強 BTF 檔案庫</h3>
+
+<p><a href="https://github.com/aquasecurity/btfhub-archive">BTFhub</a>（Aqua Security 維護）為<strong>已發行但缺 BTF 的 Kernel</strong>提供補強：</p>
+
+<ul>
+<li>對 RHEL、CentOS、Ubuntu、Amazon Linux 等發行版的舊版 Kernel，事後生成 BTF 檔案。</li>
+<li>從受影響的 distro debug package 抽出 DWARF，用 pahole 轉成 BTF。</li>
+<li>已涵蓋 1000+ Kernel 變體，可下載對應檔案。</li>
+</ul>
+
+<h3>15.8.2 BTFGen：精簡 BTF</h3>
+
+<p>BTFhub 的問題：每個 BTF 檔幾 MB，要支援 300 個 Kernel 變體就是 1+ GB。<strong>BTFGen</strong> 解法：</p>
+
+<blockquote>
+<p>「你這個 BPF 程式只用到 task_struct 的 5 個欄位、struct sock 的 3 個欄位 ... 那我只把<strong>你需要的那些 type</strong>放進 BTF 即可。」</p>
+</blockquote>
+
+<p>結果：每個 mini-BTF 只有幾 KB，<strong>數百個 Kernel 變體合計 1.5 MB</strong>，完全可隨工具一起發行。Tetragon、Tracee、Falco 都已採用。</p>
+
+<h3>15.8.3 部署模式</h3>
+
+<div class="mermaid-wrap"><div class="mermaid">
+flowchart LR
+    DEV["開發者"]
+    BPF["BPF 工具"]
+    BTFGEN["btfgen"]
+    HUB["BTFhub<br/>(各 Kernel 的 BTF)"]
+    MINI["mini-BTF<br/>(每 Kernel 幾 KB)"]
+    DEPLOY["工具 + mini-BTF 一起發行"]
+    NODE["target node<br/>(老 Kernel 無 BTF)"]
+    LOADER["Loader 偵測無 BTF"]
+    USEMINI["改用打包的 mini-BTF"]
+    RUN["BPF 載入成功"]
+
+    DEV --> BPF
+    HUB --> BTFGEN
+    BPF --> BTFGEN
+    BTFGEN --> MINI
+    BPF --> DEPLOY
+    MINI --> DEPLOY
+    DEPLOY --> NODE
+    NODE --> LOADER --> USEMINI --> RUN
+</div></div>
+
+<h2 id="sec-15-9">15.9 第 15 章小結</h2>
+
+<ol>
+<li><strong>BTF</strong> 是 Linux Kernel 與 BPF 程式的緊湊 type 描述格式：5 MB 即可描述整個 Kernel（vs DWARF 200 MB）。</li>
+<li>BTF wire format：<code>btf_header</code> + Type Section（<code>btf_type</code> 陣列）+ String Section。</li>
+<li>共 <strong>19 種 kind</strong>（INT、PTR、STRUCT、UNION、ENUM、ENUM64、TYPEDEF、FUNC、FUNC_PROTO、VAR、DATASEC、DECL_TAG、TYPE_TAG、FLOAT 等），每種 extra data 不同。</li>
+<li><strong>BTF deduplication</strong> 依結構等價合併重複 type，是 BTF 緊湊的關鍵。</li>
+<li><strong>CO-RE relocation</strong> 共 11 種 kind，覆蓋欄位 offset / size / 存在性、type 存在性 / size / ID、enum 值等情境。</li>
+<li>libbpf 的 CO-RE 巨集是 clang builtin 的 wrapper，每個對應一種 relocation kind。</li>
+<li>對<strong>老 Kernel 無 BTF</strong> 場景，<strong>BTFhub</strong>（補完 BTF 檔案）+ <strong>BTFGen</strong>（精簡為 mini-BTF）是業界標準解法。</li>
+</ol>
+
+<h3>15.9.1 自我檢驗</h3>
+
+<ol>
+<li>BTF 為何能比 DWARF 小 40 倍？關鍵 algorithm 是什麼？</li>
+<li><code>btf_type</code> 共用 header 的 <code>info</code> 欄位裡編碼了哪三件事？</li>
+<li><code>BPF_CORE_READ(t, f)</code> 在編譯時會產生哪些 relocation 紀錄？</li>
+<li><code>bpf_core_field_exists()</code> 在執行時何時為 true、何時為 false？</li>
+<li>沒有 BTF 的舊 Kernel 上要部署 BPF 工具，業界主流方案是什麼？</li>
+</ol>
+
+<h3>15.9.2 延伸閱讀</h3>
+
+<ul>
+<li><a href="https://docs.kernel.org/bpf/btf.html">Kernel BTF 規格</a></li>
+<li><a href="https://nakryiko.com/posts/bpf-core-reference-guide/">Andrii Nakryiko: BPF CO-RE Reference Guide</a></li>
+<li><a href="https://facebookmicrosites.github.io/bpf/blog/2018/11/14/btf-enhancement.html">Enhancing the Linux kernel with BTF type information</a></li>
+<li><a href="https://github.com/aquasecurity/btfhub">aquasecurity/btfhub GitHub</a></li>
+<li><a href="https://github.com/aquasecurity/btfhub/blob/main/docs/btfgen-internals.md">BTFGen 實作細節</a></li>
+<li><a href="https://docs.kernel.org/userspace-api/ebpf/syscall.html">Kernel bpf() syscall 參考</a></li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+  <p>eBPF 教學手冊 · 冊四-1 · 第 14 章 Syscall 介面 + 第 15 章 CO-RE / BTF<br>
+  下一冊：<strong>冊四-2 · 第 16 章 Loader 實作（Go + Rust）+ 第 17 章 測試 / Benchmark / 除錯</strong></p>
+</footer>
+
+</body>
+</html>
