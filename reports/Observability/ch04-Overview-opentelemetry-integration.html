@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch04 · OpenTelemetry 與 Prometheus／Grafana 的整合定位 | Prometheus / Alertmanager / Grafana 完整教學</title>
+<style>
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --text-3xl: 44px;
+  --text-4xl: 64px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+  --container-narrow: 720px;
+  --container-wide: 1280px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80;
+  --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24;
+  --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171;
+  --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee;
+  --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  padding: 0;
+}
+.top-nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-soft);
+  padding: var(--space-3) var(--space-5);
+  display: flex; justify-content: space-between; align-items: center;
+  backdrop-filter: blur(8px);
+}
+.nav-links { display: flex; gap: var(--space-3); align-items: center; }
+.nav-links a {
+  color: var(--text-secondary); text-decoration: none;
+  font-size: var(--text-sm); padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm); transition: all 0.2s ease;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--color-primary-soft); }
+.nav-links a.disabled { color: var(--text-muted); cursor: not-allowed; pointer-events: none; }
+button[data-theme-toggle] {
+  background: var(--bg-muted); color: var(--text-primary);
+  border: 1px solid var(--border-soft);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+  cursor: pointer; font-size: var(--text-sm);
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-sans); transition: all 0.2s ease;
+}
+button[data-theme-toggle]:hover { background: var(--color-primary-soft); border-color: var(--color-primary); }
+.theme-icon { font-size: var(--text-md); }
+main { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-7) var(--space-5); }
+@media (min-width: 1024px) { main { max-width: 880px; } }
+.chapter-meta {
+  font-size: var(--text-sm); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: var(--space-3); font-family: var(--font-mono);
+}
+h1 {
+  font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 700;
+  line-height: 1.15; margin: 0 0 var(--space-4);
+  color: var(--text-primary); letter-spacing: -0.02em;
+}
+.subtitle {
+  font-size: var(--text-md); color: var(--text-secondary);
+  margin-bottom: var(--space-7); font-style: italic;
+  border-left: 3px solid var(--color-primary); padding-left: var(--space-4);
+}
+h2 {
+  font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600;
+  margin-top: var(--space-8); margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2); border-bottom: 2px solid var(--border-soft);
+  color: var(--text-primary);
+}
+h3 { font-size: var(--text-xl); font-weight: 600; margin-top: var(--space-6); margin-bottom: var(--space-3); color: var(--text-primary); }
+h4 { font-size: var(--text-md); font-weight: 600; margin-top: var(--space-5); margin-bottom: var(--space-2); color: var(--text-primary); }
+p { margin: var(--space-3) 0; }
+strong { color: var(--text-primary); font-weight: 600; }
+em { color: var(--text-secondary); }
+a {
+  color: var(--color-primary-text); text-decoration: underline;
+  text-decoration-color: var(--color-primary-soft);
+  text-underline-offset: 3px; transition: all 0.2s ease;
+}
+a:hover { color: var(--color-primary-hover); text-decoration-color: var(--color-primary); }
+code {
+  font-family: var(--font-mono); font-size: 0.92em;
+  background: var(--bg-code); padding: 0.15em 0.4em;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-soft);
+  color: var(--color-primary-text);
+}
+pre {
+  background: var(--bg-code); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  overflow-x: auto; font-size: var(--text-sm); line-height: 1.6;
+  margin: var(--space-4) 0;
+}
+pre code { background: transparent; border: none; padding: 0; color: var(--text-primary); }
+.callout {
+  margin: var(--space-5) 0; padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md); border-left: 4px solid;
+}
+.callout-title {
+  font-weight: 600; margin-bottom: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.callout.info { background: var(--color-info-soft); border-color: var(--color-info); }
+.callout.info .callout-title { color: var(--color-info); }
+.callout.success { background: var(--color-success-soft); border-color: var(--color-success); }
+.callout.success .callout-title { color: var(--color-success); }
+.callout.warning { background: var(--color-warning-soft); border-color: var(--color-warning); }
+.callout.warning .callout-title { color: var(--color-warning); }
+.callout.danger { background: var(--color-danger-soft); border-color: var(--color-danger); }
+.callout.danger .callout-title { color: var(--color-danger); }
+table {
+  width: 100%; border-collapse: collapse; margin: var(--space-5) 0;
+  font-size: var(--text-sm); background: var(--bg-surface);
+  border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-sm);
+}
+th, td { text-align: left; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); }
+th {
+  background: var(--bg-muted); font-weight: 600; color: var(--text-primary);
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg-muted); }
+ul, ol { padding-left: var(--space-5); margin: var(--space-3) 0; }
+li { margin: var(--space-2) 0; }
+li::marker { color: var(--color-primary); }
+.toc {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4) var(--space-5);
+  margin: var(--space-5) 0;
+}
+.toc-title {
+  font-weight: 600; font-size: var(--text-sm);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted); margin-bottom: var(--space-3);
+}
+.toc ul { list-style: none; padding-left: 0; }
+.toc li { margin: var(--space-1) 0; }
+.toc a { text-decoration: none; }
+.toc ul ul { padding-left: var(--space-4); }
+.card-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4); margin: var(--space-5) 0;
+}
+.card {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  transition: all 0.2s ease;
+}
+.card:hover { box-shadow: var(--shadow-md); border-color: var(--color-primary); transform: translateY(-2px); }
+.card-num { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-primary); font-weight: 600; }
+.card-title { font-weight: 600; font-size: var(--text-base); margin: var(--space-2) 0; color: var(--text-primary); }
+.card-desc { font-size: var(--text-sm); color: var(--text-secondary); }
+.mermaid {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-5);
+  margin: var(--space-5) 0; text-align: center; overflow-x: auto;
+}
+.footer-nav {
+  display: flex; justify-content: space-between;
+  margin-top: var(--space-8); padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft); gap: var(--space-3);
+}
+.footer-nav a {
+  flex: 1; padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); text-decoration: none;
+  color: var(--text-primary); transition: all 0.2s ease;
+}
+.footer-nav a:hover { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.footer-nav .nav-direction {
+  font-size: var(--text-xs); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.footer-nav .nav-title { font-weight: 600; margin-top: var(--space-1); }
+.footer-nav .next { text-align: right; }
+.footer-nav a.disabled { opacity: 0.4; pointer-events: none; }
+.tag {
+  display: inline-block; padding: 0.1em 0.6em; font-size: var(--text-xs);
+  border-radius: var(--radius-sm); font-family: var(--font-mono);
+  background: var(--bg-muted); color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+}
+.tag.primary { background: var(--color-primary-soft); color: var(--color-primary-text); border-color: var(--color-primary); }
+@media print { .top-nav, .footer-nav, button[data-theme-toggle] { display: none; } }
+</style>
+</head>
+<body>
+
+<nav class="top-nav">
+  <div class="nav-links">
+    <a href="ch03-Grafana-lgtm-stack-ecosystem.html">← 上一章</a>
+    <a href="ch00-Overview-learning-path.html">📚 目錄</a>
+    <a href="ch05-Prometheus-concepts-and-data-model.html">下一章 →</a>
+  </div>
+  <button data-theme-toggle aria-label="Toggle theme"></button>
+</nav>
+
+<main>
+  <div class="chapter-meta">Chapter 04 · 標準化與整合</div>
+  <h1>OpenTelemetry 與 Prometheus／Grafana 的整合定位</h1>
+  <p class="subtitle">
+    OpenTelemetry（OTel）是當前可觀測性領域最重要的標準化專案。它與 Prometheus 之間
+    既是合作關係，也存在某些角色重疊。本章釐清兩者的定位、整合方式，
+    以及在實務上「該用哪個」的決策思路。
+  </p>
+
+  <div class="toc">
+    <div class="toc-title">本章內容</div>
+    <ul>
+      <li><a href="#section-1">§ 1. 什麼是 OpenTelemetry？為什麼出現？</a></li>
+      <li><a href="#section-2">§ 2. OTel 核心概念：Signals、SDK、Collector、OTLP</a></li>
+      <li><a href="#section-3">§ 3. OTel 與 Prometheus：競爭還是互補？</a></li>
+      <li><a href="#section-4">§ 4. 整合方式 1：OTel → Prometheus（多種路徑）</a></li>
+      <li><a href="#section-5">§ 5. 整合方式 2：Prometheus → OTel</a></li>
+      <li><a href="#section-6">§ 6. 整合方式 3：Grafana Alloy 作為融合方案</a></li>
+      <li><a href="#section-7">§ 7. 選型決策：Prometheus Client Library 還是 OTel SDK？</a></li>
+      <li><a href="#section-8">§ 8. 常見陷阱與最佳實踐</a></li>
+    </ul>
+  </div>
+
+  <h2 id="section-1">§ 1. 什麼是 OpenTelemetry？為什麼出現？</h2>
+
+  <p>
+    在 2019 年之前，分散式追蹤領域有兩套互不相容的開源標準：
+  </p>
+
+  <ul>
+    <li><strong>OpenTracing</strong>（CNCF）：定義 trace API 規範</li>
+    <li><strong>OpenCensus</strong>（Google）：定義 trace + metric SDK</li>
+  </ul>
+
+  <p>
+    這兩套標準各有支持者，但對使用者來說是噩夢——選了其中一個就被綁死。
+    2019 年，兩個專案決定合併，並命名為 <strong>OpenTelemetry</strong>，
+    目標是成為「<strong>vendor-neutral 的可觀測性標準</strong>」。
+  </p>
+
+  <p>OpenTelemetry 想解決的核心痛點：</p>
+
+  <table>
+    <thead>
+      <tr><th>痛點</th><th>OTel 的解法</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>每個 APM/監控廠商都有自己的 SDK，換一家就要重寫埋點</td>
+        <td>定義統一的 instrumentation API 與 SDK，廠商提供對應的 exporter 即可</td>
+      </tr>
+      <tr>
+        <td>Metrics、Logs、Traces 各自為政，難以關聯</td>
+        <td>三種訊號共用 trace context、resource attribute 等基礎概念</td>
+      </tr>
+      <tr>
+        <td>切換後端需要改 application 程式碼</td>
+        <td>應用只送 OTLP 給 Collector，Collector 負責路由到任何後端</td>
+      </tr>
+      <tr>
+        <td>每種語言的埋點品質不一</td>
+        <td>OTel 規範要求所有官方 SDK 一致性</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    OpenTelemetry 已成為 CNCF Graduated 專案，是 CNCF 上活躍度第二高的專案
+    （僅次於 Kubernetes 本身）。當前已支援 11+ 種主流語言。
+  </p>
+
+  <h2 id="section-2">§ 2. OTel 核心概念：Signals、SDK、Collector、OTLP</h2>
+
+  <h3>2.1 Signals（訊號類型）</h3>
+
+  <p>OTel 把可觀測性訊號分類為以下 signals：</p>
+
+  <table>
+    <thead>
+      <tr><th>Signal</th><th>狀態</th><th>對應</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Traces</strong></td><td>Stable</td><td>分散式追蹤 spans</td></tr>
+      <tr><td><strong>Metrics</strong></td><td>Stable</td><td>數值時序資料（Counter/Gauge/Histogram）</td></tr>
+      <tr><td><strong>Logs</strong></td><td>Stable（規範）/ 部分語言 SDK 仍在實驗</td><td>結構化日誌</td></tr>
+      <tr><td>Profiles</td><td>Development</td><td>持續性效能分析（火焰圖）</td></tr>
+      <tr><td>Events</td><td>Development</td><td>結構化事件</td></tr>
+    </tbody>
+  </table>
+
+  <h3>2.2 OTel 整體架構</h3>
+
+  <div class="mermaid">
+graph LR
+    subgraph App["應用層"]
+        APP["App + OTel SDK<br/>or Auto-instrumentation"]
+    end
+
+    subgraph Collector["OpenTelemetry Collector"]
+        REC[Receivers<br/>OTLP/Prometheus/<br/>Jaeger/Zipkin...]
+        PROC[Processors<br/>batch/filter/<br/>transform/sampler]
+        EXP[Exporters<br/>OTLP/Prometheus/<br/>Loki/Tempo/<br/>vendor-specific]
+        REC --> PROC --> EXP
+    end
+
+    subgraph Backends["後端"]
+        P[Prometheus]
+        T[Tempo / Jaeger]
+        L[Loki]
+        V[Vendor backend]
+    end
+
+    APP -->|OTLP gRPC/HTTP| REC
+
+    EXP --> P
+    EXP --> T
+    EXP --> L
+    EXP --> V
+</div>
+
+  <h3>2.3 OTLP 協議（OpenTelemetry Protocol）</h3>
+
+  <p>
+    OTLP 是 OpenTelemetry 定義的傳輸協議，採用 Protocol Buffers 序列化。
+    支援兩種傳輸方式：
+  </p>
+
+  <ul>
+    <li><strong>OTLP/gRPC</strong>：預設 port 4317，效能最佳</li>
+    <li><strong>OTLP/HTTP</strong>：預設 port 4318，使用 protobuf 或 JSON</li>
+  </ul>
+
+  <p>
+    OTLP 是<strong>應用程式與 Collector / 後端之間</strong>傳輸 metrics、traces、logs 的統一協議。
+    它取代了過去每個訊號類型各自有不同協議的混亂狀況（Jaeger 用 Thrift、Zipkin 用自家 JSON、
+    Prometheus 用 remote_write、log 系統各自為政）。
+  </p>
+
+  <h3>2.4 OTel Collector 的三個元件</h3>
+
+  <ul>
+    <li><strong>Receivers</strong>：接收訊號的入口，可以是 push（OTLP receiver）或 pull（Prometheus receiver）</li>
+    <li><strong>Processors</strong>：訊號的處理層——批次、取樣、過濾、加工屬性、k8s metadata 注入等</li>
+    <li><strong>Exporters</strong>：把訊號送往後端的出口</li>
+  </ul>
+
+  <h3>2.5 兩種 Collector 發行版</h3>
+
+  <table>
+    <thead>
+      <tr><th>版本</th><th>內容</th><th>適用</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>otelcol</code>（Core）</td><td>核心元件，最小集</td><td>單純的 OTLP 路由</td></tr>
+      <tr><td><code>otelcol-contrib</code></td><td>含社群第三方元件（雲廠商、廠商整合等）</td><td>大多數實務情境</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="section-3">§ 3. OTel 與 Prometheus：競爭還是互補？</h2>
+
+  <p>
+    這是新手最常困惑的問題。簡短答案：<strong>互補大於競爭</strong>。
+    Prometheus 與 OTel 兩個社群都明確表態，雙方致力於互相相容。
+  </p>
+
+  <h3>3.1 角色定位差異</h3>
+
+  <table>
+    <thead>
+      <tr><th>面向</th><th>Prometheus</th><th>OpenTelemetry</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>主要角色</td><td>Metrics 後端 + 收集</td><td>標準 + 多訊號採集</td></tr>
+      <tr><td>訊號範圍</td><td>主要 Metrics</td><td>Metrics + Traces + Logs + Profiles</td></tr>
+      <tr><td>傳輸模型</td><td>主要 Pull</td><td>主要 Push（OTLP）</td></tr>
+      <tr><td>Metric 模型</td><td>累積式（cumulative）為主</td><td>支援 cumulative 與 delta</td></tr>
+      <tr><td>SDK 數量</td><td>5 種官方語言</td><td>11+ 種官方語言</td></tr>
+      <tr><td>儲存能力</td><td>有（TSDB）</td><td>無（要外接後端）</td></tr>
+      <tr><td>查詢語言</td><td>PromQL</td><td>無（依後端）</td></tr>
+    </tbody>
+  </table>
+
+  <h3>3.2 Prometheus 的官方表態</h3>
+
+  <div class="callout info">
+    <div class="callout-title">ℹ️ Prometheus 對 OpenTelemetry 的承諾</div>
+    <p>
+      Prometheus 官方在「Our commitment to OpenTelemetry」聲明中表示：
+      Prometheus 的目標是成為「OpenTelemetry metrics 的<strong>原生後端</strong>」。
+      具體做法包括：原生支援 OTLP 接收、UTF-8 metric 名稱、
+      原生 histogram、delta temporality 處理、以及 exemplar 支援。
+    </p>
+  </div>
+
+  <h3>3.3 兩者的相容性里程碑</h3>
+
+  <table>
+    <thead>
+      <tr><th>能力</th><th>Prometheus 版本</th><th>說明</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>OTLP receiver（HTTP）</td><td>v2.47+ 實驗、v3.0+ 穩定</td><td>透過 <code>--web.enable-otlp-receiver</code> 啟用</td></tr>
+      <tr><td>UTF-8 metric / label 名稱</td><td>v3.0+ 預設啟用</td><td>讓 OTel 的 dot-style 名稱（<code>http.server.duration</code>）能原生使用</td></tr>
+      <tr><td>Native Histogram</td><td>v2.40+ 實驗</td><td>對應 OTel 的 ExponentialHistogram</td></tr>
+      <tr><td>Out-of-order ingestion</td><td>v2.39+</td><td>OTel Collector 多副本場景必備</td></tr>
+      <tr><td>Created Timestamp（CT）</td><td>v3.x 實驗</td><td>OTel 的 start timestamp 整合</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="section-4">§ 4. 整合方式 1：OTel → Prometheus（多種路徑）</h2>
+
+  <p>
+    當您的應用使用 OTel SDK 埋點，但想用 Prometheus 作為儲存後端，有<strong>四種路徑</strong>：
+  </p>
+
+  <h3>4.1 路徑 A：直接送 OTLP 到 Prometheus（最簡單）</h3>
+
+  <p>從 Prometheus 2.47 起內建 OTLP receiver，3.x 已穩定。</p>
+
+  <div class="mermaid">
+graph LR
+    APP["App + OTel SDK"] -->|OTLP/HTTP| PRO[Prometheus]
+    PRO --> G[Grafana]
+</div>
+
+  <p>啟用方式：</p>
+
+  <pre><code># 啟動 Prometheus 加上 flag
+prometheus --web.enable-otlp-receiver --config.file=prometheus.yml</code></pre>
+
+  <p><code>prometheus.yml</code> 中 OTLP 相關設定：</p>
+
+  <pre><code>otlp:
+  # 將 OTel resource attribute 升格為 metric label
+  promote_resource_attributes:
+    - service.instance.id
+    - service.name
+    - service.namespace
+    - service.version
+    - cloud.availability_zone
+    - cloud.region
+    - deployment.environment.name
+    - k8s.cluster.name
+    - k8s.container.name
+    - k8s.deployment.name
+    - k8s.namespace.name
+    - k8s.pod.name
+    - k8s.replicaset.name
+
+  # OTel metric 名稱翻譯策略
+  translation_strategy: NoUTF8EscapingWithSuffixes
+
+# 啟用 out-of-order 容忍（建議 30 分鐘）
+storage:
+  tsdb:
+    out_of_order_time_window: 30m</code></pre>
+
+  <p>應用端設定環境變數：</p>
+
+  <pre><code>export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+export OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://prometheus:9090/api/v1/otlp/v1/metrics</code></pre>
+
+  <h3>4.2 路徑 B：經過 OTel Collector → Prometheus OTLP receiver</h3>
+
+  <p>適合需要在中間做處理（取樣、加工、k8s metadata 注入）的場景。</p>
+
+  <div class="mermaid">
+graph LR
+    APP["App + OTel SDK"] -->|OTLP| C[OTel Collector]
+    C -->|OTLP HTTP| PRO[Prometheus]
+    PRO --> G[Grafana]
+</div>
+
+  <h3>4.3 路徑 C：Collector 用 Prometheus exporter（拉模式）</h3>
+
+  <p>Collector 把 OTel 訊號轉換成 Prometheus 格式，由 Prometheus scrape 來抓。</p>
+
+  <pre><code># OTel Collector 配置
+exporters:
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    namespace: "myapp"
+    resource_to_telemetry_conversion:
+      enabled: true
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      exporters: [prometheus]</code></pre>
+
+  <p>Prometheus 端：</p>
+
+  <pre><code>scrape_configs:
+  - job_name: 'otel-collector'
+    static_configs:
+      - targets: ['otel-collector:8889']</code></pre>
+
+  <h3>4.4 路徑 D：Collector 用 Prometheus Remote Write exporter</h3>
+
+  <p>適合直接送到長期儲存（Mimir / Thanos / VictoriaMetrics）。</p>
+
+  <pre><code># OTel Collector 配置
+exporters:
+  prometheusremotewrite:
+    endpoint: "https://mimir.example.com/api/v1/push"
+    headers:
+      X-Scope-OrgID: "my-tenant"
+    resource_to_telemetry_conversion:
+      enabled: true
+    external_labels:
+      cluster: "production"
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      exporters: [prometheusremotewrite]</code></pre>
+
+  <h3>4.5 四種路徑比較</h3>
+
+  <table>
+    <thead>
+      <tr><th>路徑</th><th>傳輸</th><th>優點</th><th>缺點</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>A. OTLP → Prom 直連</td>
+        <td>OTLP HTTP</td>
+        <td>最簡單、無中間元件</td>
+        <td>無法做進階處理、Prometheus 必須能直接被應用觸達</td>
+      </tr>
+      <tr>
+        <td>B. OTel Collector → Prom OTLP</td>
+        <td>OTLP</td>
+        <td>可做處理、可緩衝</td>
+        <td>多一層元件</td>
+      </tr>
+      <tr>
+        <td>C. Collector + Prometheus exporter（拉）</td>
+        <td>HTTP scrape</td>
+        <td>沿用 Prom 拉模型、無 push 認證問題</td>
+        <td>Collector stateful 多副本要 sharding</td>
+      </tr>
+      <tr>
+        <td>D. Collector + Remote Write exporter</td>
+        <td>Remote Write</td>
+        <td>直送長期儲存、生態成熟</td>
+        <td>Remote Write 不傳遞 metadata（Help/Type 資訊遺失）</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="section-5">§ 5. 整合方式 2：Prometheus → OTel</h2>
+
+  <p>反過來，當您有 Prometheus 既有環境，但想把資料送到 OTel-native 後端：</p>
+
+  <h3>5.1 路徑 E：OTel Collector 的 Prometheus receiver（拉）</h3>
+
+  <p>讓 Collector 扮演「Prometheus server」去抓 <code>/metrics</code> 端點：</p>
+
+  <pre><code>receivers:
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: 'node-exporter'
+          static_configs:
+            - targets: ['node-exporter:9100']
+          scrape_interval: 30s
+
+exporters:
+  otlp:
+    endpoint: backend.example.com:4317
+
+service:
+  pipelines:
+    metrics:
+      receivers: [prometheus]
+      exporters: [otlp]</code></pre>
+
+  <h3>5.2 路徑 F：Collector 的 prometheusremotewrite receiver</h3>
+
+  <p>讓 Prometheus 用 remote_write 把資料推給 Collector：</p>
+
+  <pre><code># OTel Collector
+receivers:
+  prometheusremotewrite:
+    endpoint: 0.0.0.0:19291
+
+# Prometheus.yml
+remote_write:
+  - url: http://otel-collector:19291/api/v1/write</code></pre>
+
+  <h2 id="section-6">§ 6. 整合方式 3：Grafana Alloy 作為融合方案</h2>
+
+  <p>
+    如同 Ch 03 介紹過，<strong>Grafana Alloy</strong> 同時是 OTel Collector 的發行版，
+    也內建 Prometheus 風格的 scrape 引擎。一個 Alloy 就能扮演：
+  </p>
+
+  <ul>
+    <li>OTLP receiver（接收應用的 OTel 訊號）</li>
+    <li>Prometheus scraper（抓 exporters 與 <code>/metrics</code>）</li>
+    <li>Promtail（抓 logs 送 Loki）</li>
+    <li>Tail-based sampling 處理 traces</li>
+    <li>同時把資料 fan-out 到多個後端</li>
+  </ul>
+
+  <div class="mermaid">
+graph TB
+    subgraph Sources["訊號來源"]
+        OS["App with OTel SDK"]
+        PS["App with Prom client"]
+        EX[Exporters]
+        K8s[K8s API]
+    end
+
+    subgraph Alloy["Grafana Alloy<br/> · 融合 Collector "]
+        OR[OTLP receiver]
+        PS2[Prom scrape]
+        PR[Process / Filter]
+    end
+
+    subgraph Backends["後端們"]
+        P[Prometheus / Mimir]
+        L[Loki]
+        T[Tempo]
+        OT[Other OTLP backend]
+    end
+
+    OS --> OR
+    PS --> PS2
+    EX --> PS2
+    K8s --> PS2
+
+    OR --> PR
+    PS2 --> PR
+
+    PR --> P
+    PR --> L
+    PR --> T
+    PR --> OT
+</div>
+
+  <h2 id="section-7">§ 7. 選型決策：Prometheus Client Library 還是 OTel SDK？</h2>
+
+  <p>
+    對新專案來說，最常見的問題是：「我的應用要用 <code>prometheus-client</code> 還是 OTel SDK？」
+    這個決定影響重大，因為它決定了未來的可移植性與擴展性。
+  </p>
+
+  <h3>7.1 選 Prometheus Client Library 的時機</h3>
+
+  <ul>
+    <li>只關心 metrics，不打算做 traces 或 logs</li>
+    <li>確定後端永遠是 Prometheus / VictoriaMetrics / Mimir</li>
+    <li>應用是 Go/Python 等 Prometheus 原生支援良好的語言</li>
+    <li>需要 Prometheus 特有功能（exemplars、native histogram、precise relabeling）</li>
+    <li>團隊已熟悉 Prometheus 生態，沒有跨後端遷移需求</li>
+  </ul>
+
+  <h3>7.2 選 OTel SDK 的時機</h3>
+
+  <ul>
+    <li>需要同時做 metrics + traces（甚至 logs）</li>
+    <li>未來可能切換到不同 APM 廠商或後端</li>
+    <li>多語言混合環境，希望有一致的 API</li>
+    <li>需要 trace context propagation（W3C TraceContext）</li>
+    <li>使用 auto-instrumentation 簡化埋點</li>
+  </ul>
+
+  <h3>7.3 折衷方案</h3>
+
+  <div class="callout success">
+    <div class="callout-title">✅ 業界較主流的折衷做法</div>
+    <ul>
+      <li><strong>Metrics</strong>：用 Prometheus Client Library（成熟、效能好、特性完整）</li>
+      <li><strong>Traces</strong>：用 OTel SDK（業界標準、auto-instrumentation 強）</li>
+      <li><strong>Logs</strong>：用語言原生 logger，加上結構化欄位（trace_id、span_id）</li>
+      <li>三者都用 OTel Collector / Alloy 統一收集與路由</li>
+    </ul>
+  </div>
+
+  <h3>7.4 OTel SDK 提供 Prometheus exporter</h3>
+
+  <p>
+    最後值得一提：OTel 各語言 SDK 都提供 <strong>Prometheus exporter</strong> 模組，
+    讓您即使選 OTel SDK 也能直接暴露 <code>/metrics</code> endpoint，
+    讓 Prometheus 拉取。這是「拿 OTel 的 API、用 Prometheus 的拉模型」的折衷做法。
+  </p>
+
+  <h2 id="section-8">§ 8. 常見陷阱與最佳實踐</h2>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 陷阱 1：Resource attribute 沒升格成 label</div>
+    <p>
+      OTel 的 <code>service.name</code>、<code>k8s.pod.name</code> 等 resource attribute 預設
+      不會自動成為 Prometheus label，而是被存進一條特別的 <code>target_info</code> metric。
+      查詢時若沒做 join 會看不到這些屬性。解法：在 Prometheus 設定 <code>otlp.promote_resource_attributes</code>
+      或在 Collector 啟用 <code>resource_to_telemetry_conversion</code>。
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 陷阱 2：Out-of-order 樣本被拒絕</div>
+    <p>
+      多副本 OTel Collector 同時發送可能造成樣本順序錯亂。Prometheus 預設會拒絕亂序樣本。
+      解法：在 <code>storage.tsdb</code> 設定 <code>out_of_order_time_window: 30m</code>。
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 陷阱 3：Delta temporality 直接送 Prometheus</div>
+    <p>
+      OTel 支援 cumulative 與 delta 兩種時間性，但 Prometheus 原生只認 cumulative。
+      若應用送 delta 給 Prometheus，數值會不正確。解法：應用設 <code>OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=cumulative</code>，
+      或在 Collector 用 <code>deltatocumulative</code> processor 轉換。
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 陷阱 4：Metric 名稱翻譯造成混淆</div>
+    <p>
+      OTel 的 <code>http.server.duration</code> 在 Prometheus 預設會被翻譯成
+      <code>http_server_duration_seconds</code>（多了單位後綴與底線替換）。
+      若團隊不知道這個規則，會找不到 metric。解法：明確設定
+      <code>translation_strategy</code>，並在文件中說明。
+    </p>
+  </div>
+
+  <div class="callout success">
+    <div class="callout-title">✅ 最佳實踐</div>
+    <ol>
+      <li><strong>新專案優先選 OTel SDK 做 traces</strong>，metrics 視團隊熟悉度而定</li>
+      <li><strong>用 OTel Collector / Alloy 作為統一管線</strong>，避免應用直連後端</li>
+      <li><strong>應用只送 OTLP，後端可隨時更換</strong>（Prometheus → Mimir → 商業 SaaS）</li>
+      <li><strong>明確設定 promote_resource_attributes</strong>，避免查詢時找不到 service name</li>
+      <li><strong>遵循 OTel Semantic Conventions</strong>，metric/attribute 命名一致</li>
+      <li><strong>啟用 Prometheus 的 UTF-8 + out-of-order</strong>（v3+ 預設啟用）</li>
+    </ol>
+  </div>
+
+  <h2>📚 延伸閱讀</h2>
+
+  <ul>
+    <li><a href="https://opentelemetry.io/docs/" target="_blank" rel="noopener">OpenTelemetry 官方文件</a></li>
+    <li><a href="https://prometheus.io/docs/guides/opentelemetry/" target="_blank" rel="noopener">Prometheus: Using Prometheus as your OpenTelemetry backend</a></li>
+    <li><a href="https://opentelemetry.io/blog/2024/prom-and-otel/" target="_blank" rel="noopener">OTel Blog: Prometheus and OpenTelemetry — Better Together</a></li>
+    <li><a href="https://prometheus.io/docs/prometheus/latest/feature_flags/" target="_blank" rel="noopener">Prometheus Feature Flags（含 OTLP receiver）</a></li>
+    <li><a href="https://opentelemetry.io/docs/specs/semconv/" target="_blank" rel="noopener">OpenTelemetry Semantic Conventions</a></li>
+    <li><a href="https://github.com/open-telemetry/opentelemetry-collector-contrib" target="_blank" rel="noopener">opentelemetry-collector-contrib（含所有 receivers / exporters）</a></li>
+  </ul>
+
+  <h2>✅ 本章重點摘要</h2>
+
+  <div class="callout success">
+    <div class="callout-title">30 秒回顧</div>
+    <ul>
+      <li>OpenTelemetry = OpenTracing + OpenCensus 合併（2019），CNCF Graduated 標準</li>
+      <li>核心元件：<strong>SDK / Collector / OTLP 協議</strong>，三大訊號：Traces / Metrics / Logs</li>
+      <li>OTel 與 Prometheus <strong>互補大於競爭</strong>，Prometheus 致力於成為 OTel metrics 原生後端</li>
+      <li>OTel → Prom 整合 4 種路徑：直連 OTLP、Collector OTLP、Prom exporter（拉）、Remote Write</li>
+      <li>選型建議：<strong>Metrics 用 Prom Client、Traces 用 OTel SDK</strong>（業界主流折衷）</li>
+      <li>關鍵配置：<code>promote_resource_attributes</code>、<code>out_of_order_time_window</code>、<code>translation_strategy</code></li>
+    </ul>
+  </div>
+
+  <h2>📝 練習題</h2>
+
+  <ol>
+    <li>請列出您負責的應用目前使用什麼方式埋點 metrics（Prometheus client、OTel SDK、或無埋點）。</li>
+    <li>假設您要在現有 Prometheus 環境中接收一個新團隊的 OTLP metrics，請選擇本章四種路徑中最合適的一種並說明理由。</li>
+    <li>請執行 <code>curl -X POST -H "Content-Type: application/json" http://localhost:9090/api/v1/otlp/v1/metrics</code>，
+      觀察會回什麼錯誤訊息（要先啟用 OTLP receiver）。</li>
+    <li>查閱 OTel Semantic Conventions 中關於 HTTP 的規範，列出 5 個標準 attribute 名稱。</li>
+  </ol>
+
+  <nav class="footer-nav">
+    <a href="ch03-Grafana-lgtm-stack-ecosystem.html">
+      <div class="nav-direction">← 上一章</div>
+      <div class="nav-title">Ch 03 · Grafana LGTM+ Stack</div>
+    </a>
+    <a class="next" href="ch05-Prometheus-concepts-and-data-model.html">
+      <div class="nav-direction">下一章 →</div>
+      <div class="nav-title">Ch 05 · Prometheus 概念與資料模型</div>
+    </a>
+  </nav>
+
+</main>
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else { init(); }
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  // Calm Teal hue 200° 設計色系 → mermaid themeVariables 對齊 tokens.css
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    return {
+      startOnLoad: false,
+      securityLevel: 'loose',
+      fontFamily: 'DM Sans, Inter, Noto Sans TC, sans-serif',
+      theme: 'base',
+      themeVariables: isDark ? {
+        background: '#2a2520',
+        primaryColor: '#1f3a4a',
+        primaryTextColor: '#e8e6e1',
+        primaryBorderColor: '#5a8499',
+        lineColor: '#7a8a8f',
+        secondaryColor: '#2d3a32',
+        tertiaryColor: '#3a3528',
+        nodeBorder: '#5a8499',
+        clusterBkg: '#252523',
+        clusterBorder: '#4a4944',
+        edgeLabelBackground: '#2a2520',
+        textColor: '#e8e6e1',
+      } : {
+        background: '#fdfcfa',
+        primaryColor: '#cffafe',
+        primaryTextColor: '#1a1a18',
+        primaryBorderColor: '#0891b2',
+        lineColor: '#4a6873',
+        secondaryColor: '#dcfce7',
+        tertiaryColor: '#fef3c7',
+        nodeBorder: '#0891b2',
+        clusterBkg: '#f5f3ee',
+        clusterBorder: '#d4d2cd',
+        edgeLabelBackground: '#fdfcfa',
+        textColor: '#1a1a18',
+      },
+    };
+  }
+  mermaid.initialize(getMermaidConfig());
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => mermaid.run());
+  } else {
+    mermaid.run();
+  }
+  window.addEventListener('jhsun:theme-changed', () => {
+    document.querySelectorAll('.mermaid').forEach(el => {
+      const code = el.dataset.source || el.textContent;
+      if (!el.dataset.source) el.dataset.source = code;
+      el.removeAttribute('data-processed');
+      el.innerHTML = el.dataset.source;
+    });
+    mermaid.initialize(getMermaidConfig());
+    mermaid.run();
+  });
+</script>
+</body>
+</html>

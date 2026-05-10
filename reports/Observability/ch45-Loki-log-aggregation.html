@@ -1,0 +1,1230 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch45 · Loki Log Aggregation | Prometheus / Alertmanager / Grafana 完整教學</title>
+<style>
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --text-3xl: 44px;
+  --text-4xl: 64px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+  --container-narrow: 720px;
+  --container-wide: 1280px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80;
+  --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24;
+  --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171;
+  --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee;
+  --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  padding: 0;
+}
+.top-nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-soft);
+  padding: var(--space-3) var(--space-5);
+  display: flex; justify-content: space-between; align-items: center;
+  backdrop-filter: blur(8px);
+}
+.nav-links { display: flex; gap: var(--space-3); align-items: center; }
+.nav-links a {
+  color: var(--text-secondary); text-decoration: none;
+  font-size: var(--text-sm); padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm); transition: all 0.2s ease;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--color-primary-soft); }
+.nav-links a.disabled { color: var(--text-muted); cursor: not-allowed; pointer-events: none; }
+button[data-theme-toggle] {
+  background: var(--bg-muted); color: var(--text-primary);
+  border: 1px solid var(--border-soft);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+  cursor: pointer; font-size: var(--text-sm);
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-sans); transition: all 0.2s ease;
+}
+button[data-theme-toggle]:hover { background: var(--color-primary-soft); border-color: var(--color-primary); }
+.theme-icon { font-size: var(--text-md); }
+main { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-7) var(--space-5); }
+@media (min-width: 1024px) { main { max-width: 880px; } }
+.chapter-meta {
+  font-size: var(--text-sm); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: var(--space-3); font-family: var(--font-mono);
+}
+h1 {
+  font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 700;
+  line-height: 1.15; margin: 0 0 var(--space-4);
+  color: var(--text-primary); letter-spacing: -0.02em;
+}
+.subtitle {
+  font-size: var(--text-md); color: var(--text-secondary);
+  margin-bottom: var(--space-7); font-style: italic;
+  border-left: 3px solid var(--color-primary); padding-left: var(--space-4);
+}
+h2 {
+  font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600;
+  margin-top: var(--space-8); margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2); border-bottom: 2px solid var(--border-soft);
+  color: var(--text-primary);
+}
+h3 { font-size: var(--text-xl); font-weight: 600; margin-top: var(--space-6); margin-bottom: var(--space-3); color: var(--text-primary); }
+h4 { font-size: var(--text-md); font-weight: 600; margin-top: var(--space-5); margin-bottom: var(--space-2); color: var(--text-primary); }
+p { margin: var(--space-3) 0; }
+strong { color: var(--text-primary); font-weight: 600; }
+em { color: var(--text-secondary); }
+a {
+  color: var(--color-primary-text); text-decoration: underline;
+  text-decoration-color: var(--color-primary-soft);
+  text-underline-offset: 3px; transition: all 0.2s ease;
+}
+a:hover { color: var(--color-primary-hover); text-decoration-color: var(--color-primary); }
+code {
+  font-family: var(--font-mono); font-size: 0.92em;
+  background: var(--bg-code); padding: 0.15em 0.4em;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-soft);
+  color: var(--color-primary-text);
+}
+pre {
+  background: var(--bg-code); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  overflow-x: auto; font-size: var(--text-sm); line-height: 1.6;
+  margin: var(--space-4) 0;
+}
+pre code { background: transparent; border: none; padding: 0; color: var(--text-primary); }
+.callout {
+  margin: var(--space-5) 0; padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md); border-left: 4px solid;
+}
+.callout-title {
+  font-weight: 600; margin-bottom: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.callout.info { background: var(--color-info-soft); border-color: var(--color-info); }
+.callout.info .callout-title { color: var(--color-info); }
+.callout.success { background: var(--color-success-soft); border-color: var(--color-success); }
+.callout.success .callout-title { color: var(--color-success); }
+.callout.warning { background: var(--color-warning-soft); border-color: var(--color-warning); }
+.callout.warning .callout-title { color: var(--color-warning); }
+.callout.danger { background: var(--color-danger-soft); border-color: var(--color-danger); }
+.callout.danger .callout-title { color: var(--color-danger); }
+table {
+  width: 100%; border-collapse: collapse; margin: var(--space-5) 0;
+  font-size: var(--text-sm); background: var(--bg-surface);
+  border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-sm);
+}
+th, td { text-align: left; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); }
+th {
+  background: var(--bg-muted); font-weight: 600; color: var(--text-primary);
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg-muted); }
+ul, ol { padding-left: var(--space-5); margin: var(--space-3) 0; }
+li { margin: var(--space-2) 0; }
+li::marker { color: var(--color-primary); }
+.toc {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4) var(--space-5);
+  margin: var(--space-5) 0;
+}
+.toc-title {
+  font-weight: 600; font-size: var(--text-sm);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted); margin-bottom: var(--space-3);
+}
+.toc ul { list-style: none; padding-left: 0; }
+.toc li { margin: var(--space-1) 0; }
+.toc a { text-decoration: none; }
+.toc ul ul { padding-left: var(--space-4); }
+.card-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4); margin: var(--space-5) 0;
+}
+.card {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  transition: all 0.2s ease;
+}
+.card:hover { box-shadow: var(--shadow-md); border-color: var(--color-primary); transform: translateY(-2px); }
+.card-num { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-primary); font-weight: 600; }
+.card-title { font-weight: 600; font-size: var(--text-base); margin: var(--space-2) 0; color: var(--text-primary); }
+.card-desc { font-size: var(--text-sm); color: var(--text-secondary); }
+.mermaid {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-5);
+  margin: var(--space-5) 0; text-align: center; overflow-x: auto;
+}
+.footer-nav {
+  display: flex; justify-content: space-between;
+  margin-top: var(--space-8); padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft); gap: var(--space-3);
+}
+.footer-nav a {
+  flex: 1; padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); text-decoration: none;
+  color: var(--text-primary); transition: all 0.2s ease;
+}
+.footer-nav a:hover { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.footer-nav .nav-direction {
+  font-size: var(--text-xs); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.footer-nav .nav-title { font-weight: 600; margin-top: var(--space-1); }
+.footer-nav .next { text-align: right; }
+.footer-nav a.disabled { opacity: 0.4; pointer-events: none; }
+.tag {
+  display: inline-block; padding: 0.1em 0.6em; font-size: var(--text-xs);
+  border-radius: var(--radius-sm); font-family: var(--font-mono);
+  background: var(--bg-muted); color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+}
+.tag.primary { background: var(--color-primary-soft); color: var(--color-primary-text); border-color: var(--color-primary); }
+@media print { .top-nav, .footer-nav, button[data-theme-toggle] { display: none; } }
+</style>
+</head>
+<body>
+
+<nav class="top-nav">
+  <div class="nav-links">
+    <a href="ch44-Overview-terraform-ansible-operator.html">← 上一章</a>
+    <a href="ch00-Overview-learning-path.html">📚 目錄</a>
+    <a href="ch46-Tempo-distributed-tracing.html">下一章 →</a>
+  </div>
+  <button data-theme-toggle aria-label="Toggle theme"></button>
+</nav>
+
+<main>
+  <div class="chapter-meta">Chapter 45 · Loki Log Aggregation</div>
+  <h1>Loki：Prometheus-style 的 Log Aggregation</h1>
+  <p class="subtitle">
+    歡迎來到 Part 5 — Grafana 生態系。本章開始 LGTM Stack 的「<strong>L</strong>」：Loki，
+    Grafana Labs 推出的 log 系統。設計哲學「<strong>不索引內容、只索引 label</strong>」讓它比 Elasticsearch 便宜 10 倍。
+    本章涵蓋架構、LogQL、部署模式（單 binary 到 microservices）、agent 選擇（Promtail vs Alloy）。
+  </p>
+
+  <div class="toc">
+    <div class="toc-title">本章內容</div>
+    <ul>
+      <li><a href="#section-1">§ 1. 為什麼需要 Loki</a></li>
+      <li><a href="#section-2">§ 2. 核心設計哲學</a></li>
+      <li><a href="#section-3">§ 3. 架構與元件</a></li>
+      <li><a href="#section-4">§ 4. 三種部署模式</a></li>
+      <li><a href="#section-5">§ 5. LogQL 完整語法</a></li>
+      <li><a href="#section-6">§ 6. Storage：Object Storage</a></li>
+      <li><a href="#section-7">§ 7. Promtail vs Alloy（Agent）</a></li>
+      <li><a href="#section-8">§ 8. 多租戶</a></li>
+      <li><a href="#section-9">§ 9. 與 Prometheus + Tempo 整合</a></li>
+      <li><a href="#section-10">§ 10. Production Best Practices</a></li>
+      <li><a href="#section-11">§ 11. 常見陷阱</a></li>
+    </ul>
+  </div>
+
+  <h2 id="section-1">§ 1. 為什麼需要 Loki</h2>
+
+  <h3>1.1 既有 log 系統的痛點</h3>
+
+  <table>
+    <thead>
+      <tr><th>方案</th><th>痛點</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Elasticsearch + Kibana (ELK)</strong></td>
+        <td>Full-text indexing 成本高、query 慢、JVM 吃記憶體、運維複雜</td>
+      </tr>
+      <tr>
+        <td><strong>Splunk</strong></td>
+        <td>商業授權、按 GB 收費、scale 大時超貴</td>
+      </tr>
+      <tr>
+        <td><strong>檔案 + grep</strong></td>
+        <td>分散式環境不可行、無 retention 管理</td>
+      </tr>
+      <tr>
+        <td><strong>CloudWatch / Stackdriver</strong></td>
+        <td>vendor lock-in、跨 cloud 困難、價格高</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>1.2 Loki 的位置</h3>
+
+  <p>
+    Loki 由 Grafana Labs 在 2018 創立，靈感來自 Prometheus：「<strong>就像 Prometheus 但是給 log</strong>」。
+    成本是 Elasticsearch 的 1/10，與 Grafana 完美整合。
+  </p>
+
+  <h3>1.3 Loki 不適合的場景</h3>
+
+  <ul>
+    <li><strong>Full-text search 為主</strong>（電商搜商品 / 知識庫）→ 用 Elasticsearch</li>
+    <li><strong>Compliance 需要不可變 log</strong>（SOX / HIPAA）→ Splunk + WORM storage</li>
+    <li><strong>需要複雜 NLP 分析</strong> → ELK 或專業工具</li>
+  </ul>
+
+  <p>但對 SRE 場景的 log（debug、incident 排查、metric 萃取），<strong>Loki 是首選</strong>。</p>
+
+  <h2 id="section-2">§ 2. 核心設計哲學</h2>
+
+  <h3>2.1 Label-only Indexing</h3>
+
+  <div class="callout success">
+    <div class="callout-title">💡 核心洞察</div>
+    <p>
+      多數 log 系統都把 log 全文 indexed，造成 index 膨脹。<br>
+      Loki 觀察：「<strong>查 log 時，通常先用 label 縮小範圍（service=api, namespace=prod），
+      然後 grep 內容</strong>」。所以：<br>
+      • <strong>只索引 label</strong>（namespace / pod / app / level / ...）<br>
+      • <strong>log 內容存壓縮 chunk</strong>，按 label 分組<br>
+      • Query 時：先用 label 找到 chunks → 再 grep 內容
+    </p>
+  </div>
+
+  <h3>2.2 為什麼這樣便宜</h3>
+
+  <ul>
+    <li>Index 小（10:1 vs full-text）→ RAM 與 SSD 用量低</li>
+    <li>Storage 用<strong>便宜的 object store</strong>（S3 / GCS）— 不用昂貴 SSD</li>
+    <li>無 schema、無 mapping，運維簡單</li>
+    <li>跟 Prometheus 用一樣的 label model，學習成本低</li>
+  </ul>
+
+  <h3>2.3 取捨</h3>
+
+  <p>沒有免費午餐：</p>
+
+  <ul>
+    <li>Full-text query 比 ES 慢</li>
+    <li>跨 stream 的 join 不容易</li>
+    <li>Cardinality 爆炸時也會壞（跟 Prometheus 一樣）</li>
+  </ul>
+
+  <h2 id="section-3">§ 3. 架構與元件</h2>
+
+  <h3>3.1 邏輯路徑</h3>
+
+  <div class="mermaid">
+graph LR
+    APP[Application]
+    AGENT[Agent · Promtail · Alloy]
+    DIST[Distributor]
+    INGEST[Ingester]
+    OBJ[(Object Storage<br/>S3 · GCS · Azure)]
+    QUERIER[Querier]
+    QF[Query Frontend]
+    USER[User · Grafana]
+
+    APP -- log lines --> AGENT
+    AGENT -- HTTP push --> DIST
+    DIST -- shards --> INGEST
+    INGEST -- write chunks --> OBJ
+    USER -- LogQL --> QF
+    QF -- splits query --> QUERIER
+    QUERIER -- read chunks --> OBJ
+    QUERIER -- read recent --> INGEST
+</div>
+
+  <h3>3.2 主要元件職責</h3>
+
+  <table>
+    <thead>
+      <tr><th>元件</th><th>職責</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Distributor</strong></td>
+        <td>接收 push、validation、按 hash 路由到 ingester</td>
+      </tr>
+      <tr>
+        <td><strong>Ingester</strong></td>
+        <td>記憶體中累積 chunks（壓縮 log lines）、定期 flush 到 object store</td>
+      </tr>
+      <tr>
+        <td><strong>Query Frontend</strong></td>
+        <td>切分大查詢為小查詢、cache、平行化</td>
+      </tr>
+      <tr>
+        <td><strong>Querier</strong></td>
+        <td>從 ingester（最近）+ object store（歷史）讀資料、執行 LogQL</td>
+      </tr>
+      <tr>
+        <td><strong>Compactor</strong></td>
+        <td>合併 ingester flush 的小 chunks，提升 query 效能</td>
+      </tr>
+      <tr>
+        <td><strong>Ruler</strong></td>
+        <td>評估 alerting / recording rule（從 log 算 metric）</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>3.3 Stream 與 Chunk</h3>
+
+  <p>
+    <strong>Stream</strong>：一組 label 的 log 集合（例如 <code>{namespace="prod", app="api"}</code>）。<br>
+    <strong>Chunk</strong>：Stream 內按時間切分的壓縮資料塊（10MB 或 2 小時）。
+  </p>
+
+  <pre><code>Stream: {namespace="prod", app="api", pod="api-1"}
+  ├── Chunk 1: 10:00-12:00, 10MB compressed
+  ├── Chunk 2: 12:00-14:00, 10MB compressed
+  └── Chunk 3: 14:00-now,   in memory</code></pre>
+
+  <h3>3.4 Schemaconfig 與 Storage</h3>
+
+  <p>v3+ 推薦使用 <code>tsdb</code> schema（取代舊 <code>boltdb-shipper</code>）：</p>
+
+  <pre><code>schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: s3
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h</code></pre>
+
+  <h2 id="section-4">§ 4. 三種部署模式</h2>
+
+  <h3>4.1 三種模式對比</h3>
+
+  <table>
+    <thead>
+      <tr><th>模式</th><th>適合</th><th>每天 log 量</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Monolithic（single binary）</strong></td>
+        <td>PoC、小團隊</td>
+        <td>&lt; 100 GB</td>
+      </tr>
+      <tr>
+        <td><strong>Simple Scalable</strong></td>
+        <td>中型企業</td>
+        <td>100 GB - 1 TB</td>
+      </tr>
+      <tr>
+        <td><strong>Microservices</strong></td>
+        <td>大規模、多租戶</td>
+        <td>&gt; 1 TB</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>4.2 Monolithic 範例（Helm）</h3>
+
+  <pre><code>helm repo add grafana https://grafana.github.io/helm-charts
+
+helm install loki grafana/loki \
+  --namespace logging --create-namespace \
+  --set deploymentMode=SingleBinary \
+  --set loki.commonConfig.replication_factor=1 \
+  --set loki.storage.type=filesystem</code></pre>
+
+  <h3>4.3 Simple Scalable（推薦中型）</h3>
+
+  <pre><code># values.yaml
+deploymentMode: SimpleScalable
+
+loki:
+  commonConfig:
+    replication_factor: 3
+  storage:
+    type: s3
+    bucketNames:
+      chunks: loki-chunks
+      ruler:  loki-ruler
+    s3:
+      region: us-east-1
+      endpoint: s3.us-east-1.amazonaws.com
+
+read:
+  replicas: 3
+backend:
+  replicas: 3
+write:
+  replicas: 3</code></pre>
+
+  <p>三組 stateful pods：write（含 distributor + ingester）、read（querier + frontend）、backend（compactor + ruler）。</p>
+
+  <h3>4.4 Microservices 模式</h3>
+
+  <p>每個元件獨立 deploy，可獨立 scale。適合 1TB+/day 的大規模。詳見 <a href="https://grafana.com/docs/loki/latest/setup/install/helm/install-microservices/" target="_blank" rel="noopener">官方文件</a>。</p>
+
+  <h3>4.5 部署模式漸進路徑</h3>
+
+  <ol>
+    <li>POC → Monolithic + filesystem</li>
+    <li>進入 production → Simple Scalable + S3</li>
+    <li>規模 &gt; 1TB/day → Microservices</li>
+    <li>多租戶 SaaS → Microservices + multi-tenant config</li>
+  </ol>
+
+  <h2 id="section-5">§ 5. LogQL 完整語法</h2>
+
+  <h3>5.1 基本結構：5 層</h3>
+
+  <pre><code>Layer 1: Stream Selector（必有）
+  {namespace="prod", app="api"}
+
+Layer 2: Line Filter（可選，可多層）
+  {app="api"} |= "error"
+
+Layer 3: Parser（可選）
+  {app="api"} |= "error" | json
+  {app="api"} | logfmt
+  {app="api"} | regexp `(?P<level>\w+)`
+
+Layer 4: Label Filter（解析後）
+  {app="api"} | json | level="error"
+
+Layer 5: Aggregation（變 metric）
+  sum by (level) (rate({app="api"}[5m]))</code></pre>
+
+  <h3>5.2 Stream Selector</h3>
+
+  <p>跟 PromQL 一樣的 matcher 語法：</p>
+
+  <pre><code>{app="api"}                       # 等於
+{app=~"api|web"}                  # regex 匹配
+{app="api", env!="dev"}           # 不等於
+{cluster=~"prod-.+"}              # regex
+{__name__="some_metric"}          # 不適用 Loki（這是 PromQL）</code></pre>
+
+  <h3>5.3 Line Filter</h3>
+
+  <table>
+    <thead>
+      <tr><th>運算子</th><th>意義</th><th>性能</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>|=</code></td><td>包含</td><td>最快</td></tr>
+      <tr><td><code>!=</code></td><td>不包含</td><td>快</td></tr>
+      <tr><td><code>|~</code></td><td>regex 匹配</td><td>慢</td></tr>
+      <tr><td><code>!~</code></td><td>regex 不匹配</td><td>慢</td></tr>
+    </tbody>
+  </table>
+
+  <p>多 filter 串接（從左到右）：</p>
+
+  <pre><code>{app="api"} |= "error" != "test" |~ "user_\d+"</code></pre>
+
+  <h3>5.4 Parser</h3>
+
+  <pre><code># JSON parser
+{app="api"} | json
+# 自動把 JSON 欄位變成 label
+
+# 指定特定欄位
+{app="api"} | json level, message
+
+# Logfmt parser（key=value）
+{app="api"} | logfmt
+# log line: level=info msg="hello" duration=1s
+# 變 label: level, msg, duration
+
+# Regex parser
+{app="api"} | regexp `(?P<method>\w+) (?P<path>/\S+) (?P<status>\d+)`
+
+# Pattern parser（v2.7+，比 regex 快）
+{app="api"} | pattern `<method> <path> <status>`
+
+# Unpack（用於 Promtail 預先打包的 log）
+{app="api"} | unpack</code></pre>
+
+  <h3>5.5 Label Filter（解析後使用）</h3>
+
+  <pre><code>{app="api"} | json | level="error"
+{app="api"} | logfmt | duration > 1s
+{app="api"} | json | status_code >= 400 and method="POST"
+{app="api"} | json | __error__=""    # 過濾解析錯誤的</code></pre>
+
+  <h3>5.6 Line Format（修改顯示）</h3>
+
+  <pre><code>{app="api"}
+  | json
+  | line_format `[{{.level}}] {{.user_id}} - {{.message}}`</code></pre>
+
+  <h3>5.7 Metric Queries（從 log 算 metric）</h3>
+
+  <pre><code># Rate（每秒 log 行數）
+rate({app="api"}[5m])
+
+# Count over time
+count_over_time({app="api"} |= "error" [5m])
+
+# Bytes over time（log size）
+bytes_over_time({app="api"}[5m])
+
+# 從解析後欄位算數值
+quantile_over_time(0.99,
+  {app="api"} | json | unwrap duration_ms [5m]
+)
+
+# Aggregation
+sum by (level) (rate({app="api"} | json [5m]))
+topk(10, sum by (path) (count_over_time({app="api"}[5m])))</code></pre>
+
+  <h3>5.8 LogQL 性能優化</h3>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ Loki 性能黃金規則</div>
+    <ol>
+      <li><strong>Stream selector 越精確越好</strong>：<code>{app="api"}</code> 比 <code>{app=~".+"}</code> 快 10000 倍</li>
+      <li><strong>Line filter 越早越好</strong>：<code>|=</code> 在 parser 之前才有效</li>
+      <li><strong>用 <code>|=</code> 不用 <code>|~</code></strong>：regex 慢，能用字串就用</li>
+      <li><strong>避開 high-cardinality label</strong>：log 行 ID、UUID 不該當 label</li>
+      <li><strong>限制 time range</strong>：1h 比 24h 快 24 倍</li>
+    </ol>
+  </div>
+
+  <h2 id="section-6">§ 6. Storage：Object Storage</h2>
+
+  <h3>6.1 支援的 backend</h3>
+
+  <table>
+    <thead>
+      <tr><th>後端</th><th>適用</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>AWS S3</strong></td><td>AWS 環境</td></tr>
+      <tr><td><strong>Google Cloud Storage</strong></td><td>GCP</td></tr>
+      <tr><td><strong>Azure Blob Storage</strong></td><td>Azure</td></tr>
+      <tr><td><strong>MinIO / Ceph</strong></td><td>自架 S3-compatible</td></tr>
+      <tr><td><strong>OpenStack Swift</strong></td><td>OpenStack</td></tr>
+      <tr><td><strong>filesystem</strong></td><td>單機 / 開發</td></tr>
+    </tbody>
+  </table>
+
+  <h3>6.2 S3 完整設定</h3>
+
+  <pre><code>storage_config:
+  aws:
+    s3: s3://us-east-1
+    bucketnames: loki-chunks
+    region: us-east-1
+    # 用 IAM Role（K8s 推薦）
+    # 或 access key（不建議）
+    # access_key_id: AKIA...
+    # secret_access_key: ...
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: s3
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h</code></pre>
+
+  <h3>6.3 Retention（保留期）</h3>
+
+  <pre><code>limits_config:
+  retention_period: 720h    # 30 天
+
+# 不同 tenant 不同 retention
+limits_config:
+  retention_period: 720h
+  retention_stream:
+    - selector: '{namespace="audit"}'
+      priority: 1
+      period: 8760h         # audit log 保留 1 年</code></pre>
+
+  <h3>6.4 Compactor（必設）</h3>
+
+  <pre><code>compactor:
+  working_directory: /var/loki/compactor
+  shared_store: s3
+  compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h</code></pre>
+
+  <h3>6.5 成本估算範例</h3>
+
+  <p>1 TB log/月，30 天 retention：</p>
+
+  <ul>
+    <li>S3 storage（30TB total，with 30 天 lifecycle）：~$700/月</li>
+    <li>Loki compute（3 read + 3 write + 3 backend）：~$300/月</li>
+    <li><strong>合計：~$1000/月</strong></li>
+    <li>同等規模 ES 通常需要 $5000-10000/月</li>
+  </ul>
+
+  <h2 id="section-7">§ 7. Promtail vs Alloy（Agent）</h2>
+
+  <h3>7.1 Loki 的 agent 演進</h3>
+
+  <table>
+    <thead>
+      <tr><th>Agent</th><th>狀態</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Promtail</strong></td><td>傳統 Loki agent，2025 年起 deprecated</td></tr>
+      <tr><td><strong>Grafana Agent</strong></td><td>合併 Promtail + Prometheus + OTel collector，2024 deprecated</td></tr>
+      <tr><td><strong>Grafana Alloy</strong></td><td>2024 年起的<strong>主推 agent</strong>，整合所有功能</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ Promtail Deprecated</div>
+    <p>
+      Promtail 在 2025 年正式 deprecated，<strong>新部署用 Alloy</strong>。<br>
+      既有 Promtail 部署仍能用，但長期需遷移。Alloy 完全相容 Promtail config，<strong>遷移簡單</strong>。
+    </p>
+  </div>
+
+  <h3>7.2 Alloy 的 Loki 設定範例</h3>
+
+  <pre><code>// alloy config.river
+loki.source.kubernetes_pods "default" {
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.process "default" {
+  forward_to = [loki.write.default.receiver]
+
+  // JSON 解析
+  stage.json {
+    expressions = {
+      level   = "level",
+      message = "msg",
+    }
+  }
+
+  // 加 label
+  stage.labels {
+    values = {
+      level = "level",
+    }
+  }
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}</code></pre>
+
+  <h3>7.3 K8s 部署</h3>
+
+  <pre><code>helm repo add grafana https://grafana.github.io/helm-charts
+helm install alloy grafana/alloy \
+  --namespace logging \
+  --set alloy.configMap.create=true</code></pre>
+
+  <h3>7.4 為什麼 Alloy 優於 Promtail</h3>
+
+  <ul>
+    <li>支援所有 Grafana stack（metrics + logs + traces + profiles）</li>
+    <li>OpenTelemetry 原生支援</li>
+    <li>更強的 pipeline 表達力（River 語法）</li>
+    <li>持續開發新 feature（Promtail 已凍結）</li>
+  </ul>
+
+  <h2 id="section-8">§ 8. 多租戶</h2>
+
+  <h3>8.1 Tenant 概念</h3>
+
+  <p>
+    Loki 支援多租戶：每個 tenant 有獨立的 log streams、quota、retention。
+    Tenant 由 HTTP header <code>X-Scope-OrgID</code> 識別。
+  </p>
+
+  <h3>8.2 啟用多租戶</h3>
+
+  <pre><code>auth_enabled: true</code></pre>
+
+  <h3>8.3 Push log 帶 tenant</h3>
+
+  <pre><code># 用 Alloy
+loki.write "tenant_a" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+    tenant_id = "tenant-a"
+  }
+}
+
+# 直接 curl
+curl -H "X-Scope-OrgID: tenant-a" \
+  -H "Content-Type: application/json" \
+  -X POST \
+  -d '{...}' \
+  http://loki:3100/loki/api/v1/push</code></pre>
+
+  <h3>8.4 Query 帶 tenant</h3>
+
+  <pre><code># Grafana datasource
+- name: Loki-TenantA
+  type: loki
+  url: http://loki:3100
+  jsonData:
+    httpHeaderName1: 'X-Scope-OrgID'
+  secureJsonData:
+    httpHeaderValue1: 'tenant-a'</code></pre>
+
+  <h3>8.5 Per-tenant Limits</h3>
+
+  <pre><code>overrides:
+  tenant-a:
+    ingestion_rate_mb: 10
+    max_streams_per_user: 10000
+    retention_period: 168h     # 7 天
+
+  tenant-b:
+    ingestion_rate_mb: 50
+    retention_period: 720h     # 30 天</code></pre>
+
+  <h2 id="section-9">§ 9. 與 Prometheus + Tempo 整合</h2>
+
+  <h3>9.1 三本柱串接（回顧 Ch 34）</h3>
+
+  <ul>
+    <li><strong>Log → Metric</strong>：用 LogQL aggregation 從 log 算 metric</li>
+    <li><strong>Log → Trace</strong>：Loki datasource <code>derivedFields</code> 從 log 抓 trace_id</li>
+    <li><strong>Metric → Log</strong>：在 Grafana exemplar 跳，或 Drilldown 跨</li>
+  </ul>
+
+  <h3>9.2 Loki Ruler（從 log 寫 alert）</h3>
+
+  <pre><code>ruler:
+  alertmanager_url: http://alertmanager:9093
+  enable_alertmanager_v2: true
+  storage:
+    type: s3
+    s3:
+      bucketnames: loki-rules
+
+# rules.yaml
+groups:
+  - name: api-errors
+    rules:
+      - alert: HighErrorLogRate
+        expr: |
+          sum by (app) (
+            rate({namespace="prod"} |~ "ERROR|FATAL" [5m])
+          ) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.app }} error log rate is {{ $value }}/s"</code></pre>
+
+  <p>讓 log pattern 觸發 alert，跟 Prometheus alerting 整合。</p>
+
+  <h3>9.3 Recording Rules</h3>
+
+  <pre><code>groups:
+  - name: log-recording
+    rules:
+      # 從 log 算 metric，pre-aggregate
+      - record: api:log_errors:rate5m
+        expr: |
+          sum by (app) (rate({namespace="prod"} |~ "ERROR" [5m]))</code></pre>
+
+  <p>產生的 metric 寫到 Mimir / Prometheus，dashboard 用便宜的 metric 而非每次 query Loki。</p>
+
+  <h2 id="section-10">§ 10. Production Best Practices</h2>
+
+  <h3>10.1 Label 設計</h3>
+
+  <div class="callout success">
+    <div class="callout-title">✅ Label 設計原則</div>
+    <ul>
+      <li><strong>低 cardinality</strong>：每個 label 值不超過 1000 個</li>
+      <li><strong>有限數量</strong>：每個 stream 不超過 10-15 個 label</li>
+      <li><strong>常用過濾條件</strong>：namespace / app / level / cluster</li>
+      <li><strong>不要</strong>用：user_id、session_id、request_id（cardinality 爆炸）</li>
+      <li><strong>動態欄位用 parser</strong>：log 內容用 JSON / logfmt，需要時 parse 出來</li>
+    </ul>
+  </div>
+
+  <h3>10.2 Cardinality 控制</h3>
+
+  <pre><code>limits_config:
+  # 限制 stream 數量
+  max_streams_per_user: 10000
+  max_global_streams_per_user: 5000
+
+  # 限制 label 數
+  max_label_name_length: 1024
+  max_label_value_length: 2048
+  max_label_names_per_series: 30
+
+  # Ingestion rate
+  ingestion_rate_mb: 10
+  ingestion_burst_size_mb: 20</code></pre>
+
+  <h3>10.3 Query Limits</h3>
+
+  <pre><code>limits_config:
+  max_query_series: 500          # 單 query 最多 500 series
+  max_query_parallelism: 32
+  max_query_length: 720h          # 不能查超過 30 天
+  query_timeout: 1m
+  max_entries_limit_per_query: 5000</code></pre>
+
+  <h3>10.4 監控 Loki 自身</h3>
+
+  <pre><code>必看 metrics：
+- loki_distributor_lines_received_total
+- loki_distributor_bytes_received_total
+- loki_ingester_chunk_age_seconds
+- loki_ingester_chunks_flushed_total
+- loki_ingester_memory_chunks
+- loki_request_duration_seconds_bucket  (api 延遲)
+- cortex_ingester_memory_streams        (stream 數)
+
+必設告警：
+- LokiDown
+- LokiHighIngestionFailure
+- LokiHighQueryLatency
+- LokiCardinalityTooHigh</code></pre>
+
+  <h3>10.5 K8s Helm 完整 production values</h3>
+
+  <pre><code>deploymentMode: SimpleScalable
+
+loki:
+  auth_enabled: true            # 多租戶
+  commonConfig:
+    replication_factor: 3
+
+  schemaConfig:
+    configs:
+      - from: 2024-01-01
+        store: tsdb
+        object_store: s3
+        schema: v13
+
+  storage:
+    type: s3
+    bucketNames:
+      chunks: loki-chunks-prod
+      ruler: loki-ruler-prod
+    s3:
+      region: us-east-1
+
+  limits_config:
+    retention_period: 720h
+    ingestion_rate_mb: 50
+    max_global_streams_per_user: 10000
+
+  ruler:
+    enable_api: true
+    alertmanager_url: http://alertmanager:9093
+
+  compactor:
+    retention_enabled: true
+
+read:
+  replicas: 3
+  resources:
+    requests: { cpu: 1, memory: 4Gi }
+
+write:
+  replicas: 3
+  persistence:
+    size: 50Gi
+
+backend:
+  replicas: 3
+  persistence:
+    size: 50Gi</code></pre>
+
+  <h2 id="section-11">§ 11. 常見陷阱</h2>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 陷阱 1：High Cardinality 拖垮 Loki</div>
+    <p>
+      把 <code>request_id</code> 設成 label → 每個 request 一個 stream → ingester 爆。<br>
+      <strong>解法</strong>：移到 log 內容（JSON），需要時用 parser 取出。
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 陷阱 2：Stream selector 太廣</div>
+    <p>
+      <code>{}</code> 或 <code>{cluster=~".+"}</code> 會 scan 所有 stream，超慢。<br>
+      <strong>解法</strong>：永遠至少有一個 <code>=</code> matcher。
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 陷阱 3：忘了 retention</div>
+    <p>
+      Object storage 不會自己清理過期資料，必設 <code>retention_enabled: true</code>，<br>
+      也要設 S3 lifecycle policy（避免 compactor 來不及刪）。
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 陷阱 4：Replication factor 設不對</div>
+    <p>
+      <code>replication_factor: 1</code> = 沒 HA，<code>3</code> = 寫 3 份。<br>
+      Production 必設 3，否則 ingester 重啟會丟 in-memory chunks。
+    </p>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 陷阱 5：用 line filter |~ 而非 |=</div>
+    <p>
+      <code>{app="api"} |~ "error"</code> 用 regex 引擎，比 <code>{app="api"} |= "error"</code> 慢數倍。<br>
+      <strong>能用字串就用字串</strong>。
+    </p>
+  </div>
+
+  <h2>📚 延伸閱讀</h2>
+
+  <ul>
+    <li><a href="https://grafana.com/docs/loki/latest/" target="_blank" rel="noopener">Loki 官方文件</a></li>
+    <li><a href="https://grafana.com/docs/loki/latest/query/" target="_blank" rel="noopener">LogQL 完整參考</a></li>
+    <li><a href="https://grafana.com/docs/alloy/latest/" target="_blank" rel="noopener">Grafana Alloy 文件</a></li>
+    <li><a href="https://grafana.com/docs/loki/latest/operations/multi-tenancy/" target="_blank" rel="noopener">Multi-tenancy</a></li>
+    <li><a href="https://github.com/grafana/loki/blob/main/production/helm/loki/values.yaml" target="_blank" rel="noopener">Helm values 完整參考</a></li>
+  </ul>
+
+  <h2>✅ 本章重點摘要</h2>
+
+  <div class="callout success">
+    <div class="callout-title">30 秒回顧</div>
+    <ul>
+      <li>Loki 設計哲學：<strong>不索引內容、只索引 label</strong>，比 ES 便宜 10 倍</li>
+      <li>不適合 full-text search，但適合 SRE log debugging</li>
+      <li>架構元件：Distributor / Ingester / Querier / Query Frontend / Compactor / Ruler</li>
+      <li>Stream（label 組合）+ Chunk（時間切壓縮資料）</li>
+      <li><strong>三種部署模式</strong>：Monolithic / Simple Scalable / Microservices</li>
+      <li>LogQL 5 層：Stream selector / Line filter / Parser / Label filter / Aggregation</li>
+      <li>性能黃金規則：<strong>Stream selector 精確 + line filter 早 + 用 = 不用 =~</strong></li>
+      <li>儲存用 <strong>object store（S3/GCS/Azure）</strong>，便宜耐用</li>
+      <li>Compactor 必設 + retention_enabled = true</li>
+      <li>Agent 改用 <strong>Grafana Alloy</strong>（Promtail 2025 deprecated）</li>
+      <li>多租戶用 <code>X-Scope-OrgID</code> header，per-tenant limits</li>
+      <li>Loki Ruler 從 log 寫 alert，整合 Alertmanager</li>
+      <li><strong>Recording Rules 從 log 算 metric</strong> 寫回 Prometheus，省 query 成本</li>
+      <li>Label 設計：低 cardinality、不超 15 個、不放 request_id / user_id</li>
+      <li>Production 必設 replication_factor=3</li>
+    </ul>
+  </div>
+
+  <h2>📝 練習題</h2>
+
+  <ol>
+    <li>解釋 Loki 「不索引內容」的設計如何讓它比 ES 便宜 10 倍？取捨是什麼？</li>
+    <li>下面 LogQL 哪個快？為什麼？(a) <code>{cluster=~".+"} |~ "error"</code> (b) <code>{cluster="prod", app="api"} |= "error"</code></li>
+    <li>為下列場景選部署模式：(a) 5 人新創 PoC；(b) 100 人公司 200GB/day；(c) SaaS 多客戶 5TB/day</li>
+    <li>解釋 high cardinality 怎麼拖垮 Loki。下列哪些不該當 label？user_id / namespace / level / request_id / cluster / pod</li>
+    <li>實作完整 K8s 部署：Loki Simple Scalable + S3 + Alloy agent + 3 tenants（prod/staging/audit）+ Loki Ruler 寫 1 個 alert。</li>
+  </ol>
+
+  <nav class="footer-nav">
+    <a href="ch44-Overview-terraform-ansible-operator.html">
+      <div class="nav-direction">← 上一章</div>
+      <div class="nav-title">Ch 44 · IaC 收尾</div>
+    </a>
+    <a class="next" href="ch46-Tempo-distributed-tracing.html">
+      <div class="nav-direction">下一章 →</div>
+      <div class="nav-title">Ch 46 · Tempo</div>
+    </a>
+  </nav>
+
+</main>
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else { init(); }
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  // Calm Teal hue 200° 設計色系 → mermaid themeVariables 對齊 tokens.css
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    return {
+      startOnLoad: false,
+      securityLevel: 'loose',
+      fontFamily: 'DM Sans, Inter, Noto Sans TC, sans-serif',
+      theme: 'base',
+      themeVariables: isDark ? {
+        background: '#2a2520',
+        primaryColor: '#1f3a4a',
+        primaryTextColor: '#e8e6e1',
+        primaryBorderColor: '#5a8499',
+        lineColor: '#7a8a8f',
+        secondaryColor: '#2d3a32',
+        tertiaryColor: '#3a3528',
+        nodeBorder: '#5a8499',
+        clusterBkg: '#252523',
+        clusterBorder: '#4a4944',
+        edgeLabelBackground: '#2a2520',
+        textColor: '#e8e6e1',
+      } : {
+        background: '#fdfcfa',
+        primaryColor: '#cffafe',
+        primaryTextColor: '#1a1a18',
+        primaryBorderColor: '#0891b2',
+        lineColor: '#4a6873',
+        secondaryColor: '#dcfce7',
+        tertiaryColor: '#fef3c7',
+        nodeBorder: '#0891b2',
+        clusterBkg: '#f5f3ee',
+        clusterBorder: '#d4d2cd',
+        edgeLabelBackground: '#fdfcfa',
+        textColor: '#1a1a18',
+      },
+    };
+  }
+  mermaid.initialize(getMermaidConfig());
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => mermaid.run());
+  } else {
+    mermaid.run();
+  }
+  window.addEventListener('jhsun:theme-changed', () => {
+    document.querySelectorAll('.mermaid').forEach(el => {
+      const code = el.dataset.source || el.textContent;
+      if (!el.dataset.source) el.dataset.source = code;
+      el.removeAttribute('data-processed');
+      el.innerHTML = el.dataset.source;
+    });
+    mermaid.initialize(getMermaidConfig());
+    mermaid.run();
+  });
+</script>
+</body>
+</html>

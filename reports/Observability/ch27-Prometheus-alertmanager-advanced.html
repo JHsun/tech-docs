@@ -1,0 +1,1142 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch27 · Alertmanager 進階：HA、規模化、Mimir Ruler、多租戶 | Prometheus / Alertmanager / Grafana 完整教學</title>
+<style>
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --text-3xl: 44px;
+  --text-4xl: 64px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+  --container-narrow: 720px;
+  --container-wide: 1280px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80;
+  --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24;
+  --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171;
+  --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee;
+  --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  padding: 0;
+}
+.top-nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-soft);
+  padding: var(--space-3) var(--space-5);
+  display: flex; justify-content: space-between; align-items: center;
+  backdrop-filter: blur(8px);
+}
+.nav-links { display: flex; gap: var(--space-3); align-items: center; }
+.nav-links a {
+  color: var(--text-secondary); text-decoration: none;
+  font-size: var(--text-sm); padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm); transition: all 0.2s ease;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--color-primary-soft); }
+.nav-links a.disabled { color: var(--text-muted); cursor: not-allowed; pointer-events: none; }
+button[data-theme-toggle] {
+  background: var(--bg-muted); color: var(--text-primary);
+  border: 1px solid var(--border-soft);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+  cursor: pointer; font-size: var(--text-sm);
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-sans); transition: all 0.2s ease;
+}
+button[data-theme-toggle]:hover { background: var(--color-primary-soft); border-color: var(--color-primary); }
+.theme-icon { font-size: var(--text-md); }
+main { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-7) var(--space-5); }
+@media (min-width: 1024px) { main { max-width: 880px; } }
+.chapter-meta {
+  font-size: var(--text-sm); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: var(--space-3); font-family: var(--font-mono);
+}
+h1 {
+  font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 700;
+  line-height: 1.15; margin: 0 0 var(--space-4);
+  color: var(--text-primary); letter-spacing: -0.02em;
+}
+.subtitle {
+  font-size: var(--text-md); color: var(--text-secondary);
+  margin-bottom: var(--space-7); font-style: italic;
+  border-left: 3px solid var(--color-primary); padding-left: var(--space-4);
+}
+h2 {
+  font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600;
+  margin-top: var(--space-8); margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2); border-bottom: 2px solid var(--border-soft);
+  color: var(--text-primary);
+}
+h3 { font-size: var(--text-xl); font-weight: 600; margin-top: var(--space-6); margin-bottom: var(--space-3); color: var(--text-primary); }
+h4 { font-size: var(--text-md); font-weight: 600; margin-top: var(--space-5); margin-bottom: var(--space-2); color: var(--text-primary); }
+p { margin: var(--space-3) 0; }
+strong { color: var(--text-primary); font-weight: 600; }
+em { color: var(--text-secondary); }
+a {
+  color: var(--color-primary-text); text-decoration: underline;
+  text-decoration-color: var(--color-primary-soft);
+  text-underline-offset: 3px; transition: all 0.2s ease;
+}
+a:hover { color: var(--color-primary-hover); text-decoration-color: var(--color-primary); }
+code {
+  font-family: var(--font-mono); font-size: 0.92em;
+  background: var(--bg-code); padding: 0.15em 0.4em;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-soft);
+  color: var(--color-primary-text);
+}
+pre {
+  background: var(--bg-code); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  overflow-x: auto; font-size: var(--text-sm); line-height: 1.6;
+  margin: var(--space-4) 0;
+}
+pre code { background: transparent; border: none; padding: 0; color: var(--text-primary); }
+.callout {
+  margin: var(--space-5) 0; padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md); border-left: 4px solid;
+}
+.callout-title {
+  font-weight: 600; margin-bottom: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.callout.info { background: var(--color-info-soft); border-color: var(--color-info); }
+.callout.info .callout-title { color: var(--color-info); }
+.callout.success { background: var(--color-success-soft); border-color: var(--color-success); }
+.callout.success .callout-title { color: var(--color-success); }
+.callout.warning { background: var(--color-warning-soft); border-color: var(--color-warning); }
+.callout.warning .callout-title { color: var(--color-warning); }
+.callout.danger { background: var(--color-danger-soft); border-color: var(--color-danger); }
+.callout.danger .callout-title { color: var(--color-danger); }
+table {
+  width: 100%; border-collapse: collapse; margin: var(--space-5) 0;
+  font-size: var(--text-sm); background: var(--bg-surface);
+  border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-sm);
+}
+th, td { text-align: left; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); }
+th {
+  background: var(--bg-muted); font-weight: 600; color: var(--text-primary);
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg-muted); }
+ul, ol { padding-left: var(--space-5); margin: var(--space-3) 0; }
+li { margin: var(--space-2) 0; }
+li::marker { color: var(--color-primary); }
+.toc {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4) var(--space-5);
+  margin: var(--space-5) 0;
+}
+.toc-title {
+  font-weight: 600; font-size: var(--text-sm);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted); margin-bottom: var(--space-3);
+}
+.toc ul { list-style: none; padding-left: 0; }
+.toc li { margin: var(--space-1) 0; }
+.toc a { text-decoration: none; }
+.toc ul ul { padding-left: var(--space-4); }
+.card-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4); margin: var(--space-5) 0;
+}
+.card {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  transition: all 0.2s ease;
+}
+.card:hover { box-shadow: var(--shadow-md); border-color: var(--color-primary); transform: translateY(-2px); }
+.card-num { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-primary); font-weight: 600; }
+.card-title { font-weight: 600; font-size: var(--text-base); margin: var(--space-2) 0; color: var(--text-primary); }
+.card-desc { font-size: var(--text-sm); color: var(--text-secondary); }
+.mermaid {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-5);
+  margin: var(--space-5) 0; text-align: center; overflow-x: auto;
+}
+.footer-nav {
+  display: flex; justify-content: space-between;
+  margin-top: var(--space-8); padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft); gap: var(--space-3);
+}
+.footer-nav a {
+  flex: 1; padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); text-decoration: none;
+  color: var(--text-primary); transition: all 0.2s ease;
+}
+.footer-nav a:hover { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.footer-nav .nav-direction {
+  font-size: var(--text-xs); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.footer-nav .nav-title { font-weight: 600; margin-top: var(--space-1); }
+.footer-nav .next { text-align: right; }
+.footer-nav a.disabled { opacity: 0.4; pointer-events: none; }
+.tag {
+  display: inline-block; padding: 0.1em 0.6em; font-size: var(--text-xs);
+  border-radius: var(--radius-sm); font-family: var(--font-mono);
+  background: var(--bg-muted); color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+}
+.tag.primary { background: var(--color-primary-soft); color: var(--color-primary-text); border-color: var(--color-primary); }
+@media print { .top-nav, .footer-nav, button[data-theme-toggle] { display: none; } }
+</style>
+</head>
+<body>
+
+<nav class="top-nav">
+  <div class="nav-links">
+    <a href="ch26-Prometheus-alertmanager-templates.html">← 上一章</a>
+    <a href="ch00-Overview-learning-path.html">📚 目錄</a>
+    <a href="ch28-Prometheus-alertmanager-monitoring-incidents.html">下一章 →</a>
+  </div>
+  <button data-theme-toggle aria-label="Toggle theme"></button>
+</nav>
+
+<main>
+  <div class="chapter-meta">Chapter 27 · Alertmanager 進階</div>
+  <h1>Alertmanager 進階：HA、規模化、Mimir Ruler、多租戶</h1>
+  <p class="subtitle">
+    當您的告警系統從「一台 AM 處理 50 條 alert」成長到「跨 cluster、跨團隊、每秒上萬條 alert」，
+    需要新的架構策略。本章涵蓋 HA 深度調校、大規模部署模式、Mimir Ruler 整合、
+    多租戶 Alertmanager 等進階主題。
+  </p>
+
+  <div class="toc">
+    <div class="toc-title">本章內容</div>
+    <ul>
+      <li><a href="#section-1">§ 1. HA 部署深度</a></li>
+      <li><a href="#section-2">§ 2. Cluster 健康診斷</a></li>
+      <li><a href="#section-3">§ 3. 大規模部署考量</a></li>
+      <li><a href="#section-4">§ 4. 多租戶設計</a></li>
+      <li><a href="#section-5">§ 5. Mimir Ruler 整合</a></li>
+      <li><a href="#section-6">§ 6. 從 Cortex 遷移到 Mimir</a></li>
+      <li><a href="#section-7">§ 7. Grafana Alerting 與雙系統共存</a></li>
+      <li><a href="#section-8">§ 8. Performance Tuning</a></li>
+      <li><a href="#section-9">§ 9. Disaster Recovery</a></li>
+      <li><a href="#section-10">§ 10. 進階故障排查</a></li>
+    </ul>
+  </div>
+
+  <h2 id="section-1">§ 1. HA 部署深度</h2>
+
+  <p>
+    Ch 23 介紹了 HA 的基本設定。本章深入 cluster 內部的細節：訊息類型、推送間隔、failure modes。
+  </p>
+
+  <h3>1.1 Cluster 同步什麼？</h3>
+
+  <p>HA cluster 中的 Alertmanager 透過 gossip 同步三類資料：</p>
+
+  <table>
+    <thead>
+      <tr><th>資料類型</th><th>用途</th><th>同步機制</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Notification Log（nflog）</strong></td>
+        <td>「誰已經發過這個通知」</td>
+        <td>持續 gossip，避免重複通知</td>
+      </tr>
+      <tr>
+        <td><strong>Silences</strong></td>
+        <td>當前 active 的所有 silence</td>
+        <td>持續 gossip + 定期 push-pull 修復</td>
+      </tr>
+      <tr>
+        <td><strong>Cluster Membership</strong></td>
+        <td>哪些 peer 還活著</td>
+        <td>SWIM 協議（Memberlist）</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>注意：alert 本身<strong>不</strong>同步——每個 AM 都從 Prometheus 各自接收，<strong>所以 Prometheus 必須對所有 AM 都送</strong>。</p>
+
+  <h3>1.2 通知去重的具體流程</h3>
+
+  <div class="mermaid">
+sequenceDiagram
+    participant P as Prometheus
+    participant A1 as AM-1
+    participant A2 as AM-2
+    participant A3 as AM-3
+    participant S as Slack
+
+    P->>A1: POST alerts
+    P->>A2: POST alerts
+    P->>A3: POST alerts
+
+    Note over A1,A3: 三個 AM 都收到一樣的 alert
+
+    A1->>A1: 計算 hash · 自己排在第一
+    A2->>A2: 計算 hash · 自己排第二<br/>等 1× pushpull-interval
+    A3->>A3: 計算 hash · 自己排第三<br/>等 2× pushpull-interval
+
+    A1->>S: POST 通知
+    S-->>A1: 200 OK
+
+    A1->>A2: gossip · 已通知
+    A1->>A3: gossip · 已通知
+
+    Note over A2,A3: 收到 nflog 更新 · 跳過通知
+</div>
+
+  <p>
+    機制：每個 AM 根據自己在 cluster 中的排名（hash 計算），決定<strong>等多久才嘗試發通知</strong>。
+    第一個（排名 0）立刻發送；第二個等 <code>--cluster.pushpull-interval</code>（預設 1m）；以此類推。<br>
+    在等待期間若收到 nflog 同步，知道別的 AM 已發送，就不發。
+  </p>
+
+  <h3>1.3 關鍵 cluster flag 詳解</h3>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>預設</th><th>調整時機</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>--cluster.gossip-interval</code></td>
+        <td>200ms</td>
+        <td>cluster 大時加大到 500ms-1s 減 CPU</td>
+      </tr>
+      <tr>
+        <td><code>--cluster.pushpull-interval</code></td>
+        <td>1m</td>
+        <td>影響 dedup 等待時間，通常不改</td>
+      </tr>
+      <tr>
+        <td><code>--cluster.tcp-timeout</code></td>
+        <td>10s</td>
+        <td>慢網路加大</td>
+      </tr>
+      <tr>
+        <td><code>--cluster.probe-timeout</code></td>
+        <td>500ms</td>
+        <td>FailureDetector 的 ping 超時</td>
+      </tr>
+      <tr>
+        <td><code>--cluster.probe-interval</code></td>
+        <td>1s</td>
+        <td>檢查 peer 健康的間隔</td>
+      </tr>
+      <tr>
+        <td><code>--cluster.reconnect-interval</code></td>
+        <td>10s</td>
+        <td>嘗試重連 dead peer</td>
+      </tr>
+      <tr>
+        <td><code>--cluster.peer-timeout</code></td>
+        <td>15s</td>
+        <td>Peer 多久沒回應視為 dead</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>1.4 Brain Split 處理</h3>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ Network Partition 場景</div>
+    <p>
+      若 3 台 AM 因網路分裂為 [AM-1] 與 [AM-2, AM-3]：<br>
+      <strong>每個分裂部分都會獨立發通知</strong>（無法 dedup）。<br>
+      這是「<strong>at-least-once</strong>」設計：寧可重複通知，不要漏報。<br>
+      網路恢復後，nflog 會同步，後續通知重新 dedup。
+    </p>
+  </div>
+
+  <h2 id="section-2">§ 2. Cluster 健康診斷</h2>
+
+  <h3>2.1 必看 metrics</h3>
+
+  <pre><code># 1. Cluster member 數（最重要）
+alertmanager_cluster_members
+# 預期 = 副本數。&lt; 副本數 = HA 退化
+
+# 2. Gossip 訊息流量
+rate(alertmanager_cluster_messages_received_total[5m])
+rate(alertmanager_cluster_messages_sent_total[5m])
+
+# 3. 失敗的 gossip
+rate(alertmanager_cluster_messages_received_failure_total[5m])
+rate(alertmanager_cluster_messages_pushed_total[5m])
+
+# 4. Peer 失敗檢測
+alertmanager_cluster_failed_peers
+alertmanager_cluster_health_score    # 0=healthy, 越大越糟
+
+# 5. 排名（在 dedup 中的位置）
+alertmanager_peer_position
+
+# 6. Notification log 大小
+alertmanager_nflog_gc_duration_seconds
+alertmanager_nflog_snapshot_size_bytes</code></pre>
+
+  <h3>2.2 經典問題：member 數量隨機跳動</h3>
+
+  <p>症狀：<code>alertmanager_cluster_members</code> 在 2 與 3 之間跳。</p>
+
+  <p>常見原因：</p>
+
+  <ul>
+    <li>K8s pod 之間網路延遲大（<code>probe-timeout</code> 太緊）</li>
+    <li>NAT / firewall 偶爾 drop UDP 封包（gossip 用 UDP）</li>
+    <li>節點 CPU 飽和導致 gossip 延遲</li>
+  </ul>
+
+  <p>解法：加大 <code>--cluster.probe-timeout=2s</code>、<code>--cluster.probe-interval=2s</code>。</p>
+
+  <h3>2.3 Status API 看 cluster 狀態</h3>
+
+  <pre><code>curl http://localhost:9093/api/v2/status | jq</code></pre>
+
+  <pre><code>{
+  "cluster": {
+    "name": "abc123",
+    "peers": [
+      {"address": "10.0.0.1:9094", "name": "alertmanager-0"},
+      {"address": "10.0.0.2:9094", "name": "alertmanager-1"},
+      {"address": "10.0.0.3:9094", "name": "alertmanager-2"}
+    ],
+    "status": "ready"
+  },
+  "config": {...},
+  "uptime": "2h35m12s",
+  "versionInfo": {...}
+}</code></pre>
+
+  <h2 id="section-3">§ 3. 大規模部署考量</h2>
+
+  <h3>3.1 何謂「大規模」</h3>
+
+  <table>
+    <thead>
+      <tr><th>規模</th><th>典型指標</th><th>建議架構</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>小（小於 100 alert / 小時）</td><td>1-5 個服務、單一 team</td><td>3 副本 HA 已綽綽有餘</td></tr>
+      <tr><td>中（100-10k / 小時）</td><td>幾十個服務、3-5 teams</td><td>HA + 分團隊 routing tree</td></tr>
+      <tr><td>大（&gt; 10k / 小時）</td><td>幾百服務、多 cluster、多 team</td><td>多套 AM（按 team 或 region）</td></tr>
+      <tr><td>巨型</td><td>SaaS / 多 tenant</td><td>Mimir Alertmanager 多租戶</td></tr>
+    </tbody>
+  </table>
+
+  <h3>3.2 規模化策略</h3>
+
+  <h4>策略 1：分流（Sharding by Team / Region）</h4>
+
+  <p>不同團隊用不同的 AM cluster：</p>
+
+  <pre><code># Prometheus alerting config
+alerting:
+  alertmanagers:
+    - api_version: v2
+      static_configs:
+        - targets: ['platform-am:9093']
+      relabel_configs:
+        - source_labels: [team]
+          regex: 'platform'
+          action: keep
+    - api_version: v2
+      static_configs:
+        - targets: ['data-am:9093']
+      relabel_configs:
+        - source_labels: [team]
+          regex: 'data'
+          action: keep</code></pre>
+
+  <p>每組 AM 處理自己 team 的 alert，互不影響。</p>
+
+  <h4>策略 2：按 cluster 分</h4>
+
+  <p>每個 K8s cluster 各自一組 AM，避免 cross-region latency：</p>
+
+  <pre><code># cluster TW
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['am-tw-0:9093', 'am-tw-1:9093', 'am-tw-2:9093']
+
+# cluster JP（不同 prom 設定）
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['am-jp-0:9093', 'am-jp-1:9093', 'am-jp-2:9093']</code></pre>
+
+  <h3>3.3 Cluster 大小建議</h3>
+
+  <table>
+    <thead>
+      <tr><th>副本數</th><th>適用</th><th>注意</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td>開發 / 測試</td><td>無 HA</td></tr>
+      <tr><td>2</td><td>不建議</td><td>奇數副本才有 quorum 概念（雖然 AM 沒嚴格需要）</td></tr>
+      <tr><td><strong>3</strong></td><td>絕大多數情境</td><td>業界標準</td></tr>
+      <tr><td>5+</td><td>超大規模</td><td>gossip overhead 變大，管理複雜</td></tr>
+    </tbody>
+  </table>
+
+  <h3>3.4 通知吞吐量瓶頸</h3>
+
+  <p>當您的 alert 數量爆炸時，瓶頸通常是<strong>下游 receiver</strong>，不是 AM 自己：</p>
+
+  <ul>
+    <li><strong>Slack</strong>：每 channel 每秒 1 訊息，超過會限流</li>
+    <li><strong>PagerDuty</strong>：API rate limit (每 routing_key 約 60 events/min)</li>
+    <li><strong>Email</strong>：SMTP server 容量</li>
+  </ul>
+
+  <p>解決：用 grouping 把多 alert 合併成一條訊息（前面章節已詳述）。</p>
+
+  <h3>3.5 持久化考量</h3>
+
+  <p>Alertmanager 的 <code>--storage.path</code> 儲存 nflog 與 silences。在 K8s 環境用 PVC：</p>
+
+  <pre><code># StatefulSet (kube-prometheus-stack 自動處理)
+volumeClaimTemplates:
+  - metadata:
+      name: alertmanager-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 10Gi      # 通常 1-10Gi 足夠</code></pre>
+
+  <p>沒持久化的後果：重啟後 silences 短暫失效（從 cluster gossip 重建，但有時間差）。</p>
+
+  <h2 id="section-4">§ 4. 多租戶設計</h2>
+
+  <h3>4.1 Vanilla Alertmanager 的多租戶限制</h3>
+
+  <p>原生 Alertmanager <strong>不支援多租戶</strong>：</p>
+
+  <ul>
+    <li>單一設定檔（每個租戶不能有自己的 routing / receivers）</li>
+    <li>單一 silence 命名空間（任何人都能看 / 操作所有 silence）</li>
+    <li>無認證 / 授權（誰都能看 alert）</li>
+  </ul>
+
+  <h3>4.2 三種多租戶實現方案</h3>
+
+  <table>
+    <thead>
+      <tr><th>方案</th><th>方法</th><th>複雜度</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>多 AM Instance</strong></td>
+        <td>每個 tenant 部署獨立 AM cluster</td>
+        <td>低，但浪費資源</td>
+      </tr>
+      <tr>
+        <td><strong>AlertmanagerConfig CRD</strong></td>
+        <td>K8s 用 Operator 切分</td>
+        <td>中</td>
+      </tr>
+      <tr>
+        <td><strong>Mimir Alertmanager</strong></td>
+        <td>原生支援 tenant ID</td>
+        <td>高，但最完整</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>4.3 AlertmanagerConfig CRD 範例</h3>
+
+  <pre><code># 主 Alertmanager（kube-prometheus-stack 安裝）
+apiVersion: monitoring.coreos.com/v1
+kind: Alertmanager
+metadata:
+  name: main
+  namespace: monitoring
+spec:
+  replicas: 3
+  alertmanagerConfigSelector:
+    matchLabels:
+      alertmanager: main      # ← 選擇符合此 label 的 AlertmanagerConfig
+  alertmanagerConfigNamespaceSelector: {}    # ← 跨所有 namespace
+
+---
+# Team A 的 routing 與 receiver
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: team-a-config
+  namespace: team-a
+  labels:
+    alertmanager: main
+spec:
+  route:
+    receiver: 'team-a-slack'
+    matchers:
+      - name: namespace
+        value: team-a-.*
+        matchType: '=~'
+  receivers:
+    - name: 'team-a-slack'
+      slackConfigs:
+        - apiURL:
+            name: team-a-slack-secret
+            key: url
+          channel: '#team-a-alerts'
+
+---
+# Team B 在自己的 namespace 建自己的 config
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: team-b-config
+  namespace: team-b
+  labels:
+    alertmanager: main
+spec:
+  # ...</code></pre>
+
+  <p>Operator 把所有 AlertmanagerConfig 合併到主 Alertmanager 的 routing tree。</p>
+
+  <h2 id="section-5">§ 5. Mimir Ruler 整合</h2>
+
+  <h3>5.1 什麼是 Mimir Ruler</h3>
+
+  <p>
+    <strong>Grafana Mimir</strong>（Ch 17 介紹過）有一個 <code>ruler</code> 元件，
+    它<strong>取代了 Prometheus 的 alerting/recording rule 評估</strong>，並能直接送 alert 到 Alertmanager。
+  </p>
+
+  <div class="mermaid">
+graph LR
+    subgraph Traditional["傳統架構"]
+        T1[Prometheus<br/>scrape + 評估 rule]
+        T2[Alertmanager]
+        T1 -- POST alerts --> T2
+    end
+
+    subgraph WithMimir["有 Mimir + Ruler"]
+        M1[Prometheus Agent<br/>純 scrape · remote_write]
+        M2[Mimir<br/>儲存]
+        M3[Mimir Ruler<br/>評估 rule]
+        M4[Mimir Alertmanager<br/>多租戶]
+
+        M1 --> M2
+        M2 --> M3
+        M3 -- POST alerts --> M4
+    end
+</div>
+
+  <h3>5.2 Mimir Ruler 的優勢</h3>
+
+  <ul>
+    <li><strong>跟 ingestion 解耦</strong>：scrape Prometheus 可以重啟，rule 評估持續</li>
+    <li><strong>多租戶</strong>：每個 tenant 自己的 rules，互不干擾</li>
+    <li><strong>Horizontal scale</strong>：rules 可以分片到多個 ruler instance</li>
+    <li><strong>API 管理 rules</strong>：用 cortextool 或 Mimir API CRUD rules，不用改檔案 reload</li>
+    <li><strong>內建 Alertmanager</strong>：Mimir 內建多租戶 Alertmanager（也可外掛標準 AM）</li>
+  </ul>
+
+  <h3>5.3 Mimir Ruler 設定範例</h3>
+
+  <pre><code># mimir.yaml (簡化)
+ruler:
+  enable_api: true
+  evaluation_interval: 1m
+
+  # 把 alert 送到 Alertmanager
+  alertmanager_url: http://alertmanager:9093/alertmanager
+
+  # 用 Mimir 內建 AM 的話：
+  # alertmanager_url: http://mimir:8080/alertmanager
+
+ruler_storage:
+  backend: s3
+  s3:
+    endpoint: s3.amazonaws.com
+    bucket_name: mimir-rules
+    region: us-east-1</code></pre>
+
+  <h3>5.4 用 cortextool 管理 rules</h3>
+
+  <pre><code># 安裝
+go install github.com/grafana/cortex-tools/cmd/cortextool@latest
+
+# 列出所有 rule group（特定 tenant）
+cortextool rules list \
+  --address=http://mimir:8080 \
+  --id=tenant-1
+
+# Push 一組 rules
+cortextool rules load \
+  --address=http://mimir:8080 \
+  --id=tenant-1 \
+  rules.yaml
+
+# 比較本地 rules 與 Mimir 上的差異
+cortextool rules diff \
+  --address=http://mimir:8080 \
+  --id=tenant-1 \
+  rules.yaml
+
+# 同步
+cortextool rules sync \
+  --address=http://mimir:8080 \
+  --id=tenant-1 \
+  rules.yaml</code></pre>
+
+  <h2 id="section-6">§ 6. 從 Cortex 遷移到 Mimir</h2>
+
+  <p>
+    Mimir 是 Grafana Labs 從 Cortex fork 出來的版本（2022 年）。
+    Cortex 開發已停滯，<strong>建議遷至 Mimir</strong>。
+  </p>
+
+  <h3>6.1 遷移步驟</h3>
+
+  <ol>
+    <li>檢查當前 Cortex 版本（v1.10+ 直接相容）</li>
+    <li>用 Mimir image 部署一個新的 Mimir instance（讀同個 object storage）</li>
+    <li>導引 Prometheus remote_write 到 Mimir（保留 Cortex 一段時間並行）</li>
+    <li>遷移 rules：用 <code>cortextool</code> dump → load 到 Mimir</li>
+    <li>遷移 Alertmanager 設定（如果用了 Cortex AM）</li>
+    <li>切換 Grafana datasource 到 Mimir querier</li>
+    <li>驗證一週後關閉 Cortex</li>
+  </ol>
+
+  <h3>6.2 主要差異</h3>
+
+  <table>
+    <thead>
+      <tr><th>面向</th><th>Cortex</th><th>Mimir</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>開發狀態</td><td>停滯</td><td>活躍</td></tr>
+      <tr><td>Native Histogram</td><td>有限</td><td>完整支援</td></tr>
+      <tr><td>查詢效能</td><td>—</td><td>大幅優化（特別是高基數）</td></tr>
+      <tr><td>Authentication</td><td>—</td><td>強化的多租戶</td></tr>
+      <tr><td>License</td><td>Apache 2.0</td><td>AGPL v3</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="section-7">§ 7. Grafana Alerting 與雙系統共存</h2>
+
+  <p>
+    Grafana 8+ 引入 <strong>Grafana Alerting</strong>（內建在 Grafana 裡的 alerting 系統，獨立於 Prometheus）。
+    它跟 Prometheus + Alertmanager 是<strong>兩套不同系統</strong>。
+  </p>
+
+  <h3>7.1 兩者的差別</h3>
+
+  <table>
+    <thead>
+      <tr><th>面向</th><th>Prometheus + Alertmanager</th><th>Grafana Alerting</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>評估位置</td><td>Prometheus</td><td>Grafana 內建 ruler</td></tr>
+      <tr><td>資料來源</td><td>只能 Prometheus</td><td>任何 datasource（Prom、Loki、SQL...）</td></tr>
+      <tr><td>UI</td><td>Alertmanager Web UI</td><td>Grafana 主介面</td></tr>
+      <tr><td>多 datasource</td><td>否</td><td>是（multi-condition）</td></tr>
+      <tr><td>Best for</td><td>Prom-only 環境</td><td>多 datasource、想要單一 UI</td></tr>
+    </tbody>
+  </table>
+
+  <h3>7.2 共存模式</h3>
+
+  <p>實務常見：</p>
+
+  <ul>
+    <li><strong>Prometheus alerting rules</strong> → Alertmanager → 通知</li>
+    <li><strong>Grafana 寫一些跨 datasource 的 alert</strong>（例：metric + log 條件）→ Grafana Alerting → 同一個 AM</li>
+  </ul>
+
+  <p>Grafana Alerting 可以設定「外部 Alertmanager」作為 receiver：</p>
+
+  <pre><code># Grafana datasource 設定
+- name: Alertmanager
+  type: alertmanager
+  url: http://alertmanager:9093
+  jsonData:
+    implementation: prometheus      # 或 cortex / mimir
+    handleGrafanaManagedAlerts: true</code></pre>
+
+  <h3>7.3 Grafana 12 的進化</h3>
+
+  <p>
+    Grafana 12 為 alerting 帶來重要更新：原生支援 recording rule、從 Prometheus alert 一鍵匯入到 Grafana-managed alert。
+    對於想統一 alerting UI 的團隊，這是個遷移路徑。
+  </p>
+
+  <h2 id="section-8">§ 8. Performance Tuning</h2>
+
+  <h3>8.1 監控 Alertmanager 自身負載</h3>
+
+  <pre><code># 處理 alert 的速率
+rate(alertmanager_alerts_received_total[5m])
+
+# 處理通知的速率與延遲
+rate(alertmanager_notifications_total[5m])
+histogram_quantile(0.99, rate(alertmanager_notification_latency_seconds_bucket[5m]))
+
+# 失敗率
+rate(alertmanager_notifications_failed_total[5m]) /
+  rate(alertmanager_notifications_total[5m])
+
+# 記憶體用量
+process_resident_memory_bytes{job="alertmanager"}
+
+# Goroutine
+go_goroutines{job="alertmanager"}</code></pre>
+
+  <h3>8.2 調校建議</h3>
+
+  <table>
+    <thead>
+      <tr><th>症狀</th><th>調整</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>記憶體用太多</td><td>降低 <code>--data.retention</code>（預設 120h）</td></tr>
+      <tr><td>nflog 太大</td><td>同上 + 縮短 silence 保留</td></tr>
+      <tr><td>Slack/PD 限流</td><td>調 grouping 把 alert 合併</td></tr>
+      <tr><td>Goroutine 暴增</td><td>檢查 webhook receiver 是否 timeout</td></tr>
+      <tr><td>CPU 高（gossip）</td><td>加大 <code>--cluster.gossip-interval</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>8.3 Resource Sizing</h3>
+
+  <p>典型 production AM（3 副本 cluster）：</p>
+
+  <pre><code>resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 1000m            # AM 大部分時間 idle，限制可寬鬆
+    memory: 512Mi          # 預期 200-300MB
+
+# 容納 alert 量級
+# 每秒 100 alert + 1000 active alerts → 上述配置充裕
+# 每秒 1000+ alert → 加 memory 到 1Gi，加多 sharding</code></pre>
+
+  <h2 id="section-9">§ 9. Disaster Recovery</h2>
+
+  <h3>9.1 備份什麼？</h3>
+
+  <ul>
+    <li><strong>alertmanager.yml</strong>：放 Git 版本控管</li>
+    <li><strong>Templates</strong>：放 Git</li>
+    <li><strong>Silences</strong>：API 定期匯出</li>
+    <li><strong>Secrets</strong>（SMTP password 等）：用 Sealed Secrets / Vault</li>
+  </ul>
+
+  <h3>9.2 Silence 備份腳本</h3>
+
+  <pre><code>#!/bin/bash
+# backup-silences.sh
+DATE=$(date +%Y%m%d-%H%M%S)
+curl -s http://alertmanager:9093/api/v2/silences \
+  | jq '.[] | select(.status.state == "active")' \
+  > /backup/silences-$DATE.json
+
+# 還原時：
+# cat silences-DATE.json | jq -c '.[]' | while read s; do
+#   curl -XPOST http://alertmanager:9093/api/v2/silences \
+#     -H 'Content-Type: application/json' -d "$s"
+# done</code></pre>
+
+  <h3>9.3 重建 cluster</h3>
+
+  <p>若整個 cluster 同時掛了：</p>
+
+  <ol>
+    <li>用 GitOps 重新部署（kube-prometheus-stack / Operator）</li>
+    <li>Cluster 重新 gossip 形成（無需手動）</li>
+    <li>從備份還原 silences（可選，過期的 silence 會丟掉）</li>
+    <li>Prometheus 重新送 alert，AM 重新建立 nflog</li>
+  </ol>
+
+  <p><strong>RTO</strong>（Recovery Time Objective）：5-10 分鐘。</p>
+
+  <h2 id="section-10">§ 10. 進階故障排查</h2>
+
+  <h3>10.1 「通知沒送出」debug 流程</h3>
+
+  <ol>
+    <li>檢查 alert 是否到達 AM：<code>curl AM:9093/api/v2/alerts</code></li>
+    <li>檢查路由匹配：<code>amtool config routes test ...</code></li>
+    <li>檢查 silence：<code>amtool silence query alertname=...</code></li>
+    <li>檢查 inhibition：看是否有 source alert active</li>
+    <li>檢查 receiver 是否 fail：<code>rate(alertmanager_notifications_failed_total[5m])</code></li>
+    <li>看 AM logs：<code>journalctl -u alertmanager -f</code> 找 error</li>
+  </ol>
+
+  <h3>10.2 「同一個 alert 收到多次」</h3>
+
+  <p>可能原因：</p>
+
+  <ul>
+    <li>HA cluster 沒形成（每個 AM 各自送）</li>
+    <li>Prometheus 沒設 <code>alert_relabel_configs</code> 移除 replica</li>
+    <li>多個 receiver 都匹配到 + <code>continue: true</code>（這是預期行為）</li>
+    <li><code>repeat_interval</code> 太短</li>
+  </ul>
+
+  <h3>10.3 「Alert 看似 firing 但 AM 沒收到」</h3>
+
+  <p>檢查：</p>
+
+  <ul>
+    <li>Prometheus 端 <code>prometheus_notifications_dropped_total</code></li>
+    <li>Prometheus 與 AM 之間網路</li>
+    <li>AM <code>--web.listen-address</code> 是否正確</li>
+    <li>Prometheus alerting config <code>api_version: v2</code> 設了嗎</li>
+  </ul>
+
+  <h2>📚 延伸閱讀</h2>
+
+  <ul>
+    <li><a href="https://grafana.com/docs/mimir/latest/references/architecture/components/ruler/" target="_blank" rel="noopener">Mimir Ruler 架構</a></li>
+    <li><a href="https://grafana.com/docs/mimir/latest/references/architecture/components/alertmanager/" target="_blank" rel="noopener">Mimir Alertmanager（多租戶）</a></li>
+    <li><a href="https://github.com/grafana/cortex-tools" target="_blank" rel="noopener">cortextool（管理 rules）</a></li>
+    <li><a href="https://prometheus-operator.dev/docs/operator/api/#monitoring.coreos.com/v1alpha1.AlertmanagerConfig" target="_blank" rel="noopener">AlertmanagerConfig CRD 文件</a></li>
+    <li><a href="https://github.com/hashicorp/memberlist" target="_blank" rel="noopener">HashiCorp Memberlist（gossip 底層）</a></li>
+  </ul>
+
+  <h2>✅ 本章重點摘要</h2>
+
+  <div class="callout success">
+    <div class="callout-title">30 秒回顧</div>
+    <ul>
+      <li>HA cluster 同步 <strong>nflog + silences + membership</strong>，<strong>不</strong>同步 alerts</li>
+      <li>Dedup 機制：每個 AM 按 hash 排名，依序等 <code>pushpull-interval</code> 才嘗試發送</li>
+      <li>Brain split 時是 <strong>at-least-once</strong>：寧可重複，不漏報</li>
+      <li>規模化策略：分流（按 team / region）、3 副本是業界標準</li>
+      <li>瓶頸通常在 <strong>下游 receiver（Slack/PD 限流）</strong>，不是 AM 自己</li>
+      <li>多租戶三方案：多 AM instance / AlertmanagerConfig CRD / Mimir Alertmanager</li>
+      <li><strong>Mimir Ruler</strong> 取代 Prometheus 評估 rule，scale 與多租戶更佳；用 <code>cortextool</code> 管理</li>
+      <li>Cortex 已停滯，建議遷至 Mimir</li>
+      <li>Grafana Alerting 是<strong>另一套</strong>系統（多 datasource 友善）</li>
+      <li>監控自身：<code>alertmanager_cluster_members</code>、<code>notifications_failed_total</code> 必設告警</li>
+      <li>備份：alertmanager.yml + templates 放 Git；silences 用 API 定期 export</li>
+    </ul>
+  </div>
+
+  <h2>📝 練習題</h2>
+
+  <ol>
+    <li>解釋為什麼 HA cluster 中 alert 「不同步」是合理設計？這如何影響 Prometheus 端的設定？</li>
+    <li>3 副本 cluster 中，<code>alertmanager_cluster_members = 2</code>。請列出至少 4 個排查步驟。</li>
+    <li>為某 SaaS 公司設計多租戶 alerting：100 個 customer，每個有自己的 routing 與 Slack channel。比較三個方案（多 AM / AlertmanagerConfig CRD / Mimir AM）的取捨。</li>
+    <li>解釋 Mimir Ruler 與 Prometheus alerting rule 的差別。何時該遷移？</li>
+    <li>下列情境哪個更適合 Grafana Alerting 而非 Prometheus + Alertmanager？(a) 純 Kubernetes metrics 監控；(b) 同時看 metrics、logs、SQL 的告警；(c) 簡單的服務 up/down 監控。</li>
+  </ol>
+
+  <nav class="footer-nav">
+    <a href="ch26-Prometheus-alertmanager-templates.html">
+      <div class="nav-direction">← 上一章</div>
+      <div class="nav-title">Ch 26 · Templates</div>
+    </a>
+    <a class="next" href="ch28-Prometheus-alertmanager-monitoring-incidents.html">
+      <div class="nav-direction">下一章 →</div>
+      <div class="nav-title">Ch 28 · 監控自身與 Incident Tools</div>
+    </a>
+  </nav>
+
+</main>
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else { init(); }
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  // Calm Teal hue 200° 設計色系 → mermaid themeVariables 對齊 tokens.css
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    return {
+      startOnLoad: false,
+      securityLevel: 'loose',
+      fontFamily: 'DM Sans, Inter, Noto Sans TC, sans-serif',
+      theme: 'base',
+      themeVariables: isDark ? {
+        background: '#2a2520',
+        primaryColor: '#1f3a4a',
+        primaryTextColor: '#e8e6e1',
+        primaryBorderColor: '#5a8499',
+        lineColor: '#7a8a8f',
+        secondaryColor: '#2d3a32',
+        tertiaryColor: '#3a3528',
+        nodeBorder: '#5a8499',
+        clusterBkg: '#252523',
+        clusterBorder: '#4a4944',
+        edgeLabelBackground: '#2a2520',
+        textColor: '#e8e6e1',
+      } : {
+        background: '#fdfcfa',
+        primaryColor: '#cffafe',
+        primaryTextColor: '#1a1a18',
+        primaryBorderColor: '#0891b2',
+        lineColor: '#4a6873',
+        secondaryColor: '#dcfce7',
+        tertiaryColor: '#fef3c7',
+        nodeBorder: '#0891b2',
+        clusterBkg: '#f5f3ee',
+        clusterBorder: '#d4d2cd',
+        edgeLabelBackground: '#fdfcfa',
+        textColor: '#1a1a18',
+      },
+    };
+  }
+  mermaid.initialize(getMermaidConfig());
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => mermaid.run());
+  } else {
+    mermaid.run();
+  }
+  window.addEventListener('jhsun:theme-changed', () => {
+    document.querySelectorAll('.mermaid').forEach(el => {
+      const code = el.dataset.source || el.textContent;
+      if (!el.dataset.source) el.dataset.source = code;
+      el.removeAttribute('data-processed');
+      el.innerHTML = el.dataset.source;
+    });
+    mermaid.initialize(getMermaidConfig());
+    mermaid.run();
+  });
+</script>
+</body>
+</html>

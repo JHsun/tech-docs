@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch29 · Grafana OSS 概念、生態與版本選擇 | Prometheus / Alertmanager / Grafana 完整教學</title>
+<style>
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --text-3xl: 44px;
+  --text-4xl: 64px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+  --container-narrow: 720px;
+  --container-wide: 1280px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80;
+  --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24;
+  --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171;
+  --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee;
+  --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  padding: 0;
+}
+.top-nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-soft);
+  padding: var(--space-3) var(--space-5);
+  display: flex; justify-content: space-between; align-items: center;
+  backdrop-filter: blur(8px);
+}
+.nav-links { display: flex; gap: var(--space-3); align-items: center; }
+.nav-links a {
+  color: var(--text-secondary); text-decoration: none;
+  font-size: var(--text-sm); padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm); transition: all 0.2s ease;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--color-primary-soft); }
+.nav-links a.disabled { color: var(--text-muted); cursor: not-allowed; pointer-events: none; }
+button[data-theme-toggle] {
+  background: var(--bg-muted); color: var(--text-primary);
+  border: 1px solid var(--border-soft);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+  cursor: pointer; font-size: var(--text-sm);
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-sans); transition: all 0.2s ease;
+}
+button[data-theme-toggle]:hover { background: var(--color-primary-soft); border-color: var(--color-primary); }
+.theme-icon { font-size: var(--text-md); }
+main { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-7) var(--space-5); }
+@media (min-width: 1024px) { main { max-width: 880px; } }
+.chapter-meta {
+  font-size: var(--text-sm); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: var(--space-3); font-family: var(--font-mono);
+}
+h1 {
+  font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 700;
+  line-height: 1.15; margin: 0 0 var(--space-4);
+  color: var(--text-primary); letter-spacing: -0.02em;
+}
+.subtitle {
+  font-size: var(--text-md); color: var(--text-secondary);
+  margin-bottom: var(--space-7); font-style: italic;
+  border-left: 3px solid var(--color-primary); padding-left: var(--space-4);
+}
+h2 {
+  font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600;
+  margin-top: var(--space-8); margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2); border-bottom: 2px solid var(--border-soft);
+  color: var(--text-primary);
+}
+h3 { font-size: var(--text-xl); font-weight: 600; margin-top: var(--space-6); margin-bottom: var(--space-3); color: var(--text-primary); }
+h4 { font-size: var(--text-md); font-weight: 600; margin-top: var(--space-5); margin-bottom: var(--space-2); color: var(--text-primary); }
+p { margin: var(--space-3) 0; }
+strong { color: var(--text-primary); font-weight: 600; }
+em { color: var(--text-secondary); }
+a {
+  color: var(--color-primary-text); text-decoration: underline;
+  text-decoration-color: var(--color-primary-soft);
+  text-underline-offset: 3px; transition: all 0.2s ease;
+}
+a:hover { color: var(--color-primary-hover); text-decoration-color: var(--color-primary); }
+code {
+  font-family: var(--font-mono); font-size: 0.92em;
+  background: var(--bg-code); padding: 0.15em 0.4em;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-soft);
+  color: var(--color-primary-text);
+}
+pre {
+  background: var(--bg-code); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  overflow-x: auto; font-size: var(--text-sm); line-height: 1.6;
+  margin: var(--space-4) 0;
+}
+pre code { background: transparent; border: none; padding: 0; color: var(--text-primary); }
+.callout {
+  margin: var(--space-5) 0; padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md); border-left: 4px solid;
+}
+.callout-title {
+  font-weight: 600; margin-bottom: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.callout.info { background: var(--color-info-soft); border-color: var(--color-info); }
+.callout.info .callout-title { color: var(--color-info); }
+.callout.success { background: var(--color-success-soft); border-color: var(--color-success); }
+.callout.success .callout-title { color: var(--color-success); }
+.callout.warning { background: var(--color-warning-soft); border-color: var(--color-warning); }
+.callout.warning .callout-title { color: var(--color-warning); }
+.callout.danger { background: var(--color-danger-soft); border-color: var(--color-danger); }
+.callout.danger .callout-title { color: var(--color-danger); }
+table {
+  width: 100%; border-collapse: collapse; margin: var(--space-5) 0;
+  font-size: var(--text-sm); background: var(--bg-surface);
+  border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-sm);
+}
+th, td { text-align: left; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); }
+th {
+  background: var(--bg-muted); font-weight: 600; color: var(--text-primary);
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg-muted); }
+ul, ol { padding-left: var(--space-5); margin: var(--space-3) 0; }
+li { margin: var(--space-2) 0; }
+li::marker { color: var(--color-primary); }
+.toc {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4) var(--space-5);
+  margin: var(--space-5) 0;
+}
+.toc-title {
+  font-weight: 600; font-size: var(--text-sm);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted); margin-bottom: var(--space-3);
+}
+.toc ul { list-style: none; padding-left: 0; }
+.toc li { margin: var(--space-1) 0; }
+.toc a { text-decoration: none; }
+.toc ul ul { padding-left: var(--space-4); }
+.card-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4); margin: var(--space-5) 0;
+}
+.card {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  transition: all 0.2s ease;
+}
+.card:hover { box-shadow: var(--shadow-md); border-color: var(--color-primary); transform: translateY(-2px); }
+.card-num { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-primary); font-weight: 600; }
+.card-title { font-weight: 600; font-size: var(--text-base); margin: var(--space-2) 0; color: var(--text-primary); }
+.card-desc { font-size: var(--text-sm); color: var(--text-secondary); }
+.mermaid {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-5);
+  margin: var(--space-5) 0; text-align: center; overflow-x: auto;
+}
+.footer-nav {
+  display: flex; justify-content: space-between;
+  margin-top: var(--space-8); padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft); gap: var(--space-3);
+}
+.footer-nav a {
+  flex: 1; padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); text-decoration: none;
+  color: var(--text-primary); transition: all 0.2s ease;
+}
+.footer-nav a:hover { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.footer-nav .nav-direction {
+  font-size: var(--text-xs); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.footer-nav .nav-title { font-weight: 600; margin-top: var(--space-1); }
+.footer-nav .next { text-align: right; }
+.footer-nav a.disabled { opacity: 0.4; pointer-events: none; }
+.tag {
+  display: inline-block; padding: 0.1em 0.6em; font-size: var(--text-xs);
+  border-radius: var(--radius-sm); font-family: var(--font-mono);
+  background: var(--bg-muted); color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+}
+.tag.primary { background: var(--color-primary-soft); color: var(--color-primary-text); border-color: var(--color-primary); }
+@media print { .top-nav, .footer-nav, button[data-theme-toggle] { display: none; } }
+</style>
+</head>
+<body>
+
+<nav class="top-nav">
+  <div class="nav-links">
+    <a href="ch28-Prometheus-alertmanager-monitoring-incidents.html">← 上一章</a>
+    <a href="ch00-Overview-learning-path.html">📚 目錄</a>
+    <a href="ch30-Grafana-installation-quickstart.html">下一章 →</a>
+  </div>
+  <button data-theme-toggle aria-label="Toggle theme"></button>
+</nav>
+
+<main>
+  <div class="chapter-meta">Chapter 29 · Grafana OSS 概念</div>
+  <h1>Grafana OSS 概念、生態與版本選擇</h1>
+  <p class="subtitle">
+    歡迎進入 Part 3 — Grafana OSS。Grafana 是業界最流行的觀測性視覺化工具，支援 150+ 種資料源、
+    100+ 種視覺化類型、強大的 alerting 與 IaC 工具。本章讓您先理解全貌：核心架構、版本選擇、
+    與 Prometheus 的關係、以及 Grafana 12 / 13 的最新進展。
+  </p>
+
+  <div class="toc">
+    <div class="toc-title">本章內容</div>
+    <ul>
+      <li><a href="#section-1">§ 1. Grafana 是什麼？不是什麼？</a></li>
+      <li><a href="#section-2">§ 2. 整體架構與核心元件</a></li>
+      <li><a href="#section-3">§ 3. Grafana OSS vs Enterprise vs Cloud</a></li>
+      <li><a href="#section-4">§ 4. 版本演進與重要里程碑</a></li>
+      <li><a href="#section-5">§ 5. Grafana 12 / 13 重要新功能</a></li>
+      <li><a href="#section-6">§ 6. 與 Prometheus 的搭配模式</a></li>
+      <li><a href="#section-7">§ 7. Grafana 的「資料模型」</a></li>
+      <li><a href="#section-8">§ 8. Plugins 生態</a></li>
+      <li><a href="#section-9">§ 9. License 與商業考量</a></li>
+      <li><a href="#section-10">§ 10. 學習路徑建議</a></li>
+    </ul>
+  </div>
+
+  <h2 id="section-1">§ 1. Grafana 是什麼？不是什麼？</h2>
+
+  <h3>1.1 一句話定位</h3>
+
+  <p>
+    <strong>Grafana 是一個「資料源無關的視覺化與告警平台」</strong>。
+    它<strong>不儲存資料</strong>（除了少量設定），而是「<strong>查詢</strong>」其他系統並把結果視覺化。
+  </p>
+
+  <h3>1.2 不要把 Grafana 跟以下混淆</h3>
+
+  <table>
+    <thead>
+      <tr><th>常見誤解</th><th>實際是什麼</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>「Grafana 是 metric 系統」</td><td>不對。它<strong>查</strong>其他系統（如 Prometheus、Mimir、InfluxDB）</td></tr>
+      <tr><td>「Grafana 取代 Prometheus」</td><td>不對。兩者是<strong>互補</strong>關係</td></tr>
+      <tr><td>「Grafana 只能用 Prometheus」</td><td>不對。支援 150+ datasource（SQL、Cloud、Logs、Traces 都能）</td></tr>
+      <tr><td>「Grafana 等於 Dashboard」</td><td>不對。Dashboard 是其中一部分；alerting、explore、datasource 管理都是核心</td></tr>
+    </tbody>
+  </table>
+
+  <h3>1.3 Grafana 主要做什麼？</h3>
+
+  <ol>
+    <li><strong>Visualization</strong>：把資料畫成 chart、table、map、heatmap 等</li>
+    <li><strong>Dashboard</strong>：把多個 panel 組合成一個觀察面板</li>
+    <li><strong>Alerting</strong>：基於資料觸發 alert（與 Prometheus alerting 並存）</li>
+    <li><strong>Exploration</strong>：互動式探索資料（Explore 模式、Drilldown）</li>
+    <li><strong>Datasource Management</strong>：統一管理多種資料源的連線</li>
+    <li><strong>User / Team / Permission</strong>：誰能看 / 編輯什麼</li>
+    <li><strong>Plugins</strong>：擴展功能（datasource / visualization / app）</li>
+  </ol>
+
+  <h2 id="section-2">§ 2. 整體架構與核心元件</h2>
+
+  <div class="mermaid">
+graph TB
+    USER[User · Browser]
+
+    subgraph Grafana["Grafana Server"]
+        FE[Frontend<br/>React SPA]
+        BE[Backend<br/>Go HTTP server]
+        DB[(Internal DB<br/>SQLite · MySQL · Postgres<br/>存設定/dashboard)]
+
+        FE --> BE
+        BE --> DB
+    end
+
+    subgraph DataSources["Data Sources"]
+        PROM[Prometheus]
+        LOKI[Loki · logs]
+        TEMPO[Tempo · traces]
+        SQL[MySQL · PostgreSQL]
+        CLOUD[CloudWatch · GCP · Azure]
+    end
+
+    USER -- HTTPS --> FE
+    BE -- 查詢 --> PROM
+    BE -- 查詢 --> LOKI
+    BE -- 查詢 --> TEMPO
+    BE -- SQL --> SQL
+    BE -- API --> CLOUD
+</div>
+
+  <h3>2.1 Grafana Server 內部</h3>
+
+  <table>
+    <thead>
+      <tr><th>元件</th><th>用途</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Frontend</strong></td><td>React SPA，dashboard / panel 編輯 UI</td></tr>
+      <tr><td><strong>Backend</strong></td><td>Go HTTP server，處理 API、資料源代理、auth</td></tr>
+      <tr><td><strong>Internal Database</strong></td><td>儲存設定、dashboard JSON、user、team、permission</td></tr>
+      <tr><td><strong>Plugin System</strong></td><td>動態載入 datasource / visualization 插件</td></tr>
+      <tr><td><strong>Alerting Engine</strong></td><td>評估 Grafana-managed alert（v8+）</td></tr>
+    </tbody>
+  </table>
+
+  <h3>2.2 Internal Database 選擇</h3>
+
+  <table>
+    <thead>
+      <tr><th>DB</th><th>適用</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>SQLite</strong>（預設）</td><td>單機部署、PoC、小團隊（&lt; 100 user）</td></tr>
+      <tr><td><strong>MySQL</strong></td><td>多 instance HA、企業環境</td></tr>
+      <tr><td><strong>PostgreSQL</strong></td><td>同 MySQL，PG 用戶優先</td></tr>
+    </tbody>
+  </table>
+
+  <p>SQLite 雖能用，<strong>HA 部署必用 MySQL/PG</strong>（多個 Grafana server 共用同個 DB）。</p>
+
+  <h3>2.3 為什麼 Grafana 不存指標資料</h3>
+
+  <p>這是個刻意的設計選擇。好處：</p>
+
+  <ul>
+    <li><strong>單一視角</strong>：metrics、logs、traces、SQL 等資料各自由專業系統儲存，Grafana 統一查</li>
+    <li><strong>解耦</strong>：可隨時換 backend（Prom → Mimir、InfluxDB → VictoriaMetrics）不用搬 dashboard</li>
+    <li><strong>規模化</strong>：Grafana 自身輕量；scale 由 backend 負責</li>
+  </ul>
+
+  <h2 id="section-3">§ 3. Grafana OSS vs Enterprise vs Cloud</h2>
+
+  <h3>3.1 三個版本對照</h3>
+
+  <table>
+    <thead>
+      <tr><th>面向</th><th>OSS</th><th>Enterprise（自架）</th><th>Cloud（SaaS）</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>授權</td><td>免費（AGPL v3）</td><td>付費 license</td><td>免費 tier + 付費</td></tr>
+      <tr><td>運維</td><td>自架</td><td>自架</td><td>託管</td></tr>
+      <tr><td>核心功能</td><td>✅ 全部</td><td>✅ + Enterprise plugins</td><td>✅</td></tr>
+      <tr><td>SSO（SAML、OAuth）</td><td>OAuth/LDAP 有</td><td>+ SAML、enterprise SSO</td><td>+ SAML、enterprise SSO</td></tr>
+      <tr><td>Reporting（PDF）</td><td>❌</td><td>✅</td><td>✅</td></tr>
+      <tr><td>RBAC fine-grained</td><td>有限</td><td>完整</td><td>完整</td></tr>
+      <tr><td>Audit logs</td><td>❌</td><td>✅</td><td>✅</td></tr>
+      <tr><td>Recorded Queries</td><td>❌</td><td>✅</td><td>✅</td></tr>
+      <tr><td>SCIM Provisioning</td><td>❌</td><td>✅（v12+）</td><td>✅</td></tr>
+      <tr><td>適合對象</td><td>多數團隊</td><td>大型企業</td><td>不想運維的</td></tr>
+    </tbody>
+  </table>
+
+  <h3>3.2 本系列教學焦點</h3>
+
+  <p>
+    本系列專注 <strong>Grafana OSS</strong>。所有概念（dashboard、panel、alerting、provisioning）OSS 都有完整支援。
+    Enterprise 多的功能對學習無影響。Cloud 跟 OSS 操作幾乎一樣，只是不用自架。
+  </p>
+
+  <h3>3.3 何時該升 Enterprise / Cloud？</h3>
+
+  <ul>
+    <li>需要 SAML / SCIM 等企業 SSO 集成</li>
+    <li>需要 audit log 滿足合規</li>
+    <li>需要排程 PDF 報告（給高層）</li>
+    <li>不想運維（→ Cloud）</li>
+    <li>需要付費支援</li>
+  </ul>
+
+  <h2 id="section-4">§ 4. 版本演進與重要里程碑</h2>
+
+  <h3>4.1 主要版本里程碑</h3>
+
+  <table>
+    <thead>
+      <tr><th>版本</th><th>年份</th><th>重大功能</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1.0</td><td>2014</td><td>創始版本，原為 Kibana fork</td></tr>
+      <tr><td>4.0</td><td>2016</td><td>Alerting 引入</td></tr>
+      <tr><td>5.0</td><td>2018</td><td>Team、Folder、Provisioning</td></tr>
+      <tr><td>6.0</td><td>2019</td><td>Explore 模式、Loki 整合</td></tr>
+      <tr><td>7.0</td><td>2020</td><td>Plugin platform 升級、新 panel 系統</td></tr>
+      <tr><td>8.0</td><td>2021</td><td>Unified Alerting（取代舊 alerting）</td></tr>
+      <tr><td>9.0</td><td>2022</td><td>Grafana for Beyla / k6 / Pyroscope 收購整合</td></tr>
+      <tr><td>10.0</td><td>2023</td><td>Scenes-based dashboard、Public dashboards</td></tr>
+      <tr><td>11.0</td><td>2024</td><td>Drilldown apps、Migration tools</td></tr>
+      <tr><td><strong>12.0</strong></td><td>2025-04</td><td>Observability as Code、Dynamic Dashboard、Git Sync GA</td></tr>
+      <tr><td><strong>12.4</strong></td><td>2026-02</td><td>當前穩定版（截至本章撰寫）</td></tr>
+      <tr><td><strong>13</strong></td><td>2026-04（GrafanaCON）</td><td>下一個 major</td></tr>
+    </tbody>
+  </table>
+
+  <h3>4.2 升級政策</h3>
+
+  <p>
+    Grafana 主版本一年一次（每年 GrafanaCON 發表），minor 版本每 1-2 個月。
+    建議：<strong>追到 latest minor</strong>（例：12.4），主版本可以延後 1-2 個月觀望。
+  </p>
+
+  <h2 id="section-5">§ 5. Grafana 12 / 13 重要新功能</h2>
+
+  <p>2025-2026 是 Grafana 的重要轉折，有三個方向值得注意：</p>
+
+  <h3>5.1 Observability as Code</h3>
+
+  <p>核心思想：<strong>Dashboard、alert、datasource 都該像程式碼一樣管理</strong>（version、code review、automated deploy）。</p>
+
+  <ul>
+    <li><strong>Git Sync</strong>（GA in 12.4）：Grafana 直接連 GitHub repo，dashboard 變更走 PR 流程</li>
+    <li><strong>新 API（v1beta1）</strong>：Kubernetes-style resource API，未來所有 IaC 都用這套</li>
+    <li><strong>Foundation SDK / Terraform Provider</strong>：用 Go / Terraform 管理 dashboard</li>
+    <li><strong>Grafanactl CLI</strong>：類似 kubectl，CRUD Grafana resources</li>
+  </ul>
+
+  <p>這部分將在 Part 4（Ch 42-44）詳述。</p>
+
+  <h3>5.2 Dynamic Dashboards</h3>
+
+  <p>讓 dashboard 自身變得「智慧」：</p>
+
+  <ul>
+    <li><strong>Tabs</strong>：水平切換不同 context（之前只能垂直 row）</li>
+    <li><strong>Conditional rendering</strong>：根據 variable 顯示/隱藏 panel</li>
+    <li><strong>Auto-grid</strong>：panel 自動調整大小</li>
+    <li><strong>SQL Expressions</strong>：用 SQL 跨資料源 join / transform</li>
+  </ul>
+
+  <h3>5.3 Drilldown 與 AI 助手</h3>
+
+  <ul>
+    <li><strong>Drilldown apps</strong>（Metrics / Logs / Traces / Profiles 都已 GA）：Code-free 探索</li>
+    <li><strong>AI 助手</strong>：自然語言查詢、建立 dashboard、root cause analysis</li>
+    <li><strong>Investigations</strong>：跨 signal 串接的調查工具（v12 引入）</li>
+  </ul>
+
+  <h2 id="section-6">§ 6. 與 Prometheus 的搭配模式</h2>
+
+  <h3>6.1 標準搭配</h3>
+
+  <pre><code>Prometheus（metrics 儲存）  ←→  Grafana（視覺化 + alerting）</code></pre>
+
+  <p>這是入門最常見的組合。Prometheus 專注 metric pipeline，Grafana 提供 UI。</p>
+
+  <h3>6.2 LGTM 全棧</h3>
+
+  <p>當您不只要 metric，還要 logs + traces + profiling：</p>
+
+  <table>
+    <thead>
+      <tr><th>領域</th><th>儲存後端</th><th>負責 UI</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Metrics</td><td>Prometheus / Mimir</td><td>Grafana</td></tr>
+      <tr><td>Logs</td><td><strong>Loki</strong></td><td>Grafana</td></tr>
+      <tr><td>Traces</td><td><strong>Tempo</strong></td><td>Grafana</td></tr>
+      <tr><td>Profiling</td><td><strong>Pyroscope</strong></td><td>Grafana</td></tr>
+    </tbody>
+  </table>
+
+  <p>這就是所謂 <strong>LGTM stack</strong>（Loki + Grafana + Tempo + Mimir）。Part 5（Ch 45-50）詳述。</p>
+
+  <h3>6.3 Alerting 雙系統共存</h3>
+
+  <p>Ch 27 講過：</p>
+
+  <ul>
+    <li>Prometheus alerting rule + Alertmanager（典型）</li>
+    <li>Grafana Alerting（v8+，多 datasource 友善）</li>
+    <li>兩者可以共存：Prometheus 寫 metric-based alert，Grafana 寫 cross-datasource alert</li>
+  </ul>
+
+  <h3>6.4 Recording Rule 在哪裡？</h3>
+
+  <ul>
+    <li><strong>Prometheus 端</strong>：傳統做法，rule file 載入</li>
+    <li><strong>Mimir Ruler</strong>：分散式評估（Ch 27）</li>
+    <li><strong>Grafana 12+ Recording Rules UI</strong>：在 Grafana UI 中建立 recording rule（v12 GA）</li>
+  </ul>
+
+  <h2 id="section-7">§ 7. Grafana 的「資料模型」</h2>
+
+  <p>理解 Grafana 怎麼處理資料，能幫您寫出更好的 query 與 panel。</p>
+
+  <h3>7.1 Data Frame</h3>
+
+  <p>
+    Grafana 內部把所有資料源回傳的資料統一成 <strong>Data Frame</strong>（表格格式）：
+    類似 pandas DataFrame，有 columns 與 rows。
+  </p>
+
+  <pre><code>Time                   | service | qps
+2026-05-02T10:00:00Z   | api     | 1234
+2026-05-02T10:01:00Z   | api     | 1267
+2026-05-02T10:00:00Z   | web     | 567
+...</code></pre>
+
+  <p>不管 backend 是 Prometheus、SQL、JSON API，最終都變成 Data Frame，由 Grafana 統一處理。</p>
+
+  <h3>7.2 Query 流程</h3>
+
+  <div class="mermaid">
+sequenceDiagram
+    participant U as User
+    participant P as Panel
+    participant DS as Datasource Plugin
+    participant BE as Backend
+    participant GS as Grafana Server
+    participant TX as Transformations
+    participant V as Visualization
+
+    U->>P: 開啟 dashboard
+    P->>DS: 用 query 配置查詢
+    DS->>GS: 翻譯成 datasource 原生語言
+    GS->>BE: HTTP/SQL/...
+    BE-->>GS: 原始資料
+    GS->>DS: 結果
+    DS->>P: Data Frame
+    P->>TX: 套用 transformations
+    TX->>V: 視覺化引擎渲染
+    V->>U: 顯示
+</div>
+
+  <h3>7.3 Transformations</h3>
+
+  <p>
+    在資料到達 visualization 前，可以做 transformations：filter、merge、calculate、rename。
+    這讓您可在 panel 內做後處理而不修改原始 query。
+  </p>
+
+  <h2 id="section-8">§ 8. Plugins 生態</h2>
+
+  <h3>8.1 三類 plugin</h3>
+
+  <table>
+    <thead>
+      <tr><th>類型</th><th>用途</th><th>範例</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Data Source</strong></td><td>連到外部資料源</td><td>Prometheus、MySQL、CloudWatch、Snowflake</td></tr>
+      <tr><td><strong>Panel</strong></td><td>新的視覺化類型</td><td>Worldmap、Polystat、Status Map</td></tr>
+      <tr><td><strong>App</strong></td><td>整套應用（datasource + panel + dashboard）</td><td>Kubernetes app、AWS app</td></tr>
+    </tbody>
+  </table>
+
+  <h3>8.2 官方 vs 社群 plugin</h3>
+
+  <ul>
+    <li><strong>Built-in</strong>：預裝（Prometheus、Loki、MySQL、CloudWatch、Tempo 等）</li>
+    <li><strong>Official</strong>：Grafana Labs 維護，預設信任</li>
+    <li><strong>Community</strong>：社群提供，有審核機制（Grafana Marketplace 列出）</li>
+  </ul>
+
+  <h3>8.3 安裝 plugin</h3>
+
+  <pre><code># 用 grafana-cli
+grafana-cli plugins install &lt;plugin-id&gt;
+sudo systemctl restart grafana-server
+
+# 或在 Helm values.yaml
+plugins:
+  - grafana-piechart-panel
+  - grafana-worldmap-panel</code></pre>
+
+  <h3>8.4 Angular plugins 的重大警告</h3>
+
+  <div class="callout danger">
+    <div class="callout-title">🚨 Grafana 12+ 移除 Angular 支援</div>
+    <p>
+      早期 Grafana plugin 用 Angular。Grafana 11 警告 deprecation，<strong>Grafana 12 完全移除</strong>。<br>
+      若您升 Grafana 12 但還用 Angular plugin，那些 panel <strong>無法載入</strong>。<br>
+      升級前請檢查 <code>/admin/plugins</code> 看有無 Angular 標記。
+    </p>
+  </div>
+
+  <h2 id="section-9">§ 9. License 與商業考量</h2>
+
+  <h3>9.1 AGPL v3</h3>
+
+  <p>Grafana OSS 自 2021 年從 Apache 2.0 改為 <strong>AGPL v3</strong>（Affero GPL）。</p>
+
+  <p>差別：</p>
+
+  <ul>
+    <li><strong>Apache 2.0</strong>：可閉源使用，無強制公開</li>
+    <li><strong>AGPL v3</strong>：若您<strong>修改 Grafana 並提供 SaaS</strong>給別人，必須公開您的修改</li>
+  </ul>
+
+  <h3>9.2 對使用者的實際影響</h3>
+
+  <p>絕大多數使用者<strong>不受影響</strong>：</p>
+
+  <ul>
+    <li>內部用 Grafana 監控自家服務 → ✅ OK，無需公開</li>
+    <li>修改 Grafana plugin / dashboard → ✅ OK</li>
+    <li>把<strong>修改後的 Grafana</strong> 賣給別人當 SaaS → 必須公開修改的程式碼</li>
+  </ul>
+
+  <p>這個改動主要針對「fork Grafana 賣 SaaS 但不貢獻回上游」的雲廠商（一些大廠 cloud monitoring 產品）。</p>
+
+  <h3>9.3 Grafana Enterprise 的 license</h3>
+
+  <p>商業 license，付費取得（per-user / per-seat）。授予不受 AGPL 約束的權利。</p>
+
+  <h2 id="section-10">§ 10. 學習路徑建議</h2>
+
+  <h3>10.1 接下來的 Part 3 章節地圖</h3>
+
+  <table>
+    <thead>
+      <tr><th>章節</th><th>主題</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Ch 30</td><td>Grafana 安裝與快速上手</td></tr>
+      <tr><td>Ch 31</td><td><code>grafana.ini</code> 完整配置</td></tr>
+      <tr><td>Ch 32</td><td>認證（OAuth、LDAP、Anonymous）</td></tr>
+      <tr><td>Ch 33</td><td>RBAC、Team、Folder 權限</td></tr>
+      <tr><td>Ch 34</td><td>Datasources 完整使用</td></tr>
+      <tr><td>Ch 35</td><td>Dashboards 設計</td></tr>
+      <tr><td>Ch 36-37</td><td>Panel 類型上 / 下篇</td></tr>
+      <tr><td>Ch 38</td><td>Query Editor + Transform + Explore</td></tr>
+      <tr><td>Ch 39</td><td>Drilldown apps</td></tr>
+      <tr><td>Ch 40</td><td>Grafana Alerting 完整教學</td></tr>
+      <tr><td>Ch 41</td><td>進階管理</td></tr>
+    </tbody>
+  </table>
+
+  <h3>10.2 學習建議順序</h3>
+
+  <ol>
+    <li><strong>先安裝</strong>（Ch 30）：用 Docker 跑起來，連個 Prometheus，看到第一個 dashboard</li>
+    <li><strong>建幾個 dashboard</strong>：抓一些 node_exporter 資料，動手畫 panel</li>
+    <li><strong>學 datasource</strong>（Ch 34）：理解不同 query language</li>
+    <li><strong>學 panel 設定</strong>（Ch 36-37）：怎麼選圖表類型、設 unit、threshold</li>
+    <li><strong>進到 alerting</strong>（Ch 40）：搬一些原本在 Prometheus 的 alert</li>
+    <li><strong>最後 IaC</strong>（Ch 42-44）：把所有都 code 化</li>
+  </ol>
+
+  <h3>10.3 推薦的 hands-on 練習</h3>
+
+  <ol>
+    <li>用 Docker Compose 跑 Prometheus + node_exporter + Grafana</li>
+    <li>從 Grafana.com Dashboard Library 匯入「Node Exporter Full」</li>
+    <li>自己 clone 一份，改成只看您關心的 metric</li>
+    <li>建立第二個 dashboard 監控您的應用（用任意 client library）</li>
+    <li>設一條 Grafana alert（CPU &gt; 80% 持續 5 分鐘）</li>
+    <li>把 dashboard JSON 匯出，研究結構</li>
+  </ol>
+
+  <h2>📚 延伸閱讀</h2>
+
+  <ul>
+    <li><a href="https://grafana.com/oss/grafana/" target="_blank" rel="noopener">Grafana OSS 官方</a></li>
+    <li><a href="https://grafana.com/blog/grafana-12-release-all-the-new-features/" target="_blank" rel="noopener">Grafana 12 release notes</a></li>
+    <li><a href="https://grafana.com/docs/grafana/latest/" target="_blank" rel="noopener">Grafana 官方文件</a></li>
+    <li><a href="https://grafana.com/grafana/dashboards/" target="_blank" rel="noopener">Dashboard Library（社群分享）</a></li>
+    <li><a href="https://grafana.com/grafana/plugins/" target="_blank" rel="noopener">Plugin Catalog</a></li>
+  </ul>
+
+  <h2>✅ 本章重點摘要</h2>
+
+  <div class="callout success">
+    <div class="callout-title">30 秒回顧</div>
+    <ul>
+      <li>Grafana 是「<strong>資料源無關</strong>」的視覺化平台，<strong>不儲存資料</strong>，而是查其他系統</li>
+      <li>核心元件：Frontend / Backend / Internal DB（SQLite/MySQL/PG）/ Plugin System / Alerting Engine</li>
+      <li>HA 部署必用 MySQL/PG，SQLite 只給單機</li>
+      <li>三版本：<strong>OSS</strong>（AGPL v3，免費）/ <strong>Enterprise</strong>（付費 license + SAML/RBAC/Audit）/ <strong>Cloud</strong>（SaaS）</li>
+      <li>Grafana 12（2025-04）標誌 Observability as Code 時代：Git Sync、新 API、Foundation SDK、Terraform v1beta1 resources</li>
+      <li>Dynamic Dashboards：tabs / conditional rendering / auto-grid / SQL expressions</li>
+      <li>LGTM stack：<strong>Loki（logs）+ Grafana + Tempo（traces）+ Mimir（metrics）</strong></li>
+      <li>內部用 <strong>Data Frame</strong> 統一所有 datasource 的回傳格式</li>
+      <li>Plugin 三類：Data Source / Panel / App。<strong>Grafana 12 移除 Angular 支援</strong>（升級前必查）</li>
+      <li>AGPL v3 對絕大多數使用者無影響，僅針對改機並對外提供 SaaS 的場景</li>
+    </ul>
+  </div>
+
+  <h2>📝 練習題</h2>
+
+  <ol>
+    <li>解釋為什麼 Grafana 不存指標資料是「刻意設計」？這個設計帶來哪些優劣？</li>
+    <li>下列情境選 OSS / Enterprise / Cloud？(a) 5 人新創內部監控；(b) 上市公司需要 audit log；(c) 沒有 SRE 想直接用</li>
+    <li>解釋 Grafana 與 Prometheus 的關係。為什麼說「兩者互補」而非「Grafana 取代 Prometheus」？</li>
+    <li>解釋 Grafana 12 「Observability as Code」的核心精神是什麼？哪些功能體現這個精神？</li>
+    <li>您的團隊使用 Grafana 11，想升到 12。請列出至少 4 項升級前必須檢查的事項。</li>
+  </ol>
+
+  <nav class="footer-nav">
+    <a href="ch28-Prometheus-alertmanager-monitoring-incidents.html">
+      <div class="nav-direction">← 上一章</div>
+      <div class="nav-title">Ch 28 · 自監控與 Incident Tools</div>
+    </a>
+    <a class="next" href="ch30-Grafana-installation-quickstart.html">
+      <div class="nav-direction">下一章 →</div>
+      <div class="nav-title">Ch 30 · Grafana 安裝</div>
+    </a>
+  </nav>
+
+</main>
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else { init(); }
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  // Calm Teal hue 200° 設計色系 → mermaid themeVariables 對齊 tokens.css
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    return {
+      startOnLoad: false,
+      securityLevel: 'loose',
+      fontFamily: 'DM Sans, Inter, Noto Sans TC, sans-serif',
+      theme: 'base',
+      themeVariables: isDark ? {
+        background: '#2a2520',
+        primaryColor: '#1f3a4a',
+        primaryTextColor: '#e8e6e1',
+        primaryBorderColor: '#5a8499',
+        lineColor: '#7a8a8f',
+        secondaryColor: '#2d3a32',
+        tertiaryColor: '#3a3528',
+        nodeBorder: '#5a8499',
+        clusterBkg: '#252523',
+        clusterBorder: '#4a4944',
+        edgeLabelBackground: '#2a2520',
+        textColor: '#e8e6e1',
+      } : {
+        background: '#fdfcfa',
+        primaryColor: '#cffafe',
+        primaryTextColor: '#1a1a18',
+        primaryBorderColor: '#0891b2',
+        lineColor: '#4a6873',
+        secondaryColor: '#dcfce7',
+        tertiaryColor: '#fef3c7',
+        nodeBorder: '#0891b2',
+        clusterBkg: '#f5f3ee',
+        clusterBorder: '#d4d2cd',
+        edgeLabelBackground: '#fdfcfa',
+        textColor: '#1a1a18',
+      },
+    };
+  }
+  mermaid.initialize(getMermaidConfig());
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => mermaid.run());
+  } else {
+    mermaid.run();
+  }
+  window.addEventListener('jhsun:theme-changed', () => {
+    document.querySelectorAll('.mermaid').forEach(el => {
+      const code = el.dataset.source || el.textContent;
+      if (!el.dataset.source) el.dataset.source = code;
+      el.removeAttribute('data-processed');
+      el.innerHTML = el.dataset.source;
+    });
+    mermaid.initialize(getMermaidConfig());
+    mermaid.run();
+  });
+</script>
+</body>
+</html>

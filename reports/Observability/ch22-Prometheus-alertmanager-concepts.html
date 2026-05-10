@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch22 · Alertmanager 概念、架構與生命週期 | Prometheus / Alertmanager / Grafana 完整教學</title>
+<style>
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --text-3xl: 44px;
+  --text-4xl: 64px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+  --container-narrow: 720px;
+  --container-wide: 1280px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80;
+  --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24;
+  --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171;
+  --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee;
+  --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  padding: 0;
+}
+.top-nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-soft);
+  padding: var(--space-3) var(--space-5);
+  display: flex; justify-content: space-between; align-items: center;
+  backdrop-filter: blur(8px);
+}
+.nav-links { display: flex; gap: var(--space-3); align-items: center; }
+.nav-links a {
+  color: var(--text-secondary); text-decoration: none;
+  font-size: var(--text-sm); padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm); transition: all 0.2s ease;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--color-primary-soft); }
+.nav-links a.disabled { color: var(--text-muted); cursor: not-allowed; pointer-events: none; }
+button[data-theme-toggle] {
+  background: var(--bg-muted); color: var(--text-primary);
+  border: 1px solid var(--border-soft);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+  cursor: pointer; font-size: var(--text-sm);
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-sans); transition: all 0.2s ease;
+}
+button[data-theme-toggle]:hover { background: var(--color-primary-soft); border-color: var(--color-primary); }
+.theme-icon { font-size: var(--text-md); }
+main { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-7) var(--space-5); }
+@media (min-width: 1024px) { main { max-width: 880px; } }
+.chapter-meta {
+  font-size: var(--text-sm); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: var(--space-3); font-family: var(--font-mono);
+}
+h1 {
+  font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 700;
+  line-height: 1.15; margin: 0 0 var(--space-4);
+  color: var(--text-primary); letter-spacing: -0.02em;
+}
+.subtitle {
+  font-size: var(--text-md); color: var(--text-secondary);
+  margin-bottom: var(--space-7); font-style: italic;
+  border-left: 3px solid var(--color-primary); padding-left: var(--space-4);
+}
+h2 {
+  font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600;
+  margin-top: var(--space-8); margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2); border-bottom: 2px solid var(--border-soft);
+  color: var(--text-primary);
+}
+h3 { font-size: var(--text-xl); font-weight: 600; margin-top: var(--space-6); margin-bottom: var(--space-3); color: var(--text-primary); }
+h4 { font-size: var(--text-md); font-weight: 600; margin-top: var(--space-5); margin-bottom: var(--space-2); color: var(--text-primary); }
+p { margin: var(--space-3) 0; }
+strong { color: var(--text-primary); font-weight: 600; }
+em { color: var(--text-secondary); }
+a {
+  color: var(--color-primary-text); text-decoration: underline;
+  text-decoration-color: var(--color-primary-soft);
+  text-underline-offset: 3px; transition: all 0.2s ease;
+}
+a:hover { color: var(--color-primary-hover); text-decoration-color: var(--color-primary); }
+code {
+  font-family: var(--font-mono); font-size: 0.92em;
+  background: var(--bg-code); padding: 0.15em 0.4em;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-soft);
+  color: var(--color-primary-text);
+}
+pre {
+  background: var(--bg-code); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  overflow-x: auto; font-size: var(--text-sm); line-height: 1.6;
+  margin: var(--space-4) 0;
+}
+pre code { background: transparent; border: none; padding: 0; color: var(--text-primary); }
+.callout {
+  margin: var(--space-5) 0; padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md); border-left: 4px solid;
+}
+.callout-title {
+  font-weight: 600; margin-bottom: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.callout.info { background: var(--color-info-soft); border-color: var(--color-info); }
+.callout.info .callout-title { color: var(--color-info); }
+.callout.success { background: var(--color-success-soft); border-color: var(--color-success); }
+.callout.success .callout-title { color: var(--color-success); }
+.callout.warning { background: var(--color-warning-soft); border-color: var(--color-warning); }
+.callout.warning .callout-title { color: var(--color-warning); }
+.callout.danger { background: var(--color-danger-soft); border-color: var(--color-danger); }
+.callout.danger .callout-title { color: var(--color-danger); }
+table {
+  width: 100%; border-collapse: collapse; margin: var(--space-5) 0;
+  font-size: var(--text-sm); background: var(--bg-surface);
+  border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-sm);
+}
+th, td { text-align: left; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); }
+th {
+  background: var(--bg-muted); font-weight: 600; color: var(--text-primary);
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg-muted); }
+ul, ol { padding-left: var(--space-5); margin: var(--space-3) 0; }
+li { margin: var(--space-2) 0; }
+li::marker { color: var(--color-primary); }
+.toc {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4) var(--space-5);
+  margin: var(--space-5) 0;
+}
+.toc-title {
+  font-weight: 600; font-size: var(--text-sm);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted); margin-bottom: var(--space-3);
+}
+.toc ul { list-style: none; padding-left: 0; }
+.toc li { margin: var(--space-1) 0; }
+.toc a { text-decoration: none; }
+.toc ul ul { padding-left: var(--space-4); }
+.card-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4); margin: var(--space-5) 0;
+}
+.card {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  transition: all 0.2s ease;
+}
+.card:hover { box-shadow: var(--shadow-md); border-color: var(--color-primary); transform: translateY(-2px); }
+.card-num { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-primary); font-weight: 600; }
+.card-title { font-weight: 600; font-size: var(--text-base); margin: var(--space-2) 0; color: var(--text-primary); }
+.card-desc { font-size: var(--text-sm); color: var(--text-secondary); }
+.mermaid {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-5);
+  margin: var(--space-5) 0; text-align: center; overflow-x: auto;
+}
+.footer-nav {
+  display: flex; justify-content: space-between;
+  margin-top: var(--space-8); padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft); gap: var(--space-3);
+}
+.footer-nav a {
+  flex: 1; padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); text-decoration: none;
+  color: var(--text-primary); transition: all 0.2s ease;
+}
+.footer-nav a:hover { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.footer-nav .nav-direction {
+  font-size: var(--text-xs); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.footer-nav .nav-title { font-weight: 600; margin-top: var(--space-1); }
+.footer-nav .next { text-align: right; }
+.footer-nav a.disabled { opacity: 0.4; pointer-events: none; }
+.tag {
+  display: inline-block; padding: 0.1em 0.6em; font-size: var(--text-xs);
+  border-radius: var(--radius-sm); font-family: var(--font-mono);
+  background: var(--bg-muted); color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+}
+.tag.primary { background: var(--color-primary-soft); color: var(--color-primary-text); border-color: var(--color-primary); }
+@media print { .top-nav, .footer-nav, button[data-theme-toggle] { display: none; } }
+</style>
+</head>
+<body>
+
+<nav class="top-nav">
+  <div class="nav-links">
+    <a href="ch21-Prometheus-pushgateway-agent.html">← 上一章</a>
+    <a href="ch00-Overview-learning-path.html">📚 目錄</a>
+    <a href="ch23-Prometheus-alertmanager-installation.html">下一章 →</a>
+  </div>
+  <button data-theme-toggle aria-label="Toggle theme"></button>
+</nav>
+
+<main>
+  <div class="chapter-meta">Chapter 22 · Alertmanager 概念</div>
+  <h1>Alertmanager 概念、架構與生命週期</h1>
+  <p class="subtitle">
+    Prometheus 告訴您「哪裡出問題」，Alertmanager 決定「該怎麼通知」。
+    它處理去重、分組、抑制、靜默、路由——五個核心能力把雜亂的告警轉成有用的通知。
+    本章是進入 Part 2 的起點，從架構到 alert 完整生命週期一次講透。
+  </p>
+
+  <div class="toc">
+    <div class="toc-title">本章內容</div>
+    <ul>
+      <li><a href="#section-1">§ 1. 為什麼需要 Alertmanager</a></li>
+      <li><a href="#section-2">§ 2. 整體架構與資料流</a></li>
+      <li><a href="#section-3">§ 3. 五大核心能力</a></li>
+      <li><a href="#section-4">§ 4. Alert 完整生命週期</a></li>
+      <li><a href="#section-5">§ 5. Alert 的資料結構</a></li>
+      <li><a href="#section-6">§ 6. Routing Tree 概念</a></li>
+      <li><a href="#section-7">§ 7. 時間參數三劍客</a></li>
+      <li><a href="#section-8">§ 8. UTF-8 Matcher 與 Classic Matcher</a></li>
+      <li><a href="#section-9">§ 9. 與 Prometheus 的對話協議</a></li>
+      <li><a href="#section-10">§ 10. 設計哲學與限制</a></li>
+    </ul>
+  </div>
+
+  <h2 id="section-1">§ 1. 為什麼需要 Alertmanager</h2>
+
+  <p>
+    在 Ch 15 我們看過：Prometheus 的 alerting rule 只負責「<strong>判斷現在發生了什麼</strong>」。
+    它不處理：
+  </p>
+
+  <ul>
+    <li>同一個 alert 重複觸發 → 該不該重複通知？</li>
+    <li>500 個 pod 同時掛 → 要送 500 條訊息還是 1 條？</li>
+    <li>「Cluster 整個掛」+「每個 pod 都掛」 → 只報根因不報症狀？</li>
+    <li>維護中時段 → 怎麼暫停通知？</li>
+    <li>不同 severity / team → 通知不同 channel？</li>
+    <li>HA Prometheus → 如何避免雙倍通知？</li>
+  </ul>
+
+  <p>這些都是 <strong>Alertmanager</strong> 的職責。</p>
+
+  <div class="callout success">
+    <div class="callout-title">✅ 關鍵設計原則</div>
+    <p>
+      Prometheus = 「<strong>判斷層</strong>」（What is broken?）<br>
+      Alertmanager = 「<strong>通知層</strong>」（Who to tell, how often, through which channel?）
+    </p>
+  </div>
+
+  <h2 id="section-2">§ 2. 整體架構與資料流</h2>
+
+  <div class="mermaid">
+graph LR
+    subgraph PROM["Prometheus 端"]
+        RULES[Alerting Rules<br/>每 15s 評估]
+        SEND[POST alerts<br/>每 60s]
+    end
+
+    subgraph AM["Alertmanager 端"]
+        DEDUP[去重<br/>Deduplication]
+        GROUP[分組<br/>Grouping]
+        INHIBIT[抑制<br/>Inhibition]
+        SILENCE[靜默<br/>Silences]
+        ROUTE[路由樹<br/>Routing Tree]
+        TPL[模板渲染<br/>Templating]
+        SEND_NOTIFY[發送通知]
+    end
+
+    subgraph DEST["接收者"]
+        SLACK[Slack]
+        PD[PagerDuty]
+        EMAIL[Email]
+        WEBHOOK[Webhook]
+    end
+
+    RULES --> SEND
+    SEND --> DEDUP
+    DEDUP --> SILENCE
+    SILENCE --> INHIBIT
+    INHIBIT --> ROUTE
+    ROUTE --> GROUP
+    GROUP --> TPL
+    TPL --> SEND_NOTIFY
+    SEND_NOTIFY --> SLACK
+    SEND_NOTIFY --> PD
+    SEND_NOTIFY --> EMAIL
+    SEND_NOTIFY --> WEBHOOK
+</div>
+
+  <h3>2.1 階段順序意義</h3>
+
+  <table>
+    <thead>
+      <tr><th>階段</th><th>處理什麼</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1. 接收</td><td>Prometheus POST 過來的 alert，存入記憶體</td></tr>
+      <tr><td>2. 去重</td><td>HA 場景下同一 alert 從多個 Prometheus 來，視為一個</td></tr>
+      <tr><td>3. 靜默</td><td>有 active silence 匹配？跳過後續</td></tr>
+      <tr><td>4. 抑制</td><td>有 active 的高優先 alert 抑制這個？跳過</td></tr>
+      <tr><td>5. 路由</td><td>根據 routing tree 找到該送的 receiver</td></tr>
+      <tr><td>6. 分組</td><td>同 group 的 alert 累積在一起</td></tr>
+      <tr><td>7. 模板</td><td>用 Go template 渲染通知內容</td></tr>
+      <tr><td>8. 發送</td><td>呼叫對應 receiver 的 API</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="section-3">§ 3. 五大核心能力</h2>
+
+  <h3>3.1 Deduplication（去重）</h3>
+
+  <p>
+    當兩個 HA Prometheus 都送同一條 alert 過來，Alertmanager 視為一個。
+    判斷依據：<strong>除了 <code>replica</code> 外的所有 label 一樣 = 同一個 alert</strong>。
+  </p>
+
+  <p>這也是為什麼 Ch 15 強調 HA 部署要設 <code>alert_relabel_configs</code> 移除 <code>replica</code>。</p>
+
+  <h3>3.2 Grouping（分組）</h3>
+
+  <p>
+    把多個相關的 alert 「打包」成一個通知。例：
+  </p>
+
+  <ul>
+    <li>Cluster 網路分區 → 100 個服務 instance 全部告警 → <strong>分組成一個通知</strong></li>
+    <li>同 service 不同 endpoint 都 5xx → 一個通知列出所有 endpoint</li>
+  </ul>
+
+  <p>分組依據：<code>group_by</code> 設定的 label。同 group 的 alert 共享一個通知訊息。</p>
+
+  <h3>3.3 Inhibition（抑制）</h3>
+
+  <p>
+    當<strong>高優先級 alert</strong> 已 firing 時，<strong>抑制低優先級的相關 alert</strong>。例：
+  </p>
+
+  <ul>
+    <li><code>ClusterDown</code> 已 firing → 抑制該 cluster 內所有的 <code>PodDown</code> warning（症狀型）</li>
+    <li><code>DiskFull</code> 已 firing → 抑制該機器的 <code>HighDiskLatency</code></li>
+  </ul>
+
+  <p>用「根因 alert」抑制「症狀 alert」，on-call 一條告警就夠了。</p>
+
+  <h3>3.4 Silences（靜默）</h3>
+
+  <p>
+    手動暫停通知。<strong>透過 UI 或 API 建立</strong>，不寫在設定檔。例：
+  </p>
+
+  <ul>
+    <li>維護視窗：「<code>service=web</code> 從 03:00 到 05:00 靜默 2 小時」</li>
+    <li>已知問題：「正在處理，先靜默 1 小時」</li>
+    <li>測試環境：「<code>environment=staging</code> 永久靜默部分 alert」</li>
+  </ul>
+
+  <h3>3.5 Routing（路由）</h3>
+
+  <p>
+    根據 alert 的 label，決定送到哪個 receiver。例：
+  </p>
+
+  <pre><code>severity=critical → PagerDuty
+severity=warning + team=platform → Platform Slack
+severity=warning + team=database → DBA Email
+其他 → Default Slack</code></pre>
+
+  <h3>3.6 五大能力的差異對比</h3>
+
+  <table>
+    <thead>
+      <tr><th>能力</th><th>啟動方式</th><th>是否需設定檔</th><th>典型用途</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>去重</td><td>自動</td><td>否（自動處理）</td><td>HA 場景</td></tr>
+      <tr><td>分組</td><td>自動</td><td>是（route.group_by）</td><td>降低通知量</td></tr>
+      <tr><td>抑制</td><td>自動</td><td>是（inhibit_rules）</td><td>根因 → 症狀</td></tr>
+      <tr><td>靜默</td><td>手動</td><td>否（UI/API）</td><td>維護、已知問題</td></tr>
+      <tr><td>路由</td><td>自動</td><td>是（route）</td><td>分流到不同 receiver</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="section-4">§ 4. Alert 完整生命週期</h2>
+
+  <p>從 Prometheus 評估 rule 到 Alertmanager 送出通知的完整流程：</p>
+
+  <div class="mermaid">
+sequenceDiagram
+    participant R as Prometheus Rule
+    participant P as Prometheus
+    participant A as Alertmanager
+    participant Q as Alert Queue
+    participant N as Notification
+
+    R->>R: 每 15s 評估 expr
+    R->>R: expr 非空 · pending
+    R->>R: 持續超過 for · firing
+    R->>P: alert 進入 active list
+
+    loop 每 60s
+        P->>A: POST /api/v2/alerts<br/>送出 active alert list
+    end
+
+    A->>Q: 解析 · 去重存入記憶體佇列
+
+    Note over A,Q: 檢查 silences
+    A->>A: 有匹配 silence?
+    A->>A: 有 · 略過該 alert
+    A->>A: 沒 · 繼續
+
+    Note over A,Q: 檢查 inhibitions
+    A->>A: 有 source alert active?
+    A->>A: 有 · 略過 target alert
+    A->>A: 沒 · 繼續
+
+    Note over A: 路由匹配
+    A->>A: 走 routing tree<br/>找到 receiver
+
+    Note over A: 分組與緩衝
+    A->>A: 加入 group<br/>等 group_wait
+    A->>N: 渲染 template + 發送
+    N-->>A: 200 OK 或失敗
+
+    Note over A: 後續更新
+    loop 每 group_interval
+        A->>N: 若 group 有變動 · 再次發送
+    end
+
+    Note over P,A: Alert resolved
+    P->>A: alert 從 list 消失<br/>+ 標記 EndsAt
+    A->>N: 發送 resolved 通知<br/>(若 send_resolved=true)
+</div>
+
+  <h2 id="section-5">§ 5. Alert 的資料結構</h2>
+
+  <p>Prometheus 送往 Alertmanager 的 alert 就是這樣的 JSON：</p>
+
+  <pre><code>[
+  {
+    "labels": {
+      "alertname": "InstanceDown",
+      "severity": "critical",
+      "instance": "api-1:9100",
+      "job": "node-exporter",
+      "team": "platform",
+      "cluster": "production-tw"
+    },
+    "annotations": {
+      "summary": "Instance api-1:9100 is down",
+      "description": "Has been down for 5 minutes",
+      "runbook_url": "https://wiki/runbook/instance-down"
+    },
+    "startsAt": "2026-05-02T10:23:45Z",
+    "endsAt": "0001-01-01T00:00:00Z",
+    "generatorURL": "http://prometheus:9090/graph?...",
+    "fingerprint": "abc123def456"
+  }
+]</code></pre>
+
+  <h3>5.1 重要欄位解讀</h3>
+
+  <table>
+    <thead>
+      <tr><th>欄位</th><th>意義</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>labels</code></td><td>所有用於 routing / grouping / inhibition 的 key-value</td></tr>
+      <tr><td><code>annotations</code></td><td>給人看的描述、URL（不參與 routing）</td></tr>
+      <tr><td><code>startsAt</code></td><td>Alert 開始 firing 的時間</td></tr>
+      <tr><td><code>endsAt</code></td><td>Alert 結束時間（firing 中為「未來時間」，resolved 後填實際結束）</td></tr>
+      <tr><td><code>generatorURL</code></td><td>Prometheus 端的查詢連結（給人看現場）</td></tr>
+      <tr><td><code>fingerprint</code></td><td>label set 的 hash，用於識別「同一個 alert」</td></tr>
+    </tbody>
+  </table>
+
+  <h3>5.2 Resolved alert 是怎麼產生的</h3>
+
+  <p>
+    Prometheus 在 alert 不再 firing 時，會送一個帶有「過去時間 endsAt」的版本：
+  </p>
+
+  <pre><code>{
+  ...
+  "endsAt": "2026-05-02T10:35:00Z"   // 不是 0001-01-01，代表已結束
+}</code></pre>
+
+  <p>Alertmanager 收到後，若 receiver 設了 <code>send_resolved: true</code>，會發送 resolved 通知。</p>
+
+  <h2 id="section-6">§ 6. Routing Tree 概念</h2>
+
+  <p>
+    Alertmanager 的 routing 是一棵<strong>樹</strong>，根節點是「default route」，下面可以掛多個 child route。
+    Alert 從根開始，逐層匹配，找到最後一個匹配的 leaf 為止（除非 <code>continue: true</code>）。
+  </p>
+
+  <h3>6.1 樹形結構範例</h3>
+
+  <pre><code>route:
+  receiver: 'default-slack'      ← 根 (catch-all)
+  group_by: ['alertname']
+
+  routes:
+    - matchers:                   ← 第一層 child
+        - severity = "critical"
+      receiver: 'pagerduty'
+
+      routes:                     ← 第二層 child
+        - matchers:
+            - team = "database"
+          receiver: 'db-pagerduty'
+
+    - matchers:
+        - team = "frontend"
+      receiver: 'frontend-slack'
+
+    - matchers:
+        - environment = "staging"
+      receiver: 'staging-email'</code></pre>
+
+  <h3>6.2 路由匹配演算法</h3>
+
+  <ol>
+    <li>從根節點開始</li>
+    <li>對每個 child route，檢查 alert 是否匹配 <code>matchers</code></li>
+    <li>找到第一個匹配的 child → 進入該 child</li>
+    <li>遞迴檢查該 child 的 child route</li>
+    <li>到不能再下時，該 leaf 的 receiver 就是目標</li>
+    <li>若該 child 設了 <code>continue: true</code>，會繼續尋找後面的 sibling 也匹配的 route</li>
+  </ol>
+
+  <div class="mermaid">
+graph TB
+    ROOT["root<br/>default-slack"]
+    A["matchers · severity=critical<br/>pagerduty"]
+    A1["matchers · team=database<br/>db-pagerduty"]
+    B["matchers · team=frontend<br/>frontend-slack"]
+    C["matchers · environment=staging<br/>staging-email"]
+
+    ROOT --> A
+    ROOT --> B
+    ROOT --> C
+    A --> A1
+</div>
+
+  <h2 id="section-7">§ 7. 時間參數三劍客</h2>
+
+  <p>
+    這三個參數決定 alert 從觸發到收到通知的延遲，<strong>是影響 on-call 體驗最重要的設定</strong>。
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>參數</th><th>意義</th><th>典型值</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>group_wait</code></td>
+        <td>新 group 第一次通知前等多久（讓相關 alert 累積）</td>
+        <td>30s</td>
+      </tr>
+      <tr>
+        <td><code>group_interval</code></td>
+        <td>同一 group 已通知過後，再次通知（若有新 alert 加入）的最短間隔</td>
+        <td>5m</td>
+      </tr>
+      <tr>
+        <td><code>repeat_interval</code></td>
+        <td>同樣的 group 已通知過後，重複通知（沒新變化）的間隔</td>
+        <td>4h</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>7.1 Timeline 範例</h3>
+
+  <pre><code>t=0:00  Alert A 觸發 (group X 第一個成員)
+t=0:30  group_wait 結束, 通知發送 (含 alert A)
+t=0:45  Alert B 觸發 (同 group X)
+t=5:30  group_interval 到, 看到 group 有變動, 通知 (含 A+B)
+t=4:30:00  repeat_interval 到, 即使 group 沒變化, 重複通知</code></pre>
+
+  <h3>7.2 為什麼這三個都需要存在？</h3>
+
+  <table>
+    <thead>
+      <tr><th>沒有它會發生什麼</th><th>哪個參數防止</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>第一個 alert 一進來就送通知，導致同 group 後續 alert 各自通知</td><td><code>group_wait</code></td></tr>
+      <tr><td>持續加入新 alert 會把通知頻率拉到很高</td><td><code>group_interval</code>（最低間隔）</td></tr>
+      <tr><td>持續 firing 但沒新東西，幾天都沒 reminder</td><td><code>repeat_interval</code></td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 三個值的關係</div>
+    <p>
+      <strong><code>group_wait &lt; group_interval &lt;&lt; repeat_interval</code></strong><br>
+      典型值：<code>30s &lt; 5m &lt;&lt; 4h</code><br>
+      若 <code>group_wait</code> 設太大（5m+），critical alert 會晚 5 分鐘才收到，誤事。
+    </p>
+  </div>
+
+  <h2 id="section-8">§ 8. UTF-8 Matcher 與 Classic Matcher</h2>
+
+  <h3>8.1 兩種語法並存</h3>
+
+  <p>
+    Alertmanager 自 v0.27 引入 UTF-8 matcher（為了支援 Prometheus 3.x 的 UTF-8 metric/label 名稱）。
+    現在兩種 matcher 語法並存：
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>類型</th><th>語法</th><th>狀態</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Classic Matcher</strong></td><td>用 <code>match</code> + <code>match_re</code></td><td>Legacy，仍可用</td></tr>
+      <tr><td><strong>UTF-8 Matcher</strong></td><td>用 <code>matchers</code>（PromQL-like）</td><td>推薦新寫法</td></tr>
+    </tbody>
+  </table>
+
+  <h3>8.2 對照範例</h3>
+
+  <pre><code># Classic（v0.27 之前）
+- match:
+    severity: critical
+  match_re:
+    service: api|web
+  receiver: 'pager'
+
+# UTF-8（v0.27+ 推薦）
+- matchers:
+    - severity = "critical"
+    - service =~ "api|web"
+  receiver: 'pager'</code></pre>
+
+  <h3>8.3 UTF-8 Matcher 四種運算子</h3>
+
+  <table>
+    <thead>
+      <tr><th>運算子</th><th>意義</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>=</code></td><td>相等</td></tr>
+      <tr><td><code>!=</code></td><td>不相等</td></tr>
+      <tr><td><code>=~</code></td><td>regex 匹配（整體錨定）</td></tr>
+      <tr><td><code>!~</code></td><td>regex 不匹配</td></tr>
+    </tbody>
+  </table>
+
+  <p>跟 PromQL selector 完全一致，不用學新東西。</p>
+
+  <h3>8.4 三種運作模式</h3>
+
+  <p>v0.27+ 啟動 Alertmanager 時可指定：</p>
+
+  <table>
+    <thead>
+      <tr><th>模式</th><th>意義</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Classic Mode</strong></td><td>只用 classic parser（向後相容）</td></tr>
+      <tr><td><strong>Fallback Mode</strong>（預設）</td><td>先試 UTF-8 parser，失敗時退回 classic + log warning</td></tr>
+      <tr><td><strong>UTF-8 Strict Mode</strong></td><td>只用 UTF-8 parser，遇舊語法直接報錯</td></tr>
+    </tbody>
+  </table>
+
+  <pre><code># 啟用 UTF-8 strict
+alertmanager --config.file=alertmanager.yml \
+  --enable-feature=utf8-strict-mode</code></pre>
+
+  <h2 id="section-9">§ 9. 與 Prometheus 的對話協議</h2>
+
+  <h3>9.1 Prometheus 端設定</h3>
+
+  <pre><code>alerting:
+  alertmanagers:
+    - api_version: v2          # 必填，固定 v2（v1 已移除）
+      static_configs:
+        - targets:
+            - 'alertmanager-1:9093'
+            - 'alertmanager-2:9093'
+            - 'alertmanager-3:9093'</code></pre>
+
+  <h3>9.2 通訊細節</h3>
+
+  <ul>
+    <li><strong>協議</strong>：HTTP POST <code>/api/v2/alerts</code></li>
+    <li><strong>頻率</strong>：每 60 秒（可調 <code>--rules.alert.resend-delay</code>）</li>
+    <li><strong>內容</strong>：所有當前 active alert 的完整 list（不是 delta）</li>
+    <li><strong>HA</strong>：Prometheus 對<strong>每一個</strong> AM 都送，由 AM gossip 去重</li>
+  </ul>
+
+  <h3>9.3 為什麼要送給「每一個」AM？</h3>
+
+  <div class="callout danger">
+    <div class="callout-title">🚨 永遠不要在 Prometheus → AM 之間放 Load Balancer</div>
+    <p>
+      若用 LB，Prometheus 只送給其中一個 AM。如果該 AM 掛了，alert 就遺失。<br>
+      正確做法：Prometheus 同時送給所有 AM，由 AM cluster 用 gossip protocol 去重。
+      這樣任何一個 AM 掛掉，其他 AM 仍能接力處理。
+    </p>
+  </div>
+
+  <h2 id="section-10">§ 10. 設計哲學與限制</h2>
+
+  <h3>10.1 設計哲學</h3>
+
+  <ol>
+    <li><strong>無狀態優先</strong>：alert 在記憶體（有 nflog 持久化通知歷史），重啟後幾分鐘就重建</li>
+    <li><strong>跟 Prometheus 解耦</strong>：能接 Prometheus 之外的告警源（Cortex、Mimir、自製系統）</li>
+    <li><strong>Receiver pluggable</strong>：webhook 機制讓任何系統都能整合</li>
+    <li><strong>Operator-friendly UI</strong>：Web UI 讓 on-call 直接操作 silence</li>
+  </ol>
+
+  <h3>10.2 已知限制</h3>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ Alertmanager 沒做的事</div>
+    <ol>
+      <li><strong>Escalation policy</strong>（5 分鐘沒人 ack 就升級到下一個 on-call）→ 用 PagerDuty / OpsGenie</li>
+      <li><strong>On-call schedule</strong>（誰這週值班）→ 用 PagerDuty / Grafana OnCall</li>
+      <li><strong>Incident response 工作流</strong>（自動建 Jira ticket、Slack channel）→ 用 incident.io / FireHydrant</li>
+      <li><strong>Alert 歷史儲存</strong>（過去半年的 alert 統計）→ 用其他系統存 webhook 紀錄</li>
+      <li><strong>真正的 ack / acknowledge</strong>（按一個按鈕表示「我看到了」）→ 用整合的 incident tool</li>
+    </ol>
+  </div>
+
+  <p>
+    Alertmanager 是「<strong>告警分發層</strong>」，不是 incident management。
+    生產環境通常: Alertmanager + PagerDuty / Grafana OnCall 搭配使用。
+  </p>
+
+  <h2>📚 延伸閱讀</h2>
+
+  <ul>
+    <li><a href="https://prometheus.io/docs/alerting/latest/alertmanager/" target="_blank" rel="noopener">Alertmanager 官方總覽</a></li>
+    <li><a href="https://prometheus.io/docs/alerting/latest/configuration/" target="_blank" rel="noopener">Configuration 完整參考</a></li>
+    <li><a href="https://github.com/prometheus/alertmanager" target="_blank" rel="noopener">GitHub 原始碼</a></li>
+    <li><a href="https://prometheus.io/docs/alerting/latest/clients/" target="_blank" rel="noopener">Alertmanager API（給非 Prometheus 客戶端）</a></li>
+  </ul>
+
+  <h2>✅ 本章重點摘要</h2>
+
+  <div class="callout success">
+    <div class="callout-title">30 秒回顧</div>
+    <ul>
+      <li>Alertmanager 處理「<strong>該怎麼通知</strong>」，跟 Prometheus 「<strong>判斷問題</strong>」分工</li>
+      <li>五大能力：<strong>Deduplication / Grouping / Inhibition / Silence / Routing</strong></li>
+      <li>處理順序：接收 → 去重 → 靜默 → 抑制 → 路由 → 分組 → 模板 → 發送</li>
+      <li>Alert 的 <code>fingerprint</code> = label set hash，用於識別「同一個 alert」</li>
+      <li>Routing tree 是樹形結構，由根 catch-all 與 child route 組成</li>
+      <li>三個時間參數：<strong>group_wait（30s）→ group_interval（5m）→ repeat_interval（4h）</strong></li>
+      <li>v0.27+ 推薦用 <strong>UTF-8 matchers</strong> 語法（PromQL-like），舊語法仍向後相容</li>
+      <li>Prometheus → AM 通訊：固定 <code>api_version: v2</code>，HA 場景<strong>絕對不能用 LB</strong>，要送給每一個 AM</li>
+      <li>Alertmanager <strong>不</strong>做 escalation、on-call schedule、incident workflow，那些用 PagerDuty 等 incident tool</li>
+    </ul>
+  </div>
+
+  <h2>📝 練習題</h2>
+
+  <ol>
+    <li>解釋為什麼 Alertmanager 處理順序是「靜默 → 抑制 → 路由」而不是其他順序？</li>
+    <li>下列 alert 都會被當作「同一 group」嗎？為什麼？（<code>group_by: [alertname, cluster]</code>）
+      <ul>
+        <li>A: <code>{alertname=&quot;PodDown&quot;, cluster=&quot;tw&quot;, pod=&quot;web-1&quot;}</code></li>
+        <li>B: <code>{alertname=&quot;PodDown&quot;, cluster=&quot;tw&quot;, pod=&quot;web-2&quot;}</code></li>
+        <li>C: <code>{alertname=&quot;PodDown&quot;, cluster=&quot;jp&quot;, pod=&quot;web-1&quot;}</code></li>
+      </ul>
+    </li>
+    <li>給定 <code>group_wait=30s, group_interval=5m, repeat_interval=4h</code>。某個 alert 在 t=0 觸發，t=10s 第二個同 group alert 進來，t=2m 第三個進來，t=10m 第四個進來。請列出所有通知時間點。</li>
+    <li>請寫出當前推薦的 UTF-8 matcher 語法：「severity 是 critical 或 warning，且 team 不是 staging」。</li>
+    <li>解釋為什麼 Prometheus → Alertmanager 之間「絕對不能放 Load Balancer」？正確做法是什麼？</li>
+  </ol>
+
+  <nav class="footer-nav">
+    <a href="ch21-Prometheus-pushgateway-agent.html">
+      <div class="nav-direction">← 上一章</div>
+      <div class="nav-title">Ch 21 · Pushgateway & Agent</div>
+    </a>
+    <a class="next" href="ch23-Prometheus-alertmanager-installation.html">
+      <div class="nav-direction">下一章 →</div>
+      <div class="nav-title">Ch 23 · 安裝、設定與 amtool</div>
+    </a>
+  </nav>
+
+</main>
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else { init(); }
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  // Calm Teal hue 200° 設計色系 → mermaid themeVariables 對齊 tokens.css
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    return {
+      startOnLoad: false,
+      securityLevel: 'loose',
+      fontFamily: 'DM Sans, Inter, Noto Sans TC, sans-serif',
+      theme: 'base',
+      themeVariables: isDark ? {
+        background: '#2a2520',
+        primaryColor: '#1f3a4a',
+        primaryTextColor: '#e8e6e1',
+        primaryBorderColor: '#5a8499',
+        lineColor: '#7a8a8f',
+        secondaryColor: '#2d3a32',
+        tertiaryColor: '#3a3528',
+        nodeBorder: '#5a8499',
+        clusterBkg: '#252523',
+        clusterBorder: '#4a4944',
+        edgeLabelBackground: '#2a2520',
+        textColor: '#e8e6e1',
+      } : {
+        background: '#fdfcfa',
+        primaryColor: '#cffafe',
+        primaryTextColor: '#1a1a18',
+        primaryBorderColor: '#0891b2',
+        lineColor: '#4a6873',
+        secondaryColor: '#dcfce7',
+        tertiaryColor: '#fef3c7',
+        nodeBorder: '#0891b2',
+        clusterBkg: '#f5f3ee',
+        clusterBorder: '#d4d2cd',
+        edgeLabelBackground: '#fdfcfa',
+        textColor: '#1a1a18',
+      },
+    };
+  }
+  mermaid.initialize(getMermaidConfig());
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => mermaid.run());
+  } else {
+    mermaid.run();
+  }
+  window.addEventListener('jhsun:theme-changed', () => {
+    document.querySelectorAll('.mermaid').forEach(el => {
+      const code = el.dataset.source || el.textContent;
+      if (!el.dataset.source) el.dataset.source = code;
+      el.removeAttribute('data-processed');
+      el.innerHTML = el.dataset.source;
+    });
+    mermaid.initialize(getMermaidConfig());
+    mermaid.run();
+  });
+</script>
+</body>
+</html>

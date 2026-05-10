@@ -1,0 +1,1342 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch42 · Provisioning + grafanactl | Prometheus / Alertmanager / Grafana 完整教學</title>
+<style>
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --text-3xl: 44px;
+  --text-4xl: 64px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+  --container-narrow: 720px;
+  --container-wide: 1280px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80;
+  --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24;
+  --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171;
+  --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee;
+  --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  padding: 0;
+}
+.top-nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-soft);
+  padding: var(--space-3) var(--space-5);
+  display: flex; justify-content: space-between; align-items: center;
+  backdrop-filter: blur(8px);
+}
+.nav-links { display: flex; gap: var(--space-3); align-items: center; }
+.nav-links a {
+  color: var(--text-secondary); text-decoration: none;
+  font-size: var(--text-sm); padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm); transition: all 0.2s ease;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--color-primary-soft); }
+.nav-links a.disabled { color: var(--text-muted); cursor: not-allowed; pointer-events: none; }
+button[data-theme-toggle] {
+  background: var(--bg-muted); color: var(--text-primary);
+  border: 1px solid var(--border-soft);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+  cursor: pointer; font-size: var(--text-sm);
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-sans); transition: all 0.2s ease;
+}
+button[data-theme-toggle]:hover { background: var(--color-primary-soft); border-color: var(--color-primary); }
+.theme-icon { font-size: var(--text-md); }
+main { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-7) var(--space-5); }
+@media (min-width: 1024px) { main { max-width: 880px; } }
+.chapter-meta {
+  font-size: var(--text-sm); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: var(--space-3); font-family: var(--font-mono);
+}
+h1 {
+  font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 700;
+  line-height: 1.15; margin: 0 0 var(--space-4);
+  color: var(--text-primary); letter-spacing: -0.02em;
+}
+.subtitle {
+  font-size: var(--text-md); color: var(--text-secondary);
+  margin-bottom: var(--space-7); font-style: italic;
+  border-left: 3px solid var(--color-primary); padding-left: var(--space-4);
+}
+h2 {
+  font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600;
+  margin-top: var(--space-8); margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2); border-bottom: 2px solid var(--border-soft);
+  color: var(--text-primary);
+}
+h3 { font-size: var(--text-xl); font-weight: 600; margin-top: var(--space-6); margin-bottom: var(--space-3); color: var(--text-primary); }
+h4 { font-size: var(--text-md); font-weight: 600; margin-top: var(--space-5); margin-bottom: var(--space-2); color: var(--text-primary); }
+p { margin: var(--space-3) 0; }
+strong { color: var(--text-primary); font-weight: 600; }
+em { color: var(--text-secondary); }
+a {
+  color: var(--color-primary-text); text-decoration: underline;
+  text-decoration-color: var(--color-primary-soft);
+  text-underline-offset: 3px; transition: all 0.2s ease;
+}
+a:hover { color: var(--color-primary-hover); text-decoration-color: var(--color-primary); }
+code {
+  font-family: var(--font-mono); font-size: 0.92em;
+  background: var(--bg-code); padding: 0.15em 0.4em;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-soft);
+  color: var(--color-primary-text);
+}
+pre {
+  background: var(--bg-code); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  overflow-x: auto; font-size: var(--text-sm); line-height: 1.6;
+  margin: var(--space-4) 0;
+}
+pre code { background: transparent; border: none; padding: 0; color: var(--text-primary); }
+.callout {
+  margin: var(--space-5) 0; padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md); border-left: 4px solid;
+}
+.callout-title {
+  font-weight: 600; margin-bottom: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.callout.info { background: var(--color-info-soft); border-color: var(--color-info); }
+.callout.info .callout-title { color: var(--color-info); }
+.callout.success { background: var(--color-success-soft); border-color: var(--color-success); }
+.callout.success .callout-title { color: var(--color-success); }
+.callout.warning { background: var(--color-warning-soft); border-color: var(--color-warning); }
+.callout.warning .callout-title { color: var(--color-warning); }
+.callout.danger { background: var(--color-danger-soft); border-color: var(--color-danger); }
+.callout.danger .callout-title { color: var(--color-danger); }
+table {
+  width: 100%; border-collapse: collapse; margin: var(--space-5) 0;
+  font-size: var(--text-sm); background: var(--bg-surface);
+  border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-sm);
+}
+th, td { text-align: left; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); }
+th {
+  background: var(--bg-muted); font-weight: 600; color: var(--text-primary);
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg-muted); }
+ul, ol { padding-left: var(--space-5); margin: var(--space-3) 0; }
+li { margin: var(--space-2) 0; }
+li::marker { color: var(--color-primary); }
+.toc {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4) var(--space-5);
+  margin: var(--space-5) 0;
+}
+.toc-title {
+  font-weight: 600; font-size: var(--text-sm);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted); margin-bottom: var(--space-3);
+}
+.toc ul { list-style: none; padding-left: 0; }
+.toc li { margin: var(--space-1) 0; }
+.toc a { text-decoration: none; }
+.toc ul ul { padding-left: var(--space-4); }
+.card-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4); margin: var(--space-5) 0;
+}
+.card {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  transition: all 0.2s ease;
+}
+.card:hover { box-shadow: var(--shadow-md); border-color: var(--color-primary); transform: translateY(-2px); }
+.card-num { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-primary); font-weight: 600; }
+.card-title { font-weight: 600; font-size: var(--text-base); margin: var(--space-2) 0; color: var(--text-primary); }
+.card-desc { font-size: var(--text-sm); color: var(--text-secondary); }
+.mermaid {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-5);
+  margin: var(--space-5) 0; text-align: center; overflow-x: auto;
+}
+.footer-nav {
+  display: flex; justify-content: space-between;
+  margin-top: var(--space-8); padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft); gap: var(--space-3);
+}
+.footer-nav a {
+  flex: 1; padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); text-decoration: none;
+  color: var(--text-primary); transition: all 0.2s ease;
+}
+.footer-nav a:hover { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.footer-nav .nav-direction {
+  font-size: var(--text-xs); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.footer-nav .nav-title { font-weight: 600; margin-top: var(--space-1); }
+.footer-nav .next { text-align: right; }
+.footer-nav a.disabled { opacity: 0.4; pointer-events: none; }
+.tag {
+  display: inline-block; padding: 0.1em 0.6em; font-size: var(--text-xs);
+  border-radius: var(--radius-sm); font-family: var(--font-mono);
+  background: var(--bg-muted); color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+}
+.tag.primary { background: var(--color-primary-soft); color: var(--color-primary-text); border-color: var(--color-primary); }
+@media print { .top-nav, .footer-nav, button[data-theme-toggle] { display: none; } }
+</style>
+</head>
+<body>
+
+<nav class="top-nav">
+  <div class="nav-links">
+    <a href="ch41-Grafana-advanced-administration.html">← 上一章</a>
+    <a href="ch00-Overview-learning-path.html">📚 目錄</a>
+    <a href="ch43-Overview-foundation-sdk.html">下一章 →</a>
+  </div>
+  <button data-theme-toggle aria-label="Toggle theme"></button>
+</nav>
+
+<main>
+  <div class="chapter-meta">Chapter 42 · Part 4 IaC Provisioning + grafanactl</div>
+  <h1>Provisioning 進階 + grafanactl：Observability as Code 入門</h1>
+  <p class="subtitle">
+    歡迎來到 Part 4：<strong>Observability as Code</strong>。前面 Part 3 教您怎麼用 UI 建立一切，但 production 不能靠人手點。
+    本 Part 三章涵蓋三個層次的 IaC：本章先講 Provisioning（檔案）+ grafanactl（v12+ CLI），
+    Ch 43 講 Foundation SDK（程式碼），Ch 44 講 Terraform / Ansible / Operator。
+  </p>
+
+  <div class="toc">
+    <div class="toc-title">本章內容</div>
+    <ul>
+      <li><a href="#section-1">§ 1. IaC 三大層次</a></li>
+      <li><a href="#section-2">§ 2. Provisioning 完整路徑</a></li>
+      <li><a href="#section-3">§ 3. Datasource Provisioning 進階</a></li>
+      <li><a href="#section-4">§ 4. Dashboard Provisioning 進階</a></li>
+      <li><a href="#section-5">§ 5. Alerting Provisioning 完整</a></li>
+      <li><a href="#section-6">§ 6. grafanactl（v12+）</a></li>
+      <li><a href="#section-7">§ 7. v1beta1 Resource API</a></li>
+      <li><a href="#section-8">§ 8. Git Sync（v12 GA）</a></li>
+      <li><a href="#section-9">§ 9. CI/CD Pipeline 範例</a></li>
+      <li><a href="#section-10">§ 10. 三方法的選擇</a></li>
+    </ul>
+  </div>
+
+  <h2 id="section-1">§ 1. IaC 三大層次</h2>
+
+  <h3>1.1 為什麼需要 IaC</h3>
+
+  <ul>
+    <li>跨環境一致（prod / staging / dev 的 dashboard 一樣）</li>
+    <li>版本控管（Git history、PR review）</li>
+    <li>災難復原（Grafana 全掛了能 30 分鐘重建）</li>
+    <li>規模化（管理 100+ dashboard 不可能手動）</li>
+    <li>Audit（誰改了什麼）</li>
+  </ul>
+
+  <h3>1.2 三層 IaC 工具</h3>
+
+  <table>
+    <thead>
+      <tr><th>層次</th><th>工具</th><th>適合</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>檔案</strong></td>
+        <td>Provisioning YAML、grafanactl</td>
+        <td>初級、單一 Grafana</td>
+      </tr>
+      <tr>
+        <td><strong>程式碼</strong></td>
+        <td>Foundation SDK（Go/TS/Python/PHP/Java）</td>
+        <td>進階、複雜邏輯、模板化</td>
+      </tr>
+      <tr>
+        <td><strong>編排</strong></td>
+        <td>Terraform / Ansible / Grafana Operator</td>
+        <td>多環境、多 instance、跨團隊</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>1.3 Grafana 12 的轉折</h3>
+
+  <p>
+    Grafana 12（2025-04 發表）標誌「<strong>Observability as Code</strong>」進入新時代：
+  </p>
+
+  <ul>
+    <li>新 <strong>v1beta1 API</strong>（K8s-style resource）</li>
+    <li><strong>grafanactl</strong> CLI 取代部分 grafana-cli 功能</li>
+    <li><strong>Foundation SDK</strong> 公開 preview</li>
+    <li><strong>Git Sync</strong> GA（UI 直連 Git repo）</li>
+    <li>Terraform Provider 完整支援</li>
+  </ul>
+
+  <h2 id="section-2">§ 2. Provisioning 完整路徑</h2>
+
+  <h3>2.1 Provisioning 是什麼</h3>
+
+  <p>
+    Grafana 啟動時讀取 <code>/etc/grafana/provisioning/</code> 下的 YAML 檔，自動建立 / 更新對應資源。
+    這是<strong>最簡單的 IaC</strong>，不需要外部工具。
+  </p>
+
+  <h3>2.2 完整目錄結構</h3>
+
+  <pre><code>/etc/grafana/provisioning/
+├── datasources/        # 資料源
+│   ├── prometheus.yml
+│   └── loki.yml
+├── dashboards/         # Dashboard 提供者（指向 JSON 檔目錄）
+│   └── default.yml
+├── alerting/           # Unified Alerting（v9+）
+│   ├── rules.yml
+│   ├── contact-points.yml
+│   ├── policies.yml
+│   ├── mute-timings.yml
+│   └── templates.yml
+├── notifiers/          # Legacy alerting（v9+ 不用）
+└── plugins/            # App plugin
+    └── apps.yml</code></pre>
+
+  <h3>2.3 Provisioning 何時觸發</h3>
+
+  <ul>
+    <li>Grafana 啟動時</li>
+    <li>API 觸發 reload：<code>POST /api/admin/provisioning/{datasources,dashboards,alerting}/reload</code></li>
+    <li>Dashboard 還支援檔案變動自動偵測（<code>updateIntervalSeconds</code>）</li>
+  </ul>
+
+  <h3>2.4 reload API 範例</h3>
+
+  <pre><code># 改了 datasources YAML 後 reload
+curl -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  http://grafana:3000/api/admin/provisioning/datasources/reload
+
+# 同樣 endpoint 給 dashboards / alerting / plugins / access-control</code></pre>
+
+  <p>不用重啟 Grafana 就能套用新 config，CI/CD 友善。</p>
+
+  <h2 id="section-3">§ 3. Datasource Provisioning 進階</h2>
+
+  <h3>3.1 完整欄位範例</h3>
+
+  <pre><code># /etc/grafana/provisioning/datasources/all.yaml
+apiVersion: 1
+
+# 刪除某些 datasource（在啟動時）
+deleteDatasources:
+  - name: OldPrometheus
+    orgId: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus-prod        # 重要：穩定 UID 給其他 ds 引用
+    orgId: 1
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false             # UI 鎖住
+
+    # 一般設定（明文）
+    jsonData:
+      httpMethod: POST
+      manageAlerts: true
+      prometheusType: Prometheus
+      prometheusVersion: 3.11.2
+      timeInterval: 15s
+      cacheLevel: High
+      incrementalQuerying: true
+      exemplarTraceIdDestinations:
+        - name: traceID
+          datasourceUid: tempo-prod
+      httpHeaderName1: 'X-Scope-OrgID'
+
+    # 敏感設定（會加密儲存）
+    secureJsonData:
+      httpHeaderValue1: 'tenant-1'
+      basicAuthPassword: '$__file{/run/secrets/prom-pass}'</code></pre>
+
+  <h3>3.2 editable 的取捨</h3>
+
+  <table>
+    <thead>
+      <tr><th>設定</th><th>效果</th><th>建議</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>editable: false</code></td><td>UI 完全鎖住，只能改 YAML</td><td>Production 推薦</td></tr>
+      <tr><td><code>editable: true</code></td><td>UI 可改但下次 reload 會被覆蓋</td><td>不建議（造成困惑）</td></tr>
+    </tbody>
+  </table>
+
+  <h3>3.3 多環境 datasource 範例</h3>
+
+  <pre><code>datasources:
+  # 三個 Prometheus instance（多 region）
+  - name: Prometheus-TW
+    uid: prom-tw
+    type: prometheus
+    url: http://prom-tw.internal:9090
+
+  - name: Prometheus-JP
+    uid: prom-jp
+    type: prometheus
+    url: http://prom-jp.internal:9090
+
+  - name: Prometheus-US
+    uid: prom-us
+    type: prometheus
+    url: http://prom-us.internal:9090
+
+  # Mixed datasource 引用上述三家
+  # 在 dashboard variable 中用 ${prom-tw} / ${prom-jp} 切換</code></pre>
+
+  <h3>3.4 Secret 從外部取的三種方式</h3>
+
+  <pre><code># 方式 1：$__file{} 從檔案讀
+secureJsonData:
+  password: $__file{/run/secrets/db-pass}
+
+# 方式 2：$__env{} 從環境變數讀（v9+）
+secureJsonData:
+  password: $__env{DB_PASSWORD}
+
+# 方式 3：Vault（Enterprise）
+secureJsonData:
+  password: $__vault{secret/data/grafana#db-pass}</code></pre>
+
+  <h2 id="section-4">§ 4. Dashboard Provisioning 進階</h2>
+
+  <h3>4.1 Provider 設定</h3>
+
+  <pre><code># /etc/grafana/provisioning/dashboards/default.yaml
+apiVersion: 1
+
+providers:
+  - name: 'production'
+    orgId: 1
+    folder: 'Production'         # Folder 名稱（不存在會自動建）
+    folderUid: 'production-uid'
+    type: file
+    disableDeletion: false       # UI 刪除是否同步刪除底層 JSON
+    updateIntervalSeconds: 30    # 多久 rescan 檔案
+    allowUiUpdates: false        # UI 修改是否可寫回檔案
+    options:
+      path: /var/lib/grafana/dashboards/production
+      foldersFromFilesStructure: true   # ✨ 從子目錄自動建 folder
+
+  - name: 'staging'
+    orgId: 1
+    folder: 'Staging'
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards/staging</code></pre>
+
+  <h3>4.2 foldersFromFilesStructure 的妙用</h3>
+
+  <pre><code># 啟用後，目錄結構自動對應 folder：
+/var/lib/grafana/dashboards/production/
+├── Backend/
+│   ├── api-service.json     → folder=Production/Backend
+│   └── auth-service.json
+├── Frontend/
+│   └── web.json             → folder=Production/Frontend
+├── Infrastructure/
+│   ├── nodes.json
+│   └── network.json
+└── overview.json            → folder=Production（root）</code></pre>
+
+  <h3>4.3 allowUiUpdates 與 disableDeletion 的搭配</h3>
+
+  <table>
+    <thead>
+      <tr><th>場景</th><th>allowUiUpdates</th><th>disableDeletion</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>純 IaC（Git only）</td>
+        <td>false</td>
+        <td>false</td>
+      </tr>
+      <tr>
+        <td>UI 編輯後同步回 Git</td>
+        <td>true</td>
+        <td>false</td>
+      </tr>
+      <tr>
+        <td>「禁止破壞」</td>
+        <td>false</td>
+        <td>true</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>4.4 Dashboard JSON 的「動態」部分</h3>
+
+  <p>
+    Dashboard JSON 有些欄位會自動由 Grafana 寫入：<code>id</code>, <code>version</code>, <code>uid</code>。
+    Provisioning 時要小心：
+  </p>
+
+  <ul>
+    <li><strong>uid</strong>：必設（穩定，給 link 用）</li>
+    <li><strong>id</strong>：留 null（Grafana 自動分配）</li>
+    <li><strong>version</strong>：留 0 或省略</li>
+  </ul>
+
+  <h3>4.5 用 datasource UID 變數</h3>
+
+  <p>Production 多環境，dashboard JSON 中 datasource 寫死會出問題：</p>
+
+  <pre><code>// dashboard.json - 錯誤做法（寫死 UID）
+"datasource": {
+  "type": "prometheus",
+  "uid": "prom-tw"          // 在其他環境會失敗
+}
+
+// 正確做法 1：用 dashboard variable
+{
+  "templating": {
+    "list": [{
+      "name": "DS_PROMETHEUS",
+      "type": "datasource",
+      "query": "prometheus"
+    }]
+  },
+  "panels": [{
+    "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+    }
+  }]
+}
+
+// 正確做法 2：用 default datasource
+"datasource": {
+  "type": "prometheus",
+  "uid": "default"          // 用 org 的 default
+}</code></pre>
+
+  <h2 id="section-5">§ 5. Alerting Provisioning 完整</h2>
+
+  <h3>5.1 五個 YAML 檔的職責</h3>
+
+  <table>
+    <thead>
+      <tr><th>檔案</th><th>內容</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>rules.yaml</code></td><td>Alert rule groups</td></tr>
+      <tr><td><code>contact-points.yaml</code></td><td>Slack / Email / PD 設定</td></tr>
+      <tr><td><code>policies.yaml</code></td><td>Notification routing tree</td></tr>
+      <tr><td><code>mute-timings.yaml</code></td><td>定期靜音時段</td></tr>
+      <tr><td><code>templates.yaml</code></td><td>通知 message templates</td></tr>
+    </tbody>
+  </table>
+
+  <h3>5.2 完整 rules.yaml 範例</h3>
+
+  <pre><code># /etc/grafana/provisioning/alerting/rules.yaml
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: api-alerts
+    folder: Production-Alerts
+    interval: 1m
+    rules:
+      # Rule 1: error rate
+      - uid: api-error-rate
+        title: APIErrorRate
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus-prod
+            model:
+              refId: A
+              expr: 'rate(http_requests_total{job="api",status=~"5.."}[5m]) / rate(http_requests_total{job="api"}[5m])'
+              instant: false
+              range: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+              settings: { mode: dropNN }
+
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0.05] }
+
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: 'API error rate is {{ $values.B | printf "%.2f%%" }}'
+          runbook_url: 'https://wiki/api-errors'
+          dashboard_url: 'https://grafana/d/api-overview'
+        labels:
+          severity: critical
+          team: platform
+          service: api</code></pre>
+
+  <h3>5.3 完整 contact-points.yaml</h3>
+
+  <pre><code># /etc/grafana/provisioning/alerting/contact-points.yaml
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: slack-platform
+    receivers:
+      - uid: slack-platform-alerts
+        type: slack
+        settings:
+          url: $__file{/etc/grafana/secrets/slack-webhook}
+          recipient: '#platform-alerts'
+          title: '{{ template "slack.title" . }}'
+          text: '{{ template "slack.message" . }}'
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: pagerduty-critical
+    receivers:
+      - uid: pd-critical
+        type: pagerduty
+        settings:
+          integrationKey: $__file{/etc/grafana/secrets/pd-key}
+          severity: '{{ .CommonLabels.severity }}'
+          class: '{{ .CommonLabels.alertname }}'
+          component: '{{ .CommonLabels.service }}'
+          group: '{{ .CommonLabels.team }}'
+
+  - orgId: 1
+    name: email-fallback
+    receivers:
+      - uid: email-fallback
+        type: email
+        settings:
+          addresses: 'oncall@example.com;backup@example.com'
+          singleEmail: false</code></pre>
+
+  <h3>5.4 完整 policies.yaml</h3>
+
+  <pre><code># /etc/grafana/provisioning/alerting/policies.yaml
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: email-fallback
+    group_by: [alertname, cluster]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 12h
+
+    routes:
+      # Critical → PD + Slack（同時發）
+      - receiver: pagerduty-critical
+        matchers:
+          - severity = critical
+        group_wait: 10s
+        repeat_interval: 1h
+        continue: true              # ← 繼續 match sibling
+
+      - receiver: slack-platform
+        matchers:
+          - severity = critical
+        continue: true
+
+      # Warning → 只 Slack
+      - receiver: slack-platform
+        matchers:
+          - severity =~ "warning|info"
+        group_by: [alertname, namespace]
+        repeat_interval: 4h
+        mute_time_intervals:
+          - maintenance-window</code></pre>
+
+  <h3>5.5 完整 mute-timings.yaml</h3>
+
+  <pre><code># /etc/grafana/provisioning/alerting/mute-timings.yaml
+apiVersion: 1
+
+muteTimes:
+  - orgId: 1
+    name: maintenance-window
+    time_intervals:
+      - times:
+          - start_time: '02:00'
+            end_time: '04:00'
+        weekdays: ['saturday']
+        location: 'Asia/Taipei'
+
+  - orgId: 1
+    name: weekends
+    time_intervals:
+      - weekdays: ['saturday', 'sunday']
+        location: 'Asia/Taipei'</code></pre>
+
+  <h3>5.6 完整 templates.yaml</h3>
+
+  <pre><code># /etc/grafana/provisioning/alerting/templates.yaml
+apiVersion: 1
+
+templates:
+  - orgId: 1
+    name: slack.title
+    template: |
+      {{ define "slack.title" -}}
+      {{ if eq .Status "firing" }}🔥{{ else }}✅{{ end }}
+      [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}]
+      {{ .CommonLabels.alertname }}
+      {{- end }}
+
+  - orgId: 1
+    name: slack.message
+    template: |
+      {{ define "slack.message" -}}
+      {{ range .Alerts -}}
+      *Severity:* {{ .Labels.severity }}
+      *Service:* {{ .Labels.service }}
+      *Summary:* {{ .Annotations.summary }}
+      {{ if .Annotations.runbook_url -}}
+      📖 <{{ .Annotations.runbook_url }}|Runbook>
+      {{ end -}}
+      {{ end -}}
+      {{- end }}</code></pre>
+
+  <h2 id="section-6">§ 6. grafanactl（v12+）</h2>
+
+  <h3>6.1 grafanactl 是什麼</h3>
+
+  <p>
+    Grafana 12 新增的 CLI，<strong>類 kubectl 風格</strong>。給 IaC 工作流設計：
+  </p>
+
+  <ul>
+    <li>從 remote Grafana CRUD resources</li>
+    <li>支援 YAML / JSON 格式</li>
+    <li>多 context（管多 Grafana instance）</li>
+    <li>跟 Foundation SDK / CI/CD 整合</li>
+  </ul>
+
+  <h3>6.2 安裝</h3>
+
+  <pre><code># macOS
+brew install grafana/grafana/grafanactl
+
+# Linux
+curl -sSL \
+  https://github.com/grafana/grafanactl/releases/latest/download/grafanactl_linux_amd64.tar.gz \
+  | tar xz
+sudo mv grafanactl /usr/local/bin/
+
+# 驗證
+grafanactl version</code></pre>
+
+  <h3>6.3 設定 Context</h3>
+
+  <pre><code># 建 production context
+grafanactl config set-context production \
+  --server=https://grafana.example.com \
+  --token=glsa_xxxxxxxx \
+  --org-id=1
+
+# 建 staging context
+grafanactl config set-context staging \
+  --server=https://grafana-staging.example.com \
+  --token=glsa_yyyyyyyy
+
+# 切換
+grafanactl config use-context production
+
+# 看當前
+grafanactl config current-context
+
+# 列出
+grafanactl config get-contexts</code></pre>
+
+  <h3>6.4 常用指令</h3>
+
+  <pre><code># Get
+grafanactl get dashboards                    # 列出所有
+grafanactl get dashboard api-overview        # 特定一個
+grafanactl get dashboard api-overview -o yaml > backup.yaml
+
+# Apply（建或更新，IaC 主要用法）
+grafanactl apply -f dashboard.yaml
+grafanactl apply -f ./dashboards/             # 整個目錄
+
+# Delete
+grafanactl delete dashboard api-overview
+
+# Diff（看本地與 remote 差異）
+grafanactl diff -f dashboard.yaml
+
+# Resources
+grafanactl get datasources
+grafanactl get folders
+grafanactl get alertrules
+grafanactl get contactpoints</code></pre>
+
+  <h3>6.5 跨 context 同步</h3>
+
+  <pre><code># Backup production
+grafanactl --context=production get dashboards -o yaml > production-dashboards.yaml
+
+# 套用到 staging
+grafanactl --context=staging apply -f production-dashboards.yaml</code></pre>
+
+  <h3>6.6 與 grafana-cli 的職責劃分</h3>
+
+  <table>
+    <thead>
+      <tr><th>工具</th><th>主要用途</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>grafana-cli</strong></td><td>Server admin（plugin / password / encryption）</td></tr>
+      <tr><td><strong>grafanactl</strong></td><td>Resource CRUD（dashboard / alert / datasource）</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="section-7">§ 7. v1beta1 Resource API</h2>
+
+  <h3>7.1 v1beta1 是什麼</h3>
+
+  <p>
+    Grafana 12 引入新的<strong>Kubernetes-style Resource API</strong>。原來 dashboard JSON 是 spec-only，
+    新版加上 <code>apiVersion</code> + <code>kind</code> + <code>metadata</code>，跟 K8s 完全同樣 pattern。
+  </p>
+
+  <h3>7.2 K8s-style YAML 範例</h3>
+
+  <pre><code># dashboard.yaml（v1beta1 格式）
+apiVersion: dashboard.grafana.app/v1beta1
+kind: Dashboard
+metadata:
+  name: api-overview            # = uid
+  namespace: default            # 對應 org
+  labels:
+    team: platform
+    service: api
+  annotations:
+    grafana.app/folder: production
+spec:
+  title: API Service Overview
+  tags: [production, service]
+  refresh: 30s
+  time:
+    from: now-6h
+    to: now
+  panels:
+    - id: 1
+      type: timeseries
+      title: Request Rate
+      gridPos: { h: 8, w: 12, x: 0, y: 0 }
+      targets:
+        - expr: 'rate(http_requests_total[$__rate_interval])'
+          datasource: { uid: prometheus-prod }</code></pre>
+
+  <h3>7.3 用 grafanactl 套用</h3>
+
+  <pre><code>grafanactl apply -f dashboard.yaml
+
+# Output:
+# dashboard/api-overview created
+# 或
+# dashboard/api-overview unchanged
+# 或
+# dashboard/api-overview updated</code></pre>
+
+  <h3>7.4 跟 K8s ecosystem 整合</h3>
+
+  <p>
+    K8s-style API 讓 Grafana resources 可以：
+  </p>
+
+  <ul>
+    <li>用 <code>kubectl apply -f</code> 直接套用（透過 Operator）</li>
+    <li>用 ArgoCD / Flux 做 GitOps</li>
+    <li>用 Kustomize 做環境覆蓋</li>
+    <li>用 Helm 做模板化</li>
+  </ul>
+
+  <p>Ch 44 詳述 Operator。</p>
+
+  <h2 id="section-8">§ 8. Git Sync（v12 GA）</h2>
+
+  <h3>8.1 Git Sync 是什麼</h3>
+
+  <p>
+    Grafana 12 GA 的功能：<strong>Grafana 直接連 GitHub repo</strong>，
+    結合「UI 編輯方便」與「Git 版本控管」。
+  </p>
+
+  <h3>8.2 設定流程</h3>
+
+  <ol>
+    <li>啟用 Git Sync（feature flag <code>provisioning</code> 預設啟用）</li>
+    <li>到 Administration → Repositories</li>
+    <li>連 GitHub（Personal Access Token 或 GitHub App）</li>
+    <li>選 repo + branch + path</li>
+    <li>選 sync 方向：
+      <ul>
+        <li><strong>Read-only</strong>：只從 Git 讀進 Grafana</li>
+        <li><strong>Bidirectional</strong>：UI 改寫回 PR</li>
+      </ul>
+    </li>
+  </ol>
+
+  <h3>8.3 工作流</h3>
+
+  <div class="mermaid">
+graph LR
+    USER[Grafana User]
+    GUI[Grafana UI]
+    REPO[GitHub Repo]
+    PR[Pull Request]
+    REVIEW[Code Review]
+    MERGE[Merge to main]
+
+    USER --> GUI
+    GUI -- 編輯 dashboard --> PR
+    PR --> REVIEW
+    REVIEW --> MERGE
+    MERGE --> REPO
+    REPO -- sync --> GUI
+</div>
+
+  <h3>8.4 Git Sync vs Provisioning vs grafanactl</h3>
+
+  <table>
+    <thead>
+      <tr><th>面向</th><th>Provisioning</th><th>grafanactl</th><th>Git Sync</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>檔案位置</td><td>Grafana server 本地</td><td>遠端 push</td><td>Git repo</td></tr>
+      <tr><td>需要</td><td>Grafana access</td><td>API token</td><td>GitHub access</td></tr>
+      <tr><td>UI 修改</td><td>選擇性 sync 回</td><td>不影響</td><td>產生 PR</td></tr>
+      <tr><td>適合</td><td>傳統 ops</td><td>CI/CD</td><td>UI-first 團隊</td></tr>
+      <tr><td>v12 推薦</td><td>仍可用</td><td>✅</td><td>✅</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="section-9">§ 9. CI/CD Pipeline 範例</h2>
+
+  <h3>9.1 GitHub Actions 部署 Dashboard</h3>
+
+  <pre><code># .github/workflows/deploy-grafana.yml
+name: Deploy Grafana Dashboards
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'grafana/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install grafanactl
+        run: |
+          curl -sSL https://github.com/grafana/grafanactl/releases/latest/download/grafanactl_linux_amd64.tar.gz | tar xz
+          sudo mv grafanactl /usr/local/bin/
+
+      - name: Configure context
+        env:
+          GRAFANA_TOKEN: ${{ secrets.GRAFANA_TOKEN }}
+        run: |
+          grafanactl config set-context production \
+            --server=https://grafana.example.com \
+            --token=$GRAFANA_TOKEN
+          grafanactl config use-context production
+
+      - name: Diff (preview)
+        run: grafanactl diff -f grafana/dashboards/
+
+      - name: Apply
+        run: grafanactl apply -f grafana/dashboards/
+
+      - name: Notify Slack
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}</code></pre>
+
+  <h3>9.2 多環境 deploy</h3>
+
+  <pre><code># .github/workflows/multi-env.yml
+on:
+  push:
+    branches: [main, staging]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: [staging, production]
+    steps:
+      - name: Set context
+        run: |
+          if [ "${{ matrix.env }}" = "production" ]; then
+            TOKEN=${{ secrets.GRAFANA_PROD_TOKEN }}
+            URL=https://grafana.example.com
+          else
+            TOKEN=${{ secrets.GRAFANA_STAGING_TOKEN }}
+            URL=https://grafana-staging.example.com
+          fi
+          grafanactl config set-context ${{ matrix.env }} \
+            --server=$URL --token=$TOKEN
+
+      - name: Apply
+        run: |
+          grafanactl --context=${{ matrix.env }} \
+            apply -f grafana/dashboards/${{ matrix.env }}/</code></pre>
+
+  <h3>9.3 PR Preview</h3>
+
+  <pre><code># 在 PR 建立時跑 diff，留 comment
+on:
+  pull_request:
+    paths: ['grafana/**']
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install grafanactl
+        run: ...
+      - name: Diff
+        id: diff
+        run: |
+          OUTPUT=$(grafanactl diff -f grafana/dashboards/)
+          echo "diff<<EOF" >> $GITHUB_OUTPUT
+          echo "$OUTPUT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: PR Comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '## Grafana Diff\n\n```\n${{ steps.diff.outputs.diff }}\n```'
+            })</code></pre>
+
+  <h2 id="section-10">§ 10. 三方法的選擇</h2>
+
+  <h3>10.1 Provisioning vs grafanactl vs Git Sync</h3>
+
+  <table>
+    <thead>
+      <tr><th>場景</th><th>推薦</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>單一 Grafana、ops team 主導</td><td>Provisioning（簡單）</td></tr>
+      <tr><td>多環境、CI/CD pipeline</td><td>grafanactl + GitHub Actions</td></tr>
+      <tr><td>UI-first 團隊、PM 也參與</td><td>Git Sync（v12+）</td></tr>
+      <tr><td>K8s 環境</td><td>Operator（Ch 44）</td></tr>
+      <tr><td>Multi-Grafana 大企業</td><td>Terraform（Ch 44）</td></tr>
+    </tbody>
+  </table>
+
+  <h3>10.2 漸進採用</h3>
+
+  <ol>
+    <li><strong>第 1 階段</strong>：Provisioning datasources（最容易）</li>
+    <li><strong>第 2 階段</strong>：dashboard JSON 從 Git 載入（Provisioning 或 Git Sync）</li>
+    <li><strong>第 3 階段</strong>：Alerting Provisioning（rules + contact points + policies）</li>
+    <li><strong>第 4 階段</strong>：CI/CD pipeline（grafanactl）</li>
+    <li><strong>第 5 階段</strong>：複雜邏輯改用 Foundation SDK（Ch 43）</li>
+    <li><strong>第 6 階段</strong>：多 Grafana 用 Terraform（Ch 44）</li>
+  </ol>
+
+  <h3>10.3 反模式</h3>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ 常見反模式</div>
+    <ul>
+      <li><strong>UI 與 Provisioning 混用</strong>：UI 改的不在 Git，下次 reload 全沒</li>
+      <li><strong>沒設 uid</strong>：每次 Provisioning 創新 dashboard</li>
+      <li><strong>secret 寫在 YAML</strong>：用 <code>$__file{}</code> 從外部讀</li>
+      <li><strong>太多 datasource UID 寫死</strong>：dashboard 不能跨環境</li>
+      <li><strong>Provisioning 但不版本控管</strong>：失去 IaC 意義</li>
+    </ul>
+  </div>
+
+  <h2>📚 延伸閱讀</h2>
+
+  <ul>
+    <li><a href="https://grafana.com/docs/grafana/latest/administration/provisioning/" target="_blank" rel="noopener">Provisioning 完整指南</a></li>
+    <li><a href="https://grafana.com/docs/grafana/latest/developers/grafanactl/" target="_blank" rel="noopener">grafanactl 文件</a></li>
+    <li><a href="https://grafana.com/docs/grafana/latest/administration/git-sync/" target="_blank" rel="noopener">Git Sync 文件</a></li>
+    <li><a href="https://github.com/grafana/grafanactl" target="_blank" rel="noopener">grafanactl GitHub</a></li>
+    <li><a href="https://grafana.com/docs/grafana/latest/alerting/set-up/provision-alerting-resources/file-provisioning/" target="_blank" rel="noopener">Alerting Provisioning</a></li>
+  </ul>
+
+  <h2>✅ 本章重點摘要</h2>
+
+  <div class="callout success">
+    <div class="callout-title">30 秒回顧</div>
+    <ul>
+      <li>IaC 三層次：<strong>檔案（Provisioning + grafanactl）/ 程式碼（Foundation SDK）/ 編排（Terraform / Operator）</strong></li>
+      <li>Grafana 12 是「Observability as Code」分水嶺：v1beta1 API + grafanactl + Foundation SDK + Git Sync GA</li>
+      <li>Provisioning 5 大目錄：<strong>datasources / dashboards / alerting / notifiers / plugins</strong></li>
+      <li>Reload API：<code>POST /api/admin/provisioning/{type}/reload</code> 不用重啟</li>
+      <li>Datasource Provisioning：<strong>uid 必設</strong>、editable=false、secret 用 <code>$__file{}</code></li>
+      <li>Dashboard Provisioning：<strong>foldersFromFilesStructure</strong> 從子目錄自動建 folder</li>
+      <li>Alerting Provisioning 5 個 YAML：rules / contact-points / policies / mute-timings / templates</li>
+      <li><strong>grafanactl</strong>（v12+）類 kubectl，多 context、apply / get / diff / delete</li>
+      <li><strong>v1beta1 Resource API</strong>：K8s-style YAML，跟 ArgoCD / Operator 整合</li>
+      <li><strong>Git Sync</strong>（v12 GA）：UI 編輯產生 PR，結合 UI 方便與 Git 控管</li>
+      <li>CI/CD：GitHub Actions + grafanactl，多環境矩陣，PR diff preview</li>
+      <li>反模式：UI/Provisioning 混用、沒 uid、secret 寫在 YAML、UID 寫死、不放 Git</li>
+    </ul>
+  </div>
+
+  <h2>📝 練習題</h2>
+
+  <ol>
+    <li>解釋 <code>editable: false</code> 與 <code>allowUiUpdates: true</code> 的搭配選擇。每種組合的使用情境？</li>
+    <li>下面情境用哪種 IaC？(a) 5 人新創、ops 一人；(b) 100+ dashboards、5 個團隊；(c) Multi-region 大企業；(d) PM 也想 contribute dashboard。</li>
+    <li>實作一個 GitHub Actions workflow：PR 時跑 diff、merge 後 apply 到 staging 再到 production。</li>
+    <li>解釋 v1beta1 Resource API 為什麼要 K8s-style？這帶來什麼整合可能？</li>
+    <li>下面 Provisioning 設定有什麼問題？怎麼修？
+      <pre><code>datasources:
+  - name: Prometheus
+    type: prometheus
+    url: http://prometheus:9090
+    editable: true
+    secureJsonData:
+      basicAuthPassword: 'mypassword123'</code></pre>
+    </li>
+  </ol>
+
+  <nav class="footer-nav">
+    <a href="ch41-Grafana-advanced-administration.html">
+      <div class="nav-direction">← 上一章</div>
+      <div class="nav-title">Ch 41 · 進階管理</div>
+    </a>
+    <a class="next" href="ch43-Overview-foundation-sdk.html">
+      <div class="nav-direction">下一章 →</div>
+      <div class="nav-title">Ch 43 · Foundation SDK</div>
+    </a>
+  </nav>
+
+</main>
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else { init(); }
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  // Calm Teal hue 200° 設計色系 → mermaid themeVariables 對齊 tokens.css
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    return {
+      startOnLoad: false,
+      securityLevel: 'loose',
+      fontFamily: 'DM Sans, Inter, Noto Sans TC, sans-serif',
+      theme: 'base',
+      themeVariables: isDark ? {
+        background: '#2a2520',
+        primaryColor: '#1f3a4a',
+        primaryTextColor: '#e8e6e1',
+        primaryBorderColor: '#5a8499',
+        lineColor: '#7a8a8f',
+        secondaryColor: '#2d3a32',
+        tertiaryColor: '#3a3528',
+        nodeBorder: '#5a8499',
+        clusterBkg: '#252523',
+        clusterBorder: '#4a4944',
+        edgeLabelBackground: '#2a2520',
+        textColor: '#e8e6e1',
+      } : {
+        background: '#fdfcfa',
+        primaryColor: '#cffafe',
+        primaryTextColor: '#1a1a18',
+        primaryBorderColor: '#0891b2',
+        lineColor: '#4a6873',
+        secondaryColor: '#dcfce7',
+        tertiaryColor: '#fef3c7',
+        nodeBorder: '#0891b2',
+        clusterBkg: '#f5f3ee',
+        clusterBorder: '#d4d2cd',
+        edgeLabelBackground: '#fdfcfa',
+        textColor: '#1a1a18',
+      },
+    };
+  }
+  mermaid.initialize(getMermaidConfig());
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => mermaid.run());
+  } else {
+    mermaid.run();
+  }
+  window.addEventListener('jhsun:theme-changed', () => {
+    document.querySelectorAll('.mermaid').forEach(el => {
+      const code = el.dataset.source || el.textContent;
+      if (!el.dataset.source) el.dataset.source = code;
+      el.removeAttribute('data-processed');
+      el.innerHTML = el.dataset.source;
+    });
+    mermaid.initialize(getMermaidConfig());
+    mermaid.run();
+  });
+</script>
+</body>
+</html>

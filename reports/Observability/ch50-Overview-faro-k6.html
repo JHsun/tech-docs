@@ -1,0 +1,1401 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch50 · Faro + k6 | Prometheus / Alertmanager / Grafana 完整教學</title>
+<style>
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --text-3xl: 44px;
+  --text-4xl: 64px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+  --container-narrow: 720px;
+  --container-wide: 1280px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success: #4ade80;
+  --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24;
+  --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171;
+  --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee;
+  --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  margin: 0;
+  padding: 0;
+}
+.top-nav {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-soft);
+  padding: var(--space-3) var(--space-5);
+  display: flex; justify-content: space-between; align-items: center;
+  backdrop-filter: blur(8px);
+}
+.nav-links { display: flex; gap: var(--space-3); align-items: center; }
+.nav-links a {
+  color: var(--text-secondary); text-decoration: none;
+  font-size: var(--text-sm); padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm); transition: all 0.2s ease;
+}
+.nav-links a:hover { color: var(--color-primary); background: var(--color-primary-soft); }
+.nav-links a.disabled { color: var(--text-muted); cursor: not-allowed; pointer-events: none; }
+button[data-theme-toggle] {
+  background: var(--bg-muted); color: var(--text-primary);
+  border: 1px solid var(--border-soft);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+  cursor: pointer; font-size: var(--text-sm);
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-sans); transition: all 0.2s ease;
+}
+button[data-theme-toggle]:hover { background: var(--color-primary-soft); border-color: var(--color-primary); }
+.theme-icon { font-size: var(--text-md); }
+main { max-width: var(--container-narrow); margin: 0 auto; padding: var(--space-7) var(--space-5); }
+@media (min-width: 1024px) { main { max-width: 880px; } }
+.chapter-meta {
+  font-size: var(--text-sm); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: var(--space-3); font-family: var(--font-mono);
+}
+h1 {
+  font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 700;
+  line-height: 1.15; margin: 0 0 var(--space-4);
+  color: var(--text-primary); letter-spacing: -0.02em;
+}
+.subtitle {
+  font-size: var(--text-md); color: var(--text-secondary);
+  margin-bottom: var(--space-7); font-style: italic;
+  border-left: 3px solid var(--color-primary); padding-left: var(--space-4);
+}
+h2 {
+  font-family: var(--font-serif); font-size: var(--text-2xl); font-weight: 600;
+  margin-top: var(--space-8); margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2); border-bottom: 2px solid var(--border-soft);
+  color: var(--text-primary);
+}
+h3 { font-size: var(--text-xl); font-weight: 600; margin-top: var(--space-6); margin-bottom: var(--space-3); color: var(--text-primary); }
+h4 { font-size: var(--text-md); font-weight: 600; margin-top: var(--space-5); margin-bottom: var(--space-2); color: var(--text-primary); }
+p { margin: var(--space-3) 0; }
+strong { color: var(--text-primary); font-weight: 600; }
+em { color: var(--text-secondary); }
+a {
+  color: var(--color-primary-text); text-decoration: underline;
+  text-decoration-color: var(--color-primary-soft);
+  text-underline-offset: 3px; transition: all 0.2s ease;
+}
+a:hover { color: var(--color-primary-hover); text-decoration-color: var(--color-primary); }
+code {
+  font-family: var(--font-mono); font-size: 0.92em;
+  background: var(--bg-code); padding: 0.15em 0.4em;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-soft);
+  color: var(--color-primary-text);
+}
+pre {
+  background: var(--bg-code); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  overflow-x: auto; font-size: var(--text-sm); line-height: 1.6;
+  margin: var(--space-4) 0;
+}
+pre code { background: transparent; border: none; padding: 0; color: var(--text-primary); }
+.callout {
+  margin: var(--space-5) 0; padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md); border-left: 4px solid;
+}
+.callout-title {
+  font-weight: 600; margin-bottom: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.callout.info { background: var(--color-info-soft); border-color: var(--color-info); }
+.callout.info .callout-title { color: var(--color-info); }
+.callout.success { background: var(--color-success-soft); border-color: var(--color-success); }
+.callout.success .callout-title { color: var(--color-success); }
+.callout.warning { background: var(--color-warning-soft); border-color: var(--color-warning); }
+.callout.warning .callout-title { color: var(--color-warning); }
+.callout.danger { background: var(--color-danger-soft); border-color: var(--color-danger); }
+.callout.danger .callout-title { color: var(--color-danger); }
+table {
+  width: 100%; border-collapse: collapse; margin: var(--space-5) 0;
+  font-size: var(--text-sm); background: var(--bg-surface);
+  border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-sm);
+}
+th, td { text-align: left; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); }
+th {
+  background: var(--bg-muted); font-weight: 600; color: var(--text-primary);
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg-muted); }
+ul, ol { padding-left: var(--space-5); margin: var(--space-3) 0; }
+li { margin: var(--space-2) 0; }
+li::marker { color: var(--color-primary); }
+.toc {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4) var(--space-5);
+  margin: var(--space-5) 0;
+}
+.toc-title {
+  font-weight: 600; font-size: var(--text-sm);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted); margin-bottom: var(--space-3);
+}
+.toc ul { list-style: none; padding-left: 0; }
+.toc li { margin: var(--space-1) 0; }
+.toc a { text-decoration: none; }
+.toc ul ul { padding-left: var(--space-4); }
+.card-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4); margin: var(--space-5) 0;
+}
+.card {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  transition: all 0.2s ease;
+}
+.card:hover { box-shadow: var(--shadow-md); border-color: var(--color-primary); transform: translateY(-2px); }
+.card-num { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-primary); font-weight: 600; }
+.card-title { font-weight: 600; font-size: var(--text-base); margin: var(--space-2) 0; color: var(--text-primary); }
+.card-desc { font-size: var(--text-sm); color: var(--text-secondary); }
+.mermaid {
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: var(--space-5);
+  margin: var(--space-5) 0; text-align: center; overflow-x: auto;
+}
+.footer-nav {
+  display: flex; justify-content: space-between;
+  margin-top: var(--space-8); padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft); gap: var(--space-3);
+}
+.footer-nav a {
+  flex: 1; padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); text-decoration: none;
+  color: var(--text-primary); transition: all 0.2s ease;
+}
+.footer-nav a:hover { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.footer-nav .nav-direction {
+  font-size: var(--text-xs); color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.footer-nav .nav-title { font-weight: 600; margin-top: var(--space-1); }
+.footer-nav .next { text-align: right; }
+.footer-nav a.disabled { opacity: 0.4; pointer-events: none; }
+.tag {
+  display: inline-block; padding: 0.1em 0.6em; font-size: var(--text-xs);
+  border-radius: var(--radius-sm); font-family: var(--font-mono);
+  background: var(--bg-muted); color: var(--text-secondary);
+  border: 1px solid var(--border-soft);
+}
+.tag.primary { background: var(--color-primary-soft); color: var(--color-primary-text); border-color: var(--color-primary); }
+@media print { .top-nav, .footer-nav, button[data-theme-toggle] { display: none; } }
+</style>
+</head>
+<body>
+
+<nav class="top-nav">
+  <div class="nav-links">
+    <a href="ch49-Overview-alloy-beyla.html">← 上一章</a>
+    <a href="ch00-Overview-learning-path.html">📚 目錄</a>
+    <a href="ch51-Overview-aws-integrations.html">下一章 →</a>
+  </div>
+  <button data-theme-toggle aria-label="Toggle theme"></button>
+</nav>
+
+<main>
+  <div class="chapter-meta">Chapter 50 · Faro + k6</div>
+  <h1>Faro + k6：前端 RUM 與 Load Testing</h1>
+  <p class="subtitle">
+    Part 5 收尾。前面章節都聚焦 backend（metric / log / trace / profile）。但 user 真正體驗的是<strong>前端</strong>：
+    瀏覽器載入慢、JS 錯誤、API 互動延遲。<strong>Grafana Faro</strong>（Real User Monitoring）抓真實使用者瀏覽器資料，
+    <strong>Grafana k6</strong> 主動模擬流量做壓力測試。本章涵蓋兩家工具，組合起來給觀測性畫面收尾。
+  </p>
+
+  <div class="toc">
+    <div class="toc-title">本章內容</div>
+    <ul>
+      <li><a href="#section-1">§ 1. 前端 Observability 的缺口</a></li>
+      <li><a href="#section-2">§ 2. Grafana Faro 概念</a></li>
+      <li><a href="#section-3">§ 3. Faro 收集的訊號</a></li>
+      <li><a href="#section-4">§ 4. Faro Web SDK 整合</a></li>
+      <li><a href="#section-5">§ 5. Faro 後端架構</a></li>
+      <li><a href="#section-6">§ 6. k6 概念與定位</a></li>
+      <li><a href="#section-7">§ 7. k6 Script 入門</a></li>
+      <li><a href="#section-8">§ 8. k6 進階：Stages、Thresholds、Modules</a></li>
+      <li><a href="#section-9">§ 9. k6 Cloud 與分散式</a></li>
+      <li><a href="#section-10">§ 10. Faro + k6 + LGTM 組合</a></li>
+      <li><a href="#section-11">§ 11. Part 5 完整回顧</a></li>
+    </ul>
+  </div>
+
+  <h2 id="section-1">§ 1. 前端 Observability 的缺口</h2>
+
+  <h3>1.1 Backend 監控完整還不夠</h3>
+
+  <p>典型場景：</p>
+
+  <ul>
+    <li>Backend dashboard 顯示「API p99 = 100ms」很健康</li>
+    <li>但用戶反映「網站慢」</li>
+    <li>原因可能：JS bundle 5MB、CDN 慢、第三方 script 阻塞、客戶端 react render 慢</li>
+    <li>Backend 完全看不到</li>
+  </ul>
+
+  <h3>1.2 Real User Monitoring (RUM)</h3>
+
+  <p>
+    從<strong>真實使用者瀏覽器</strong>收集 telemetry：
+  </p>
+
+  <ul>
+    <li>頁面載入時間</li>
+    <li>Core Web Vitals（LCP / CLS / INP）</li>
+    <li>JS 錯誤</li>
+    <li>使用者點擊路徑</li>
+    <li>API 互動延遲</li>
+  </ul>
+
+  <h3>1.3 RUM 工具光譜</h3>
+
+  <table>
+    <thead>
+      <tr><th>工具</th><th>定位</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Datadog RUM</strong></td><td>商業 SaaS、APM 整合</td></tr>
+      <tr><td><strong>Sentry</strong></td><td>error tracking 為主</td></tr>
+      <tr><td><strong>New Relic Browser</strong></td><td>商業 APM</td></tr>
+      <tr><td><strong>Google Analytics</strong></td><td>marketing 為主</td></tr>
+      <tr><td><strong>Grafana Faro</strong></td><td><strong>OSS、與 LGTM 整合</strong></td></tr>
+    </tbody>
+  </table>
+
+  <h3>1.4 Synthetic Monitoring vs RUM</h3>
+
+  <table>
+    <thead>
+      <tr><th>面向</th><th>Synthetic（k6）</th><th>RUM（Faro）</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>誰</td><td>機器模擬</td><td>真實使用者</td></tr>
+      <tr><td>頻率</td><td>固定（每分鐘 1 次）</td><td>每次造訪</td></tr>
+      <tr><td>環境</td><td>固定（同 IP / browser）</td><td>真實（各國 / 各裝置）</td></tr>
+      <tr><td>用途</td><td>監控可用性、SLI 量測</td><td>找真實 user 體驗問題</td></tr>
+      <tr><td>適合</td><td>Critical path uptime</td><td>性能 / 體驗最佳化</td></tr>
+    </tbody>
+  </table>
+
+  <p>兩者<strong>互補</strong>：Synthetic 確保「<strong>能用</strong>」，RUM 知道「<strong>用得好不好</strong>」。</p>
+
+  <h2 id="section-2">§ 2. Grafana Faro 概念</h2>
+
+  <h3>2.1 Faro 簡史</h3>
+
+  <pre><code>2022  Grafana Faro 公開
+2023+ 進入主流（Grafana Cloud Frontend Observability 整合）
+2025+ 與 Tempo / Loki / Mimir 緊密串接</code></pre>
+
+  <h3>2.2 Faro 三大特色</h3>
+
+  <ul>
+    <li><strong>OSS + 自架</strong>：不用商業 SaaS</li>
+    <li><strong>OpenTelemetry-aligned</strong>：trace 部分用 OTel SDK</li>
+    <li><strong>與 LGTM 整合</strong>：自然連到 Loki（events）/ Tempo（traces）/ Mimir（metrics）</li>
+  </ul>
+
+  <h3>2.3 Faro 架構</h3>
+
+  <div class="mermaid">
+graph LR
+    BROWSER[Browser<br/>+ Faro Web SDK]
+    COLLECTOR[Faro Collector<br/>· Alloy]
+    LOKI[(Loki<br/>events · errors)]
+    TEMPO[(Tempo<br/>browser traces)]
+    MIMIR[(Mimir<br/>web vitals)]
+    GRAFANA[Grafana<br/>Frontend App]
+
+    BROWSER -- HTTP push --> COLLECTOR
+    COLLECTOR --> LOKI
+    COLLECTOR --> TEMPO
+    COLLECTOR --> MIMIR
+    GRAFANA -- query --> LOKI
+    GRAFANA -- query --> TEMPO
+    GRAFANA -- query --> MIMIR
+</div>
+
+  <h2 id="section-3">§ 3. Faro 收集的訊號</h2>
+
+  <h3>3.1 五大訊號類型</h3>
+
+  <table>
+    <thead>
+      <tr><th>類型</th><th>內容</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Errors</strong></td>
+        <td>JS exception、unhandled promise rejection、console.error</td>
+      </tr>
+      <tr>
+        <td><strong>Logs</strong></td>
+        <td>console.log / .info / .warn（自動 capture）</td>
+      </tr>
+      <tr>
+        <td><strong>Measurements</strong></td>
+        <td>自訂的數值（page render time、business KPI）</td>
+      </tr>
+      <tr>
+        <td><strong>Web Vitals</strong></td>
+        <td>LCP、CLS、INP、FCP、TTFB 自動收集</td>
+      </tr>
+      <tr>
+        <td><strong>Traces</strong></td>
+        <td>頁面內 fetch / XHR 的 OTel span，含 trace context propagation</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>3.2 Web Vitals 詳解</h3>
+
+  <table>
+    <thead>
+      <tr><th>Metric</th><th>意義</th><th>Good / Needs / Poor</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>LCP</strong>（Largest Contentful Paint）</td>
+        <td>最大內容繪製時間</td>
+        <td>≤ 2.5s / ≤ 4s / &gt; 4s</td>
+      </tr>
+      <tr>
+        <td><strong>INP</strong>（Interaction to Next Paint）</td>
+        <td>互動延遲（取代了 FID）</td>
+        <td>≤ 200ms / ≤ 500ms / &gt; 500ms</td>
+      </tr>
+      <tr>
+        <td><strong>CLS</strong>（Cumulative Layout Shift）</td>
+        <td>視覺穩定性</td>
+        <td>≤ 0.1 / ≤ 0.25 / &gt; 0.25</td>
+      </tr>
+      <tr>
+        <td><strong>FCP</strong></td>
+        <td>首次內容繪製</td>
+        <td>≤ 1.8s / ≤ 3s / &gt; 3s</td>
+      </tr>
+      <tr>
+        <td><strong>TTFB</strong></td>
+        <td>首位元組時間</td>
+        <td>≤ 800ms / ≤ 1.8s / &gt; 1.8s</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p><strong>LCP / INP / CLS</strong> 是 Google 的 Core Web Vitals，影響 SEO 排名。</p>
+
+  <h3>3.3 Trace Context Propagation</h3>
+
+  <p>
+    Faro 自動把瀏覽器內 fetch / XHR 加上 W3C traceparent header，<strong>讓 frontend trace 與 backend trace 連起來</strong>：
+  </p>
+
+  <pre><code>// 自動加 header
+fetch('/api/orders')
+
+// 變成
+fetch('/api/orders', {
+  headers: {
+    'traceparent': '00-{trace-id}-{span-id}-01'
+  }
+})
+
+// Backend service 接收後，繼續同個 trace</code></pre>
+
+  <p>結果：在 Tempo 看到「使用者點擊按鈕 → fetch /api/orders → backend handler → DB query」的完整 trace。</p>
+
+  <h2 id="section-4">§ 4. Faro Web SDK 整合</h2>
+
+  <h3>4.1 安裝</h3>
+
+  <pre><code>npm install @grafana/faro-web-sdk @grafana/faro-web-tracing</code></pre>
+
+  <h3>4.2 基本初始化</h3>
+
+  <pre><code>// app.tsx 或 main.js
+import { initializeFaro } from '@grafana/faro-web-sdk';
+import { TracingInstrumentation } from '@grafana/faro-web-tracing';
+
+initializeFaro({
+  url: 'https://faro-collector.example.com/collect',
+  apiKey: 'xxxxxxxxxx',     // 可選
+  app: {
+    name: 'my-frontend',
+    version: '1.2.3',
+    environment: 'production',
+  },
+
+  // 啟用 OpenTelemetry tracing
+  instrumentations: [
+    new TracingInstrumentation({
+      // 哪些 URL pattern 要 propagate trace context
+      propagateTraceHeaderCorsUrls: [
+        /^https:\/\/api\.example\.com/,
+      ],
+    }),
+  ],
+});</code></pre>
+
+  <h3>4.3 自訂 measurement / event</h3>
+
+  <pre><code>import { faro } from '@grafana/faro-web-sdk';
+
+// 自訂 measurement
+faro.api.pushMeasurement({
+  type: 'checkout_render_time',
+  values: { duration_ms: 234 },
+});
+
+// 自訂 event
+faro.api.pushEvent('checkout_started', {
+  cart_size: '5',
+  user_tier: 'premium',
+});
+
+// 手動 log error
+try {
+  // ...
+} catch (err) {
+  faro.api.pushError(err);
+}
+
+// 手動 log
+faro.api.pushLog(['User clicked checkout button'], { level: 'info' });</code></pre>
+
+  <h3>4.4 Session 與 User</h3>
+
+  <pre><code>// 設定使用者（讓 error 能歸因）
+faro.api.setUser({
+  id: 'user-12345',
+  email: 'alice@example.com',
+  username: 'alice',
+});
+
+// 設定 session
+faro.api.setSession({
+  id: 'session-abc',
+  attributes: {
+    plan: 'premium',
+  },
+});
+
+// 設定 view（路由切換）
+faro.api.setView({ name: '/checkout' });</code></pre>
+
+  <h3>4.5 React 整合</h3>
+
+  <pre><code>import { ReactIntegration } from '@grafana/faro-react';
+
+initializeFaro({
+  // ...
+  instrumentations: [
+    new ReactIntegration({
+      router: {
+        version: 'v6',
+        dependencies: { useLocation, useNavigationType, ... },
+      },
+    }),
+  ],
+});
+
+// Error Boundary
+import { FaroErrorBoundary } from '@grafana/faro-react';
+
+&lt;FaroErrorBoundary&gt;
+  &lt;App /&gt;
+&lt;/FaroErrorBoundary&gt;</code></pre>
+
+  <h3>4.6 隱私與 PII</h3>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ PII 處理</div>
+    <p>
+      Faro 預設會收集 URL、user agent、stack trace。<strong>注意 PII</strong>：
+    </p>
+    <ul>
+      <li>URL query string 可能含 token</li>
+      <li>Form data 可能含密碼</li>
+      <li>Console log 可能洩漏 user data</li>
+    </ul>
+    <p>解法：用 <code>beforeSend</code> hook 過濾敏感資料。</p>
+  </div>
+
+  <pre><code>initializeFaro({
+  // ...
+  beforeSend: (event) => {
+    // 移除 query string
+    if (event.meta?.page?.url) {
+      event.meta.page.url = event.meta.page.url.split('?')[0];
+    }
+    // 移除特定 attribute
+    delete event.attributes?.email;
+    return event;
+  },
+});</code></pre>
+
+  <h2 id="section-5">§ 5. Faro 後端架構</h2>
+
+  <h3>5.1 Faro Collector</h3>
+
+  <p>瀏覽器 push 到 <strong>Faro Collector</strong>（HTTP endpoint），collector 路由到 Loki / Tempo / Mimir。</p>
+
+  <h3>5.2 用 Alloy 當 Collector</h3>
+
+  <pre><code>// alloy config.river
+faro.receiver "default" {
+  server {
+    listen_address = "0.0.0.0"
+    listen_port    = 12347
+  }
+
+  // 路由各訊號
+  output {
+    logs   = [loki.write.default.receiver]
+    traces = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo:4317"
+    tls {
+      insecure = true
+    }
+  }
+}</code></pre>
+
+  <h3>5.3 Standalone Faro Collector</h3>
+
+  <p>也可用獨立的 Faro Collector binary（github.com/grafana/faro）：</p>
+
+  <pre><code>docker run -p 12347:12347 \
+  grafana/faro-collector:latest</code></pre>
+
+  <h3>5.4 CORS 設定</h3>
+
+  <p>瀏覽器 push 跨 domain 必須設 CORS：</p>
+
+  <pre><code>faro.receiver "default" {
+  server {
+    cors_allowed_origins = [
+      "https://www.example.com",
+      "https://app.example.com",
+    ]
+  }
+}</code></pre>
+
+  <h3>5.5 Frontend Observability App</h3>
+
+  <p>Grafana Cloud 提供 <strong>Frontend Observability</strong> 應用，預建 dashboard：</p>
+
+  <ul>
+    <li>Web Vitals 趨勢</li>
+    <li>JS Errors 列表 + stack trace</li>
+    <li>Slow pages</li>
+    <li>User journey</li>
+    <li>Browser / OS / Country distribution</li>
+  </ul>
+
+  <p>OSS 環境可手動建類似 dashboard，或用社群 dashboard。</p>
+
+  <h2 id="section-6">§ 6. k6 概念與定位</h2>
+
+  <h3>6.1 k6 簡史</h3>
+
+  <pre><code>2017  k6 開源（Load Impact 公司）
+2021  Grafana Labs 收購 k6
+2022+ k6 整合進 Grafana Cloud
+2024+ k6 Browser、k6 Studio 等新功能</code></pre>
+
+  <h3>6.2 k6 是什麼</h3>
+
+  <p>
+    <strong>Load Testing Tool</strong>：寫 JavaScript / TypeScript script，執行模擬大量 virtual users（VUs）
+    對 API / website 發送請求，量測延遲、錯誤率、吞吐量。
+  </p>
+
+  <h3>6.3 與其他工具對比</h3>
+
+  <table>
+    <thead>
+      <tr><th>工具</th><th>定位</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>k6</strong></td><td>JavaScript script、CLI-first、CI 友善</td></tr>
+      <tr><td><strong>JMeter</strong></td><td>GUI-first、複雜功能多但難維護</td></tr>
+      <tr><td><strong>Gatling</strong></td><td>Scala script、強大但學習曲線高</td></tr>
+      <tr><td><strong>Apache Bench (ab)</strong></td><td>單純 ad-hoc test</td></tr>
+      <tr><td><strong>Locust</strong></td><td>Python script、社群活躍</td></tr>
+    </tbody>
+  </table>
+
+  <h3>6.4 k6 的優勢</h3>
+
+  <ul>
+    <li>JavaScript 開發者熟悉的語言</li>
+    <li>CLI / config 為主，<strong>易於 CI/CD 整合</strong></li>
+    <li>用 Go 寫的 runtime，<strong>單機能跑 10000+ VU</strong></li>
+    <li>內建 metrics 結構化輸出</li>
+    <li>與 Grafana Cloud / 自架 Prometheus 直接整合</li>
+  </ul>
+
+  <h3>6.5 k6 的訊號</h3>
+
+  <p>k6 不只是發請求，也會輸出 metric：</p>
+
+  <table>
+    <thead>
+      <tr><th>Metric</th><th>意義</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>http_reqs</code></td><td>總請求數</td></tr>
+      <tr><td><code>http_req_duration</code></td><td>請求耗時（含分位數）</td></tr>
+      <tr><td><code>http_req_failed</code></td><td>失敗請求</td></tr>
+      <tr><td><code>http_req_blocked</code></td><td>連線等待時間</td></tr>
+      <tr><td><code>http_req_connecting</code></td><td>建立 TCP 連線</td></tr>
+      <tr><td><code>http_req_tls_handshaking</code></td><td>TLS 握手</td></tr>
+      <tr><td><code>http_req_sending</code></td><td>送 request body</td></tr>
+      <tr><td><code>http_req_receiving</code></td><td>收 response body</td></tr>
+      <tr><td><code>http_req_waiting</code></td><td>等 server response (TTFB)</td></tr>
+      <tr><td><code>vus</code></td><td>當前 VU 數</td></tr>
+      <tr><td><code>iterations</code></td><td>完成的 iteration 數</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="section-7">§ 7. k6 Script 入門</h2>
+
+  <h3>7.1 第一個 script</h3>
+
+  <pre><code>// load-test.js
+import http from 'k6/http';
+import { check, sleep } from 'k6';
+
+export const options = {
+  vus: 10,           // 10 個 virtual users
+  duration: '30s',   // 跑 30 秒
+};
+
+export default function () {
+  const res = http.get('https://api.example.com/users');
+
+  check(res, {
+    'status is 200': (r) =&gt; r.status === 200,
+    'duration &lt; 200ms': (r) =&gt; r.timings.duration &lt; 200,
+  });
+
+  sleep(1);   // 1 秒 think time
+}</code></pre>
+
+  <h3>7.2 執行</h3>
+
+  <pre><code>k6 run load-test.js
+
+# 輸出
+running (0m30.0s), 00/10 VUs, 290 complete and 0 interrupted iterations
+
+  ✓ status is 200
+  ✓ duration < 200ms
+
+  http_req_duration..............: avg=125ms  min=89ms  med=120ms  max=350ms
+                                    p(90)=180ms p(95)=210ms p(99)=290ms
+  http_reqs......................: 290    9.66/s
+  iteration_duration.............: avg=1.12s  min=1.09s ...
+  vus............................: 10     min=10    max=10</code></pre>
+
+  <h3>7.3 進階 script</h3>
+
+  <pre><code>import http from 'k6/http';
+import { check, sleep, group } from 'k6';
+
+export const options = {
+  scenarios: {
+    main_flow: {
+      executor: 'ramping-vus',
+      stages: [
+        { duration: '30s', target: 50 },   // 30s 升到 50 VU
+        { duration: '1m',  target: 100 },  // 1m 升到 100
+        { duration: '30s', target: 0 },    // 30s 降回 0
+      ],
+    },
+  },
+  thresholds: {
+    http_req_duration: ['p(95)&lt;500'],     // p95 必須 &lt; 500ms
+    http_req_failed:   ['rate&lt;0.01'],     // 錯誤率 &lt; 1%
+  },
+};
+
+export default function () {
+  group('Login flow', () =&gt; {
+    const loginRes = http.post('https://api.example.com/login', {
+      email: 'test@example.com',
+      password: 'pass',
+    });
+    check(loginRes, { 'login OK': (r) =&gt; r.status === 200 });
+
+    const token = loginRes.json('token');
+
+    group('Browse products', () =&gt; {
+      const res = http.get('https://api.example.com/products', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      check(res, { 'products OK': (r) =&gt; r.status === 200 });
+    });
+  });
+
+  sleep(1);
+}</code></pre>
+
+  <h3>7.4 資料驅動 test</h3>
+
+  <pre><code>import { SharedArray } from 'k6/data';
+
+// users.json: [{"email": "...", "password": "..."}, ...]
+const users = new SharedArray('users', () =&gt;
+  JSON.parse(open('./users.json'))
+);
+
+export default function () {
+  const user = users[Math.floor(Math.random() * users.length)];
+  const res = http.post('https://api.example.com/login', user);
+  // ...
+}</code></pre>
+
+  <h2 id="section-8">§ 8. k6 進階：Stages、Thresholds、Modules</h2>
+
+  <h3>8.1 Test Type 對照</h3>
+
+  <table>
+    <thead>
+      <tr><th>Type</th><th>目的</th><th>k6 設定</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Smoke test</strong></td>
+        <td>確認服務 OK</td>
+        <td>1 VU, 1m</td>
+      </tr>
+      <tr>
+        <td><strong>Load test</strong></td>
+        <td>正常負載</td>
+        <td>50-100 VUs, 10-30m</td>
+      </tr>
+      <tr>
+        <td><strong>Stress test</strong></td>
+        <td>找崩潰點</td>
+        <td>Ramping VUs 從 100 到 1000+</td>
+      </tr>
+      <tr>
+        <td><strong>Spike test</strong></td>
+        <td>突發流量</td>
+        <td>從 0 → 500 → 0 in 1m</td>
+      </tr>
+      <tr>
+        <td><strong>Soak test</strong></td>
+        <td>長時間穩定性</td>
+        <td>200 VUs, 8h+</td>
+      </tr>
+      <tr>
+        <td><strong>Breakpoint test</strong></td>
+        <td>找確切容量上限</td>
+        <td>慢慢 ramping 到失敗</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>8.2 Executors 詳解</h3>
+
+  <p>k6 提供 7 種 executor：</p>
+
+  <ul>
+    <li><strong>shared-iterations</strong>：固定 iteration 數，分給所有 VU</li>
+    <li><strong>per-vu-iterations</strong>：每 VU 跑固定 iteration 數</li>
+    <li><strong>constant-vus</strong>：固定 VU 數，跑指定時間</li>
+    <li><strong>ramping-vus</strong>：階段式調整 VU 數</li>
+    <li><strong>constant-arrival-rate</strong>：固定 RPS（與 VU 解耦）</li>
+    <li><strong>ramping-arrival-rate</strong>：階段式調整 RPS</li>
+    <li><strong>externally-controlled</strong>：外部 API 控制</li>
+  </ul>
+
+  <h3>8.3 Thresholds 與 Pass/Fail</h3>
+
+  <pre><code>export const options = {
+  thresholds: {
+    // 基本 threshold
+    http_req_duration: ['p(95)&lt;500', 'p(99)&lt;1000'],
+    http_req_failed:   ['rate&lt;0.01'],
+
+    // 用 abortOnFail 提早結束
+    'http_req_duration{name:critical}': [
+      { threshold: 'p(95)&lt;200', abortOnFail: true },
+    ],
+
+    // 自訂 metric
+    'errors{type:db}': ['count&lt;10'],
+  },
+};</code></pre>
+
+  <p>Threshold 失敗時，k6 結束 exit code 非 0，CI/CD 抓得到。</p>
+
+  <h3>8.4 自訂 Metric</h3>
+
+  <pre><code>import { Counter, Trend, Rate } from 'k6/metrics';
+
+const failureRate = new Rate('login_failures');
+const checkoutDuration = new Trend('checkout_duration_ms');
+const ordersCreated = new Counter('orders_created');
+
+export default function () {
+  const start = Date.now();
+  const res = http.post('/checkout', payload);
+
+  failureRate.add(res.status !== 200);
+  checkoutDuration.add(Date.now() - start);
+
+  if (res.status === 201) {
+    ordersCreated.add(1);
+  }
+}</code></pre>
+
+  <h3>8.5 k6 Browser（v0.43+）</h3>
+
+  <p>k6 也支援<strong>真實 Chromium 跑前端 test</strong>（取代 Puppeteer / Playwright 用於 load test）：</p>
+
+  <pre><code>import { browser } from 'k6/browser';
+import { check } from 'k6';
+
+export const options = {
+  scenarios: {
+    ui: {
+      executor: 'shared-iterations',
+      options: {
+        browser: { type: 'chromium' },
+      },
+    },
+  },
+};
+
+export default async function () {
+  const page = await browser.newPage();
+  await page.goto('https://example.com');
+
+  await page.waitForSelector('h1');
+  const title = await page.title();
+  check(page, { 'title is correct': () =&gt; title === 'Example' });
+
+  await page.click('#login');
+  await page.locator('#email').fill('test@example.com');
+  await page.locator('#password').fill('pass');
+  await page.click('#submit');
+
+  await page.close();
+}</code></pre>
+
+  <h2 id="section-9">§ 9. k6 Cloud 與分散式</h2>
+
+  <h3>9.1 為什麼需要分散式</h3>
+
+  <p>
+    單機 k6 能跑 10K+ VU，但有時不夠：
+  </p>
+
+  <ul>
+    <li>需要 100K+ VU（電商雙 11 場景）</li>
+    <li>需要從多 region 發起（模擬全球 user）</li>
+    <li>本機網路頻寬限制</li>
+  </ul>
+
+  <h3>9.2 三種分散式選項</h3>
+
+  <table>
+    <thead>
+      <tr><th>選項</th><th>適合</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Grafana Cloud k6</strong></td>
+        <td>商業 SaaS、最方便</td>
+      </tr>
+      <tr>
+        <td><strong>k6 Operator (K8s)</strong></td>
+        <td>自架，K8s 環境</td>
+      </tr>
+      <tr>
+        <td><strong>k6 Distribution</strong></td>
+        <td>OSS 多機自架（手動編排）</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>9.3 k6 Operator on K8s</h3>
+
+  <pre><code># 安裝 operator
+helm repo add grafana https://grafana.github.io/helm-charts
+helm install k6-operator grafana/k6-operator
+
+# 建立 k6 test
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata:
+  name: load-test
+spec:
+  parallelism: 4              # 4 個 worker pod
+  script:
+    configMap:
+      name: load-test-script
+      file: test.js
+  arguments: --out experimental-prometheus-rw=http://mimir:9009/api/v1/push</code></pre>
+
+  <h3>9.4 與 LGTM Stack 整合</h3>
+
+  <pre><code># k6 直接 push metric 到 Prometheus / Mimir
+k6 run --out experimental-prometheus-rw=http://mimir:9009/api/v1/push \
+       --tag testid=order-flow-v3 \
+       load-test.js
+
+# Grafana 自動建好 k6 dashboard（OSS 也可從 community import）</code></pre>
+
+  <h3>9.5 與 Tempo 整合（trace）</h3>
+
+  <p>k6 v0.50+ 內建 OpenTelemetry tracing，request 自動帶 trace context：</p>
+
+  <pre><code>import { Trace } from 'k6/x/tracing';
+
+export const options = {
+  // ...
+};
+
+export default function () {
+  const trace = new Trace();
+  trace.startSpan('checkout-flow');
+
+  const res = http.get('https://api.example.com/checkout', {
+    headers: { traceparent: trace.getTraceContext() },
+  });
+
+  trace.endSpan();
+}</code></pre>
+
+  <p>結果：load test 中產生的 trace 在 Tempo 看得到，跟 backend 的 trace 串連。</p>
+
+  <h2 id="section-10">§ 10. Faro + k6 + LGTM 組合</h2>
+
+  <h3>10.1 完整觀測性架構</h3>
+
+  <div class="mermaid">
+graph TB
+    USER[Real User · Browser]
+    SYNTH[Synthetic · k6]
+    APP[App · Backend]
+    INFRA[Infrastructure]
+
+    FARO[Faro Collector]
+    OTEL[OTel Collector · Alloy]
+
+    LOKI[(Loki)]
+    TEMPO[(Tempo)]
+    MIMIR[(Mimir)]
+    PYRO[(Pyroscope)]
+
+    GRAFANA[Grafana]
+
+    USER -- Faro SDK --> FARO
+    SYNTH -- metric+trace --> OTEL
+    APP -- OTel SDK / Beyla --> OTEL
+    INFRA -- node_exporter --> OTEL
+
+    FARO --> LOKI
+    FARO --> TEMPO
+    FARO --> MIMIR
+
+    OTEL --> LOKI
+    OTEL --> TEMPO
+    OTEL --> MIMIR
+    OTEL --> PYRO
+
+    GRAFANA --> LOKI
+    GRAFANA --> TEMPO
+    GRAFANA --> MIMIR
+    GRAFANA --> PYRO
+</div>
+
+  <h3>10.2 完整 user journey 監控</h3>
+
+  <ol>
+    <li>使用者點擊「Checkout」（Faro 抓 user click event）</li>
+    <li>Frontend 呼叫 <code>/api/checkout</code>（Faro 啟動 trace）</li>
+    <li>Backend 接收 trace，繼續 span（Tempo）</li>
+    <li>Backend 呼叫 payment-service / DB（trace 延伸）</li>
+    <li>Response 回 frontend（trace 完成）</li>
+    <li>Frontend render（Faro 抓 LCP / INP）</li>
+    <li>使用者看到結果（Faro 抓 page navigation）</li>
+  </ol>
+
+  <p>整段在<strong>同一個 trace</strong>，從 user click 到 DB query 完整可見。</p>
+
+  <h3>10.3 SLO 全景設計</h3>
+
+  <table>
+    <thead>
+      <tr><th>SLI</th><th>來源</th><th>目標</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Backend p99 latency</td><td>Mimir（API metric）</td><td>&lt; 500ms</td></tr>
+      <tr><td>Frontend LCP p75</td><td>Faro（real user）</td><td>&lt; 2.5s</td></tr>
+      <tr><td>Frontend INP p75</td><td>Faro</td><td>&lt; 200ms</td></tr>
+      <tr><td>API availability</td><td>k6 synthetic（每分鐘 ping）</td><td>99.9%</td></tr>
+      <tr><td>JS error rate</td><td>Faro（errors / sessions）</td><td>&lt; 0.1%</td></tr>
+    </tbody>
+  </table>
+
+  <h3>10.4 跨工具串聯範例</h3>
+
+  <p>典型 incident 場景：</p>
+
+  <ol>
+    <li>k6 synthetic 跑 checkout flow → 失敗率 5%</li>
+    <li>Grafana 跳到 Tempo 看具體失敗 trace</li>
+    <li>Trace 顯示 payment-service 慢</li>
+    <li>跳 Pyroscope 看 payment-service profile</li>
+    <li>找出 jsonEncode 占 50% CPU（Ch 48 案例）</li>
+    <li>同時看 Faro：真實 user 體驗也降，confirms impact</li>
+    <li>修復 → 部署 → k6 自動 re-test → 確認恢復</li>
+  </ol>
+
+  <h2 id="section-11">§ 11. Part 5 完整回顧</h2>
+
+  <p>恭喜完成 Part 5 — Grafana 生態系！本 part 涵蓋了「整套」LGTM Stack 與其他外圍工具：</p>
+
+  <table>
+    <thead>
+      <tr><th>章節</th><th>主題</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Ch 45</td><td>Loki — log aggregation（不索引內容、便宜 10x）</td></tr>
+      <tr><td>Ch 46</td><td>Tempo — distributed tracing（不索引、only trace ID）</td></tr>
+      <tr><td>Ch 47</td><td>Mimir — scale-out Prometheus（1B+ series）</td></tr>
+      <tr><td>Ch 48</td><td>Pyroscope — continuous profiling（function-level）</td></tr>
+      <tr><td>Ch 49</td><td>Alloy + Beyla — telemetry collection + eBPF</td></tr>
+      <tr><td>Ch 50（本章）</td><td>Faro + k6 — frontend + load test</td></tr>
+    </tbody>
+  </table>
+
+  <h3>11.1 完整觀測性 stack</h3>
+
+  <pre><code>           ┌─────────────────────────────────┐
+           │ Frontend                        │
+           │ ┌──────────┐  ┌──────────┐    │
+           │ │ Browser  │  │ Faro SDK │    │
+           │ │  + Faro  │  │ Web Vital│    │
+           │ └──────────┘  └──────────┘    │
+           └────────────────┬────────────────┘
+                            │
+                            ↓
+           ┌─────────────────────────────────┐
+           │ Backend                         │
+           │ ┌──────────┐  ┌──────────┐    │
+           │ │ App+SDK  │  │ Beyla    │    │
+           │ │          │  │ (eBPF)   │    │
+           │ └──────────┘  └──────────┘    │
+           └────────────────┬────────────────┘
+                            │
+                            ↓
+           ┌─────────────────────────────────┐
+           │ Telemetry Pipeline              │
+           │ Grafana Alloy                   │
+           └────────────────┬────────────────┘
+                            │
+        ┌───────┬───────┬───┴──┬─────────┐
+        ↓       ↓       ↓      ↓         ↓
+      Mimir   Loki   Tempo   Pyroscope  k6
+     (metrics)(logs)(traces)(profiles)(load test)
+        │       │       │      │         │
+        └───────┴───────┴──────┴─────────┘
+                        │
+                        ↓
+                   ┌────────┐
+                   │Grafana │
+                   └────────┘</code></pre>
+
+  <h3>11.2 學完 Part 5 後您能做什麼</h3>
+
+  <ul>
+    <li>從零搭建完整 LGTM stack（log + trace + metric + profile）</li>
+    <li>設計 multi-tenant 的觀測性平台</li>
+    <li>用 Alloy 統一所有 telemetry collection</li>
+    <li>用 Beyla 對沒 SDK 支援的 service 做 auto-instrumentation</li>
+    <li>用 Faro 監控真實使用者體驗</li>
+    <li>用 k6 做 load test、整合 CI/CD</li>
+    <li>串聯所有訊號做完整 user journey 監控</li>
+  </ul>
+
+  <h3>11.3 接下來：Part 6 雲廠商整合</h3>
+
+  <p>Ch 51-53 會講三大雲（AWS / GCP / Azure）的觀測性整合：</p>
+
+  <ul>
+    <li>各家原生服務（CloudWatch / Cloud Monitoring / Azure Monitor）</li>
+    <li>Managed Prometheus（AMP / GMP）</li>
+    <li>Managed Grafana（AMG）</li>
+    <li>從 native 整合到 LGTM 的轉換</li>
+  </ul>
+
+  <h2>📚 延伸閱讀</h2>
+
+  <ul>
+    <li><a href="https://grafana.com/oss/faro/" target="_blank" rel="noopener">Grafana Faro 官網</a></li>
+    <li><a href="https://github.com/grafana/faro-web-sdk" target="_blank" rel="noopener">Faro Web SDK GitHub</a></li>
+    <li><a href="https://k6.io/docs/" target="_blank" rel="noopener">k6 文件</a></li>
+    <li><a href="https://k6.io/docs/using-k6/options/" target="_blank" rel="noopener">k6 Options 完整參考</a></li>
+    <li><a href="https://web.dev/articles/vitals" target="_blank" rel="noopener">Core Web Vitals（Google）</a></li>
+  </ul>
+
+  <h2>✅ 本章重點摘要</h2>
+
+  <div class="callout success">
+    <div class="callout-title">30 秒回顧</div>
+    <ul>
+      <li>Backend 監控完整不夠，需要 RUM 看真實 user 體驗</li>
+      <li><strong>Synthetic（k6）</strong> 確保「能用」，<strong>RUM（Faro）</strong> 知道「用得好不好」</li>
+      <li><strong>Grafana Faro</strong>：OSS RUM，與 LGTM 整合，OTel-aligned</li>
+      <li>Faro 收 5 種訊號：<strong>Errors / Logs / Measurements / Web Vitals / Traces</strong></li>
+      <li>Web Vitals：<strong>LCP / INP / CLS</strong> 是 Google Core，影響 SEO</li>
+      <li><strong>Faro 自動 trace context propagation</strong>：browser fetch 與 backend trace 串起來</li>
+      <li>Faro Web SDK + 後端 Faro Collector（可用 Alloy faro.receiver）</li>
+      <li>注意 PII：URL、form、console log 可能洩漏，用 <code>beforeSend</code> 過濾</li>
+      <li><strong>k6</strong> = JavaScript script load testing，Grafana 收購（2021）</li>
+      <li>單機跑 10K+ VU，CLI-first，CI 友善</li>
+      <li>Test types：<strong>Smoke / Load / Stress / Spike / Soak / Breakpoint</strong></li>
+      <li>7 種 executors，constant-arrival-rate 與 VU 解耦</li>
+      <li><strong>Thresholds</strong> 失敗讓 CI 抓到</li>
+      <li><strong>k6 Browser</strong> 用真實 Chromium 跑 UI test</li>
+      <li>分散式：<strong>Grafana Cloud k6 / k6 Operator (K8s) / 自架</strong></li>
+      <li>Faro + k6 + LGTM = 完整觀測性，從 user click 到 DB query 完整 trace</li>
+    </ul>
+  </div>
+
+  <h2>📝 練習題</h2>
+
+  <ol>
+    <li>解釋 RUM 與 Synthetic Monitoring 的差別。為什麼兩者互補？</li>
+    <li>解釋 Faro 的 trace context propagation。它如何把 frontend 和 backend trace 串起？</li>
+    <li>下面情境用 k6 哪種 test type？(a) PR merge 後驗證；(b) 找系統崩潰點；(c) 雙 11 突發流量演練；(d) 確認 8 小時無 memory leak</li>
+    <li>實作 k6 script：模擬登入 → 瀏覽商品 → 加購 → 結帳完整 flow，含 thresholds 與 自訂 metric。</li>
+    <li>設計完整 SLO 監控 dashboard：5 個 SLI 從 Faro / Mimir / k6 收集，標明資料來源與目標值。</li>
+  </ol>
+
+  <nav class="footer-nav">
+    <a href="ch49-Overview-alloy-beyla.html">
+      <div class="nav-direction">← 上一章</div>
+      <div class="nav-title">Ch 49 · Alloy + Beyla</div>
+    </a>
+    <a class="next" href="ch51-Overview-aws-integrations.html">
+      <div class="nav-direction">下一章 →</div>
+      <div class="nav-title">Ch 51 · AWS 整合</div>
+    </a>
+  </nav>
+
+</main>
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(current) { return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else { init(); }
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  // Calm Teal hue 200° 設計色系 → mermaid themeVariables 對齊 tokens.css
+  function getMermaidConfig() {
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    return {
+      startOnLoad: false,
+      securityLevel: 'loose',
+      fontFamily: 'DM Sans, Inter, Noto Sans TC, sans-serif',
+      theme: 'base',
+      themeVariables: isDark ? {
+        background: '#2a2520',
+        primaryColor: '#1f3a4a',
+        primaryTextColor: '#e8e6e1',
+        primaryBorderColor: '#5a8499',
+        lineColor: '#7a8a8f',
+        secondaryColor: '#2d3a32',
+        tertiaryColor: '#3a3528',
+        nodeBorder: '#5a8499',
+        clusterBkg: '#252523',
+        clusterBorder: '#4a4944',
+        edgeLabelBackground: '#2a2520',
+        textColor: '#e8e6e1',
+      } : {
+        background: '#fdfcfa',
+        primaryColor: '#cffafe',
+        primaryTextColor: '#1a1a18',
+        primaryBorderColor: '#0891b2',
+        lineColor: '#4a6873',
+        secondaryColor: '#dcfce7',
+        tertiaryColor: '#fef3c7',
+        nodeBorder: '#0891b2',
+        clusterBkg: '#f5f3ee',
+        clusterBorder: '#d4d2cd',
+        edgeLabelBackground: '#fdfcfa',
+        textColor: '#1a1a18',
+      },
+    };
+  }
+  mermaid.initialize(getMermaidConfig());
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => mermaid.run());
+  } else {
+    mermaid.run();
+  }
+  window.addEventListener('jhsun:theme-changed', () => {
+    document.querySelectorAll('.mermaid').forEach(el => {
+      const code = el.dataset.source || el.textContent;
+      if (!el.dataset.source) el.dataset.source = code;
+      el.removeAttribute('data-processed');
+      el.innerHTML = el.dataset.source;
+    });
+    mermaid.initialize(getMermaidConfig());
+    mermaid.run();
+  });
+</script>
+</body>
+</html>
