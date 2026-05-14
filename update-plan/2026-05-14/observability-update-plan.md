@@ -24,9 +24,10 @@
 |---------|--------|---------|
 | 3.11（主要） | 3.11.3 | 🟢 僅 patch |
 
-### 建議
-- 若以 v3.11 為主要版本，patch 更新無實質影響
-- 注意文件中穿插的 2.x 範例可能需要統一至 3.x
+### 建議（✅ 已完成）
+- 若以 v3.11 為主要版本，patch 更新無實質影響 ✅
+- 注意文件中穿插的 2.x 範例可能需要統一至 3.x（內容為歷史說明，OK）✅
+- ch00 版本參考更新 ✅
 
 ---
 
@@ -50,8 +51,14 @@
 - Grafana 13 引入全新 Navigation UI
 - Scenes（新的 dashboard engine）GA
 - 全新的 Alerting 架構
-- Grafana 13 移除舊版 Angular 元件
+- Grafana 13 移除舊版 Angular 元件（v12 已警告）
 - 大量 plugin API 變更
+
+### 建議更新（✅ 已完成）
+- ch00 產品表格與版本參考更新至 v13.0.1 ✅
+- ch29 §5 擴充 v13 內容（Scenes GA、Navigation Redesign、Dynamic Dashboards GA）✅
+- Grafana 章節 14 份加入版本標記 ✅
+- ch53 Azure 更新 11.5+ → 13+ ✅
 
 ---
 
@@ -66,7 +73,7 @@
 | v0.32.1 |
 
 ### 差距判定
-🟢 僅 patch（0.32 為上界）
+🟢 僅 patch（0.32 為上界）✅ 已確認
 
 ---
 
