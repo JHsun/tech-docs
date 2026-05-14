@@ -34,13 +34,14 @@
 
 | 分類 | 內含技術 | 文件版本 | 最新版 | 差距 |
 |------|---------|---------|-------|------|
-| `haproxy-*` (3份) | HAProxy 3.2 LTS | 3.2.x | 3.2.19 | 🟢 patch |
-| `haproxy-config-*` | HAProxy 3.0 LTS | 3.0.x | 3.0.23 | 🟢 patch |
+| `haproxy-acl-cheatsheet` | HAProxy 3.2 LTS | 3.2.x | 3.2.19 | 🟢 patch |
+| `haproxy-configuration-manual-cheat-sheet` | HAProxy 3.0 LTS | 3.0.x | 3.0.23 | 🟢 patch |
+| `haproxy-starter-management-guide-cheat-sheet` | HAProxy 3.2 LTS | 3.2.x | 3.2.19 | 🟢 patch |
 | `mysql-8_4-cheat-sheet` | MySQL | 8.4 | 8.4.9 | 🟢 patch |
 | `postgresql-quickstart` | PostgreSQL | 18 | 18.4 | 🟢 patch |
 | `kafka-cheat-sheet` | Apache Kafka | 4.2 | 4.2.0 | ✅ 相同 |
 | `openbao` | OpenBao | v2.5.3 | v2.5.3 | ✅ 相同 |
-| `OpenTofu` | OpenTofu | (need check) | v1.12.0 | ✅ |
+| `OpenTofu` | OpenTofu | 1.12 | v1.12.0 | ✅ 相同 |
 | `bpftrace` | bpftrace | 0.25 | 0.25.1 | 🟢 patch |
 | `nginx-cheat-sheet` | Nginx | 無特定版本 | 1.30.1(stable) | 🟢 版本中性 |
 
