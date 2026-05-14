@@ -10,11 +10,11 @@
 
 | 主題 | 文件版本 | 最新版本 | 差距 | 文件數 |
 |------|---------|----------|------|--------|
-| HAProxy Config Manual | 3.0 | 3.3.0 (2026-03) | 落後 3 大版本 | 13 |
+| HAProxy Config Manual | 3.0 (LTS) | 3.2.19 (LTS) | 落後 1 個 LTS 世代 | 13 |
 | etcd | v3.5.21 | v3.6.11 (2026-05) | 含 breaking changes | 5 |
 | Redis | 7.4 | 8.6.3 (2026-05) | 大版本跳躍 7→8 | 8 |
 | Keepalived | v1.4 | 2.3.4 | 大版本跳躍 1→2 | 3 |
-| GSD | v1.38.5 | v2.82.0 (2026-05) | 大幅落後 | 4 |
+| GSD | v1.38.5 | v1.41.2 (2026-05) | 小版落後 | 4 |
 | Helm | 3.8 | v4.2.0 (2026-05) | 大版本跳躍 3→4 | 1 |
 | Kubernetes | v1.24–1.32 | v1.36.1 (2026-05) | 落後 4–5 版 | 6 |
 
@@ -35,10 +35,10 @@
 
 | 主題 | 文件版本 | 最新版本 | 說明 |
 |------|---------|----------|------|
-| HAProxy ACL/Starter | 3.2 | 3.3.0 | 小版落後 |
+| HAProxy ACL/Starter | 3.2 (LTS) | 3.2.19 (同分支) | 僅點版本差異 |
 | Playwright | v1.59 | v1.60.0 (2026-05) | 小版落後 |
 | Infisical | v0.158 | v0.159.28 (2026-05) | 小版落後 |
-| Nginx | 未標示 | 1.31.0 (2026-05) | 需審視 |
+| Nginx | 未標示 | 1.30.1 (Stable) / 1.31.0 (Mainline) | 需審視 |
 | MySQL | 8.4 | 8.4.9 | 同系列點版本 |
 | Claude Code | 2026-03 校對 | v2.1.141 (2026-05) | 2 個月迭代 |
 | Hermes Agent | 未標示 | v2026.5.7 (2026-05) | 持續迭代 |
@@ -73,7 +73,7 @@
 ## 建議處理順序
 
 1. **清理 duplicate**：`Prometheus-Grafana/` 與 `Observability/` 擇一保留
-2. **🔴 高優先**：HAProxy (config manual) → etcd → Redis → Keepalived → GSD → Helm → K8s
+2. **🔴 高優先**：HAProxy Config Manual (3.0→3.2 LTS) → etcd → Redis → Keepalived → Helm → K8s
 3. **🟡 中優先**：Grafana/Prometheus → Python → Elasticsearch → OpenTofu → k3s
 4. **🟢 低優先**：其餘點版本更新
 
