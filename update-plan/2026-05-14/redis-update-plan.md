@@ -29,24 +29,24 @@
 - Redis 8.4：搜尋索引強化、JSON 路徑 V2
 - Redis 8.6：多線程處理再優化、新的記憶體效率模式
 
-|## 建議更新範圍
-|### 全部 8 份文件
-|- cheatsheet-01-core — 更新版本號、授權、架構描述 ✅
-|- cheatsheet-02-datatypes-1 — 無版本相關內容需變動 ✅
-|- cheatsheet-03-datatypes-2 — 內建模組標籤、JSON Path V2、IDMP、NaN ✅
-|- cheatsheet-04-commands — HOTKEYS、HGETDEL/HGETEX/HSETEX、Search 內建 ✅
-|- cheatsheet-05-persistence-ha — 8.0 複製改良、8.2 Cluster 效能 ✅
-|- cheatsheet-06-programmability-pubsub — Sharded Pub/Sub 8.2 改善 ✅
-|- cheatsheet-07-security-performance — 新逐出策略、TLS 憑證認證、HOTKEYS ✅
-|- cheatsheet-08-ecosystem-search-ai — 命名/授權更新、模組內建標示 ✅
+## 建議更新範圍
+### 全部 8 份文件
+- cheatsheet-01-core — 更新版本號、授權、架構描述 ✅
+- cheatsheet-02-datatypes-1 — 無版本相關內容需變動 ✅
+- cheatsheet-03-datatypes-2 — 內建模組標籤、JSON Path V2、IDMP、NaN ✅
+- cheatsheet-04-commands — HOTKEYS、HGETDEL/HGETEX/HSETEX、Search 內建 ✅
+- cheatsheet-05-persistence-ha — 8.0 複製改良、8.2 Cluster 效能 ✅
+- cheatsheet-06-programmability-pubsub — Sharded Pub/Sub 8.2 改善 ✅
+- cheatsheet-07-security-performance — 新逐出策略、TLS 憑證認證、HOTKEYS ✅
+- cheatsheet-08-ecosystem-search-ai — 命名/授權更新、模組內建標示 ✅
 
-|## 執行備註
-|### 與原始計劃差異
-|- **RESP3**：Redis 8.0 release notes 未提及 RESP3 協議重大變更（RESP3 自 Redis 6.0 引入），無需更新
-|- **Triggers & Functions GA**：查核官方 release notes 後確認 Redis 8.0 未正式提及 Triggers & Functions GA；Redis Functions 自 7.0 已可用，文件已涵蓋
-|- **HGETDEL / HGETEX / HSETEX**：Redis 8.0 新增 Hash 命令，補充至 #2 但該檔案無版本依賴，最終無需變動
-|
-|## 參考資源
-|- [Redis GitHub Releases](https://github.com/redis/redis/releases)
-|- [Redis 8.0 Release Notes](https://raw.githubusercontent.com/redis/redis/8.0/00-RELEASENOTES)
-|- [Redis 8.6 Release Notes](https://raw.githubusercontent.com/redis/redis/8.6/00-RELEASENOTES)
+## 執行備註
+### 與原始計劃差異
+- **RESP3**：Redis 8.0 release notes 未提及 RESP3 協議重大變更（RESP3 自 Redis 6.0 引入），無需更新
+- **Triggers & Functions GA**：查核官方 release notes 後確認 Redis 8.0 未正式提及 Triggers & Functions GA；Redis Functions 自 7.0 已可用，文件已涵蓋
+- **HGETDEL / HGETEX / HSETEX**：Redis 8.0 新增 Hash 命令，補充至 #2 但該檔案無版本依賴，最終無需變動
+
+## 參考資源
+- [Redis GitHub Releases](https://github.com/redis/redis/releases)
+- [Redis 8.0 Release Notes](https://raw.githubusercontent.com/redis/redis/8.0/00-RELEASENOTES)
+- [Redis 8.6 Release Notes](https://raw.githubusercontent.com/redis/redis/8.6/00-RELEASENOTES)
