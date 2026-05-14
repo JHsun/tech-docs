@@ -2,7 +2,6 @@
 
 **審計日期**：2026-05-14
 **來源**：44 個分類目錄，約 650+ 份 HTML 報告
-**重複標記**：`Observability/` ↔ `Prometheus-Grafana/`（61 份完全相同）
 
 ---
 
@@ -13,7 +12,7 @@
 | `redis-cheat-sheet` | Redis | 7.4 | 8.6.3 | 🔴 8.6 全新功能 | 8 | ✅ 已完成 |
 | `etcd-quickstart` | etcd | v3.5.x | v3.6.11 | 🔴 v3.6 新分支 | 5 | ⏳ |
 | `k8s-ecosystem` | Helm / K3s | 3.8 / ~v1.31 | v4.2.0 / v1.36.0 | 🔴 4.x / v1.36 | 11 | ✅ 已完成 |
-| `Observability/` | Grafana | 12.4 | v13.0.1+security-01 | 🔴 v13 新 UI | 61 | ⏳ |
+| `Observability/` | Grafana | 12.4 | v13.0.1+security-01 | 🔴 v13 新 UI | 61 | ✅ 已完成 |
 | `python-tutorial` | Python | 3.14 | 3.14.5 | 🟢 僅 patch（3.15 尚未 GA） | 31 | ⏳ |
 | `Infisical` | Infisical | v0.158 | v0.159.28 | 🔴 0.x 快速迭代 | 7 | ⏳ |
 | `proxy-guide` | Caddy | v2.11.1 | (需確認最新) | 🟡 已提及最新 | 16 | ⏳ |
@@ -24,7 +23,7 @@
 |------|---------|---------|-------|------|-------|------|
 | `gsd-cheat-sheet` | GSD | v1.38.5 | v1.41.2 | 🟡 功能新增 | 4 | ✅ 已完成 |
 | `playwright-cheat-sheet` | Playwright | v1.59 | v1.60.0 | 🟡 新功能 | 13 | ⏳ |
-| `Observability/` | Prometheus | 3.11 | v3.11.3 | 🟢 僅 patch | 61 | ⏳ |
+| `Observability/` | Prometheus / Alertmanager | 3.11 / 0.32 | v3.11.3 / v0.32.1 | 🟢 僅 patch | 61 | ✅ 已完成 |
 | `go-tutorial` | Go | 1.26.2 | 1.26.3 | 🟢 僅 patch | 23 | ⏳ |
 | `Ansible` | ansible-core | 2.20 | v2.20.5 | 🟢 僅 patch | 45 | ⏳ |
 
@@ -67,4 +66,4 @@
 2. **Elasticsearch / Elasticsearch-Self-managed-CheatSheet** — 部分重疊，CheatSheet 可能為子集
 3. **helm/helm 雙版本線** — ✅ **已處理**：文件已涵蓋 3.x LTS + 4.x Current 雙線
 4. **Nginx 無特定版本** — 文件未繫結特定版號，但內容可能過時（對比 stable 1.30.1 / mainline 1.31.0）
-5. **Prometheus-Grafana/Observability** — 涵蓋 Prometheus 2.x ~ 3.x 範圍，需確認內容準確性
+5. **Prometheus 文件** — 涵蓋 2.x~3.x 範圍 ✅ 已確認：2.x 範例為歷史說明，不需修改
