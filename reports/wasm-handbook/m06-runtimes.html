@@ -1,0 +1,1991 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M06 · Runtime 比較與自架方案 | Wasm Handbook</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,500&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&family=Noto+Serif+TC:wght@400;600&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+
+<style>
+/* ============================================================
+   Wasm Handbook · Shared Styles
+   Editorial design system, fully driven by design tokens.
+   No hard-coded hex values — everything resolves through tokens.
+   ============================================================ */
+
+/* ============================================================
+   Tokens (inline replica of tokens.css for offline portability)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --text-3xl: 44px;
+  --text-4xl: 64px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+
+  --container-narrow: 720px;
+  --container-mid: 880px;
+  --container-wide: 1280px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+
+:root[data-theme="dark"] {
+  --color-success: #4ade80;
+  --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24;
+  --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171;
+  --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee;
+  --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+
+/* ============================================================
+   Reset & base
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-serif-body);
+  font-size: var(--text-md);
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.25s ease, color 0.25s ease;
+  min-height: 100vh;
+}
+
+/* ============================================================
+   Layout containers
+   ============================================================ */
+.page {
+  max-width: var(--container-mid);
+  margin: 0 auto;
+  padding: var(--space-7) var(--space-5) var(--space-9);
+}
+
+.page--narrow { max-width: var(--container-narrow); }
+.page--wide   { max-width: var(--container-wide); }
+
+/* ============================================================
+   Theme toggle bar
+   ============================================================ */
+.theme-bar {
+  position: fixed;
+  top: var(--space-4);
+  right: var(--space-4);
+  z-index: 100;
+  display: flex;
+  gap: var(--space-2);
+}
+
+button[data-theme-toggle] {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  color: var(--text-primary);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s ease;
+}
+
+button[data-theme-toggle]:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary-text);
+}
+
+.theme-icon { font-size: 14px; }
+
+/* ============================================================
+   Top nav (per-chapter)
+   ============================================================ */
+.topnav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: oklch(from var(--bg-canvas) l c h / 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border-soft);
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.topnav-home {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.topnav-home:hover { color: var(--color-primary-text); }
+.topnav-home::before { content: "← "; }
+
+.topnav-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  color: var(--color-primary-text);
+  text-transform: uppercase;
+}
+
+/* ============================================================
+   Hero
+   ============================================================ */
+.hero {
+  position: relative;
+  padding: var(--space-9) 0 var(--space-7);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: var(--space-7);
+}
+
+.hero::before {
+  content: "";
+  position: absolute;
+  top: var(--space-5);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80px;
+  height: 1px;
+  background: var(--color-primary);
+  opacity: 0.6;
+}
+
+.kicker {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--color-primary-text);
+  text-align: center;
+  margin-bottom: var(--space-4);
+}
+
+h1.title {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: clamp(36px, 6vw, var(--text-4xl));
+  line-height: 1.05;
+  text-align: center;
+  letter-spacing: -0.02em;
+  margin-bottom: var(--space-4);
+}
+
+h1.title em {
+  font-style: italic;
+  color: var(--color-primary-text);
+  font-weight: 500;
+}
+
+.subtitle {
+  font-family: var(--font-serif-body);
+  font-style: italic;
+  font-size: var(--text-lg);
+  color: var(--text-secondary);
+  text-align: center;
+  max-width: 600px;
+  margin: 0 auto var(--space-5);
+  line-height: 1.65;
+}
+
+.meta {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
+.meta span { display: inline-flex; align-items: center; gap: var(--space-1); }
+.meta .dot {
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--color-primary);
+}
+
+/* ============================================================
+   Typography
+   ============================================================ */
+h2.section {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: var(--text-2xl);
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  margin: var(--space-8) 0 var(--space-4);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  scroll-margin-top: var(--space-7);
+}
+
+h2.section .num {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: var(--text-sm);
+  color: var(--color-primary);
+  display: block;
+  margin-bottom: var(--space-2);
+  letter-spacing: 0.1em;
+}
+
+h3 {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: var(--text-xl);
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  margin: var(--space-6) 0 var(--space-3);
+  color: var(--text-primary);
+  scroll-margin-top: var(--space-7);
+}
+
+h4 {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: var(--text-md);
+  margin: var(--space-5) 0 var(--space-2);
+  color: var(--text-primary);
+}
+
+h5 {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: var(--text-xs);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: var(--space-4) 0 var(--space-2);
+}
+
+p {
+  margin-bottom: var(--space-4);
+  color: var(--text-primary);
+}
+
+p.lead {
+  font-size: var(--text-lg);
+  font-style: italic;
+  color: var(--text-secondary);
+  line-height: 1.7;
+  margin-bottom: var(--space-5);
+  padding-left: var(--space-4);
+  border-left: 2px solid var(--color-primary);
+}
+
+p.dropcap::first-letter {
+  font-family: var(--font-serif);
+  font-size: 4em;
+  float: left;
+  line-height: 0.85;
+  margin: 0.05em var(--space-3) 0 0;
+  color: var(--color-primary-text);
+  font-weight: 700;
+}
+
+strong { font-weight: 600; color: var(--text-primary); }
+em { font-style: italic; }
+
+ul, ol {
+  margin: var(--space-3) 0 var(--space-4) var(--space-5);
+}
+li { margin-bottom: var(--space-2); line-height: 1.7; }
+
+a {
+  color: var(--color-primary-text);
+  text-decoration: underline;
+  text-decoration-color: var(--color-primary-soft);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.15s ease;
+}
+a:hover { text-decoration-color: var(--color-primary); }
+
+hr.divider {
+  border: 0;
+  height: 1px;
+  background: var(--border-soft);
+  margin: var(--space-7) 0;
+  position: relative;
+}
+hr.divider::after {
+  content: "§";
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-canvas);
+  padding: 0 var(--space-3);
+  color: var(--text-muted);
+  font-family: var(--font-serif);
+  font-size: var(--text-md);
+}
+
+blockquote {
+  margin: var(--space-5) 0;
+  padding: var(--space-2) var(--space-5);
+  border-left: 3px solid var(--color-primary);
+  font-family: var(--font-serif-body);
+  font-style: italic;
+  font-size: var(--text-lg);
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+/* ============================================================
+   Inline code & code blocks
+   ============================================================ */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--bg-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+  color: var(--text-primary);
+}
+
+.code-block {
+  position: relative;
+  margin: var(--space-4) 0 var(--space-5);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-soft);
+  background: var(--bg-code);
+  overflow: hidden;
+}
+
+.code-block .lang {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.copy-btn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  z-index: 2;
+}
+
+.copy-btn:hover {
+  color: var(--color-primary-text);
+  border-color: var(--color-primary);
+}
+
+.copy-btn.copied {
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+
+pre {
+  margin: 0;
+  padding: var(--space-6) var(--space-4) var(--space-4);
+  overflow-x: auto;
+  background: transparent !important;
+}
+
+pre code {
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-primary);
+  display: block;
+  white-space: pre;
+  tab-size: 2;
+}
+
+/* ============================================================
+   Callouts
+   ============================================================ */
+.callout {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--color-info);
+  background: var(--color-info-soft);
+  font-size: var(--text-base);
+}
+
+.callout.warning { border-left-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.danger  { border-left-color: var(--color-danger);  background: var(--color-danger-soft); }
+.callout.success { border-left-color: var(--color-success); background: var(--color-success-soft); }
+.callout.tip     { border-left-color: var(--color-neutral-accent); background: var(--color-primary-soft); }
+
+.callout strong.label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  display: block;
+  margin-bottom: var(--space-1);
+}
+
+:root[data-theme="dark"] .callout { color: var(--text-primary); }
+
+/* ============================================================
+   Cards
+   ============================================================ */
+.card {
+  margin: var(--space-4) 0 var(--space-5);
+  padding: var(--space-5) var(--space-6);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px dashed var(--border-soft);
+}
+.card-meta strong { color: var(--color-primary-text); font-weight: 500; }
+
+.objectives {
+  background: var(--bg-muted);
+  border-left: 2px solid var(--color-primary);
+  padding: var(--space-4) var(--space-5);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  margin: var(--space-4) 0;
+}
+.objectives h4 {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--color-primary-text);
+  margin: 0 0 var(--space-2);
+}
+.objectives ul { margin: 0 0 0 var(--space-5); }
+.objectives li { font-size: var(--text-base); margin-bottom: var(--space-1); }
+
+/* ============================================================
+   Table
+   ============================================================ */
+.table-wrap {
+  margin: var(--space-4) 0 var(--space-5);
+  overflow-x: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+}
+th, td {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: top;
+}
+th {
+  background: var(--bg-muted);
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+tr:last-child td { border-bottom: none; }
+td code { font-size: 0.85em; }
+
+/* ============================================================
+   Mermaid container
+   ============================================================ */
+.mermaid-wrap {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+}
+.mermaid-wrap .caption {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-top: var(--space-3);
+}
+
+/* ============================================================
+   TOC
+   ============================================================ */
+.toc {
+  margin: var(--space-6) 0 var(--space-7);
+  padding: var(--space-5) var(--space-6);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+}
+.toc-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: var(--space-3);
+}
+.toc ol {
+  list-style: none;
+  margin: 0;
+  counter-reset: toc;
+}
+.toc li {
+  counter-increment: toc;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  padding: var(--space-1) 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+.toc li::before {
+  content: counter(toc, decimal-leading-zero);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+.toc li a {
+  text-decoration: none;
+  color: var(--text-primary);
+  flex: 1;
+  border-bottom: 1px dotted var(--border-mid);
+  padding-bottom: 2px;
+}
+.toc li a:hover { color: var(--color-primary-text); border-bottom-color: var(--color-primary); }
+.toc li .duration {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* ============================================================
+   Quiz (collapsible)
+   ============================================================ */
+.quiz {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+}
+.quiz h4 {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-primary-text);
+  margin: 0 0 var(--space-4);
+}
+
+.quiz-item { margin-bottom: var(--space-5); padding-bottom: var(--space-4); border-bottom: 1px dashed var(--border-soft); }
+.quiz-item:last-child { border-bottom: none; padding-bottom: 0; margin-bottom: 0; }
+
+.quiz-q {
+  font-family: var(--font-serif-body);
+  font-size: var(--text-base);
+  margin-bottom: var(--space-2);
+}
+.quiz-q .qnum {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  margin-right: var(--space-2);
+  font-weight: 500;
+}
+
+.quiz-options { list-style: none; margin: 0 0 var(--space-3) 0; padding-left: var(--space-5); }
+.quiz-options li { font-size: var(--text-sm); margin-bottom: var(--space-1); font-family: var(--font-sans); }
+.quiz-options li::before {
+  content: attr(data-opt) ". ";
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  margin-right: var(--space-1);
+}
+
+details.answer {
+  margin-top: var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+}
+details.answer summary {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-primary-text);
+  user-select: none;
+  display: inline-block;
+  padding: 4px 10px;
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+}
+details.answer summary:hover { border-color: var(--color-primary); }
+details.answer[open] summary { background: var(--color-primary-soft); }
+details.answer .answer-body {
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-muted);
+  border-radius: var(--radius-sm);
+  border-left: 2px solid var(--color-success);
+  color: var(--text-primary);
+  line-height: 1.7;
+}
+details.answer .answer-body strong.label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-success);
+  margin-bottom: var(--space-1);
+}
+
+/* ============================================================
+   Lab section (hands-on)
+   ============================================================ */
+.lab {
+  margin: var(--space-6) 0;
+  padding: var(--space-5) var(--space-6);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  border-left: 4px solid var(--color-warning);
+}
+.lab-tag {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-warning);
+  margin-bottom: var(--space-2);
+  display: block;
+}
+.lab h3 {
+  margin-top: 0;
+}
+.lab-step {
+  margin: var(--space-4) 0;
+  padding-left: var(--space-5);
+  border-left: 1px dashed var(--border-mid);
+}
+.lab-step h5 {
+  margin-left: calc(var(--space-5) * -1);
+  padding-left: var(--space-5);
+  background: var(--bg-muted);
+  display: inline-block;
+  padding-right: var(--space-3);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  margin-top: 0;
+}
+
+/* ============================================================
+   Footer
+   ============================================================ */
+.footer {
+  margin-top: var(--space-9);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
+.footer-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin: var(--space-7) 0 var(--space-5);
+  font-family: var(--font-sans);
+}
+.footer-nav a {
+  flex: 1;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.footer-nav a:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.footer-nav a.prev { text-align: left; }
+.footer-nav a.next { text-align: right; align-items: flex-end; }
+.footer-nav .nav-direction {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.footer-nav .nav-title {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* ============================================================
+   Index page specifics
+   ============================================================ */
+.index-hero-quote {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--text-xl);
+  color: var(--text-secondary);
+  text-align: center;
+  max-width: 600px;
+  margin: var(--space-7) auto;
+  line-height: 1.5;
+  position: relative;
+}
+.index-hero-quote::before,
+.index-hero-quote::after {
+  content: "";
+  display: block;
+  width: 40px;
+  height: 1px;
+  background: var(--color-primary);
+  margin: var(--space-3) auto;
+  opacity: 0.5;
+}
+
+.module-grid {
+  display: grid;
+  gap: var(--space-4);
+  margin: var(--space-6) 0;
+}
+.module-link {
+  display: block;
+  padding: var(--space-5) var(--space-6);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.2s ease;
+  position: relative;
+}
+.module-link:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  transform: translateX(4px);
+}
+.module-link .mid {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.15em;
+  color: var(--color-primary);
+  text-transform: uppercase;
+}
+.module-link .mtitle {
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  margin: var(--space-2) 0 var(--space-1);
+  letter-spacing: -0.01em;
+}
+.module-link .mdesc {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.55;
+}
+.module-link .mdur {
+  position: absolute;
+  top: var(--space-5);
+  right: var(--space-6);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+@media (max-width: 720px) {
+  .page { padding: var(--space-5) var(--space-4) var(--space-7); }
+  h1.title { font-size: 36px; }
+  .hero { padding: var(--space-6) 0 var(--space-5); }
+  .card { padding: var(--space-4); }
+  .module-link .mdur { position: static; margin-top: var(--space-2); display: inline-block; }
+  .footer-nav { flex-direction: column; }
+}
+
+/* ============================================================
+   Print
+   ============================================================ */
+@media print {
+  .theme-bar, .topnav, .copy-btn, .footer-nav { display: none; }
+  body { background: white; color: black; }
+  .card, .callout, .quiz, .lab, .mermaid-wrap, .code-block { break-inside: avoid; }
+}
+
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+</head>
+<body>
+
+<div class="theme-bar">
+  <button data-theme-toggle aria-label="Toggle theme"></button>
+</div>
+
+<nav class="topnav">
+  <a class="topnav-home" href="index.html">回到目錄</a>
+  <span class="topnav-title">Module 06</span>
+  <span style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.1em;">~4h</span>
+</nav>
+
+<main class="page">
+
+<header class="hero">
+  <div class="kicker">Module 06 · Practical</div>
+  <h1 class="title">Runtime 比較<br><em>與自架方案</em></h1>
+  <p class="subtitle">runtime 是 Wasm 的「JVM」——選錯會卡死你的部署架構。本章系統比較開源 Wasm runtime 與應用框架的設計取捨，幫你做出 evidence-based 的選型決策。</p>
+  <div class="meta">
+    <span><span class="dot"></span>Practical Level</span>
+    <span><span class="dot"></span>~4 hours</span>
+    <span><span class="dot"></span>Comparative analysis</span>
+    <span><span class="dot"></span>5 個主流 runtime</span>
+  </div>
+</header>
+
+<div class="objectives">
+  <h4>本章學習目標</h4>
+  <ul>
+    <li>系統比較 Wasmtime、wazero、WasmEdge、Wasmer、WAMR 等主流開源 runtime 的設計取捨。</li>
+    <li>分辨應用框架（Spin、wasmCloud、Extism）與 raw runtime 的角色差異。</li>
+    <li>用宿主語言、目標環境、合規需求三維度做 runtime 選型。</li>
+    <li>實作 Go + wazero、Rust + Wasmtime 兩種嵌入式整合。</li>
+    <li>了解 K8s 整合（containerd-wasm-shims、SpinKube）的當前事實標準。</li>
+    <li>判斷 SaaS 平台（Fastly、Cloudflare、Fermyon）vs 自架的權衡。</li>
+  </ul>
+</div>
+
+<h2 class="section" id="s6-1"><span class="num">6.1</span>Runtime 的兩個層次</h2>
+
+<p class="dropcap">「Wasm runtime」這個詞涵蓋兩個層次：核心引擎（執行 .wasm 的 VM 實作）與應用框架（包含引擎再加上 HTTP server、KV store、排程器等高階能力）。混淆這兩層會導致選型錯亂。</p>
+
+<h3>Layer 1：核心 Runtime / 引擎</h3>
+
+<p>負責「執行 .wasm 模組」的最低層次：</p>
+<ul>
+  <li>解析 binary、validation、JIT/AOT 編譯到原生碼</li>
+  <li>管理 linear memory、instance lifecycle</li>
+  <li>提供 host function 介面、WASI 標準介面實作</li>
+  <li>暴露 SDK 給宿主應用嵌入</li>
+</ul>
+
+<p>例子：<strong>Wasmtime、wazero、WasmEdge、Wasmer、WAMR、wasm3、wasmi</strong>。</p>
+
+<h3>Layer 2：應用框架 / 平台</h3>
+
+<p>建在核心 runtime 之上，提供「Wasm 應用該怎麼長」的更高層抽象：</p>
+<ul>
+  <li>HTTP server、HTTP routing</li>
+  <li>事件 trigger（HTTP、Redis、cron）</li>
+  <li>KV / SQL / object store 整合</li>
+  <li>多 instance 管理、排程</li>
+  <li>K8s 整合</li>
+</ul>
+
+<p>例子：<strong>Spin（內含 Wasmtime）、wasmCloud（內含 Wasmtime）、Extism（多 runtime backend）、SpinKube（K8s operator）</strong>。</p>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+graph TB
+    subgraph L2[Layer 2 · Application Frameworks]
+        SPIN[Spin]
+        WCLOUD[wasmCloud]
+        EXTISM[Extism]
+        SK[SpinKube]
+    end
+
+    subgraph L1[Layer 1 · Core Runtimes]
+        WT[Wasmtime]
+        WZ[wazero]
+        WE[WasmEdge]
+        WM[Wasmer]
+        WAMR[WAMR]
+    end
+
+    SPIN --&gt; WT
+    WCLOUD --&gt; WT
+    EXTISM --&gt; WT
+    EXTISM --&gt; WZ
+    SK --&gt; SPIN
+
+    style L2 fill:#cffafe,stroke:#0891b2
+    style L1 fill:#dcfce7,stroke:#16a34a
+</pre>
+<div class="caption">Figure 6.1 · Wasm runtime 兩層架構</div>
+</div>
+
+<h2 class="section" id="s6-2"><span class="num">6.2</span>主要核心 Runtime 深入比較</h2>
+
+<h3>Wasmtime — 業界事實標準</h3>
+
+<p><strong>背景</strong>：Bytecode Alliance 旗艦專案，Rust 寫，最早 2018 年由 Mozilla 啟動。</p>
+
+<p><strong>核心特性</strong>：</p>
+<ul>
+  <li>事實上的 WASI 參考實作，新標準最早實作</li>
+  <li>Cranelift JIT/AOT 編譯器，效能優秀</li>
+  <li>Component Model 與 WASI 0.2 / 0.3 領先支援</li>
+  <li>豐富的執行控制：fuel、epoch interruption、pooling allocator</li>
+  <li>多語言綁定：C API、Python、Go、.NET、Ruby</li>
+  <li>生產驗證：Fastly Compute@Edge、Microsoft Azure、Shopify 都在用</li>
+</ul>
+
+<p><strong>適合場景</strong>：生產級伺服器 / 邊緣 / Serverless、Component Model 應用、需要最新標準支援。</p>
+
+<p><strong>不適合</strong>：超低資源嵌入式（用 WAMR）、極致 cold start（Cranelift 啟動有開銷，但 pooling 可緩解）。</p>
+
+<div class="code-block">
+  <span class="lang">rust</span>
+  <button class="copy-btn">複製</button>
+<pre><code>// 嵌入 Wasmtime 到 Rust 應用
+use wasmtime::*;
+
+fn main() -&gt; Result&lt;()&gt; {
+    let engine = Engine::default();
+    let module = Module::from_file(&engine, "module.wasm")?;
+    let mut store = Store::new(&engine, ());
+
+    // 提供 host function
+    let func = Func::wrap(&mut store, |x: i32| x * 2);
+    let instance = Instance::new(&mut store, &module, &[func.into()])?;
+
+    let run = instance.get_typed_func::&lt;i32, i32&gt;(&mut store, "compute")?;
+    let result = run.call(&mut store, 42)?;
+    println!("Result: {}", result);
+    Ok(())
+}</code></pre>
+</div>
+
+<h3>wazero — Go 生態首選</h3>
+
+<p><strong>背景</strong>：Tetratelabs 開源（2022），純 Go 寫、<strong>零 CGO</strong>。</p>
+
+<p><strong>核心特性</strong>：</p>
+<ul>
+  <li>純 Go 實作，編譯出純 Go binary、無 C 依賴、跨平台容易</li>
+  <li>WASI 0.1 支援完整、0.2 進行中</li>
+  <li>對 Go 宿主整合最自然（context、goroutine 友善）</li>
+  <li>啟動快、適合 per-request instance 模型</li>
+  <li>效能略低於 Wasmtime（沒有 Cranelift 級的優化），但對多數應用足夠</li>
+</ul>
+
+<p><strong>適合場景</strong>：Go 寫的應用要嵌入 Wasm、需要跨平台單一 binary 部署、CI/CD 嚴禁 CGO 的環境。</p>
+
+<p><strong>不適合</strong>：需要 Component Model 完整支援（仍進行中）、極致執行效能。</p>
+
+<div class="code-block">
+  <span class="lang">go</span>
+  <button class="copy-btn">複製</button>
+<pre><code>// 嵌入 wazero 到 Go 應用
+package main
+
+import (
+    "context"
+    "os"
+    "github.com/tetratelabs/wazero"
+    "github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
+)
+
+func main() {
+    ctx := context.Background()
+    r := wazero.NewRuntime(ctx)
+    defer r.Close(ctx)
+
+    wasi_snapshot_preview1.MustInstantiate(ctx, r)
+
+    wasmBytes, _ := os.ReadFile("module.wasm")
+    mod, _ := r.Instantiate(ctx, wasmBytes)
+
+    fn := mod.ExportedFunction("compute")
+    result, _ := fn.Call(ctx, 42)
+    println("Result:", result[0])
+}</code></pre>
+</div>
+
+<h3>WasmEdge — CNCF 邊緣 / AI 重點</h3>
+
+<p><strong>背景</strong>：原 Second State 開源，2021 進入 CNCF 沙箱，2024 升 incubating。C++ 寫。</p>
+
+<p><strong>核心特性</strong>：</p>
+<ul>
+  <li><strong>AI / ML 整合最強</strong>：內建 WASI-NN，支援 PyTorch、TensorFlow、llama.cpp、ggml</li>
+  <li>支援 Tensorflow Lite、OpenVINO、PaddlePaddle 等推論引擎</li>
+  <li>對邊緣 / IoT 場景有大量優化</li>
+  <li>JIT（LLVM-based）、AOT 編譯器</li>
+  <li>豐富的 host extension：HTTP client、TCP socket、KV、image processing</li>
+  <li>跨 containerd 整合：containerd-shim-wasmedge</li>
+</ul>
+
+<p><strong>適合場景</strong>：邊緣 AI 推論、LLM serving on edge、IoT 閘道處理感測資料、CDN 邊緣轉碼。</p>
+
+<p><strong>不適合</strong>：Component Model 主流場景（WasmEdge 不是 Component Model 首發實作者）。</p>
+
+<h3>Wasmer — 多後端、跨平台</h3>
+
+<p><strong>背景</strong>：Wasmer Inc. 推出，Rust 寫，2019 起。</p>
+
+<p><strong>核心特性</strong>：</p>
+<ul>
+  <li>三種後端可選：Cranelift（平衡）、LLVM（極致效能）、Singlepass（極致啟動）</li>
+  <li>多語言嵌入綁定（C、Python、Go、JS、PHP、Ruby、Java、C#）</li>
+  <li>WAPM 套件管理（已被 wkg 部分取代）</li>
+  <li><strong>WASIX</strong>：自家擴充 WASI，支援 fork、threads、POSIX-style socket</li>
+  <li>Wasmer Edge：商業託管平台</li>
+</ul>
+
+<p><strong>適合場景</strong>：需要 POSIX 相容性（移植大型 C 程式）、跨多種主機語言嵌入。</p>
+
+<p><strong>不適合</strong>：強烈關心標準合規與跨 runtime 可攜（WASIX 不是標準）。</p>
+
+<h3>WAMR — 極輕量嵌入式</h3>
+
+<p><strong>背景</strong>：WebAssembly Micro Runtime，Bytecode Alliance 旗下，C 寫。</p>
+
+<p><strong>核心特性</strong>：</p>
+<ul>
+  <li><strong>記憶體佔用可低至 85 KB</strong>，適合 RTOS、microcontroller</li>
+  <li>三種執行模式：interpreter、AOT、JIT（fast / classic）</li>
+  <li>支援多種 OS：Linux、Zephyr、FreeRTOS、SGX、Nuttx、AliOS、ESP-IDF</li>
+  <li>WASI 0.1 完整、0.2 部分</li>
+  <li>Intel、Sony、Bosch、Continental 等汽車與工業客戶採用</li>
+</ul>
+
+<p><strong>適合場景</strong>：IoT、車載、smart NIC、工業 PLC、邊緣裝置上的 Wasm。</p>
+
+<h3>wasm3 與 wasmi — 純 interpreter</h3>
+
+<ul>
+  <li><strong>wasm3</strong>（C）：&lt; 64KB binary 的 pure interpreter，極小但執行慢（解譯）。MIT 授權。</li>
+  <li><strong>wasmi</strong>（Rust）：Parity 為 Polkadot 開發的純 Rust interpreter，適合嵌入 no_std Rust。</li>
+</ul>
+
+<p>適合場景：超低資源環境、安全敏感（pure interpreter 攻擊面小）、區塊鏈 deterministic 執行。</p>
+
+<h3>核心 Runtime 對照表</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Runtime</th><th>語言</th><th>授權</th><th>WASI 0.1</th><th>WASI 0.2</th><th>WASI 0.3</th><th>強項</th></tr></thead>
+  <tbody>
+    <tr><td>Wasmtime</td><td>Rust</td><td>Apache-2</td><td>✓</td><td>✓ 領先</td><td>預覽</td><td>標準、生產級</td></tr>
+    <tr><td>wazero</td><td>Go</td><td>Apache-2</td><td>✓</td><td>進行中</td><td>—</td><td>Go 嵌入、零 CGO</td></tr>
+    <tr><td>WasmEdge</td><td>C++</td><td>Apache-2 (CNCF)</td><td>✓</td><td>部分</td><td>—</td><td>邊緣 + AI</td></tr>
+    <tr><td>Wasmer</td><td>Rust</td><td>MIT</td><td>WASIX</td><td>部分</td><td>—</td><td>多後端、POSIX 相容</td></tr>
+    <tr><td>WAMR</td><td>C</td><td>Apache-2</td><td>✓</td><td>部分</td><td>—</td><td>嵌入式、低資源</td></tr>
+    <tr><td>wasm3</td><td>C</td><td>MIT</td><td>✓</td><td>—</td><td>—</td><td>極小 interpreter</td></tr>
+    <tr><td>wasmi</td><td>Rust</td><td>Apache-2/MIT</td><td>✓</td><td>—</td><td>—</td><td>純 Rust no_std</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 class="section" id="s6-3"><span class="num">6.3</span>應用框架層</h2>
+
+<p>有了核心 runtime，還需要把它包裝成「能跑業務」的應用框架。三個重要的開源框架：</p>
+
+<h3>Spin（Fermyon）</h3>
+
+<p><strong>定位</strong>：Wasm 版的「Vercel + Cloud Functions」——HTTP / Redis / cron 事件驅動 serverless，內含 Wasmtime。</p>
+
+<p><strong>核心特性</strong>：</p>
+<ul>
+  <li>聲明式 spin.toml 描述 trigger + components</li>
+  <li>內建 HTTP routing、KV store、SQLite、AI inferencing</li>
+  <li>多語言 SDK：Rust、TypeScript、Go、Python、C#</li>
+  <li>本地 <code>spin up</code> 開發，<code>spin deploy</code> 上雲</li>
+  <li>2025 加入 WASIp3 RC 支援</li>
+</ul>
+
+<div class="code-block">
+  <span class="lang">toml</span>
+  <button class="copy-btn">複製</button>
+<pre><code>spin_manifest_version = 2
+
+[application]
+name = "my-api"
+version = "1.0.0"
+
+[[trigger.http]]
+route = "/api/users/..."
+component = "users"
+
+[[trigger.http]]
+route = "/api/orders/..."
+component = "orders"
+
+[component.users]
+source = "components/users.wasm"
+allowed_outbound_hosts = ["https://auth.example.com"]
+key_value_stores = ["default"]
+
+[component.orders]
+source = "components/orders.wasm"
+sqlite_databases = ["orders-db"]</code></pre>
+</div>
+
+<h3>wasmCloud</h3>
+
+<p><strong>定位</strong>：CNCF incubating，分散式 actor model，跨雲跨邊緣的 Wasm 平台。</p>
+
+<p><strong>核心特性</strong>：</p>
+<ul>
+  <li>Actor model：每個 Wasm component 是無狀態 actor</li>
+  <li>Capability provider：actors 透過抽象 capability 取得 HTTP、KV、messaging 等能力</li>
+  <li>NATS 作為 control plane，hosts 自動加入 lattice</li>
+  <li>跨 region 分散排程，actors 可在多 host 間自動 failover</li>
+  <li>2025 加入 WASIp3 RC</li>
+</ul>
+
+<h3>Extism</h3>
+
+<p><strong>定位</strong>：「Wasm 多語言外掛系統 SDK」。不是 serverless framework，而是讓你的應用支援第三方 Wasm 外掛。</p>
+
+<p><strong>核心特性</strong>：</p>
+<ul>
+  <li>底層用 Wasmtime 或 wazero</li>
+  <li>提供 Go、Python、Node.js、PHP、Ruby、Rust、Zig、Elixir、.NET、C 等宿主端 SDK</li>
+  <li>plug-in 端可用 Rust、Go、JS、AssemblyScript 等寫</li>
+  <li>適合「我的 SaaS 想讓客戶寫客製邏輯」場景</li>
+</ul>
+
+<h3>SpinKube — K8s 整合層</h3>
+
+<p>CNCF Sandbox 專案，把 Spin 應用以 K8s CRD 形式管理。底層用 containerd-shim-spin 讓 K8s 直接執行 .wasm。</p>
+
+<div class="code-block">
+  <span class="lang">yaml</span>
+  <button class="copy-btn">複製</button>
+<pre><code>apiVersion: core.spinkube.dev/v1alpha1
+kind: SpinApp
+metadata:
+  name: my-api
+spec:
+  image: "ghcr.io/me/my-api:1.0"
+  replicas: 5
+  executor:
+    name: containerd-shim-spin</code></pre>
+</div>
+
+<h3>應用框架對照表</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Framework</th><th>底層 runtime</th><th>定位</th><th>主推場景</th></tr></thead>
+  <tbody>
+    <tr><td>Spin</td><td>Wasmtime</td><td>Serverless framework</td><td>HTTP API、edge function</td></tr>
+    <tr><td>wasmCloud</td><td>Wasmtime</td><td>Actor model 平台</td><td>跨雲分散式系統</td></tr>
+    <tr><td>Extism</td><td>Wasmtime / wazero</td><td>Plugin SDK</td><td>應用內外掛系統</td></tr>
+    <tr><td>SpinKube</td><td>containerd-shim-spin</td><td>K8s operator</td><td>K8s 上的 Wasm 部署</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 class="section" id="s6-4"><span class="num">6.4</span>K8s 與容器生態整合</h2>
+
+<p>K8s 整合是 2024-2026 期間最快成熟的領域。事實標準已經形成：</p>
+
+<h3>containerd-wasm-shims</h3>
+
+<p>Microsoft + Fermyon + Docker 共同維護的 containerd shim，讓 K8s 用 <code>runtimeClassName</code> 切換到 Wasm runtime：</p>
+
+<div class="code-block">
+  <span class="lang">yaml</span>
+  <button class="copy-btn">複製</button>
+<pre><code>apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: wasmtime-spin-v2
+handler: spin
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-wasm-app
+spec:
+  template:
+    spec:
+      runtimeClassName: wasmtime-spin-v2  # 用 Wasm shim
+      containers:
+      - name: app
+        image: ghcr.io/me/app:1.0  # 內含 .wasm
+        ports: [containerPort: 8080]</code></pre>
+</div>
+
+<h3>支援的 shim</h3>
+
+<ul>
+  <li><strong>containerd-shim-spin</strong>：Spin 應用</li>
+  <li><strong>containerd-shim-wasmedge</strong>：WasmEdge runtime</li>
+  <li><strong>containerd-shim-wasmtime</strong>：原生 Wasmtime</li>
+  <li><strong>containerd-shim-wws</strong>：wasm-workers-server</li>
+  <li><strong>containerd-shim-lunatic</strong>：Lunatic runtime</li>
+</ul>
+
+<h3>OCI image 整合</h3>
+
+<p>OCI image spec 已正式支援 Wasm 作為 first-class artifact，可以同時存放容器與 Wasm：</p>
+
+<div class="code-block">
+  <span class="lang">bash</span>
+  <button class="copy-btn">複製</button>
+<pre><code># 用 docker buildx 建 Wasm image
+docker buildx build --platform wasi/wasm \
+    -t ghcr.io/me/my-app:1.0 .
+docker push ghcr.io/me/my-app:1.0
+
+# 用 wkg 推 component 到 OCI registry
+wkg oci push ghcr.io/me/my-component:1.0 component.wasm</code></pre>
+</div>
+
+<h3>Krustlet（已 archive）</h3>
+
+<p>歷史記錄：Krustlet 是 2020 年 Microsoft 推出的「把 Wasm 當 K8s first-class workload」的 kubelet 替代品。已被 containerd-wasm-shims 取代，2024 年 archive。<strong>新專案不要採用 Krustlet</strong>。</p>
+
+<h2 class="section" id="s6-5"><span class="num">6.5</span>SaaS 平台 vs 自架</h2>
+
+<p>除了開源 runtime，還有商業 SaaS Wasm 平台。它們的底層多半也是開源 runtime，但提供管理層附加價值。</p>
+
+<h3>主要 SaaS 平台</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>平台</th><th>底層</th><th>定位</th></tr></thead>
+  <tbody>
+    <tr><td>Fastly Compute@Edge</td><td>Wasmtime fork</td><td>CDN 邊緣 Wasm，原 VCL 進化版</td></tr>
+    <tr><td>Cloudflare Workers</td><td>V8 isolates + Wasm</td><td>全球 PoP，JS-first 但支援 Wasm</td></tr>
+    <tr><td>Fermyon Cloud</td><td>Spin</td><td>Spin app 的 SaaS 託管</td></tr>
+    <tr><td>Cosmonic</td><td>wasmCloud</td><td>wasmCloud 商業託管</td></tr>
+    <tr><td>Wasmer Edge</td><td>Wasmer + WASIX</td><td>Wasmer 商業託管</td></tr>
+    <tr><td>Akamai EdgeWorkers</td><td>V8 + Wasm</td><td>Akamai 邊緣平台</td></tr>
+    <tr><td>Vercel Edge Functions</td><td>V8 isolates + Wasm</td><td>Vercel 邊緣</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>SaaS 與自架的權衡</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>面向</th><th>SaaS</th><th>自架</th></tr></thead>
+  <tbody>
+    <tr><td>上線速度</td><td>分鐘到小時</td><td>週到月</td></tr>
+    <tr><td>全球 PoP 覆蓋</td><td>內建</td><td>要自己部署多區</td></tr>
+    <tr><td>運維負擔</td><td>幾乎為零</td><td>K8s、observability、scaling 全自己</td></tr>
+    <tr><td>成本可預期</td><td>用量計價，可能有 spike</td><td>固定基礎建設成本</td></tr>
+    <tr><td>客製能力</td><td>受平台限制</td><td>完全自由</td></tr>
+    <tr><td>合規 / 主權</td><td>看平台</td><td>完全掌控</td></tr>
+    <tr><td>Lock-in</td><td>有（API、SDK 差異）</td><td>無（用標準 WASI 0.2）</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>選擇建議</h3>
+
+<p><strong>新創 / 快速驗證</strong>：用 SaaS，把資源放在產品而非基礎建設。Fermyon Cloud、Fastly 是好選擇。</p>
+
+<p><strong>有 K8s 基礎建設、想統一管理</strong>：自架 SpinKube + Wasmtime。融入既有 CI/CD、observability、IAM。</p>
+
+<p><strong>邊緣場景但不想自架全球節點</strong>：Cloudflare Workers、Fastly Compute。</p>
+
+<p><strong>合規敏感 / 資料主權</strong>：自架。</p>
+
+<p><strong>已採用 wasmCloud actor 模型</strong>：Cosmonic 託管 vs 自架 NATS lattice，看團隊運維能量。</p>
+
+<h2 class="section" id="s6-6"><span class="num">6.6</span>選型決策樹</h2>
+
+<p>整合本章所有資訊，產出選型決策樹：</p>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TD
+    A[需要 Wasm Runtime] --&gt; B{宿主語言?}
+
+    B --&gt;|Go| C[wazero<br/>零 CGO]
+    B --&gt;|Rust/C++| D{場景?}
+    B --&gt;|多語言嵌入| E[Extism<br/>backed by Wasmtime/wazero]
+
+    D --&gt;|生產級伺服器| F[Wasmtime<br/>標準參考]
+    D --&gt;|邊緣 + AI| G[WasmEdge<br/>WASI-NN]
+    D --&gt;|IoT 嵌入式| H[WAMR<br/>輕量]
+    D --&gt;|POSIX 移植| I[Wasmer + WASIX]
+
+    A --&gt; J{自架 or SaaS?}
+    J --&gt;|快速驗證| K[Fermyon Cloud / Fastly]
+    J --&gt;|K8s 整合| L[SpinKube + containerd-shim]
+    J --&gt;|跨雲分散| M[wasmCloud / Cosmonic]
+    J --&gt;|應用內外掛| E
+</pre>
+<div class="caption">Figure 6.2 · Wasm runtime 選型決策樹</div>
+</div>
+
+<h2 class="section" id="lab"><span class="num">LAB</span>動手實作：Wasmtime vs wazero 對照</h2>
+
+<div class="lab">
+  <span class="lab-tag">Lab 6.A · 嵌入式對照</span>
+  <h3>用同一個 .wasm 模組，分別嵌入 Rust + Wasmtime 與 Go + wazero 宿主</h3>
+
+  <div class="lab-step">
+    <h5>步驟 1 · 寫 Wasm 模組（Rust）</h5>
+    <div class="code-block">
+      <span class="lang">bash</span>
+      <button class="copy-btn">複製</button>
+<pre><code>cargo new --lib compute-wasm
+cd compute-wasm
+echo '[lib]
+crate-type = ["cdylib"]' &gt;&gt; Cargo.toml
+
+cat &gt; src/lib.rs &lt;&lt; 'EOF'
+#[no_mangle]
+pub extern "C" fn process(n: i32) -&gt; i32 {
+    let mut sum = 0;
+    for i in 1..=n {
+        sum += i * i;
+    }
+    sum
+}
+EOF
+
+cargo build --release --target wasm32-unknown-unknown
+cp target/wasm32-unknown-unknown/release/compute_wasm.wasm ../module.wasm
+cd ..</code></pre>
+    </div>
+  </div>
+
+  <div class="lab-step">
+    <h5>步驟 2 · Rust + Wasmtime 宿主</h5>
+    <div class="code-block">
+      <span class="lang">bash</span>
+      <button class="copy-btn">複製</button>
+<pre><code>cargo new wt-host
+cd wt-host
+echo 'wasmtime = "26"
+anyhow = "1"' &gt;&gt; Cargo.toml
+
+cat &gt; src/main.rs &lt;&lt; 'EOF'
+use std::time::Instant;
+use wasmtime::*;
+
+fn main() -&gt; anyhow::Result&lt;()&gt; {
+    let engine = Engine::default();
+    let module = Module::from_file(&engine, "../module.wasm")?;
+    let mut store = Store::new(&engine, ());
+    let instance = Instance::new(&mut store, &module, &[])?;
+    let process = instance.get_typed_func::&lt;i32, i32&gt;(&mut store, "process")?;
+
+    let t0 = Instant::now();
+    for _ in 0..10000 {
+        let _ = process.call(&mut store, 1000)?;
+    }
+    println!("Wasmtime 10000 calls in {:?}", t0.elapsed());
+    Ok(())
+}
+EOF
+
+cargo run --release
+cd ..</code></pre>
+    </div>
+  </div>
+
+  <div class="lab-step">
+    <h5>步驟 3 · Go + wazero 宿主</h5>
+    <div class="code-block">
+      <span class="lang">bash</span>
+      <button class="copy-btn">複製</button>
+<pre><code>mkdir wz-host && cd wz-host
+go mod init wz-host
+go get github.com/tetratelabs/wazero
+
+cat &gt; main.go &lt;&lt; 'EOF'
+package main
+
+import (
+    "context"
+    "fmt"
+    "os"
+    "time"
+    "github.com/tetratelabs/wazero"
+)
+
+func main() {
+    ctx := context.Background()
+    r := wazero.NewRuntime(ctx)
+    defer r.Close(ctx)
+
+    wasmBytes, _ := os.ReadFile("../module.wasm")
+    mod, err := r.Instantiate(ctx, wasmBytes)
+    if err != nil {
+        panic(err)
+    }
+    process := mod.ExportedFunction("process")
+
+    t0 := time.Now()
+    for i := 0; i &lt; 10000; i++ {
+        process.Call(ctx, 1000)
+    }
+    fmt.Printf("wazero 10000 calls in %v\n", time.Since(t0))
+}
+EOF
+
+go run main.go
+cd ..</code></pre>
+    </div>
+  </div>
+
+  <div class="lab-step">
+    <h5>步驟 4 · 觀察結果</h5>
+    <p>典型結果（會因硬體與版本不同）：</p>
+    <ul>
+      <li>Wasmtime：10000 calls ~30-80ms（含 JIT 編譯首次）</li>
+      <li>wazero：10000 calls ~150-300ms（純 Go interpreter compiler，稍慢）</li>
+    </ul>
+    <p>Wasmtime 比 wazero 快 2-5 倍是常見現象，因為 Wasmtime 用 Cranelift 編譯到原生碼，wazero 是純 Go 的較簡單 compiler。但 wazero 的優勢是零 CGO 部署。</p>
+  </div>
+
+  <div class="lab-step">
+    <h5>挑戰</h5>
+    <ol>
+      <li>把模組改成更複雜（例如 1000x1000 矩陣相乘），重新比較。</li>
+      <li>用 Wasmtime 啟用 pooling allocator（<code>PoolingAllocationConfig</code>），看 per-call 延遲是否改善。</li>
+      <li>用 <code>wasmtime compile</code> 預先 AOT 編譯，再用 <code>Module::deserialize_file</code> 載入，比較與 JIT 的差異。</li>
+    </ol>
+  </div>
+</div>
+
+<h2 class="section" id="quiz"><span class="num">QUIZ</span>章末自我評估</h2>
+
+<div class="quiz">
+  <h4>Module 06 · 10 題自我測驗</h4>
+
+  <div class="quiz-item">
+    <div class="quiz-q"><span class="qnum">Q1.</span>下列哪個是「核心 runtime」？（複選）</div>
+    <ul class="quiz-options">
+      <li data-opt="A">Wasmtime</li>
+      <li data-opt="B">Spin</li>
+      <li data-opt="C">wazero</li>
+      <li data-opt="D">SpinKube</li>
+      <li data-opt="E">WAMR</li>
+    </ul>
+    <details class="answer">
+      <summary>看解答</summary>
+      <div class="answer-body">
+        <strong class="label">答案 · A、C、E</strong>
+        A、C、E 是 Layer 1 核心 runtime。B（Spin）是 Layer 2 應用框架；D（SpinKube）是 K8s operator。
+      </div>
+    </details>
+  </div>
+
+  <div class="quiz-item">
+    <div class="quiz-q"><span class="qnum">Q2.</span>哪個 runtime「最適合 Go 寫的宿主應用整合」？</div>
+    <ul class="quiz-options">
+      <li data-opt="A">Wasmtime（需 CGO 或 C API）</li>
+      <li data-opt="B">wazero（純 Go、零 CGO）</li>
+      <li data-opt="C">WasmEdge（C++）</li>
+      <li data-opt="D">Wasmer</li>
+    </ul>
+    <details class="answer">
+      <summary>看解答</summary>
+      <div class="answer-body">
+        <strong class="label">答案 · B</strong>
+        wazero 純 Go、零 CGO，跟 Go 生態無縫整合。其他 runtime 要 CGO 或外部 process 互動，部署複雜度高。
+      </div>
+    </details>
+  </div>
+
+  <div class="quiz-item">
+    <div class="quiz-q"><span class="qnum">Q3.</span>WasmEdge 的特長是？</div>
+    <ul class="quiz-options">
+      <li data-opt="A">最完整的 Component Model 支援</li>
+      <li data-opt="B">最小的 binary size</li>
+      <li data-opt="C">邊緣 AI / ML 推論（WASI-NN、LLM 支援）</li>
+      <li data-opt="D">純 Rust 實作</li>
+    </ul>
+    <details class="answer">
+      <summary>看解答</summary>
+      <div class="answer-body">
+        <strong class="label">答案 · C</strong>
+        WasmEdge 是 CNCF 沙箱專案，最知名的特長是邊緣 AI——內建 WASI-NN、支援 PyTorch、TensorFlow、llama.cpp。A 是 Wasmtime 的優勢；B 是 WAMR；D 錯，WasmEdge 是 C++ 寫。
+      </div>
+    </details>
+  </div>
+
+  <div class="quiz-item">
+    <div class="quiz-q"><span class="qnum">Q4.</span>WAMR 適合什麼場景？</div>
+    <ul class="quiz-options">
+      <li data-opt="A">大型 microservice</li>
+      <li data-opt="B">IoT、車載、microcontroller 等資源受限場景</li>
+      <li data-opt="C">瀏覽器內</li>
+      <li data-opt="D">CI/CD 工具</li>
+    </ul>
+    <details class="answer">
+      <summary>看解答</summary>
+      <div class="answer-body">
+        <strong class="label">答案 · B</strong>
+        WAMR 記憶體佔用可低至 85 KB，是嵌入式場景首選。支援多種 RTOS、microcontroller，Bosch、Continental 等汽車供應商採用。
+      </div>
+    </details>
+  </div>
+
+  <div class="quiz-item">
+    <div class="quiz-q"><span class="qnum">Q5.</span>Wasmer 的 WASIX 與標準 WASI 0.2 的關係是？</div>
+    <ul class="quiz-options">
+      <li data-opt="A">兩者等價</li>
+      <li data-opt="B">WASIX 是 Wasmer 自家擴充，提供 POSIX fork/threads/signals 但綁定 Wasmer</li>
+      <li data-opt="C">WASIX 是 WASI 0.2 的官方別名</li>
+      <li data-opt="D">WASIX 比 WASI 0.2 更標準</li>
+    </ul>
+    <details class="answer">
+      <summary>看解答</summary>
+      <div class="answer-body">
+        <strong class="label">答案 · B</strong>
+        WASIX 是 Wasmer 在 WASI 進度緩慢時推出的擴充版 Preview 1，加入 POSIX-like 系統呼叫。代價是綁定 Wasmer。WASI 0.2 才是 Bytecode Alliance 推的標準。
+      </div>
+    </details>
+  </div>
+
+  <div class="quiz-item">
+    <div class="quiz-q"><span class="qnum">Q6.</span>下列何者是現代 K8s 跑 Wasm 的事實標準？</div>
+    <ul class="quiz-options">
+      <li data-opt="A">Krustlet（取代 kubelet）</li>
+      <li data-opt="B">containerd-wasm-shims + RuntimeClass</li>
+      <li data-opt="C">手動把 Wasm 包進容器</li>
+      <li data-opt="D">用 Docker run wasm 直接執行</li>
+    </ul>
+    <details class="answer">
+      <summary>看解答</summary>
+      <div class="answer-body">
+        <strong class="label">答案 · B</strong>
+        2024-2026 事實標準是 containerd-wasm-shims（Microsoft + Fermyon + Docker），透過 K8s 的 RuntimeClass 機制切換。Krustlet 已 archive，不建議採用。
+      </div>
+    </details>
+  </div>
+
+  <div class="quiz-item">
+    <div class="quiz-q"><span class="qnum">Q7.</span>選 Spin / wasmCloud / Extism，下列何者描述正確？</div>
+    <ul class="quiz-options">
+      <li data-opt="A">Spin 適合 HTTP serverless，wasmCloud 適合分散式 actor，Extism 適合應用內外掛</li>
+      <li data-opt="B">三者完全等價，可互換</li>
+      <li data-opt="C">只有 Spin 是開源</li>
+      <li data-opt="D">三者都不能跨雲</li>
+    </ul>
+    <details class="answer">
+      <summary>看解答</summary>
+      <div class="answer-body">
+        <strong class="label">答案 · A</strong>
+        三者定位不同：Spin = serverless framework；wasmCloud = 跨雲 actor 平台；Extism = 多語言外掛 SDK。
+      </div>
+    </details>
+  </div>
+
+  <div class="quiz-item">
+    <div class="quiz-q"><span class="qnum">Q8.</span>SaaS Wasm 平台 vs 自架，哪個說法正確？</div>
+    <ul class="quiz-options">
+      <li data-opt="A">SaaS 永遠便宜</li>
+      <li data-opt="B">自架永遠靈活</li>
+      <li data-opt="C">SaaS 上線快、無運維負擔，但有 lock-in 與成本可預期性問題；自架反之</li>
+      <li data-opt="D">兩者沒差</li>
+    </ul>
+    <details class="answer">
+      <summary>看解答</summary>
+      <div class="answer-body">
+        <strong class="label">答案 · C</strong>
+        SaaS（Fastly、Cloudflare、Fermyon）上線快但有平台 API 鎖定、運維外包代價是成本不可預期。自架（SpinKube、wasmCloud）成本可控但要自己經營基礎建設。
+      </div>
+    </details>
+  </div>
+
+  <div class="quiz-item">
+    <div class="quiz-q"><span class="qnum">Q9.</span>下列關於 runtime 效能，何者敘述較貼近現實？</div>
+    <ul class="quiz-options">
+      <li data-opt="A">純 Go 寫的 wazero 比 Rust 寫的 Wasmtime 效能高</li>
+      <li data-opt="B">Wasmtime 用 Cranelift 編譯到原生碼，執行效能通常比 wazero 高，但 wazero 部署更簡單</li>
+      <li data-opt="C">所有 runtime 效能完全一樣</li>
+      <li data-opt="D">純 interpreter（wasm3）執行最快</li>
+    </ul>
+    <details class="answer">
+      <summary>看解答</summary>
+      <div class="answer-body">
+        <strong class="label">答案 · B</strong>
+        Wasmtime + Cranelift 是業界效能標竿；wazero 是純 Go compiler（無 LLVM），執行較慢但宿主整合最自然。pure interpreter（wasm3）執行最慢（D 錯）。
+      </div>
+    </details>
+  </div>
+
+  <div class="quiz-item">
+    <div class="quiz-q"><span class="qnum">Q10.</span>2026 年生產級 Wasm 服務，最穩健的「自架」runtime 組合是？</div>
+    <ul class="quiz-options">
+      <li data-opt="A">Krustlet + 自寫 K8s operator</li>
+      <li data-opt="B">Spin + SpinKube + Wasmtime（含 containerd-shim-spin）</li>
+      <li data-opt="C">直接用 wasm3 跑 .wasm</li>
+      <li data-opt="D">WASIX + Wasmer</li>
+    </ul>
+    <details class="answer">
+      <summary>看解答</summary>
+      <div class="answer-body">
+        <strong class="label">答案 · B</strong>
+        Spin + SpinKube + containerd-shim-spin 是 2026 自架 Wasm K8s 的事實標準組合：標準、開源、生產驗證。A Krustlet 已 archived；C wasm3 是 interpreter 效能不夠；D 綁定 Wasmer 生態。
+      </div>
+    </details>
+  </div>
+</div>
+
+<h2 class="section" id="summary"><span class="num">SUMMARY</span>章節總結</h2>
+
+<p>本章完成 Wasm runtime 與應用框架的全景。你現在應該能：</p>
+
+<ul>
+  <li>分辨核心 runtime（Layer 1）與應用框架（Layer 2）的角色。</li>
+  <li>系統比較 Wasmtime、wazero、WasmEdge、Wasmer、WAMR 的設計取捨。</li>
+  <li>了解 Spin、wasmCloud、Extism、SpinKube 在不同場景的定位。</li>
+  <li>掌握 K8s 整合的事實標準（containerd-wasm-shims + RuntimeClass）。</li>
+  <li>權衡 SaaS（Fastly、Cloudflare、Fermyon）與自架方案。</li>
+  <li>用宿主語言、目標環境、合規需求三維度做選型。</li>
+</ul>
+
+<p>下一章 M07，我們深入 <strong>Component Model</strong>——這是讓 Wasm 真正成為「跨語言通用元件」的關鍵基礎建設，也是 2026 年仍在演進的核心議題。用 WIT 定義介面、產生多語言綁定、用 wac compose 把不同語言的 component 組合起來。</p>
+
+<nav class="footer-nav">
+  <a class="prev" href="m05-languages.html">
+    <span class="nav-direction">← 上一章</span>
+    <span class="nav-title">M05 · 語言生態與工具鏈</span>
+  </a>
+  <a class="next" href="m07-component-model.html">
+    <span class="nav-direction">下一章 →</span>
+    <span class="nav-title">M07 · Component Model 與跨語言組合</span>
+  </a>
+</nav>
+
+<footer class="footer">
+  Module 06 · WebAssembly Handbook · 2026
+</footer>
+
+</main>
+
+<script>
+/* ============================================================
+   Wasm Handbook · Shared Runtime
+   - Theme toggle (data-theme on <html>)
+   - Copy-to-clipboard for code blocks (with fallback)
+   - Mermaid init + re-render on theme change
+   - No external highlight.js dependency
+   ============================================================ */
+(function () {
+  'use strict';
+
+  // -------------- Theme Toggle --------------
+  const STORAGE_KEY = 'wasm-handbook-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+
+  function getStored() {
+    try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; }
+  }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function cycle(current) {
+    return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light';
+  }
+
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('handbook:theme-changed', {
+      detail: { theme: eff, mode }
+    }));
+  }
+
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', 'Theme: ' + LABELS[mode] + ' (click to change)');
+      btn.title = 'Theme: ' + LABELS[mode];
+      btn.innerHTML =
+        '<span class="theme-icon">' + ICONS[mode] + '</span>' +
+        '<span class="theme-label">' + LABELS[mode] + '</span>';
+    });
+  }
+
+  function initTheme() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => {
+      if (getCurrentMode() === 'system') applyTheme('system');
+    });
+  }
+
+  // -------------- Copy Buttons --------------
+  function fallbackCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (_) {}
+    document.body.removeChild(ta);
+  }
+
+  function initCopyButtons() {
+    document.querySelectorAll('.copy-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const codeEl = btn.closest('.code-block').querySelector('code');
+        if (!codeEl) return;
+        const text = codeEl.textContent;
+
+        const showSuccess = () => {
+          const original = btn.dataset.original || btn.textContent;
+          btn.dataset.original = original;
+          btn.textContent = '已複製 ✓';
+          btn.classList.add('copied');
+          setTimeout(() => {
+            btn.textContent = original;
+            btn.classList.remove('copied');
+          }, 1800);
+        };
+
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(text).then(showSuccess).catch(() => {
+            fallbackCopy(text);
+            showSuccess();
+          });
+        } else {
+          fallbackCopy(text);
+          showSuccess();
+        }
+      });
+    });
+  }
+
+  // -------------- Mermaid --------------
+  function getMermaidTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default';
+  }
+
+  function initMermaid() {
+    if (typeof mermaid === 'undefined') {
+      console.warn('Mermaid library not loaded — diagrams will appear as text.');
+      return;
+    }
+    document.querySelectorAll('pre.mermaid').forEach((el) => {
+      if (!el.dataset.original) el.dataset.original = el.textContent;
+    });
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: getMermaidTheme(),
+      themeVariables: {
+        fontFamily: '"JetBrains Mono", monospace',
+        fontSize: '13px'
+      },
+      flowchart: { htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true },
+      mindmap: { padding: 16 }
+    });
+    try { mermaid.run({ querySelector: 'pre.mermaid' }); } catch (_) {}
+  }
+
+  function rerunMermaid() {
+    if (typeof mermaid === 'undefined') return;
+    document.querySelectorAll('pre.mermaid').forEach((el) => {
+      el.removeAttribute('data-processed');
+      if (el.dataset.original) el.innerHTML = el.dataset.original;
+    });
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: getMermaidTheme(),
+      themeVariables: {
+        fontFamily: '"JetBrains Mono", monospace',
+        fontSize: '13px'
+      },
+      flowchart: { htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true },
+      mindmap: { padding: 16 }
+    });
+    try { mermaid.run({ querySelector: 'pre.mermaid' }); } catch (_) {}
+  }
+
+  // -------------- Init --------------
+  function init() {
+    initTheme();
+    initCopyButtons();
+    initMermaid();
+    window.addEventListener('handbook:theme-changed', rerunMermaid);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+  // expose minimal API
+  window.WasmHandbook = {
+    getTheme: getCurrentMode,
+    setTheme: (m) => { setStored(m); applyTheme(m); },
+    toggleTheme: () => {
+      const next = cycle(getCurrentMode());
+      setStored(next);
+      applyTheme(next);
+    }
+  };
+})();
+
+</script>
+</body>
+</html>

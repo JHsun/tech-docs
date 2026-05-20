@@ -1,0 +1,2206 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M10 · 負載平衡、叢集與高可用 | Wasm Handbook</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,500&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&family=Noto+Serif+TC:wght@400;600&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+
+<style>
+/* ============================================================
+   Wasm Handbook · Shared Styles
+   Editorial design system, fully driven by design tokens.
+   No hard-coded hex values — everything resolves through tokens.
+   ============================================================ */
+
+/* ============================================================
+   Tokens (inline replica of tokens.css for offline portability)
+   ============================================================ */
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+
+  --color-success: #16a34a;
+  --color-success-soft: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-soft: #cffafe;
+  --color-neutral-accent: #7c3aed;
+
+  --color-primary: oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover: oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+
+  --bg-canvas: oklch(0.985 0.004 60);
+  --bg-surface: oklch(0.995 0.003 60);
+  --bg-muted: oklch(0.96 0.005 60);
+  --bg-code: oklch(0.975 0.006 60);
+  --border-soft: oklch(0.92 0.006 60);
+  --border-mid: oklch(0.85 0.008 60);
+  --text-primary: oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted: oklch(0.58 0.008 60);
+
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --text-3xl: 44px;
+  --text-4xl: 64px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+
+  --container-narrow: 720px;
+  --container-mid: 880px;
+  --container-wide: 1280px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+
+:root[data-theme="dark"] {
+  --color-success: #4ade80;
+  --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning: #fbbf24;
+  --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171;
+  --color-danger-soft: oklch(0.32 0.10 27);
+  --color-info: #22d3ee;
+  --color-info-soft: oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+
+  --color-primary: oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover: oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+
+  --bg-canvas: oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted: oklch(0.23 0.010 50);
+  --bg-code: oklch(0.18 0.009 50);
+  --border-soft: oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary: oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted: oklch(0.58 0.007 60);
+
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+
+/* ============================================================
+   Reset & base
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-serif-body);
+  font-size: var(--text-md);
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.25s ease, color 0.25s ease;
+  min-height: 100vh;
+}
+
+/* ============================================================
+   Layout containers
+   ============================================================ */
+.page {
+  max-width: var(--container-mid);
+  margin: 0 auto;
+  padding: var(--space-7) var(--space-5) var(--space-9);
+}
+
+.page--narrow { max-width: var(--container-narrow); }
+.page--wide   { max-width: var(--container-wide); }
+
+/* ============================================================
+   Theme toggle bar
+   ============================================================ */
+.theme-bar {
+  position: fixed;
+  top: var(--space-4);
+  right: var(--space-4);
+  z-index: 100;
+  display: flex;
+  gap: var(--space-2);
+}
+
+button[data-theme-toggle] {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  color: var(--text-primary);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s ease;
+}
+
+button[data-theme-toggle]:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary-text);
+}
+
+.theme-icon { font-size: 14px; }
+
+/* ============================================================
+   Top nav (per-chapter)
+   ============================================================ */
+.topnav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: oklch(from var(--bg-canvas) l c h / 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border-soft);
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.topnav-home {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.topnav-home:hover { color: var(--color-primary-text); }
+.topnav-home::before { content: "← "; }
+
+.topnav-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  color: var(--color-primary-text);
+  text-transform: uppercase;
+}
+
+/* ============================================================
+   Hero
+   ============================================================ */
+.hero {
+  position: relative;
+  padding: var(--space-9) 0 var(--space-7);
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: var(--space-7);
+}
+
+.hero::before {
+  content: "";
+  position: absolute;
+  top: var(--space-5);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80px;
+  height: 1px;
+  background: var(--color-primary);
+  opacity: 0.6;
+}
+
+.kicker {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--color-primary-text);
+  text-align: center;
+  margin-bottom: var(--space-4);
+}
+
+h1.title {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: clamp(36px, 6vw, var(--text-4xl));
+  line-height: 1.05;
+  text-align: center;
+  letter-spacing: -0.02em;
+  margin-bottom: var(--space-4);
+}
+
+h1.title em {
+  font-style: italic;
+  color: var(--color-primary-text);
+  font-weight: 500;
+}
+
+.subtitle {
+  font-family: var(--font-serif-body);
+  font-style: italic;
+  font-size: var(--text-lg);
+  color: var(--text-secondary);
+  text-align: center;
+  max-width: 600px;
+  margin: 0 auto var(--space-5);
+  line-height: 1.65;
+}
+
+.meta {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
+.meta span { display: inline-flex; align-items: center; gap: var(--space-1); }
+.meta .dot {
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--color-primary);
+}
+
+/* ============================================================
+   Typography
+   ============================================================ */
+h2.section {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: var(--text-2xl);
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  margin: var(--space-8) 0 var(--space-4);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  scroll-margin-top: var(--space-7);
+}
+
+h2.section .num {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: var(--text-sm);
+  color: var(--color-primary);
+  display: block;
+  margin-bottom: var(--space-2);
+  letter-spacing: 0.1em;
+}
+
+h3 {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: var(--text-xl);
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  margin: var(--space-6) 0 var(--space-3);
+  color: var(--text-primary);
+  scroll-margin-top: var(--space-7);
+}
+
+h4 {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: var(--text-md);
+  margin: var(--space-5) 0 var(--space-2);
+  color: var(--text-primary);
+}
+
+h5 {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: var(--text-xs);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: var(--space-4) 0 var(--space-2);
+}
+
+p {
+  margin-bottom: var(--space-4);
+  color: var(--text-primary);
+}
+
+p.lead {
+  font-size: var(--text-lg);
+  font-style: italic;
+  color: var(--text-secondary);
+  line-height: 1.7;
+  margin-bottom: var(--space-5);
+  padding-left: var(--space-4);
+  border-left: 2px solid var(--color-primary);
+}
+
+p.dropcap::first-letter {
+  font-family: var(--font-serif);
+  font-size: 4em;
+  float: left;
+  line-height: 0.85;
+  margin: 0.05em var(--space-3) 0 0;
+  color: var(--color-primary-text);
+  font-weight: 700;
+}
+
+strong { font-weight: 600; color: var(--text-primary); }
+em { font-style: italic; }
+
+ul, ol {
+  margin: var(--space-3) 0 var(--space-4) var(--space-5);
+}
+li { margin-bottom: var(--space-2); line-height: 1.7; }
+
+a {
+  color: var(--color-primary-text);
+  text-decoration: underline;
+  text-decoration-color: var(--color-primary-soft);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.15s ease;
+}
+a:hover { text-decoration-color: var(--color-primary); }
+
+hr.divider {
+  border: 0;
+  height: 1px;
+  background: var(--border-soft);
+  margin: var(--space-7) 0;
+  position: relative;
+}
+hr.divider::after {
+  content: "§";
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-canvas);
+  padding: 0 var(--space-3);
+  color: var(--text-muted);
+  font-family: var(--font-serif);
+  font-size: var(--text-md);
+}
+
+blockquote {
+  margin: var(--space-5) 0;
+  padding: var(--space-2) var(--space-5);
+  border-left: 3px solid var(--color-primary);
+  font-family: var(--font-serif-body);
+  font-style: italic;
+  font-size: var(--text-lg);
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+/* ============================================================
+   Inline code & code blocks
+   ============================================================ */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--bg-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+  color: var(--text-primary);
+}
+
+.code-block {
+  position: relative;
+  margin: var(--space-4) 0 var(--space-5);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-soft);
+  background: var(--bg-code);
+  overflow: hidden;
+}
+
+.code-block .lang {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.copy-btn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  z-index: 2;
+}
+
+.copy-btn:hover {
+  color: var(--color-primary-text);
+  border-color: var(--color-primary);
+}
+
+.copy-btn.copied {
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+
+pre {
+  margin: 0;
+  padding: var(--space-6) var(--space-4) var(--space-4);
+  overflow-x: auto;
+  background: transparent !important;
+}
+
+pre code {
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-primary);
+  display: block;
+  white-space: pre;
+  tab-size: 2;
+}
+
+/* ============================================================
+   Callouts
+   ============================================================ */
+.callout {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--color-info);
+  background: var(--color-info-soft);
+  font-size: var(--text-base);
+}
+
+.callout.warning { border-left-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.danger  { border-left-color: var(--color-danger);  background: var(--color-danger-soft); }
+.callout.success { border-left-color: var(--color-success); background: var(--color-success-soft); }
+.callout.tip     { border-left-color: var(--color-neutral-accent); background: var(--color-primary-soft); }
+
+.callout strong.label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  display: block;
+  margin-bottom: var(--space-1);
+}
+
+:root[data-theme="dark"] .callout { color: var(--text-primary); }
+
+/* ============================================================
+   Cards
+   ============================================================ */
+.card {
+  margin: var(--space-4) 0 var(--space-5);
+  padding: var(--space-5) var(--space-6);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px dashed var(--border-soft);
+}
+.card-meta strong { color: var(--color-primary-text); font-weight: 500; }
+
+.objectives {
+  background: var(--bg-muted);
+  border-left: 2px solid var(--color-primary);
+  padding: var(--space-4) var(--space-5);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  margin: var(--space-4) 0;
+}
+.objectives h4 {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--color-primary-text);
+  margin: 0 0 var(--space-2);
+}
+.objectives ul { margin: 0 0 0 var(--space-5); }
+.objectives li { font-size: var(--text-base); margin-bottom: var(--space-1); }
+
+/* ============================================================
+   Table
+   ============================================================ */
+.table-wrap {
+  margin: var(--space-4) 0 var(--space-5);
+  overflow-x: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+}
+th, td {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: top;
+}
+th {
+  background: var(--bg-muted);
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+tr:last-child td { border-bottom: none; }
+td code { font-size: 0.85em; }
+
+/* ============================================================
+   Mermaid container
+   ============================================================ */
+.mermaid-wrap {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+}
+.mermaid-wrap .caption {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-top: var(--space-3);
+}
+
+/* ============================================================
+   TOC
+   ============================================================ */
+.toc {
+  margin: var(--space-6) 0 var(--space-7);
+  padding: var(--space-5) var(--space-6);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+}
+.toc-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: var(--space-3);
+}
+.toc ol {
+  list-style: none;
+  margin: 0;
+  counter-reset: toc;
+}
+.toc li {
+  counter-increment: toc;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  padding: var(--space-1) 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+.toc li::before {
+  content: counter(toc, decimal-leading-zero);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+.toc li a {
+  text-decoration: none;
+  color: var(--text-primary);
+  flex: 1;
+  border-bottom: 1px dotted var(--border-mid);
+  padding-bottom: 2px;
+}
+.toc li a:hover { color: var(--color-primary-text); border-bottom-color: var(--color-primary); }
+.toc li .duration {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* ============================================================
+   Quiz (collapsible)
+   ============================================================ */
+.quiz {
+  margin: var(--space-5) 0;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+}
+.quiz h4 {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-primary-text);
+  margin: 0 0 var(--space-4);
+}
+
+.quiz-item { margin-bottom: var(--space-5); padding-bottom: var(--space-4); border-bottom: 1px dashed var(--border-soft); }
+.quiz-item:last-child { border-bottom: none; padding-bottom: 0; margin-bottom: 0; }
+
+.quiz-q {
+  font-family: var(--font-serif-body);
+  font-size: var(--text-base);
+  margin-bottom: var(--space-2);
+}
+.quiz-q .qnum {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  margin-right: var(--space-2);
+  font-weight: 500;
+}
+
+.quiz-options { list-style: none; margin: 0 0 var(--space-3) 0; padding-left: var(--space-5); }
+.quiz-options li { font-size: var(--text-sm); margin-bottom: var(--space-1); font-family: var(--font-sans); }
+.quiz-options li::before {
+  content: attr(data-opt) ". ";
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  margin-right: var(--space-1);
+}
+
+details.answer {
+  margin-top: var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+}
+details.answer summary {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-primary-text);
+  user-select: none;
+  display: inline-block;
+  padding: 4px 10px;
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+}
+details.answer summary:hover { border-color: var(--color-primary); }
+details.answer[open] summary { background: var(--color-primary-soft); }
+details.answer .answer-body {
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-muted);
+  border-radius: var(--radius-sm);
+  border-left: 2px solid var(--color-success);
+  color: var(--text-primary);
+  line-height: 1.7;
+}
+details.answer .answer-body strong.label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-success);
+  margin-bottom: var(--space-1);
+}
+
+/* ============================================================
+   Lab section (hands-on)
+   ============================================================ */
+.lab {
+  margin: var(--space-6) 0;
+  padding: var(--space-5) var(--space-6);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  border-left: 4px solid var(--color-warning);
+}
+.lab-tag {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-warning);
+  margin-bottom: var(--space-2);
+  display: block;
+}
+.lab h3 {
+  margin-top: 0;
+}
+.lab-step {
+  margin: var(--space-4) 0;
+  padding-left: var(--space-5);
+  border-left: 1px dashed var(--border-mid);
+}
+.lab-step h5 {
+  margin-left: calc(var(--space-5) * -1);
+  padding-left: var(--space-5);
+  background: var(--bg-muted);
+  display: inline-block;
+  padding-right: var(--space-3);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  margin-top: 0;
+}
+
+/* ============================================================
+   Footer
+   ============================================================ */
+.footer {
+  margin-top: var(--space-9);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
+.footer-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin: var(--space-7) 0 var(--space-5);
+  font-family: var(--font-sans);
+}
+.footer-nav a {
+  flex: 1;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.footer-nav a:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.footer-nav a.prev { text-align: left; }
+.footer-nav a.next { text-align: right; align-items: flex-end; }
+.footer-nav .nav-direction {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.footer-nav .nav-title {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* ============================================================
+   Index page specifics
+   ============================================================ */
+.index-hero-quote {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--text-xl);
+  color: var(--text-secondary);
+  text-align: center;
+  max-width: 600px;
+  margin: var(--space-7) auto;
+  line-height: 1.5;
+  position: relative;
+}
+.index-hero-quote::before,
+.index-hero-quote::after {
+  content: "";
+  display: block;
+  width: 40px;
+  height: 1px;
+  background: var(--color-primary);
+  margin: var(--space-3) auto;
+  opacity: 0.5;
+}
+
+.module-grid {
+  display: grid;
+  gap: var(--space-4);
+  margin: var(--space-6) 0;
+}
+.module-link {
+  display: block;
+  padding: var(--space-5) var(--space-6);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.2s ease;
+  position: relative;
+}
+.module-link:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  transform: translateX(4px);
+}
+.module-link .mid {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.15em;
+  color: var(--color-primary);
+  text-transform: uppercase;
+}
+.module-link .mtitle {
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  margin: var(--space-2) 0 var(--space-1);
+  letter-spacing: -0.01em;
+}
+.module-link .mdesc {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.55;
+}
+.module-link .mdur {
+  position: absolute;
+  top: var(--space-5);
+  right: var(--space-6);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+@media (max-width: 720px) {
+  .page { padding: var(--space-5) var(--space-4) var(--space-7); }
+  h1.title { font-size: 36px; }
+  .hero { padding: var(--space-6) 0 var(--space-5); }
+  .card { padding: var(--space-4); }
+  .module-link .mdur { position: static; margin-top: var(--space-2); display: inline-block; }
+  .footer-nav { flex-direction: column; }
+}
+
+/* ============================================================
+   Print
+   ============================================================ */
+@media print {
+  .theme-bar, .topnav, .copy-btn, .footer-nav { display: none; }
+  body { background: white; color: black; }
+  .card, .callout, .quiz, .lab, .mermaid-wrap, .code-block { break-inside: avoid; }
+}
+
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+</head>
+<body>
+
+<div class="theme-bar">
+  <button data-theme-toggle aria-label="Toggle theme"></button>
+</div>
+
+<nav class="topnav">
+  <a class="topnav-home" href="index.html">回到目錄</a>
+  <span class="topnav-title">Module 10</span>
+  <span style="font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); letter-spacing: 0.1em;">~5h</span>
+</nav>
+
+<main class="page">
+
+<header class="hero">
+  <div class="kicker">Module 10 · Production</div>
+  <h1 class="title">負載平衡、<br><em>叢集與高可用</em></h1>
+  <p class="subtitle">Wasm 的輕量特性讓 HA 設計有了新的可能：每 node 跑數千實例、µs 級冷啟動、scale-to-zero 真的可用。但這也帶來新挑戰——本章把容器時代的 HA 知識，重新對應到 Wasm 時代。</p>
+  <div class="meta">
+    <span><span class="dot"></span>Production Level</span>
+    <span><span class="dot"></span>~5 hours</span>
+    <span><span class="dot"></span>跨區 HA 架構</span>
+    <span><span class="dot"></span>Instance pool + AOT</span>
+  </div>
+</header>
+
+<div class="objectives">
+  <h4>本章學習目標</h4>
+  <ul>
+    <li>設計多副本、跨 node、跨區的 Wasm 叢集架構。</li>
+    <li>實作 instance pooling、AOT 快取、graceful shutdown。</li>
+    <li>處理 fuel quota、OOM、circuit breaker 等失敗模式。</li>
+    <li>掌握 Wasm 特有的 readiness/liveness 兩層健康檢查設計。</li>
+    <li>規劃跨 region active-active 部署與狀態同步。</li>
+    <li>了解 Wasm HA 相對於容器 HA 的成本與密度優勢。</li>
+  </ul>
+</div>
+
+<h2 class="section" id="s10-1"><span class="num">10.1</span>HA 設計核心原則</h2>
+
+<p class="dropcap">Wasm HA 架構建立在一個原則上：<strong>實例本身設計成無狀態、可隨時銷毀重建，狀態外置到共享儲存</strong>。這個原則跟 12-factor app 一脈相承，但 Wasm 把它推到極致——instance 的銷毀重建不是「優化」，而是<strong>常態操作</strong>。</p>
+
+<h3>三個基本原則</h3>
+
+<ol>
+  <li><strong>Stateless instance</strong>：每個 Wasm instance 不持有任何「重要」狀態。重要狀態在 Redis、Postgres、S3、KV store。</li>
+  <li><strong>Idempotent operation</strong>：所有對外操作可重試。配合 instance 可隨時被銷毀重建。</li>
+  <li><strong>Cheap to create</strong>：建立新 instance 的成本（µs 級）讓我們可以「per-request instance」——每個請求一個全新 instance，請求結束銷毀。</li>
+</ol>
+
+<h3>典型架構全景</h3>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TB
+    DNS[Anycast / GeoDNS]
+
+    DNS --&gt; LB1[L7 LB · Region A]
+    DNS --&gt; LB2[L7 LB · Region B]
+
+    subgraph RA[Region A · K8s Cluster]
+        LB1 --&gt; N1[Node 1<br/>Wasm runtime<br/>1000+ instances]
+        LB1 --&gt; N2[Node 2<br/>Wasm runtime<br/>1000+ instances]
+        LB1 --&gt; N3[Node 3]
+    end
+
+    subgraph RB[Region B · K8s Cluster]
+        LB2 --&gt; N4[Node 4]
+        LB2 --&gt; N5[Node 5]
+    end
+
+    N1 & N2 & N3 & N4 & N5 --&gt; STATE[Shared State Layer]
+
+    subgraph STATE[Shared State]
+        REDIS[(Redis Cluster<br/>session/cache)]
+        DB[(CockroachDB<br/>multi-region)]
+        S3[(S3 / R2<br/>blobs)]
+    end
+</pre>
+<div class="caption">Figure 10.1 · 跨區 Wasm HA 架構全景</div>
+</div>
+
+<h2 class="section" id="s10-2"><span class="num">10.2</span>負載平衡層</h2>
+
+<p>傳統 LB 知識大多適用 Wasm，但有些特性能讓 LB 選擇更精準。</p>
+
+<h3>L7 vs L4 LB</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>層級</th><th>能力</th><th>適合 Wasm 場景</th></tr></thead>
+  <tbody>
+    <tr><td>L4 (TCP/UDP)</td><td>單純 TCP/UDP 分流，看不到 HTTP 內容</td><td>單純流量分散、極致效能</td></tr>
+    <tr><td>L7 (HTTP)</td><td>看 HTTP header / path、可路由</td><td>多 Wasm app 共用 LB、A/B test、金絲雀</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>主要 LB 選擇</h3>
+
+<ul>
+  <li><strong>K8s Ingress (NGINX / Traefik / Envoy)</strong>：標準選擇</li>
+  <li><strong>Istio / Linkerd</strong>：service mesh，含進階 traffic management</li>
+  <li><strong>HAProxy</strong>：傳統高效能 LB</li>
+  <li><strong>Cloudflare / Fastly</strong>：全球 anycast LB</li>
+  <li><strong>AWS ALB / GCP LB</strong>：雲端 managed LB</li>
+</ul>
+
+<h3>Wasm 特有的 LB 考量</h3>
+
+<p><strong>Consistent hashing 對 instance cache 命中率</strong>：</p>
+
+<p>Wasm runtime 通常有 module compile cache（AOT 編譯結果）。如果用 round-robin LB，同一個 Wasm app 的請求可能分到不同 node，每個 node 都要重新編譯該 module。用<strong> consistent hashing</strong>（基於 Wasm app id）讓同 app 的請求黏在同 node，命中率高。</p>
+
+<div class="code-block">
+  <span class="lang">yaml</span>
+  <button class="copy-btn">複製</button>
+<pre><code># Envoy consistent hashing 範例
+clusters:
+- name: wasm-backend
+  lb_policy: RING_HASH
+  hash_policy:
+  - header:
+      header_name: x-wasm-app-id  # 自訂 header 標示 app</code></pre>
+</div>
+
+<h3>Weighted routing 與漸進式發布</h3>
+
+<p>Wasm 啟動極快讓漸進發布（canary、blue-green）更平順——切流量幾乎無感。</p>
+
+<div class="code-block">
+  <span class="lang">yaml</span>
+  <button class="copy-btn">複製</button>
+<pre><code># Istio VirtualService - 10% 流量到新版
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: my-wasm-api
+spec:
+  hosts:
+  - api.example.com
+  http:
+  - route:
+    - destination:
+        host: my-api
+        subset: v1
+      weight: 90
+    - destination:
+        host: my-api
+        subset: v2-canary
+      weight: 10</code></pre>
+</div>
+
+<h2 class="section" id="s10-3"><span class="num">10.3</span>Instance Pool 模式</h2>
+
+<p>Wasm instantiate 即使快，仍有微秒級成本。<strong>Instance pool</strong> 是 Wasm runtime 常見的優化——預先建一批 instance 等請求使用。</p>
+
+<h3>兩種模式</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>模式</th><th>說明</th><th>權衡</th></tr></thead>
+  <tbody>
+    <tr><td>Per-request instance</td><td>每個請求 new 一個 instance，用完丟棄</td><td>完美隔離、無狀態污染；instantiate cost 高</td></tr>
+    <tr><td>Reused from pool</td><td>從 pool 拿、用完歸還</td><td>低延遲、低 CPU；要小心重置狀態</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Go + wazero 實作</h3>
+
+<div class="code-block">
+  <span class="lang">go</span>
+  <button class="copy-btn">複製</button>
+<pre><code>type WasmPool struct {
+    instances chan api.Module
+    runtime   wazero.Runtime
+    compiled  wazero.CompiledModule
+    config    wazero.ModuleConfig
+    maxSize   int
+
+    metrics struct {
+        sync.Mutex
+        created   int64
+        destroyed int64
+        gets      int64
+        puts      int64
+        oversize  int64
+    }
+}
+
+func NewPool(ctx context.Context, r wazero.Runtime,
+              compiled wazero.CompiledModule, size int) *WasmPool {
+    p := &WasmPool{
+        instances: make(chan api.Module, size),
+        runtime:   r,
+        compiled:  compiled,
+        config:    wazero.NewModuleConfig(),
+        maxSize:   size,
+    }
+    // 預熱
+    for i := 0; i &lt; size; i++ {
+        inst, _ := r.InstantiateModule(ctx, compiled, p.config)
+        p.instances &lt;- inst
+        p.metrics.Lock()
+        p.metrics.created++
+        p.metrics.Unlock()
+    }
+    return p
+}
+
+func (p *WasmPool) Get(ctx context.Context) api.Module {
+    p.metrics.Lock()
+    p.metrics.gets++
+    p.metrics.Unlock()
+
+    select {
+    case inst := &lt;-p.instances:
+        return inst
+    default:
+        // 池空，現場建立
+        inst, _ := p.runtime.InstantiateModule(ctx, p.compiled, p.config)
+        p.metrics.Lock()
+        p.metrics.created++
+        p.metrics.Unlock()
+        return inst
+    }
+}
+
+func (p *WasmPool) Put(inst api.Module) {
+    p.metrics.Lock()
+    p.metrics.puts++
+    p.metrics.Unlock()
+
+    select {
+    case p.instances &lt;- inst:
+        // 歸還成功
+    default:
+        // 池滿，丟棄
+        inst.Close(context.Background())
+        p.metrics.Lock()
+        p.metrics.oversize++
+        p.metrics.destroyed++
+        p.metrics.Unlock()
+    }
+}
+
+func (p *WasmPool) Stats() map[string]int64 {
+    p.metrics.Lock()
+    defer p.metrics.Unlock()
+    return map[string]int64{
+        "created":   p.metrics.created,
+        "destroyed": p.metrics.destroyed,
+        "gets":      p.metrics.gets,
+        "puts":      p.metrics.puts,
+        "available": int64(len(p.instances)),
+    }
+}</code></pre>
+</div>
+
+<h3>Wasmtime 的 PoolingAllocator</h3>
+
+<p>Wasmtime 內建 pooling allocator，比手刻 pool 更高效——直接管理 instance 的記憶體 layout，減少分配 / 釋放開銷。</p>
+
+<div class="code-block">
+  <span class="lang">rust</span>
+  <button class="copy-btn">複製</button>
+<pre><code>use wasmtime::*;
+
+let mut config = Config::new();
+
+// 啟用 pooling allocator
+let mut pool_config = PoolingAllocationConfig::default();
+pool_config.total_memories(1000);       // 最多同時 1000 個記憶體
+pool_config.total_core_instances(1000);
+pool_config.max_memory_size(64 * 1024 * 1024); // 每個 instance 上限 64MB
+
+config.allocation_strategy(InstanceAllocationStrategy::Pooling(pool_config));
+
+let engine = Engine::new(&config)?;</code></pre>
+</div>
+
+<h3>狀態污染問題</h3>
+
+<p>Reused instance 最大的坑：<strong>上次請求遺留的狀態（global、static、heap）</strong>可能洩漏到下次請求。處理策略：</p>
+
+<ul>
+  <li><strong>Wasm 內顯式 reset</strong>：每次 invoke 開始呼叫 reset() 函式清空 global state</li>
+  <li><strong>每 N 次 invoke 銷毀重建</strong>：限制 instance 使用次數，超過就 drop</li>
+  <li><strong>用 component 替代 module</strong>：component 每次 invoke 預設邊界清晰，較不易洩漏</li>
+  <li><strong>關鍵業務用 per-request</strong>：對安全敏感場景接受高 cost 換完美隔離</li>
+</ul>
+
+<h2 class="section" id="s10-4"><span class="num">10.4</span>AOT 快取</h2>
+
+<p>Wasm runtime 把 .wasm 編譯到原生碼是有成本的——對大模組可能要幾秒。<strong>AOT 編譯</strong>把這個成本搬到部署前。</p>
+
+<h3>Wasmtime AOT 流程</h3>
+
+<div class="code-block">
+  <span class="lang">bash</span>
+  <button class="copy-btn">複製</button>
+<pre><code># 預編譯
+wasmtime compile module.wasm -o module.cwasm
+
+# 執行時直接 load .cwasm，跳過 JIT
+wasmtime run --allow-precompiled module.cwasm</code></pre>
+</div>
+
+<h3>跨 node 共用 AOT cache</h3>
+
+<p>K8s 環境的最佳實踐：</p>
+
+<ol>
+  <li>CI/CD pipeline 把 .wasm 編譯成 .cwasm</li>
+  <li>把 .cwasm 推到 OCI registry（與 .wasm 一起）</li>
+  <li>每個 node 拉 .cwasm，啟動極快</li>
+</ol>
+
+<div class="callout warning">
+  <strong class="label">AOT 與 CPU 架構綁定</strong>
+  AOT 編譯的 .cwasm 跟「目標 CPU 架構 + Wasmtime 版本」綁定。x86_64 編的不能跑在 ARM。CI 要為每個目標架構各編一份，或在每個 node 第一次啟動時 lazy compile。
+</div>
+
+<h3>Wasmtime 的 incremental cache</h3>
+
+<p>Wasmtime 2.x 起支援 incremental cache——記住已編譯的函式單元，相似 module 共用編譯結果。實務上不必手動管理，runtime 內部處理。</p>
+
+<h2 class="section" id="s10-5"><span class="num">10.5</span>健康檢查兩層設計</h2>
+
+<p>K8s 標準的 liveness / readiness probe 仍適用，但 Wasm 要在 process 層之外多一層應用層檢查。</p>
+
+<h3>兩層意義</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>層級</th><th>K8s 對應</th><th>檢查什麼</th></tr></thead>
+  <tbody>
+    <tr><td>Process layer</td><td>liveness</td><td>host process 還活著、能回應 HTTP</td></tr>
+    <tr><td>Runtime layer</td><td>readiness</td><td>Wasm pool 可用、AOT cache 載入、能成功 invoke 一個 noop wasm</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>實作範例</h3>
+
+<div class="code-block">
+  <span class="lang">go</span>
+  <button class="copy-btn">複製</button>
+<pre><code>// 兩層 probe
+func livenessHandler(w http.ResponseWriter, r *http.Request) {
+    // process 還在跑就是 alive
+    w.WriteHeader(http.StatusOK)
+    w.Write([]byte("alive"))
+}
+
+func readinessHandler(pool *WasmPool) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        // 1. pool 有可用 instance
+        stats := pool.Stats()
+        if stats["available"] == 0 {
+            http.Error(w, "pool empty", http.StatusServiceUnavailable)
+            return
+        }
+
+        // 2. 能 invoke noop 函式
+        ctx, cancel := context.WithTimeout(r.Context(), 100*time.Millisecond)
+        defer cancel()
+
+        inst := pool.Get(ctx)
+        defer pool.Put(inst)
+
+        noop := inst.ExportedFunction("noop")
+        if noop == nil {
+            http.Error(w, "noop not found", http.StatusServiceUnavailable)
+            return
+        }
+
+        _, err := noop.Call(ctx)
+        if err != nil {
+            http.Error(w, fmt.Sprintf("noop failed: %v", err),
+                       http.StatusServiceUnavailable)
+            return
+        }
+
+        w.WriteHeader(http.StatusOK)
+        w.Write([]byte("ready"))
+    }
+}</code></pre>
+</div>
+
+<div class="code-block">
+  <span class="lang">yaml</span>
+  <button class="copy-btn">複製</button>
+<pre><code># K8s Deployment 兩層 probe
+spec:
+  containers:
+  - name: wasm-host
+    livenessProbe:
+      httpGet:
+        path: /health/live
+        port: 8080
+      periodSeconds: 10
+      failureThreshold: 3
+    readinessProbe:
+      httpGet:
+        path: /health/ready
+        port: 8080
+      periodSeconds: 5
+      failureThreshold: 2
+      successThreshold: 1
+    startupProbe:
+      httpGet:
+        path: /health/ready
+        port: 8080
+      periodSeconds: 2
+      failureThreshold: 30  # 60s startup window</code></pre>
+</div>
+
+<h2 class="section" id="s10-6"><span class="num">10.6</span>故障處理</h2>
+
+<h3>OOM 處理</h3>
+
+<p>Wasm linear memory 上限可由 runtime 配置強制。超過時 wasm 內 alloc 會回 -1 或 trap。<strong>單一 instance 超量不影響 host process</strong>，這是 Wasm 隔離的優勢。</p>
+
+<div class="code-block">
+  <span class="lang">go</span>
+  <button class="copy-btn">複製</button>
+<pre><code>// wazero 限制每 instance 最多 128 MiB
+config := wazero.NewRuntimeConfig().
+    WithMemoryLimitPages(2048) // 2048 × 64KB = 128 MiB
+r := wazero.NewRuntimeWithConfig(ctx, config)
+
+// 失敗時 trap，宿主收到錯誤
+result, err := fn.Call(ctx, args...)
+if err != nil {
+    if errors.Is(err, wasmtime.OutOfMemory) {
+        // 紀錄 metric、回 503、丟棄 instance、不要 putBack
+        metric.Inc("wasm.oom")
+        http.Error(w, "out of memory", 503)
+        return
+    }
+}</code></pre>
+</div>
+
+<h3>Fuel 用盡（Wasmtime）</h3>
+
+<div class="code-block">
+  <span class="lang">rust</span>
+  <button class="copy-btn">複製</button>
+<pre><code>store.set_fuel(10_000_000)?;
+
+match func.call(&mut store, args) {
+    Ok(result) =&gt; result,
+    Err(e) if e.is_trap() &amp;&amp; e.downcast_ref::&lt;Trap&gt;()
+                  == Some(&Trap::OutOfFuel) =&gt; {
+        // CPU 超量
+        return Err(StatusCode::TooManyRequests);
+    }
+    Err(e) =&gt; return Err(internal_error(e)),
+}</code></pre>
+</div>
+
+<h3>Circuit breaker 在 host 層</h3>
+
+<p>Wasm 透過宿主 outbound 呼叫下游時，加 circuit breaker 保護下游：</p>
+
+<div class="code-block">
+  <span class="lang">go</span>
+  <button class="copy-btn">複製</button>
+<pre><code>type Breaker struct {
+    mu        sync.Mutex
+    failures  int
+    threshold int
+    openUntil time.Time
+    cooldown  time.Duration
+}
+
+func (b *Breaker) allow() bool {
+    b.mu.Lock()
+    defer b.mu.Unlock()
+    if time.Now().Before(b.openUntil) {
+        return false
+    }
+    return true
+}
+
+func (b *Breaker) record(success bool) {
+    b.mu.Lock()
+    defer b.mu.Unlock()
+    if success {
+        b.failures = 0
+        return
+    }
+    b.failures++
+    if b.failures &gt;= b.threshold {
+        b.openUntil = time.Now().Add(b.cooldown)
+        b.failures = 0
+    }
+}
+
+// 用在 host function
+var apiBreaker = &Breaker{threshold: 5, cooldown: 30 * time.Second}
+
+func hostOutboundHTTP(ctx context.Context, m api.Module,
+                       urlPtr, urlLen uint32) uint32 {
+    if !apiBreaker.allow() {
+        return 0 // circuit open
+    }
+
+    url := readStr(m, urlPtr, urlLen)
+    resp, err := http.Get(url)
+    apiBreaker.record(err == nil)
+
+    if err != nil { return 0 }
+    // ...
+}</code></pre>
+</div>
+
+<h3>Graceful shutdown</h3>
+
+<p>SIGTERM 時的標準流程：</p>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+sequenceDiagram
+    participant K as K8s
+    participant H as Host Process
+    participant LB as Load Balancer
+    participant W as Wasm Instances
+
+    K->>H: SIGTERM
+    H->>H: readiness probe → false
+    Note over LB: 30s 後移除此 endpoint
+    LB->>H: 停止送新請求
+    H->>H: 等正在執行的 invoke 完成<br/>timeout 例如 30s
+    H->>W: Close all instances
+    H->>K: exit 0
+</pre>
+<div class="caption">Figure 10.2 · Graceful shutdown 流程</div>
+</div>
+
+<div class="code-block">
+  <span class="lang">go</span>
+  <button class="copy-btn">複製</button>
+<pre><code>func main() {
+    pool := NewPool(...)
+    ready := atomic.Bool{}
+    ready.Store(true)
+
+    mux := http.NewServeMux()
+    mux.HandleFunc("/health/ready", func(w http.ResponseWriter, r *http.Request) {
+        if !ready.Load() {
+            http.Error(w, "shutting down", 503)
+            return
+        }
+        // ... 正常 ready check
+    })
+    mux.HandleFunc("/", wasmHandler(pool))
+
+    server := &http.Server{Addr: ":8080", Handler: mux}
+
+    // 監聽 SIGTERM
+    sigCh := make(chan os.Signal, 1)
+    signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+
+    go func() {
+        if err := server.ListenAndServe(); err != http.ErrServerClosed {
+            log.Fatal(err)
+        }
+    }()
+
+    &lt;-sigCh
+    log.Println("received SIGTERM, starting graceful shutdown")
+
+    // 1. readiness 變 false，LB 開始排除
+    ready.Store(false)
+
+    // 2. 等 30s 讓 LB 真的把流量切走
+    time.Sleep(30 * time.Second)
+
+    // 3. 停止 HTTP server，等 active request 完成（最多 30s）
+    shutdownCtx, cancel := context.WithTimeout(
+        context.Background(), 30*time.Second)
+    defer cancel()
+    server.Shutdown(shutdownCtx)
+
+    // 4. 關閉 pool
+    pool.Close()
+
+    log.Println("shutdown complete")
+}</code></pre>
+</div>
+
+<h2 class="section" id="s10-7"><span class="num">10.7</span>跨區 active-active</h2>
+
+<p>單一 region 即使 HA 也有可能整區掛掉。跨區 active-active 是高可用的最高層。</p>
+
+<h3>架構選擇</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>模式</th><th>說明</th><th>狀態同步</th></tr></thead>
+  <tbody>
+    <tr><td>Edge-First</td><td>Wasm 在全球邊緣節點，每節點獨立 failure domain</td><td>各 region 獨立或最終一致</td></tr>
+    <tr><td>Multi-region K8s</td><td>多個 K8s cluster，DNS 分流</td><td>跨區複製 DB / KV</td></tr>
+    <tr><td>wasmCloud lattice</td><td>actors 跨 host 自動排程，跨 region NATS leaf 串接</td><td>actor 無狀態、capability provider 集中</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>多區 K8s + 全球 LB</h3>
+
+<div class="code-block">
+  <span class="lang">yaml</span>
+  <button class="copy-btn">複製</button>
+<pre><code># 範例：用 Cloudflare 做全球 anycast + DNS
+# my-api.example.com 解析到多區 ingress IP
+
+# Region A (us-east-1)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-api-us
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: us.my-api.example.com
+spec:
+  rules:
+  - host: us.my-api.example.com
+    http:
+      paths:
+      - path: /
+        backend:
+          service: {name: my-api, port: 80}
+
+# Region B (eu-west-1) - 類似</code></pre>
+</div>
+
+<h3>跨區資料同步</h3>
+
+<p>狀態層必須能跨區。常見選擇：</p>
+
+<ul>
+  <li><strong>CockroachDB</strong>：分散式 SQL，原生跨區強一致</li>
+  <li><strong>YugabyteDB</strong>：類似 CockroachDB</li>
+  <li><strong>DynamoDB Global Tables</strong>：AWS 託管</li>
+  <li><strong>Cloud Spanner</strong>：Google 全球強一致</li>
+  <li><strong>Redis with replication</strong>：用 active-active replication（如 KeyDB、Dragonfly）</li>
+  <li><strong>S3 + cross-region replication</strong>：blob 儲存</li>
+  <li><strong>Litestream</strong>：把 SQLite 持續同步到 S3</li>
+</ul>
+
+<h2 class="section" id="s10-8"><span class="num">10.8</span>Wasm HA 相對於容器的優勢</h2>
+
+<p>本章最後總結 Wasm HA 的真實效益。</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>面向</th><th>容器</th><th>Wasm</th></tr></thead>
+  <tbody>
+    <tr><td>冷啟動</td><td>數秒</td><td>微秒到低毫秒</td></tr>
+    <tr><td>實例密度</td><td>10-100 / node</td><td>1000-10000 / node</td></tr>
+    <tr><td>故障半徑</td><td>整個 container</td><td>單一 wasm 實例（µs 級）</td></tr>
+    <tr><td>Scale-to-zero</td><td>有冷啟動成本，需 keep-warm</td><td>幾乎無感</td></tr>
+    <tr><td>記憶體開銷</td><td>MB 級 baseline</td><td>KB 級 baseline</td></tr>
+    <tr><td>OOM 隔離</td><td>整個 container OOM kill</td><td>單一 instance trap，host 繼續</td></tr>
+    <tr><td>跨 OS 部署</td><td>每 OS 一個 image</td><td>單一 .wasm 跨平台</td></tr>
+    <tr><td>Image size</td><td>10MB - 1GB</td><td>50KB - 5MB</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>密度的真實意義</h3>
+
+<p>Fermyon 2025 公開的數據：他們的邊緣平台每秒處理 7500 萬次請求，這個密度在容器架構上不可能達成。<strong>密度 100 倍意味著服務同等流量的硬體成本降低 100 倍</strong>。</p>
+
+<h3>故障半徑的真實意義</h3>
+
+<p>當你的應用每 node 跑 1000 個 instance，<strong>一個 instance crash 影響的「客戶」少 100 倍</strong>。傳統容器一個 OOM 影響該 process 處理的所有流量；Wasm OOM 只影響當下那個 instance。</p>
+
+<h3>Scale-to-zero 的真實意義</h3>
+
+<p>傳統 serverless 為避免冷啟動懲罰要 keep-warm，閒置時仍有最低成本。Wasm scale-to-zero 真實可用——閒置時零成本，請求進來 µs 級恢復。這對 long tail 應用（每天幾百次請求）特別有意義。</p>
+
+<h2 class="section" id="lab"><span class="num">LAB</span>動手實作：完整 HA 部署</h2>
+
+<div class="lab">
+  <span class="lab-tag">Lab 10.A · 生產級 HA</span>
+  <h3>用 kind / minikube 模擬多 node + HPA + PDB + graceful shutdown</h3>
+
+  <div class="lab-step">
+    <h5>步驟 1 · 起 multi-node kind cluster</h5>
+    <div class="code-block">
+      <span class="lang">yaml</span>
+      <button class="copy-btn">複製</button>
+<pre><code># kind-config.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+- role: worker
+- role: worker
+- role: worker</code></pre>
+    </div>
+
+    <div class="code-block">
+      <span class="lang">bash</span>
+      <button class="copy-btn">複製</button>
+<pre><code>kind create cluster --config kind-config.yaml
+kubectl get nodes</code></pre>
+    </div>
+  </div>
+
+  <div class="lab-step">
+    <h5>步驟 2 · 安裝 SpinKube + KWasm</h5>
+    <div class="code-block">
+      <span class="lang">bash</span>
+      <button class="copy-btn">複製</button>
+<pre><code># 在每個 node 安裝 spin shim
+helm repo add kwasm http://kwasm.sh/kwasm-operator/
+helm install -n kwasm-operator --create-namespace kwasm-operator kwasm/kwasm-operator
+
+kubectl annotate node --all kwasm.sh/kwasm-node=true
+
+# 安裝 SpinKube
+kubectl apply -f \
+  https://github.com/spinkube/spin-operator/releases/latest/download/spin-operator.runtime-class.yaml
+kubectl apply -f \
+  https://github.com/spinkube/spin-operator/releases/latest/download/spin-operator.shim-executor.yaml
+
+helm install spin-operator \
+  --namespace spin-operator \
+  --create-namespace \
+  oci://ghcr.io/spinkube/charts/spin-operator</code></pre>
+    </div>
+  </div>
+
+  <div class="lab-step">
+    <h5>步驟 3 · 部署 HA 配置</h5>
+    <div class="code-block">
+      <span class="lang">yaml</span>
+      <button class="copy-btn">複製</button>
+<pre><code># ha-app.yaml
+apiVersion: core.spinkube.dev/v1alpha1
+kind: SpinApp
+metadata:
+  name: visitor-counter
+spec:
+  image: "ghcr.io/me/visitor-counter:1.0.0"
+  replicas: 6
+  executor:
+    name: containerd-shim-spin
+
+  podAffinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - {key: app, operator: In, values: [visitor-counter]}
+          topologyKey: kubernetes.io/hostname
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: visitor-counter
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: visitor-counter
+  minReplicas: 3
+  maxReplicas: 30
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 60
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: visitor-counter
+spec:
+  minAvailable: 3
+  selector:
+    matchLabels:
+      app: visitor-counter</code></pre>
+    </div>
+
+    <div class="code-block">
+      <span class="lang">bash</span>
+      <button class="copy-btn">複製</button>
+<pre><code>kubectl apply -f ha-app.yaml
+kubectl get spinapp,deploy,pods,hpa,pdb -l app=visitor-counter
+kubectl get pods -o wide  # 觀察分散在不同 node</code></pre>
+    </div>
+  </div>
+
+  <div class="lab-step">
+    <h5>步驟 4 · 壓測觀察擴縮</h5>
+    <div class="code-block">
+      <span class="lang">bash</span>
+      <button class="copy-btn">複製</button>
+<pre><code># 壓測 60 秒
+kubectl run -i --tty load --image=williamyeh/hey --rm \
+    -- -z 60s -c 100 http://visitor-counter/
+
+# 觀察 HPA 擴 pod 數
+watch kubectl get hpa,pods -l app=visitor-counter</code></pre>
+    </div>
+  </div>
+
+  <div class="lab-step">
+    <h5>步驟 5 · 模擬節點故障</h5>
+    <div class="code-block">
+      <span class="lang">bash</span>
+      <button class="copy-btn">複製</button>
+<pre><code># 把一個 node drain
+kubectl drain wasm-handbook-worker --ignore-daemonsets
+
+# 觀察 Pod 重新排程到其他 node
+watch kubectl get pods -o wide -l app=visitor-counter
+
+# PDB 保護下，最少 3 個 pod 仍 available
+# 完成後 uncordon
+kubectl uncordon wasm-handbook-worker</code></pre>
+    </div>
+  </div>
+
+  <div class="lab-step">
+    <h5>挑戰</h5>
+    <ol>
+      <li>加入 chaos engineering（用 Chaos Mesh 隨機 kill pod），驗證自動恢復。</li>
+      <li>把 KV 從 in-memory 換成 Redis Cluster，跨 pod 共享狀態。</li>
+      <li>部署到兩個獨立 cluster，用 Cloudflare 做 anycast，模擬跨 region 部署。</li>
+      <li>實作 canary deployment：先 5% 流量到 v2，觀察 metric 後逐步擴大。</li>
+    </ol>
+  </div>
+</div>
+
+<h2 class="section" id="quiz"><span class="num">QUIZ</span>章末自我評估</h2>
+
+<div class="quiz">
+  <h4>Module 10 · 10 題自我測驗</h4>
+
+  <div class="quiz-item">
+    <div class="quiz-q"><span class="qnum">Q1.</span>Wasm HA 設計的核心原則是？</div>
+    <ul class="quiz-options">
+      <li data-opt="A">儘量保留 instance 狀態</li>
+      <li data-opt="B">Wasm instance 設計為 stateless、idempotent、cheap to create，狀態外置</li>
+      <li data-opt="C">用 sticky session 保證同 client 連同 instance</li>
+      <li data-opt="D">每 node 跑越少 instance 越好</li>
+    </ul>
+    <details class="answer">
+      <summary>看解答</summary>
+      <div class="answer-body">
+        <strong class="label">答案 · B</strong>
+        Wasm HA 與 12-factor 一脈相承——stateless、idempotent、可隨時 reschedule。Wasm 把這個原則推到極致：instance 銷毀重建是常態。
+      </div>
+    </details>
+  </div>
+
+  <div class="quiz-item">
+    <div class="quiz-q"><span class="qnum">Q2.</span>用 consistent hashing 而非 round-robin LB 的好處是？</div>
+    <ul class="quiz-options">
+      <li data-opt="A">效能更高</li>
+      <li data-opt="B">同 Wasm app 的請求黏在同 node，AOT cache 命中率高</li>
+      <li data-opt="C">負載更均勻</li>
+      <li data-opt="D">支援更多 client</li>
+    </ul>
+    <details class="answer">
+      <summary>看解答</summary>
+      <div class="answer-body">
+        <strong class="label">答案 · B</strong>
+        Wasm runtime 有 module compile cache，consistent hashing 讓同 app 請求黏在同 node，避免每個 node 都要重編譯。
+      </div>
+    </details>
+  </div>
+
+  <div class="quiz-item">
+    <div class="quiz-q"><span class="qnum">Q3.</span>下列關於「instance pool reuse」，何者正確？</div>
+    <ul class="quiz-options">
+      <li data-opt="A">完全無風險</li>
+      <li data-opt="B">效能高，但要處理「上次請求遺留狀態洩漏」問題</li>
+      <li data-opt="C">比 per-request instance 更安全</li>
+      <li data-opt="D">會增加冷啟動時間</li>
+    </ul>
+    <details class="answer">
+      <summary>看解答</summary>
+      <div class="answer-body">
+        <strong class="label">答案 · B</strong>
+        Reuse 省了 instantiate cost，但要處理狀態污染：上次留下的 global、static、heap 可能洩漏到下次。處理方式包括 reset 函式、定期銷毀、用 component 替代 module。
+      </div>
+    </details>
+  </div>
+
+  <div class="quiz-item">
+    <div class="quiz-q"><span class="qnum">Q4.</span>AOT 編譯（wasmtime compile）的好處是？</div>
+    <ul class="quiz-options">
+      <li data-opt="A">減少 binary 大小</li>
+      <li data-opt="B">把 JIT 編譯成本搬到部署前，啟動時直接 load 原生碼</li>
+      <li data-opt="C">提高執行效能</li>
+      <li data-opt="D">取代 Wasm runtime</li>
+    </ul>
+    <details class="answer">
+      <summary>看解答</summary>
+      <div class="answer-body">
+        <strong class="label">答案 · B</strong>
+        AOT 在 CI/CD 預先編譯成 .cwasm，省 runtime JIT 階段。代價是 .cwasm 跟 CPU 架構 + runtime 版本綁定。
+      </div>
+    </details>
+  </div>
+
+  <div class="quiz-item">
+    <div class="quiz-q"><span class="qnum">Q5.</span>Wasm host 的「兩層健康檢查」分別檢查什麼？</div>
+    <ul class="quiz-options">
+      <li data-opt="A">CPU 與記憶體</li>
+      <li data-opt="B">Liveness（host process 還活著）+ Readiness（Wasm pool 可用、能 invoke noop）</li>
+      <li data-opt="C">入站與出站</li>
+      <li data-opt="D">同步與非同步</li>
+    </ul>
+    <details class="answer">
+      <summary>看解答</summary>
+      <div class="answer-body">
+        <strong class="label">答案 · B</strong>
+        Wasm 多一層應用級檢查——光是 host process 活著還不夠，要確認 runtime 能成功 invoke。
+      </div>
+    </details>
+  </div>
+
+  <div class="quiz-item">
+    <div class="quiz-q"><span class="qnum">Q6.</span>Wasm instance OOM 的影響是？</div>
+    <ul class="quiz-options">
+      <li data-opt="A">整個 host process crash</li>
+      <li data-opt="B">該 instance trap，host process 繼續服務其他 instance 的請求</li>
+      <li data-opt="C">整個 node 重啟</li>
+      <li data-opt="D">資料庫斷線</li>
+    </ul>
+    <details class="answer">
+      <summary>看解答</summary>
+      <div class="answer-body">
+        <strong class="label">答案 · B</strong>
+        Wasm 沙箱保證 instance 故障不影響 host——這正是 Wasm 故障半徑小的根本。OOM 的 instance trap，host 紀錄、回 503，丟棄該 instance。
+      </div>
+    </details>
+  </div>
+
+  <div class="quiz-item">
+    <div class="quiz-q"><span class="qnum">Q7.</span>Graceful shutdown 的正確順序是？</div>
+    <ul class="quiz-options">
+      <li data-opt="A">直接 exit</li>
+      <li data-opt="B">readiness 變 false → 等 LB 排除 → 等 active request 完成 → 關閉 pool → exit</li>
+      <li data-opt="C">先 kill 所有 instance 再退出</li>
+      <li data-opt="D">關閉 HTTP server → exit</li>
+    </ul>
+    <details class="answer">
+      <summary>看解答</summary>
+      <div class="answer-body">
+        <strong class="label">答案 · B</strong>
+        關鍵：先讓 LB 知道「我要下線」（readiness false），等流量切走，再處理進行中請求，最後清理資源。
+      </div>
+    </details>
+  </div>
+
+  <div class="quiz-item">
+    <div class="quiz-q"><span class="qnum">Q8.</span>Wasm 相對於容器的「實例密度」典型差異？</div>
+    <ul class="quiz-options">
+      <li data-opt="A">差不多</li>
+      <li data-opt="B">容器較高</li>
+      <li data-opt="C">Wasm 可達容器的 10-100 倍</li>
+      <li data-opt="D">取決於語言</li>
+    </ul>
+    <details class="answer">
+      <summary>看解答</summary>
+      <div class="answer-body">
+        <strong class="label">答案 · C</strong>
+        Fermyon 公開測試證實這個量級差距。Wasm 無 OS userspace、記憶體 baseline KB 級，單 node 跑 1000-10000 instance 可行。
+      </div>
+    </details>
+  </div>
+
+  <div class="quiz-item">
+    <div class="quiz-q"><span class="qnum">Q9.</span>跨區資料同步建議的選擇是？</div>
+    <ul class="quiz-options">
+      <li data-opt="A">手動 rsync 檔案</li>
+      <li data-opt="B">CockroachDB / Spanner / DynamoDB Global Tables 等原生分散式 DB</li>
+      <li data-opt="C">用單一 SQLite 檔</li>
+      <li data-opt="D">每個 region 用獨立 DB，不同步</li>
+    </ul>
+    <details class="answer">
+      <summary>看解答</summary>
+      <div class="answer-body">
+        <strong class="label">答案 · B</strong>
+        跨區 active-active 需要原生分散式 DB。CockroachDB、Spanner、DynamoDB Global Tables 都是常見選擇，提供強一致或最終一致保證。
+      </div>
+    </details>
+  </div>
+
+  <div class="quiz-item">
+    <div class="quiz-q"><span class="qnum">Q10.</span>下列何者是「Wasm scale-to-zero 真正可用」的根本原因？</div>
+    <ul class="quiz-options">
+      <li data-opt="A">Wasm 比較便宜</li>
+      <li data-opt="B">µs 級冷啟動讓「從零起步」幾乎無感，不需 keep-warm</li>
+      <li data-opt="C">K8s 自動處理</li>
+      <li data-opt="D">runtime 自動快取</li>
+    </ul>
+    <details class="answer">
+      <summary>看解答</summary>
+      <div class="answer-body">
+        <strong class="label">答案 · B</strong>
+        傳統 serverless 為避免數百毫秒冷啟動，必須 keep-warm（無流量也有最低成本）。Wasm 冷啟動 µs 級，scale-to-zero 真的可以「零成本」，長尾流量場景特別有意義。
+      </div>
+    </details>
+  </div>
+</div>
+
+<h2 class="section" id="summary"><span class="num">SUMMARY</span>章節總結</h2>
+
+<p>本章完成 Wasm HA 設計的全景。你現在應該能：</p>
+
+<ul>
+  <li>設計多副本、跨 node、跨區的 Wasm 叢集架構，含 LB、實例池、AOT cache。</li>
+  <li>用 Wasmtime PoolingAllocator 或自寫 instance pool 提升 throughput。</li>
+  <li>實作 K8s 兩層 health check（liveness + readiness），含應用級 noop invoke 驗證。</li>
+  <li>處理 OOM、fuel exhaustion、circuit breaker、graceful shutdown 等失敗模式。</li>
+  <li>規劃 active-active 多區部署與狀態同步（CockroachDB、Redis Cluster、S3）。</li>
+  <li>了解 Wasm HA 相對容器 HA 的真實效益：密度 100 倍、故障半徑微秒級、scale-to-zero 無懲罰。</li>
+</ul>
+
+<p>批次 5 結束。下一批是<strong>最後一批</strong>——Capstone Project 整合練習與 Glossary 中英對照詞彙表，完成整個 handbook。</p>
+
+<nav class="footer-nav">
+  <a class="prev" href="m09-observability.html">
+    <span class="nav-direction">← 上一章</span>
+    <span class="nav-title">M09 · 可觀測性建構</span>
+  </a>
+  <a class="next" href="capstone.html">
+    <span class="nav-direction">期末實作 →</span>
+    <span class="nav-title">Capstone Project</span>
+  </a>
+</nav>
+
+<footer class="footer">
+  Module 10 · WebAssembly Handbook · 2026
+</footer>
+
+</main>
+
+<script>
+/* ============================================================
+   Wasm Handbook · Shared Runtime
+   - Theme toggle (data-theme on <html>)
+   - Copy-to-clipboard for code blocks (with fallback)
+   - Mermaid init + re-render on theme change
+   - No external highlight.js dependency
+   ============================================================ */
+(function () {
+  'use strict';
+
+  // -------------- Theme Toggle --------------
+  const STORAGE_KEY = 'wasm-handbook-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+
+  function getStored() {
+    try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; }
+  }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function cycle(current) {
+    return current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light';
+  }
+
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('handbook:theme-changed', {
+      detail: { theme: eff, mode }
+    }));
+  }
+
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', 'Theme: ' + LABELS[mode] + ' (click to change)');
+      btn.title = 'Theme: ' + LABELS[mode];
+      btn.innerHTML =
+        '<span class="theme-icon">' + ICONS[mode] + '</span>' +
+        '<span class="theme-label">' + LABELS[mode] + '</span>';
+    });
+  }
+
+  function initTheme() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => {
+      if (getCurrentMode() === 'system') applyTheme('system');
+    });
+  }
+
+  // -------------- Copy Buttons --------------
+  function fallbackCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (_) {}
+    document.body.removeChild(ta);
+  }
+
+  function initCopyButtons() {
+    document.querySelectorAll('.copy-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const codeEl = btn.closest('.code-block').querySelector('code');
+        if (!codeEl) return;
+        const text = codeEl.textContent;
+
+        const showSuccess = () => {
+          const original = btn.dataset.original || btn.textContent;
+          btn.dataset.original = original;
+          btn.textContent = '已複製 ✓';
+          btn.classList.add('copied');
+          setTimeout(() => {
+            btn.textContent = original;
+            btn.classList.remove('copied');
+          }, 1800);
+        };
+
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(text).then(showSuccess).catch(() => {
+            fallbackCopy(text);
+            showSuccess();
+          });
+        } else {
+          fallbackCopy(text);
+          showSuccess();
+        }
+      });
+    });
+  }
+
+  // -------------- Mermaid --------------
+  function getMermaidTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default';
+  }
+
+  function initMermaid() {
+    if (typeof mermaid === 'undefined') {
+      console.warn('Mermaid library not loaded — diagrams will appear as text.');
+      return;
+    }
+    document.querySelectorAll('pre.mermaid').forEach((el) => {
+      if (!el.dataset.original) el.dataset.original = el.textContent;
+    });
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: getMermaidTheme(),
+      themeVariables: {
+        fontFamily: '"JetBrains Mono", monospace',
+        fontSize: '13px'
+      },
+      flowchart: { htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true },
+      mindmap: { padding: 16 }
+    });
+    try { mermaid.run({ querySelector: 'pre.mermaid' }); } catch (_) {}
+  }
+
+  function rerunMermaid() {
+    if (typeof mermaid === 'undefined') return;
+    document.querySelectorAll('pre.mermaid').forEach((el) => {
+      el.removeAttribute('data-processed');
+      if (el.dataset.original) el.innerHTML = el.dataset.original;
+    });
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: getMermaidTheme(),
+      themeVariables: {
+        fontFamily: '"JetBrains Mono", monospace',
+        fontSize: '13px'
+      },
+      flowchart: { htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true },
+      mindmap: { padding: 16 }
+    });
+    try { mermaid.run({ querySelector: 'pre.mermaid' }); } catch (_) {}
+  }
+
+  // -------------- Init --------------
+  function init() {
+    initTheme();
+    initCopyButtons();
+    initMermaid();
+    window.addEventListener('handbook:theme-changed', rerunMermaid);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+  // expose minimal API
+  window.WasmHandbook = {
+    getTheme: getCurrentMode,
+    setTheme: (m) => { setStored(m); applyTheme(m); },
+    toggleTheme: () => {
+      const next = cycle(getCurrentMode());
+      setStored(next);
+      applyTheme(next);
+    }
+  };
+})();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cilium 教學手冊 第七部｜可觀測性</title>
+
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger:  #dc2626; --color-danger-soft:  #fee2e2;
+  --color-info:    #0891b2; --color-info-soft:    #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+  --font-mono:  "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:  "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs:12px; --text-sm:14px; --text-base:16px; --text-md:18px;
+  --text-lg:20px; --text-xl:24px; --text-2xl:32px; --text-3xl:44px; --text-4xl:64px;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px;
+  --space-5:24px; --space-6:32px; --space-7:48px; --space-8:64px; --space-9:96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm:4px; --radius-md:8px; --radius-lg:12px; --radius-xl:16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success:#4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning:#fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft:  oklch(0.32 0.10 27);
+  --color-info:   #22d3ee; --color-info-soft:    oklch(0.32 0.08 200);
+  --color-neutral-accent:#a78bfa;
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas:  oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted:   oklch(0.23 0.010 50);
+  --bg-code:    oklch(0.18 0.009 50);
+  --border-soft:oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary:  oklch(0.93 0.005 60);
+  --text-secondary:oklch(0.74 0.006 60);
+  --text-muted:    oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+</style>
+
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font-serif-body); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.layout { display: grid; grid-template-columns: 280px 1fr; max-width: var(--container-wide); margin: 0 auto; gap: var(--space-7); padding: var(--space-5); }
+@media (max-width: 960px) { .layout { grid-template-columns: 1fr; padding: var(--space-4); } .toc { position: static !important; max-height: none !important; } }
+.toc { position: sticky; top: var(--space-5); max-height: calc(100vh - var(--space-7)); overflow-y: auto; font-family: var(--font-sans); font-size: var(--text-sm); padding-right: var(--space-3); border-right: 1px solid var(--border-soft); }
+.toc h3 { font-family: var(--font-sans); font-size: var(--text-sm); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin: 0 0 var(--space-3); }
+.toc ol { list-style: none; padding: 0; margin: 0; }
+.toc ol ol { padding-left: var(--space-4); margin-top: var(--space-1); }
+.toc li { margin: var(--space-1) 0; }
+.toc a { color: var(--text-secondary); text-decoration: none; display: block; padding: 2px 0; }
+.toc a:hover { color: var(--color-primary); }
+main { min-width: 0; }
+header.hero { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); margin-bottom: var(--space-7); }
+.eyebrow { font-family: var(--font-sans); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.15em; color: var(--color-primary-text); margin-bottom: var(--space-3); }
+h1 { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 700; line-height: 1.15; margin: 0 0 var(--space-4); }
+.lead { font-size: var(--text-md); color: var(--text-secondary); max-width: 60ch; margin: 0; }
+.meta { display: flex; flex-wrap: wrap; gap: var(--space-4); margin-top: var(--space-5); font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-muted); }
+.meta strong { color: var(--text-secondary); }
+h2 { font-family: var(--font-serif); font-size: var(--text-2xl); margin-top: var(--space-8); margin-bottom: var(--space-4); padding-bottom: var(--space-2); border-bottom: 2px solid var(--color-primary-soft); scroll-margin-top: var(--space-5); }
+h3 { font-family: var(--font-serif); font-size: var(--text-xl); margin-top: var(--space-6); margin-bottom: var(--space-3); scroll-margin-top: var(--space-5); }
+h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 600; margin-top: var(--space-5); margin-bottom: var(--space-2); color: var(--color-primary-text); }
+p { margin: 0 0 var(--space-4); }
+strong { color: var(--text-primary); font-weight: 600; }
+code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 2px 6px; border-radius: var(--radius-sm); border: 1px solid var(--border-soft); }
+a { color: var(--color-primary); }
+ul, ol { padding-left: var(--space-5); margin: 0 0 var(--space-4); }
+li { margin-bottom: var(--space-2); }
+.callout { border-left: 4px solid var(--color-info); background: var(--color-info-soft); padding: var(--space-4) var(--space-5); border-radius: var(--radius-md); margin: var(--space-5) 0; }
+.callout.warn { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.danger { border-color: var(--color-danger); background: var(--color-danger-soft); }
+.callout.ok { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout-title { font-family: var(--font-sans); font-weight: 600; margin-bottom: var(--space-2); font-size: var(--text-sm); text-transform: uppercase; letter-spacing: 0.05em; }
+.code-block { position: relative; margin: var(--space-4) 0; border-radius: var(--radius-md); border: 1px solid var(--border-soft); background: var(--bg-code); overflow: hidden; }
+.code-header { display: flex; align-items: center; justify-content: space-between; padding: var(--space-2) var(--space-4); background: var(--bg-muted); border-bottom: 1px solid var(--border-soft); font-family: var(--font-sans); font-size: var(--text-xs); color: var(--text-muted); }
+.code-lang { text-transform: uppercase; letter-spacing: 0.08em; }
+.copy-btn { background: transparent; border: 1px solid var(--border-mid); color: var(--text-secondary); padding: 2px var(--space-2); border-radius: var(--radius-sm); cursor: pointer; font-family: var(--font-sans); font-size: var(--text-xs); transition: all 0.15s ease; }
+.copy-btn:hover { color: var(--color-primary); border-color: var(--color-primary); }
+.copy-btn.copied { color: var(--color-success); border-color: var(--color-success); }
+pre { margin: 0; padding: var(--space-4); overflow-x: auto; font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.6; }
+pre code { background: transparent; border: none; padding: 0; }
+table { width: 100%; border-collapse: collapse; margin: var(--space-4) 0; font-family: var(--font-sans); font-size: var(--text-sm); }
+th, td { text-align: left; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+th { background: var(--bg-muted); font-weight: 600; color: var(--text-primary); border-bottom: 2px solid var(--border-mid); }
+tbody tr:hover { background: var(--bg-muted); }
+[data-theme-toggle] { position: fixed; top: var(--space-4); right: var(--space-4); z-index: 100; display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); color: var(--text-primary); font-family: var(--font-sans); font-size: var(--text-sm); cursor: pointer; box-shadow: var(--shadow-sm); transition: all 0.2s ease; }
+[data-theme-toggle]:hover { border-color: var(--color-primary); color: var(--color-primary); box-shadow: var(--shadow-md); }
+.theme-icon { font-size: var(--text-md); line-height: 1; }
+.mermaid { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); margin: var(--space-5) 0; text-align: center; overflow-x: auto; }
+.metric-table th, .metric-table td { font-size: var(--text-xs); }
+.metric-table code { font-size: 11px; }
+footer.book-footer { margin-top: var(--space-8); padding: var(--space-6) 0; border-top: 1px solid var(--border-soft); font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-muted); display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3); }
+.kbd { display: inline-block; padding: 2px 6px; border: 1px solid var(--border-mid); border-bottom-width: 2px; border-radius: 4px; background: var(--bg-muted); font-family: var(--font-mono); font-size: 0.85em; }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => { const n = cycle(getCurrentMode()); setStored(n); applyTheme(n); });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window.JHsunTheme = { get: getCurrentMode, set: (m) => { setStored(m); applyTheme(m); }, toggle: () => { const n = cycle(getCurrentMode()); setStored(n); applyTheme(n); } };
+})();
+</script>
+</head>
+
+<body>
+<button data-theme-toggle aria-label="Toggle theme"></button>
+
+<div class="layout">
+
+  <aside class="toc">
+    <h3>本章目錄</h3>
+    <ol>
+      <li><a href="#sec-1">1. Hubble 概觀</a></li>
+      <li><a href="#sec-2">2. Hubble 啟用</a></li>
+      <li><a href="#sec-3">3. Hubble CLI 實戰</a>
+        <ol>
+          <li><a href="#sec-3-1">3.1 基本 observe</a></li>
+          <li><a href="#sec-3-2">3.2 進階 filter</a></li>
+          <li><a href="#sec-3-3">3.3 verdict 解讀</a></li>
+          <li><a href="#sec-3-4">3.4 輸出格式</a></li>
+        </ol>
+      </li>
+      <li><a href="#sec-4">4. Hubble UI</a></li>
+      <li><a href="#sec-5">5. Hubble Exporter</a></li>
+      <li><a href="#sec-6">6. Prometheus &amp; Grafana</a>
+        <ol>
+          <li><a href="#sec-6-1">6.1 啟用 metrics</a></li>
+          <li><a href="#sec-6-2">6.2 Hubble metrics 套件</a></li>
+          <li><a href="#sec-6-3">6.3 ServiceMonitor</a></li>
+          <li><a href="#sec-6-4">6.4 高基數陷阱</a></li>
+        </ol>
+      </li>
+      <li><a href="#sec-7">7. Metrics 速查</a></li>
+      <li><a href="#sec-8">8. L7 Protocol 可視性</a></li>
+      <li><a href="#sec-9">9. IP 封包追蹤</a></li>
+      <li><a href="#sec-10">10. 故障排除</a></li>
+      <li><a href="#sec-11">11. 本章重點回顧</a></li>
+    </ol>
+  </aside>
+
+  <main>
+
+  <header class="hero">
+    <div class="eyebrow">Cilium 教學手冊 · Part 7 / 14</div>
+    <h1>可觀測性</h1>
+    <p class="lead">沒有 Hubble 等於閉著眼睛開飛機。本章把 Hubble CLI、UI、Exporter、Prometheus / Grafana metrics、L7 protocol visibility、IP 封包追蹤一次講透，讓你看得到 cluster 內每一個 flow 的 identity、verdict、L7 內容，並把這些資料串到既有 SRE 工具鏈。</p>
+    <div class="meta">
+      <span><strong>對應官方文件：</strong>Observability 全章</span>
+      <span><strong>Cilium 版本：</strong>1.19.x</span>
+      <span><strong>主要對象：</strong>SRE / DevOps / 應用開發者</span>
+    </div>
+  </header>
+
+  <!-- ============================================================
+       Section 1
+       ============================================================ -->
+  <section id="sec-1">
+  <h2>1. Hubble 概觀</h2>
+
+  <p>第一部介紹過 Hubble 的三件式架構，這裡再強化重點，加上資料流：</p>
+
+  <div class="mermaid">
+graph TB
+    subgraph Node1["Node 1"]
+        BPF1[eBPF datapath] -->|kernel ring buffer| H1["Hubble<br/>(in cilium-agent)"]
+    end
+    subgraph Node2["Node 2"]
+        BPF2[eBPF datapath] -->|kernel ring buffer| H2["Hubble<br/>(in cilium-agent)"]
+    end
+    subgraph NodeN["Node N"]
+        BPFN[eBPF datapath] -->|kernel ring buffer| HN["Hubble<br/>(in cilium-agent)"]
+    end
+
+    H1 -->|gRPC| R[Hubble Relay<br/>Deployment]
+    H2 -->|gRPC| R
+    HN -->|gRPC| R
+
+    R --> UI[Hubble UI<br/>service map]
+    R --> CLI[hubble CLI<br/>flow query]
+    R --> EXP[Hubble Exporter<br/>file / fluentd / etc]
+    R --> PROM[Prometheus<br/>via hubble_ metrics]
+
+    classDef bpf fill:#fef3c7,stroke:#d97706
+    classDef hub fill:#cffafe,stroke:#0891b2
+    classDef ctrl fill:#dcfce7,stroke:#16a34a
+    classDef out fill:#e9d5ff,stroke:#7c3aed
+    class BPF1,BPF2,BPFN bpf
+    class H1,H2,HN hub
+    class R ctrl
+    class UI,CLI,EXP,PROM out
+  </div>
+
+  <p>關鍵性質：</p>
+  <ul>
+    <li><strong>無 sidecar、零應用改動</strong>：資料來自 eBPF datapath（pod 不知不覺）</li>
+    <li><strong>K8s 識別</strong>：每個 flow 都帶 namespace、pod name、label、service name</li>
+    <li><strong>L3/L4/L7</strong>：HTTP method/path、DNS query name、gRPC service/method 都看得到</li>
+    <li><strong>Policy verdict</strong>：被誰擋的、為什麼擋（這個 traditional tcpdump 看不到）</li>
+    <li><strong>Ring buffer 容量有限</strong>：預設每 node 約 4095 個最近 flow，過了就 evict（要持久化需 Exporter）</li>
+  </ul>
+
+  </section>
+
+  <!-- ============================================================
+       Section 2
+       ============================================================ -->
+  <section id="sec-2">
+  <h2>2. Hubble 啟用</h2>
+
+  <p>大部分情境用 cilium CLI 一鍵搞定。生產建議直接走 Helm + values，方便版控：</p>
+
+  <h4>方式 A：cilium CLI（最快）</h4>
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code>cilium hubble enable --ui
+
+cilium status | grep -i hubble
+# 預期:
+# Hubble Relay:       OK
+# Hubble UI:          OK</code></pre>
+  </div>
+
+  <h4>方式 B：Helm（生產建議）</h4>
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">yaml</span><button class="copy-btn">複製</button></div>
+<pre><code># cilium-values.yaml (節錄)
+hubble:
+  enabled: true                         # 每 node agent 啟用 Hubble
+  relay:
+    enabled: true
+    replicas: 2                         # 生產建議 ≥ 2
+  ui:
+    enabled: true
+  metrics:
+    enableOpenMetrics: true             # 推薦：OpenMetrics format with exemplars
+    enabled:                            # 預設啟用的 metric 集
+      - dns:query;ignoreAAAA
+      - drop
+      - tcp
+      - flow
+      - port-distribution
+      - icmp
+      - httpV2:exemplars=true;labelsContext=source_ip,source_namespace,source_workload,destination_ip,destination_namespace,destination_workload,traffic_direction
+    serviceMonitor:
+      enabled: true                     # Prometheus Operator 環境必開
+  tls:
+    auto:
+      enabled: true                     # 自動產生 TLS 憑證
+      method: helm                      # 用 helm hook 產證</code></pre>
+  </div>
+
+  <h4>安裝 Hubble CLI（本機）</h4>
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code>HUBBLE_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/hubble/master/stable.txt)
+HUBBLE_ARCH=amd64
+[ "$(uname -m)" = "aarch64" ] && HUBBLE_ARCH=arm64
+curl -L --fail --remote-name-all \
+  "https://github.com/cilium/hubble/releases/download/${HUBBLE_VERSION}/hubble-linux-${HUBBLE_ARCH}.tar.gz"{,.sha256sum}
+sha256sum --check hubble-linux-${HUBBLE_ARCH}.tar.gz.sha256sum
+sudo tar xzvfC hubble-linux-${HUBBLE_ARCH}.tar.gz /usr/local/bin
+rm hubble-linux-${HUBBLE_ARCH}.tar.gz{,.sha256sum}
+
+# 透過 port-forward 連上 Relay
+cilium hubble port-forward&
+
+# 驗證
+hubble status
+# Healthcheck (via localhost:4245): Ok
+# Current/Max Flows: 4095/4095 (100.00%)
+# Flows/s: 4.50
+# Connected Nodes: 3/3</code></pre>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 3 — CLI 實戰
+       ============================================================ -->
+  <section id="sec-3">
+  <h2>3. Hubble CLI 流量檢視實戰</h2>
+
+  <h3 id="sec-3-1">3.1 基本 observe</h3>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 看最近 20 個 flow
+hubble observe --last 20
+
+# 持續 follow（tail -f 風格）
+hubble observe --follow
+
+# 看特定 pod 的流量
+hubble observe --pod default/myapp-7f6cd
+
+# 看特定 namespace
+hubble observe --namespace production
+
+# 看 deployment
+hubble observe --label app=billing</code></pre>
+  </div>
+
+  <p>輸出範例：</p>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">output</span><button class="copy-btn">複製</button></div>
+<pre><code>TIMESTAMP             SOURCE                          DESTINATION                     TYPE          VERDICT     SUMMARY
+Apr 12 09:21:33.881   default/frontend-abc:43210      default/backend-xyz:8080        http-request  FORWARDED   HTTP/1.1 GET /api/users
+Apr 12 09:21:33.882   default/backend-xyz:8080        default/frontend-abc:43210      http-response FORWARDED   HTTP/1.1 200 1ms (GET /api/users)
+Apr 12 09:21:34.105   default/cron-job-x:0            kube-system/kube-dns:53         dns-request   FORWARDED   DNS Query api.example.com A
+Apr 12 09:21:34.110   kube-system/kube-dns:53         default/cron-job-x:0            dns-response  FORWARDED   DNS Answer api.example.com 1.2.3.4
+Apr 12 09:21:34.500   default/xwing-99:54321          default/deathstar-77:80         Policy denied DROPPED     TCP Flags: SYN</code></pre>
+  </div>
+
+  <h3 id="sec-3-2">3.2 進階 filter</h3>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 只看 dropped flow
+hubble observe --verdict DROPPED
+
+# 只看特定協定
+hubble observe --protocol tcp
+hubble observe --protocol udp
+hubble observe --protocol icmp
+
+# 只看 HTTP（L7）
+hubble observe --type l7
+
+# 只看 DNS
+hubble observe --type l7 --protocol dns
+
+# 來源-目的對
+hubble observe \
+  --from-namespace production \
+  --to-namespace database \
+  --port 5432
+
+# 過濾 HTTP method / path
+hubble observe --http-method POST
+hubble observe --http-path "/api/v1/admin/.*"
+
+# 只看 ingress 方向
+hubble observe --traffic-direction ingress
+
+# 只看 egress
+hubble observe --traffic-direction egress
+
+# Hubble 1.18+：依加密狀態過濾
+hubble observe --encrypted
+hubble observe --unencrypted
+
+# 看特定 identity (找 attacker / 受害者很實用)
+hubble observe --identity 12345</code></pre>
+  </div>
+
+  <h3 id="sec-3-3">3.3 verdict 解讀</h3>
+
+  <p>Hubble verdict 是排查 policy 的關鍵欄位。完整對照：</p>
+
+  <table>
+    <thead>
+      <tr><th>Verdict</th><th>意義</th><th>排查方向</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>FORWARDED</code></td>
+        <td>正常通過</td>
+        <td>無需處理</td>
+      </tr>
+      <tr>
+        <td><code>DROPPED</code></td>
+        <td>被 drop（看 reason）</td>
+        <td>看 reason 進一步處理</td>
+      </tr>
+      <tr>
+        <td><code>ERROR</code></td>
+        <td>datapath 異常（罕見）</td>
+        <td>看 cilium-agent log</td>
+      </tr>
+      <tr>
+        <td><code>AUDIT</code></td>
+        <td>policy audit mode（記錄但不執行）</td>
+        <td>policy 試行階段</td>
+      </tr>
+      <tr>
+        <td><code>REDIRECTED</code></td>
+        <td>導去 L7 proxy（Envoy）</td>
+        <td>L7 policy 介入中</td>
+      </tr>
+      <tr>
+        <td><code>TRACED</code></td>
+        <td>Trace event</td>
+        <td>診斷模式</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>當 verdict 是 <code>DROPPED</code>，附帶的 reason 才是真正答案：</p>
+
+  <table>
+    <thead><tr><th>Drop Reason</th><th>典型原因</th></tr></thead>
+    <tbody>
+      <tr><td><code>Policy denied</code></td><td>L3/L4 policy 擋下，最常見</td></tr>
+      <tr><td><code>Stale or unroutable IP</code></td><td>目的 pod 已被刪除</td></tr>
+      <tr><td><code>CT: Map insertion failed</code></td><td>conntrack table 滿（大 cluster 需調整）</td></tr>
+      <tr><td><code>Invalid source IP</code></td><td>spoofing 或 misconfig</td></tr>
+      <tr><td><code>Unsupported L3 protocol</code></td><td>IPv6 沒啟用卻收到 IPv6 封包</td></tr>
+      <tr><td><code>Authentication required</code></td><td>mTLS 失敗</td></tr>
+      <tr><td><code>Service backend not found</code></td><td>Service 存在但 endpoints 為空</td></tr>
+    </tbody>
+  </table>
+
+  <h3 id="sec-3-4">3.4 輸出格式（自動化）</h3>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># JSON Lines (適合 grep / jq)
+hubble observe --output json --last 100 | jq 'select(.verdict=="DROPPED")'
+
+# JSON Protobuf (Hubble 原生格式，給工具吃)
+hubble observe --output jsonpb --last 1000 > flows.jsonl
+
+# 簡潔表格
+hubble observe --output compact
+
+# 含 latency 的詳細表格
+hubble observe --output dict --print-raw-filters</code></pre>
+  </div>
+
+  <p>實用 one-liners：</p>
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 列出最常被擋的 src → dst pair
+hubble observe --verdict DROPPED --last 5000 --output json | \
+  jq -r '"\(.source.namespace)/\(.source.pod_name) -> \(.destination.namespace)/\(.destination.pod_name)"' | \
+  sort | uniq -c | sort -rn | head
+
+# 計算 HTTP 4xx / 5xx 比例
+hubble observe --http-status "[45].." --last 5000 --output json | \
+  jq -r '.l7.http.code' | sort | uniq -c
+
+# 列出 DNS 解析最多的域名
+hubble observe --type l7 --protocol dns --last 5000 --output json | \
+  jq -r '.l7.dns.query' | sort | uniq -c | sort -rn | head</code></pre>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 4
+       ============================================================ -->
+  <section id="sec-4">
+  <h2>4. Hubble UI（Service Map）</h2>
+
+  <p>Hubble UI 提供互動式 service map：哪些 pod 跟哪些 pod 講話、走什麼 port / protocol、是否被 deny。對 onboarding 與 incident 時很直覺。</p>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 開 UI
+cilium hubble ui
+# 自動打開瀏覽器，預設 http://localhost:12000
+
+# 或手動 port-forward
+kubectl -n kube-system port-forward svc/hubble-ui 12000:80</code></pre>
+  </div>
+
+  <h4>UI 重點用法</h4>
+
+  <ul>
+    <li><strong>左上 namespace 下拉</strong>：切換要看的 namespace</li>
+    <li><strong>節點之間箭頭</strong>：粗細代表 traffic 量；<strong>紅色代表 drop</strong></li>
+    <li>點箭頭 → 看具體 flow（含 HTTP method/path）</li>
+    <li>右上「<strong>Show Filters</strong>」可即時加 verdict / port / pod 過濾</li>
+    <li>有「<strong>Forwarded only</strong>」「<strong>Dropped only</strong>」快速切換</li>
+    <li><strong>Save filter as URL</strong>：存常用 view 給 team 用</li>
+  </ul>
+
+  <div class="callout">
+    <div class="callout-title">💡 onboarding / incident review 利器</div>
+    <p style="margin:0">新人 onboard 不確定 service 之間關係 → Hubble UI 看一眼就懂。Incident 後復盤想知道「攻擊路徑」→ Hubble UI 直接看 drop 與 forward 軌跡。</p>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 5 — Hubble Exporter
+       ============================================================ -->
+  <section id="sec-5">
+  <h2>5. Hubble Exporter（持久化 flow log）</h2>
+
+  <p>Hubble 預設 flow 存在每 node 的 <strong>ring buffer</strong>（預設 4095 個），這對<strong>即時觀察</strong>足夠，但無法做歷史回溯或長期審計。要把 flow 持久化到外部，啟用 <strong>Hubble Exporter</strong>：把 flow 寫到 file / stdout，再讓 fluentd、Loki、SIEM 接走。</p>
+
+  <h4>啟用</h4>
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">yaml</span><button class="copy-btn">複製</button></div>
+<pre><code># Helm values
+hubble:
+  export:
+    static:
+      enabled: true
+      filePath: /var/run/cilium/hubble/events.log
+      fileMaxSizeMb: 100        # 單檔大小
+      fileMaxBackups: 5         # rotation 保留份數
+      # 過濾哪些事件要 export（可選）
+      allowList:
+        - '{"verdict":["DROPPED","ERROR"]}'
+        - '{"event_type":[{"type":1}]}'    # type 1 = L4 flow
+      fieldMask:
+        - source
+        - destination
+        - verdict
+        - traffic_direction</code></pre>
+  </div>
+
+  <h4>典型 pipeline：Hubble Exporter → Fluent Bit → Loki / Elasticsearch</h4>
+
+  <div class="mermaid">
+graph LR
+    BPF[eBPF datapath] --> HB[Hubble in agent]
+    HB --> EXP[Hubble Exporter<br/>file write]
+    EXP --> File[/var/run/cilium/hubble/<br/>events.log/]
+    File --> FB[Fluent Bit<br/>DaemonSet]
+    FB --> Loki[(Loki / ES)]
+    Loki --> Grafana[Grafana<br/>Explore tab]
+
+    classDef bpf fill:#fef3c7,stroke:#d97706
+    classDef hub fill:#cffafe,stroke:#0891b2
+    classDef store fill:#e9d5ff,stroke:#7c3aed
+    class BPF,HB bpf
+    class EXP,File,FB hub
+    class Loki,Grafana store
+  </div>
+
+  <h4>動態 Exporter Config（1.17+）</h4>
+
+  <p>1.17+ 提供 <code>CiliumHubbleFlowExporter</code> CRD，允許運行時動態切換 export 設定（例如 incident 時改抓全部 verdict、平時只抓 DROPPED 節省空間）：</p>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">yaml</span><button class="copy-btn">複製</button></div>
+<pre><code>apiVersion: cilium.io/v1alpha1
+kind: CiliumHubbleFlowExporter
+metadata:
+  name: incident-mode
+spec:
+  filePath: /var/run/cilium/hubble/incident.log
+  allowList:
+    - '{}'                     # all
+  fileMaxSizeMb: 500</code></pre>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 6 — Prometheus + Grafana
+       ============================================================ -->
+  <section id="sec-6">
+  <h2>6. Prometheus &amp; Grafana 整合</h2>
+
+  <h3 id="sec-6-1">6.1 啟用 metrics</h3>
+
+  <p>四個元件各自 expose metrics，<strong>都不在預設啟用</strong>，要手動開：</p>
+
+  <table>
+    <thead><tr><th>元件</th><th>Helm value</th><th>Port</th><th>Prefix</th></tr></thead>
+    <tbody>
+      <tr><td>cilium-agent</td><td><code>prometheus.enabled=true</code></td><td>9962</td><td><code>cilium_</code></td></tr>
+      <tr><td>cilium-operator</td><td><code>operator.prometheus.enabled=true</code></td><td>9963</td><td><code>cilium_operator_</code></td></tr>
+      <tr><td>Hubble</td><td><code>hubble.metrics.enabled</code> (list)</td><td>9965</td><td><code>hubble_</code></td></tr>
+      <tr><td>clustermesh-apiserver</td><td><code>clustermesh.apiserver.metrics.enabled</code></td><td>9962</td><td><code>cilium_clustermesh_apiserver_</code></td></tr>
+    </tbody>
+  </table>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">yaml</span><button class="copy-btn">複製</button></div>
+<pre><code># cilium-values.yaml（生產推薦設定）
+prometheus:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    labels:
+      release: prometheus     # 配合你的 Prometheus Operator selector
+  metrics:
+    # 預設大全集 + 排除高基數
+    - "-cilium_node_connectivity_status"
+    - "-cilium_node_connectivity_latency_seconds"
+
+operator:
+  prometheus:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      labels:
+        release: prometheus
+
+hubble:
+  enabled: true
+  metrics:
+    enableOpenMetrics: true
+    enabled:
+      - dns:query;ignoreAAAA
+      - drop
+      - tcp
+      - flow
+      - port-distribution
+      - icmp
+      - httpV2:exemplars=true;labelsContext=source_ip,source_namespace,source_workload,destination_ip,destination_namespace,destination_workload,traffic_direction
+    serviceMonitor:
+      enabled: true
+      labels:
+        release: prometheus</code></pre>
+  </div>
+
+  <h3 id="sec-6-2">6.2 Hubble metric 套件解讀</h3>
+
+  <p><code>hubble.metrics.enabled</code> 是一個有特殊語法的 list，每項是 <code>name[:options]</code>：</p>
+
+  <table>
+    <thead><tr><th>Metric set</th><th>用途</th><th>常用 options</th></tr></thead>
+    <tbody>
+      <tr><td><code>dns</code></td><td>DNS query/response 計數</td><td><code>query;ignoreAAAA</code>（忽略 IPv6 PTR，省空間）</td></tr>
+      <tr><td><code>drop</code></td><td>各種 drop 計數（含 reason）</td><td>—</td></tr>
+      <tr><td><code>tcp</code></td><td>TCP flags 統計</td><td>—</td></tr>
+      <tr><td><code>flow</code></td><td>整體 flow 計數（verdict 拆分）</td><td>—</td></tr>
+      <tr><td><code>port-distribution</code></td><td>每 port traffic 分佈</td><td>高基數，謹慎啟用</td></tr>
+      <tr><td><code>icmp</code></td><td>ICMP type/code</td><td>—</td></tr>
+      <tr><td><code>httpV2</code></td><td>HTTP 請求數 / latency / status code</td><td><code>exemplars=true;labelsContext=...</code></td></tr>
+      <tr><td><code>http</code> (deprecated)</td><td>舊版 HTTP metric</td><td>用 <code>httpV2</code> 取代</td></tr>
+      <tr><td><code>kafka</code> (deprecated)</td><td>Kafka L7 metric</td><td>跟 kafka rule 一起 deprecated</td></tr>
+      <tr><td><code>policy</code></td><td>policy verdict 計數</td><td>—</td></tr>
+    </tbody>
+  </table>
+
+  <h3 id="sec-6-3">6.3 ServiceMonitor 接到 Prometheus Operator</h3>
+
+  <p>大多數叢集裝了 kube-prometheus-stack。打開 <code>serviceMonitor.enabled=true</code> 後，Cilium 會自動建好 ServiceMonitor 物件。但 Prometheus 操作員<strong>有 selector</strong>，你的 label 要對得上：</p>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 查 Prometheus selector 是什麼
+kubectl get prometheus -A -o jsonpath='{.items[*].spec.serviceMonitorSelector}'
+# 例: {"matchLabels":{"release":"prometheus"}}
+
+# 對應 values.yaml 設 label
+# prometheus:
+#   serviceMonitor:
+#     labels:
+#       release: prometheus
+
+# 驗證 target 真的被 scrape
+kubectl -n monitoring port-forward svc/prometheus-operated 9090:9090
+# 開 http://localhost:9090/targets，搜尋 cilium，全部 UP</code></pre>
+  </div>
+
+  <h3 id="sec-6-4">6.4 高基數陷阱</h3>
+
+  <div class="callout danger">
+    <div class="callout-title">⚠ 大叢集 metric 爆炸</div>
+    <p style="margin:0">幾個指標會產生<strong>每對 (src_pod, dst_pod, port)</strong> 一條 time series，cluster 5000 pod 可能爆 100 萬 series。Prometheus OOM、查詢崩。</p>
+  </div>
+
+  <p>務必排除的高基數 metric（大 cluster）：</p>
+  <ul>
+    <li><code>cilium_node_connectivity_status</code> — 每對 node 一條，O(n²)</li>
+    <li><code>cilium_node_connectivity_latency_seconds</code> — 同上</li>
+    <li><code>port-distribution</code> — 每個非標準 port 都產生 series</li>
+    <li><code>httpV2</code> 含 <code>source_ip / destination_ip</code> 在 labelsContext 內 — pod IP 變動會炸</li>
+  </ul>
+
+  <p>排除方法：</p>
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">yaml</span><button class="copy-btn">複製</button></div>
+<pre><code>prometheus:
+  metrics:
+    - "-cilium_node_connectivity_status"
+    - "-cilium_node_connectivity_latency_seconds"
+
+# httpV2 labelsContext 用 namespace/workload，不要用 IP
+hubble:
+  metrics:
+    enabled:
+      - httpV2:exemplars=true;labelsContext=source_namespace,source_workload,destination_namespace,destination_workload,traffic_direction</code></pre>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 7 — Metrics 速查
+       ============================================================ -->
+  <section id="sec-7">
+  <h2>7. 重要 metric 速查 + PromQL 範例</h2>
+
+  <h4>cilium-agent 健康</h4>
+  <table class="metric-table">
+    <thead><tr><th>Metric</th><th>意義</th></tr></thead>
+    <tbody>
+      <tr><td><code>cilium_agent_bootstrap_seconds</code></td><td>agent 啟動耗時，異常拉長代表 cluster 大或卡 K8s API</td></tr>
+      <tr><td><code>cilium_endpoint_state{state=...}</code></td><td>endpoint 各狀態數量（ready / waiting / disconnected）</td></tr>
+      <tr><td><code>cilium_endpoint_regeneration_time_stats_seconds</code></td><td>endpoint 重生時間，policy 改動時看這個</td></tr>
+      <tr><td><code>cilium_identity</code></td><td>cluster 內 identity 數量</td></tr>
+      <tr><td><code>cilium_policy_count</code></td><td>已套用 policy 數量</td></tr>
+      <tr><td><code>cilium_drop_count_total{reason=...}</code></td><td>各 drop 原因計數</td></tr>
+      <tr><td><code>cilium_bpf_map_pressure</code></td><td>BPF map 用量比例，&gt;0.8 要警告</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Hubble flow</h4>
+  <table class="metric-table">
+    <thead><tr><th>Metric</th><th>意義</th></tr></thead>
+    <tbody>
+      <tr><td><code>hubble_flows_processed_total{verdict=...}</code></td><td>處理過的 flow，verdict 拆分</td></tr>
+      <tr><td><code>hubble_drop_total{reason=...}</code></td><td>被 drop 的 flow（reason 標籤）</td></tr>
+      <tr><td><code>hubble_dns_queries_total</code></td><td>DNS query 總數</td></tr>
+      <tr><td><code>hubble_dns_response_types_total{rcode=...}</code></td><td>DNS 回應碼分佈（NXDOMAIN 異常 spike → 應用 misconfig）</td></tr>
+      <tr><td><code>hubble_http_requests_total{status=...}</code></td><td>HTTP request（L7 visibility 必開）</td></tr>
+      <tr><td><code>hubble_http_request_duration_seconds</code></td><td>HTTP latency histogram，配 exemplars 直接點到 trace</td></tr>
+      <tr><td><code>hubble_tcp_flags_total</code></td><td>SYN / RST / FIN 分佈，RST 多代表 reset</td></tr>
+    </tbody>
+  </table>
+
+  <h4>常用 PromQL 範例</h4>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">promql</span><button class="copy-btn">複製</button></div>
+<pre><code># 1. 每秒 dropped flow 數（cluster 整體）
+sum(rate(hubble_drop_total[5m]))
+
+# 2. 哪個 namespace 的 drop 最多
+topk(5,
+  sum by (source_namespace) (rate(hubble_drop_total[5m]))
+)
+
+# 3. 每秒 HTTP 5xx 比例
+sum(rate(hubble_http_requests_total{status=~"5.."}[5m]))
+  /
+sum(rate(hubble_http_requests_total[5m]))
+
+# 4. DNS NXDOMAIN spike alert
+sum by (source_namespace) (
+  rate(hubble_dns_response_types_total{rcode="3"}[5m])
+) > 10
+
+# 5. BPF map pressure 警告
+max by (name, node) (cilium_bpf_map_pressure) > 0.85
+
+# 6. Endpoint 狀態異常
+sum by (node) (cilium_endpoint_state{state!="ready"}) > 0
+
+# 7. P99 HTTP latency
+histogram_quantile(0.99,
+  sum by (le, source_namespace) (
+    rate(hubble_http_request_duration_seconds_bucket[5m])
+  )
+)</code></pre>
+  </div>
+
+  <h4>Grafana Dashboard</h4>
+
+  <p>Cilium 官方提供現成 Grafana dashboard，預設安裝後可直接 import：</p>
+
+  <ul>
+    <li><strong>Cilium Agent</strong>：cluster 整體健康（dashboard ID 16611）</li>
+    <li><strong>Cilium Operator</strong>：operator metric（ID 16612）</li>
+    <li><strong>Hubble</strong>：flow / drop / HTTP / DNS（ID 16613）</li>
+    <li><strong>Cilium Metrics</strong>：bpf map, endpoint, identity（ID 16614）</li>
+  </ul>
+
+  <p>地址：<a href="https://grafana.com/grafana/dashboards/?search=cilium">grafana.com/grafana/dashboards/?search=cilium</a></p>
+
+  </section>
+
+  <!-- ============================================================
+       Section 8 — L7
+       ============================================================ -->
+  <section id="sec-8">
+  <h2>8. L7 Protocol 可視性</h2>
+
+  <p>看到 HTTP method、DNS query 這些 L7 細節，前提是 Cilium 攔截 L7 流量到 Envoy。有兩種<strong>啟用方式</strong>：</p>
+
+  <h4>方式 A：寫 L7 policy（自然開啟）</h4>
+
+  <p>第六部 A 寫過 <code>rules.http</code> 的 policy，這會讓對應流量自動 redirect 到 Envoy，Hubble 就看得到 HTTP method/path。沒寫 L7 policy 的 port → 只看得到 L3/L4。</p>
+
+  <h4>方式 B：用 visibility annotation（不執行政策，只觀察）</h4>
+
+  <p>有時候<strong>不想加 enforcement 但想看 L7</strong>。用 pod annotation：</p>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">yaml</span><button class="copy-btn">複製</button></div>
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: myapp
+  annotations:
+    # 格式: <Direction>/<Port>/<Protocol>/<Layer-7>
+    io.cilium.proxy-visibility: "&lt;Ingress/80/TCP/HTTP>,&lt;Egress/53/UDP/DNS>"
+spec: ...</code></pre>
+  </div>
+
+  <p>常用組合：</p>
+  <ul>
+    <li><code>&lt;Ingress/80/TCP/HTTP&gt;</code> — 進入 80/TCP 解析 HTTP</li>
+    <li><code>&lt;Egress/53/UDP/DNS&gt;</code> — 出向 53/UDP 解析 DNS</li>
+    <li><code>&lt;Egress/9092/TCP/Kafka&gt;</code> — Kafka 可視性</li>
+  </ul>
+
+  <div class="callout warn">
+    <div class="callout-title">⚠ L7 可視性的安全與效能取捨</div>
+    <ul style="margin:0">
+      <li><strong>性能</strong>：流量過 Envoy 增加 latency（多 μs 到 ms）；不要對高 throughput 大流量無腦開</li>
+      <li><strong>安全</strong>：Envoy 也是攻擊面，雖然 Cilium 限制過權限</li>
+      <li><strong>合規</strong>：解析 HTTP body 涉及隱私，請與資安/法遵確認</li>
+    </ul>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 9 — IP packet tracing
+       ============================================================ -->
+  <section id="sec-9">
+  <h2>9. IP 封包追蹤（連線層級除錯）</h2>
+
+  <p>Hubble 看的是 flow 級別。有時候你需要看<strong>單一封包真實旅程</strong>：經過哪些 BPF program、哪個 verdict、被哪個 BPF map lookup 處理？這就是 <code>cilium-dbg monitor</code> 與 <code>cilium-dbg policy trace</code> 的用武之地。</p>
+
+  <h4>cilium-dbg monitor：看 BPF datapath event</h4>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 進到目標 node 的 cilium-agent
+kubectl -n kube-system exec -ti ds/cilium -- bash
+
+# 看所有 event (verbose)
+cilium-dbg monitor -v
+
+# 只看 drop
+cilium-dbg monitor --type drop
+
+# 只看 policy verdict
+cilium-dbg monitor --type policy-verdict
+
+# 過濾特定 endpoint
+cilium-dbg monitor --related-to 1234
+cilium-dbg monitor --from 1234
+cilium-dbg monitor --to 5678</code></pre>
+  </div>
+
+  <p>輸出範例（drop event）：</p>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">output</span><button class="copy-btn">複製</button></div>
+<pre><code>xx drop (Policy denied) flow 0x1234567 to endpoint 0, identity 12345->67890: 10.0.1.5:43210 -> 10.0.2.8:8080 tcp SYN
+xx drop (Policy denied) flow 0x1234568 to endpoint 0, identity 12345->67890: 10.0.1.5:43210 -> 10.0.2.8:8080 tcp SYN</code></pre>
+  </div>
+
+  <p>裡面有具體的 identity ID（可對應你的 pod label）、drop reason、5-tuple。</p>
+
+  <h4>policy trace：模擬一個請求看會不會通</h4>
+
+  <p>不需要實際送 request，模擬 source / destination 看 Cilium 會怎麼決定：</p>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 假設要驗證 frontend (identity 12345) 能不能連到 backend (identity 67890):80
+kubectl -n kube-system exec -ti ds/cilium -- \
+  cilium-dbg policy trace \
+    --src-identity 12345 \
+    --dst-identity 67890 \
+    --dport 80/TCP
+
+# 輸出顯示哪些 policy match、最終決議 (ALLOWED / DENIED)</code></pre>
+  </div>
+
+  <h4>endpoint list：看 pod 的 identity 與已套用 policy</h4>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code>kubectl -n kube-system exec -ti ds/cilium -- cilium-dbg endpoint list
+
+# 詳細
+kubectl -n kube-system exec -ti ds/cilium -- cilium-dbg endpoint get &lt;endpoint-id&gt;
+
+# 看 endpoint 對應的所有 allow rule
+kubectl -n kube-system exec -ti ds/cilium -- cilium-dbg policy selectors
+
+# 看 DNS proxy 學到了哪些 FQDN
+kubectl -n kube-system exec -ti ds/cilium -- cilium-dbg fqdn cache list</code></pre>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 10 — Troubleshooting
+       ============================================================ -->
+  <section id="sec-10">
+  <h2>10. Hubble / Metrics 故障排除</h2>
+
+  <table>
+    <thead><tr><th>症狀</th><th>原因</th><th>排查</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Hubble UI 開啟但 service map 空</td>
+        <td>Relay 還沒連到所有 agent</td>
+        <td><code>hubble status</code> 看 <code>Connected Nodes: N/N</code></td>
+      </tr>
+      <tr>
+        <td>flow 出現很少 (Flows/s 很低)</td>
+        <td>cluster 流量本來就少 / Hubble ring buffer 太小被 evict</td>
+        <td>調 <code>hubble.eventBufferCapacity</code></td>
+      </tr>
+      <tr>
+        <td>L7 visibility 沒出現 (HTTP path 空)</td>
+        <td>沒寫 L7 policy 或 visibility annotation</td>
+        <td>確認 §8 設定</td>
+      </tr>
+      <tr>
+        <td>Prometheus 沒收到 metric</td>
+        <td>ServiceMonitor label 跟 Prometheus selector 不符</td>
+        <td>查 <code>kubectl get prometheus -A -o yaml | grep serviceMonitorSelector</code></td>
+      </tr>
+      <tr>
+        <td>Prometheus OOM / query 慢</td>
+        <td>高基數 metric</td>
+        <td>排除 §6.4 列的指標，調 labelsContext 不用 IP</td>
+      </tr>
+      <tr>
+        <td>hubble CLI <code>context deadline exceeded</code></td>
+        <td>port-forward 中斷</td>
+        <td>重跑 <code>cilium hubble port-forward</code></td>
+      </tr>
+      <tr>
+        <td>UI 顯示 <code>Failed to retrieve flows</code></td>
+        <td>TLS 憑證不匹配</td>
+        <td>看 hubble-relay log；TLS 自動模式重新 helm upgrade</td>
+      </tr>
+      <tr>
+        <td>Exporter 沒寫檔</td>
+        <td>filePath 不存在 / 沒權限</td>
+        <td>確認 hostPath volume mount，OS 上目錄存在</td>
+      </tr>
+    </tbody>
+  </table>
+
+  </section>
+
+  <!-- ============================================================
+       Section 11
+       ============================================================ -->
+  <section id="sec-11">
+  <h2>11. 本章重點回顧</h2>
+
+  <ul>
+    <li>Hubble 三件式：<strong>Hubble in agent</strong>（資料來源）+ <strong>Hubble Relay</strong>（cluster 中央）+ <strong>Hubble UI</strong>（service map）。生產加上 Exporter / Prometheus。</li>
+    <li>Hubble CLI 核心：<code>hubble observe</code> + filters。<strong>verdict</strong> 是排查 policy 的關鍵；<code>FORWARDED</code> / <code>DROPPED</code> / <code>REDIRECTED</code> 各有意義。</li>
+    <li>Hubble UI 的 service map 是 onboarding 與 incident review 的利器，紅色箭頭代表 drop。</li>
+    <li>Flow 預設只在 ring buffer（4095/node）。<strong>要長期保留必啟 Exporter</strong> → file → Fluent Bit → Loki/ES。</li>
+    <li>四個 metric 來源：<code>prometheus.enabled</code> / <code>operator.prometheus.enabled</code> / <code>hubble.metrics.enabled</code> / <code>clustermesh.apiserver.metrics.enabled</code>。OpenMetrics + httpV2 exemplars 是現代寫法。</li>
+    <li>大叢集務必排除 <strong>高基數 metric</strong>：<code>cilium_node_connectivity_status/_latency</code>、IP-based label。</li>
+    <li>L7 visibility 兩條路：<strong>寫 L7 policy</strong>（連帶 enforcement）或 <strong>visibility annotation</strong>（純觀察）。注意 latency 開銷。</li>
+    <li>單封包追蹤用 <code>cilium-dbg monitor</code>、<code>policy trace</code>、<code>endpoint list</code>、<code>fqdn cache list</code>。</li>
+    <li>Grafana dashboard ID 16611–16614 可直接 import。</li>
+  </ul>
+
+  <div class="callout ok">
+    <div class="callout-title">✓ 下一步</div>
+    <p style="margin:0">看清楚 cluster 在做什麼後，第八部 A 進入<strong>運維基礎</strong>：系統需求對照表（kernel / OS）、升級指南、Configuration ConfigMap 變更流程；第八部 B 接著講效能調校與 troubleshooting symptom library。</p>
+  </div>
+
+  </section>
+
+  <footer class="book-footer">
+    <span>Cilium 教學手冊 · Part 7 / 14 · 可觀測性</span>
+    <span>對應 Cilium 1.19.x · 最後更新 2026-05</span>
+  </footer>
+
+  </main>
+</div>
+
+<script>
+(function () {
+  function mermaidTheme() { return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default'; }
+  function init() {
+    if (typeof mermaid === 'undefined') return;
+    mermaid.initialize({
+      startOnLoad: true, theme: mermaidTheme(),
+      themeVariables: { fontFamily: 'DM Sans, Inter, Noto Sans TC, system-ui, sans-serif', fontSize: '14px' },
+      flowchart: { curve: 'basis' }, securityLevel: 'loose'
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+
+  window.addEventListener('jhsun:theme-changed', function () {
+    if (typeof mermaid === 'undefined') return;
+    document.querySelectorAll('.mermaid').forEach(el => {
+      const src = el.getAttribute('data-original') || el.textContent.trim();
+      if (!el.getAttribute('data-original')) el.setAttribute('data-original', src);
+      el.removeAttribute('data-processed');
+      el.innerHTML = el.getAttribute('data-original');
+    });
+    mermaid.initialize({
+      startOnLoad: false, theme: mermaidTheme(),
+      themeVariables: { fontFamily: 'DM Sans, Inter, Noto Sans TC, system-ui, sans-serif', fontSize: '14px' },
+      flowchart: { curve: 'basis' }, securityLevel: 'loose'
+    });
+    mermaid.run();
+  });
+})();
+</script>
+
+<script>
+document.querySelectorAll('.copy-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const block = btn.closest('.code-block');
+    if (!block) return;
+    const code = block.querySelector('pre code') || block.querySelector('pre');
+    if (!code) return;
+    navigator.clipboard.writeText(code.innerText).then(() => {
+      const original = btn.textContent;
+      btn.textContent = '已複製';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = original; btn.classList.remove('copied'); }, 1500);
+    });
+  });
+});
+</script>
+
+</body>
+</html>

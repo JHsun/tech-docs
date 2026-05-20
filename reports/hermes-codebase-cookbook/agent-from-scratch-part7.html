@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>從零打造自進化 Agent · Part 7 — 自動化引擎</title>
+<style>
+:root {
+  --tk-hue:230;--tk-chroma:0.13;
+  --color-success:#15803d;--color-success-soft:#dcfce7;
+  --color-warning:#b45309;--color-warning-soft:#fef3c7;
+  --color-danger:#b91c1c;--color-danger-soft:#fee2e2;
+  --color-info:#0369a1;--color-info-soft:#e0f2fe;
+  --color-accent:#7c3aed;
+  --color-primary:oklch(0.50 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:oklch(0.96 calc(var(--tk-chroma)*.2) var(--tk-hue));
+  --color-primary-text:oklch(0.38 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas:oklch(0.985 0.003 240);--bg-surface:oklch(0.998 0.002 240);
+  --bg-muted:oklch(0.96 0.004 240);--bg-code:oklch(0.972 0.005 240);
+  --border-soft:oklch(0.91 0.005 240);--border-mid:oklch(0.84 0.007 240);
+  --text-primary:oklch(0.20 0.010 240);--text-secondary:oklch(0.40 0.008 240);
+  --text-muted:oklch(0.57 0.007 240);
+  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --font-sans:"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif;
+  --text-xs:11.5px;--text-sm:13.5px;--text-base:15.5px;--text-md:17.5px;
+  --text-lg:20px;--text-xl:24px;--text-2xl:30px;--text-3xl:40px;
+  --sp1:4px;--sp2:8px;--sp3:12px;--sp4:16px;--sp5:24px;--sp6:32px;--sp7:48px;--sp8:64px;--sp9:96px;
+  --r-sm:4px;--r-md:8px;--r-lg:12px;--r-xl:16px;--r-2xl:24px;
+  --sh-sm:0 1px 3px oklch(0.18 0.01 240/.07);--sh-md:0 4px 14px oklch(0.18 0.01 240/.09);
+}
+:root[data-theme="dark"]{
+  --color-success:#4ade80;--color-success-soft:oklch(0.28 0.08 145);
+  --color-warning:#fbbf24;--color-warning-soft:oklch(0.30 0.09 70);
+  --color-danger:#f87171;--color-danger-soft:oklch(0.28 0.09 27);
+  --color-info:#38bdf8;--color-info-soft:oklch(0.28 0.08 220);
+  --color-accent:#a78bfa;
+  --color-primary:oklch(0.70 calc(var(--tk-chroma)*.9) var(--tk-hue));
+  --color-primary-soft:oklch(0.28 calc(var(--tk-chroma)*.5) var(--tk-hue));
+  --color-primary-text:oklch(0.82 calc(var(--tk-chroma)*.5) var(--tk-hue));
+  --bg-canvas:oklch(0.15 0.010 230);--bg-surface:oklch(0.19 0.010 230);
+  --bg-muted:oklch(0.22 0.011 230);--bg-code:oklch(0.17 0.010 230);
+  --border-soft:oklch(0.27 0.010 230);--border-mid:oklch(0.35 0.012 230);
+  --text-primary:oklch(0.92 0.005 240);--text-secondary:oklch(0.72 0.006 240);
+  --text-muted:oklch(0.56 0.006 240);
+  --sh-sm:0 1px 3px oklch(0.04 0 0/.5);--sh-md:0 4px 14px oklch(0.04 0 0/.6);
+}
+html{color-scheme:light dark;}html[data-theme="light"]{color-scheme:light;}html[data-theme="dark"]{color-scheme:dark;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:var(--font-sans);font-size:var(--text-base);line-height:1.78;background:var(--bg-canvas);color:var(--text-primary);transition:background .3s,color .3s;}
+.site-header{position:sticky;top:0;z-index:300;display:flex;align-items:center;justify-content:space-between;padding:var(--sp3) var(--sp6);background:var(--bg-surface);border-bottom:1px solid var(--border-soft);box-shadow:var(--sh-sm);}
+.brand{display:flex;align-items:center;gap:var(--sp3);}
+.brand-mark{width:34px;height:34px;border-radius:var(--r-md);background:linear-gradient(135deg,var(--color-primary),oklch(from var(--color-primary) calc(l-.12) c h));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:var(--text-md);}
+.brand-name{font-weight:800;font-size:var(--text-base);color:var(--text-primary);}
+.brand-sub{font-size:var(--text-xs);color:var(--text-muted);}
+[data-theme-toggle]{background:var(--bg-muted);border:1px solid var(--border-soft);border-radius:var(--r-md);padding:var(--sp2) var(--sp3);cursor:pointer;font-size:var(--text-sm);color:var(--text-secondary);display:flex;align-items:center;gap:var(--sp2);transition:all .15s;font-family:var(--font-sans);}
+[data-theme-toggle]:hover{background:var(--color-primary-soft);border-color:var(--color-primary);color:var(--color-primary-text);}
+.layout{display:flex;min-height:calc(100vh - 58px);}
+.sidebar{width:268px;flex-shrink:0;border-right:1px solid var(--border-soft);background:var(--bg-surface);padding:var(--sp5) 0;position:sticky;top:58px;height:calc(100vh - 58px);overflow-y:auto;}
+.sb-part{font-size:var(--text-xs);font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--color-primary-text);padding:var(--sp4) var(--sp5) var(--sp2);margin-top:var(--sp2);}
+.sidebar a{display:block;padding:var(--sp2) var(--sp5);font-size:var(--text-sm);color:var(--text-secondary);text-decoration:none;border-left:2px solid transparent;transition:all .12s;line-height:1.45;}
+.sidebar a:hover{color:var(--color-primary);background:var(--color-primary-soft);}
+.sidebar a.active{color:var(--color-primary-text);background:var(--color-primary-soft);border-left-color:var(--color-primary);font-weight:600;}
+.content{flex:1;padding:var(--sp7) var(--sp8) var(--sp9);max-width:900px;}
+.bc{display:flex;align-items:center;gap:var(--sp2);font-size:var(--text-xs);color:var(--text-muted);margin-bottom:var(--sp6);}
+.bc span{color:var(--border-mid);}
+.part-hero{background:linear-gradient(135deg,var(--color-primary-soft) 0%,oklch(from var(--color-primary-soft) l c calc(h+20)) 50%,var(--bg-surface) 100%);border:1px solid var(--border-soft);border-radius:var(--r-2xl);padding:var(--sp7) var(--sp8);margin-bottom:var(--sp8);position:relative;overflow:hidden;}
+.part-hero::after{content:'';position:absolute;bottom:-60px;right:-60px;width:260px;height:260px;border-radius:50%;background:var(--color-primary);opacity:.05;}
+.part-number{font-size:var(--text-xs);font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:var(--color-primary-text);margin-bottom:var(--sp3);display:inline-flex;align-items:center;gap:var(--sp2);}
+.part-number::before{content:'';width:20px;height:2px;background:var(--color-primary);border-radius:1px;}
+.part-hero h1{font-size:var(--text-3xl);font-weight:900;line-height:1.1;margin-bottom:var(--sp4);letter-spacing:-.03em;}
+.part-hero h1 em{font-style:normal;color:var(--color-primary);}
+.part-hero p{font-size:var(--text-md);color:var(--text-secondary);max-width:580px;line-height:1.72;margin-bottom:var(--sp5);}
+.part-deliverable{display:inline-flex;align-items:center;gap:var(--sp2);background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:100px;padding:var(--sp2) var(--sp4);font-size:var(--text-xs);font-weight:600;color:var(--text-secondary);}
+.part-deliverable .dot{width:8px;height:8px;border-radius:50%;background:var(--color-success);flex-shrink:0;}
+.chapter{margin-bottom:var(--sp9);scroll-margin-top:80px;}
+.chapter-header{display:flex;align-items:flex-start;gap:var(--sp4);margin-bottom:var(--sp6);padding-bottom:var(--sp5);border-bottom:2px solid var(--border-soft);}
+.ch-badge{flex-shrink:0;background:var(--color-primary);color:#fff;border-radius:var(--r-lg);width:52px;height:52px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:var(--text-lg);box-shadow:var(--sh-sm);}
+.ch-label{font-size:var(--text-xs);font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:var(--sp1);}
+.chapter h2{font-size:var(--text-2xl);font-weight:800;line-height:1.2;letter-spacing:-.025em;}
+.chapter h3{font-size:var(--text-xl);font-weight:700;margin:var(--sp7) 0 var(--sp4);display:flex;align-items:center;gap:var(--sp3);}
+.chapter h3::before{content:'';display:block;width:4px;height:22px;background:var(--color-primary);border-radius:2px;flex-shrink:0;}
+.chapter h4{font-size:var(--text-md);font-weight:700;margin:var(--sp5) 0 var(--sp3);}
+.chapter p{margin-bottom:var(--sp4);color:var(--text-secondary);line-height:1.82;}
+.chapter ul,.chapter ol{margin:0 0 var(--sp4) var(--sp6);color:var(--text-secondary);line-height:1.82;}
+.chapter li{margin-bottom:var(--sp1);}
+.chapter strong{color:var(--text-primary);font-weight:600;}
+.chapter a{color:var(--color-primary);text-decoration:none;}
+.chapter a:hover{text-decoration:underline;}
+.chapter code:not(pre code){font-family:var(--font-mono);font-size:.855em;background:var(--bg-muted);border:1px solid var(--border-soft);border-radius:var(--r-sm);padding:1px 5px;color:var(--color-primary-text);}
+.cb{background:var(--bg-code);border:1px solid var(--border-soft);border-radius:var(--r-lg);margin:var(--sp5) 0;overflow:hidden;box-shadow:var(--sh-sm);}
+.cb-head{display:flex;align-items:center;justify-content:space-between;padding:var(--sp2) var(--sp4);background:var(--bg-muted);border-bottom:1px solid var(--border-soft);}
+.cb-meta{display:flex;align-items:center;gap:var(--sp3);}
+.cb-lang{font-size:var(--text-xs);font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.07em;font-family:var(--font-mono);}
+.cb-file{font-size:var(--text-xs);color:var(--color-primary-text);font-family:var(--font-mono);background:var(--color-primary-soft);border:1px solid oklch(from var(--color-primary) l c h / .25);border-radius:var(--r-sm);padding:1px 7px;}
+.copy-btn{background:none;border:1px solid var(--border-soft);border-radius:var(--r-sm);padding:2px var(--sp3);font-size:var(--text-xs);color:var(--text-muted);cursor:pointer;transition:all .1s;font-family:var(--font-sans);}
+.copy-btn:hover{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.copy-btn.copied{background:var(--color-success-soft);color:var(--color-success);border-color:var(--color-success);}
+.cb pre{margin:0;padding:var(--sp5);overflow-x:auto;font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.7;color:var(--text-primary);}
+.k{color:#7c3aed;}.nc{color:#0369a1;font-weight:600;}.nf{color:#0369a1;}
+.s,.s1,.s2{color:#15803d;}.sa{color:#7c3aed;}.cm,.c1{color:var(--text-muted);font-style:italic;}
+.mi{color:#b45309;}.bp{color:#0369a1;}.ow{color:#7c3aed;}
+:root[data-theme="dark"] .k,.ow,.sa{color:#c084fc;}:root[data-theme="dark"] .nc,.nf,.bp{color:#7dd3fc;}
+:root[data-theme="dark"] .s,.s1,.s2{color:#86efac;}:root[data-theme="dark"] .mi{color:#fde68a;}
+.callout{border-radius:var(--r-md);padding:var(--sp4) var(--sp5);border-left:4px solid;margin:var(--sp5) 0;font-size:var(--text-sm);line-height:1.75;}
+.ct{font-weight:700;margin-bottom:var(--sp2);}
+.c-info{background:var(--color-info-soft);border-color:var(--color-info);color:oklch(0.26 0.10 225);}
+.c-info .ct{color:oklch(0.26 0.10 225);}
+.c-warn{background:var(--color-warning-soft);border-color:var(--color-warning);color:oklch(0.28 0.10 55);}
+.c-warn .ct{color:oklch(0.28 0.10 55);}
+.c-ok{background:var(--color-success-soft);border-color:var(--color-success);color:oklch(0.26 0.12 150);}
+.c-ok .ct{color:oklch(0.26 0.12 150);}
+.c-tip{background:var(--color-primary-soft);border-color:var(--color-primary);color:var(--color-primary-text);}
+.c-tip .ct{color:var(--color-primary-text);}
+:root[data-theme="dark"] .c-info{color:var(--color-info);}:root[data-theme="dark"] .c-info .ct{color:var(--color-info);}
+:root[data-theme="dark"] .c-warn{color:var(--color-warning);}:root[data-theme="dark"] .c-warn .ct{color:var(--color-warning);}
+:root[data-theme="dark"] .c-ok{color:var(--color-success);}:root[data-theme="dark"] .c-ok .ct{color:var(--color-success);}
+:root[data-theme="dark"] .c-tip{color:var(--color-primary-text);}
+.tw{overflow-x:auto;margin:var(--sp5) 0;border-radius:var(--r-lg);box-shadow:var(--sh-sm);}
+table{width:100%;border-collapse:collapse;font-size:var(--text-sm);}
+thead tr{background:var(--bg-muted);border-bottom:1px solid var(--border-mid);}
+thead th{text-align:left;padding:var(--sp3) var(--sp4);font-weight:700;color:var(--text-secondary);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.05em;}
+tbody tr{border-bottom:1px solid var(--border-soft);transition:background .1s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--bg-muted);}
+td{padding:var(--sp3) var(--sp4);color:var(--text-secondary);vertical-align:top;line-height:1.5;}
+td code{font-family:var(--font-mono);font-size:.855em;background:var(--bg-muted);border:1px solid var(--border-soft);border-radius:var(--r-sm);padding:1px 5px;color:var(--color-primary-text);}
+td strong{color:var(--text-primary);}
+.mm-wrap{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--r-lg);padding:var(--sp6);margin:var(--sp5) 0;box-shadow:var(--sh-sm);overflow-x:auto;}
+.mm-label{font-size:var(--text-xs);font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);margin-bottom:var(--sp3);display:block;}
+.mermaid{text-align:center;}
+.div{height:1px;background:var(--border-soft);margin:var(--sp7) 0;}
+.grid2{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:var(--sp4);margin:var(--sp5) 0;}
+.card{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--r-lg);padding:var(--sp5);box-shadow:var(--sh-sm);}
+.card h5{font-size:var(--text-base);font-weight:700;color:var(--text-primary);margin-bottom:var(--sp2);}
+.card p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.65;margin:0;}
+.decision{background:oklch(0.97 0.02 290);border-left:4px solid var(--color-accent);border-radius:0 var(--r-md) var(--r-md) 0;padding:var(--sp4) var(--sp5);margin:var(--sp5) 0;}
+.decision .dt{font-size:var(--text-xs);font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--color-accent);margin-bottom:var(--sp2);}
+.decision p{font-size:var(--text-sm);color:var(--text-secondary);margin:0;line-height:1.7;}
+:root[data-theme="dark"] .decision{background:oklch(0.20 0.04 290);}
+.exercise{background:var(--bg-surface);border:2px solid var(--color-primary);border-radius:var(--r-xl);padding:var(--sp6);margin:var(--sp7) 0;box-shadow:var(--sh-md);}
+.ex-header{display:flex;align-items:center;gap:var(--sp3);margin-bottom:var(--sp4);}
+.ex-icon{width:40px;height:40px;border-radius:var(--r-lg);background:var(--color-primary);display:flex;align-items:center;justify-content:center;color:#fff;font-size:18px;flex-shrink:0;}
+.ex-title{font-size:var(--text-lg);font-weight:800;color:var(--text-primary);}
+.ex-sub{font-size:var(--text-xs);color:var(--text-muted);}
+.ex-steps{list-style:none;margin:0;}
+.ex-steps li{display:flex;align-items:flex-start;gap:var(--sp3);padding:var(--sp3) 0;border-bottom:1px solid var(--border-soft);font-size:var(--text-sm);color:var(--text-secondary);}
+.ex-steps li:last-child{border-bottom:none;}
+.ex-num{flex-shrink:0;width:24px;height:24px;border-radius:50%;background:var(--color-primary-soft);color:var(--color-primary-text);font-weight:700;font-size:var(--text-xs);display:flex;align-items:center;justify-content:center;}
+.ex-expected{background:var(--color-success-soft);border:1px solid oklch(from var(--color-success) l c h / .3);border-radius:var(--r-md);padding:var(--sp3) var(--sp4);margin-top:var(--sp4);font-size:var(--text-sm);color:oklch(0.26 0.12 150);}
+:root[data-theme="dark"] .ex-expected{color:var(--color-success);}
+.site-footer{border-top:1px solid var(--border-soft);padding:var(--sp6) var(--sp8);text-align:center;font-size:var(--text-sm);color:var(--text-muted);margin-top:var(--sp9);}
+.site-footer a{color:var(--color-primary);text-decoration:none;}
+@media(max-width:960px){.sidebar{display:none;}.content{padding:var(--sp5);}}
+@media(max-width:640px){.part-hero h1{font-size:var(--text-2xl);}.grid2{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<header class="site-header">
+  <div class="brand">
+    <div class="brand-mark">A</div>
+    <div>
+      <div class="brand-name">從零打造自進化 Agent</div>
+      <div class="brand-sub">Part 7 — 自動化引擎</div>
+    </div>
+  </div>
+  <button data-theme-toggle></button>
+</header>
+<div class="layout">
+<nav class="sidebar">
+  <div class="sb-part">Part 7 · 自動化引擎</div>
+  <a href="#p7-1">7.1 Cron Scheduler 架構</a>
+  <a href="#p7-2">7.2 Job Store 設計</a>
+  <a href="#p7-3">7.3 No-Agent 腳本模式</a>
+  <a href="#p7-4">7.4 Subagent Delegation</a>
+  <a href="#p7-5">7.5 Context 隔離的設計</a>
+  <a href="#p7-6">7.6 execute_code Tool</a>
+  <a href="#p7-7">7.7 Persistent Goals</a>
+  <a href="#p7-8">7.8 實作練習</a>
+</nav>
+<main class="content">
+<div class="bc"><span>從零打造自進化 Agent</span><span>›</span><strong>Part 7</strong></div>
+
+<div class="part-hero">
+  <div class="part-number">Part 7</div>
+  <h1>自動化引擎：<br><em>Cron、Delegation、Goals</em></h1>
+  <p>
+    讓 agent 在沒有使用者主動觸發的情況下自主運行：
+    Cron scheduler 定時執行任務，Subagent Delegation 並行處理複雜工作，
+    <code>execute_code</code> 把多步驟壓縮成一次 LLM turn，
+    Persistent Goals 跨 session 追蹤長期目標。
+  </p>
+  <div class="part-deliverable">
+    <div class="dot"></div>
+    本 Part 產出：cron/ 目錄 + tools/delegation_tool.py + tools/execute_code_tool.py
+  </div>
+</div>
+
+<!-- 7.1 -->
+<section class="chapter" id="p7-1">
+  <div class="chapter-header">
+    <div class="ch-badge">7.1</div>
+    <div class="ch-meta">
+      <div class="ch-label">Part 7 · 自動化引擎</div>
+      <h2>Cron Scheduler 架構</h2>
+    </div>
+  </div>
+  <p>
+    Cron scheduler 是一個簡單的 tick loop：每分鐘喚醒一次，
+    掃描 job store，把到期的 job 交給 AIAgent 執行（或直接執行腳本），
+    把結果投遞到指定目標。
+  </p>
+
+  <div class="mm-wrap">
+    <span class="mm-label">圖 7-1 · Cron Scheduler Tick Loop</span>
+    <div class="mermaid">
+flowchart LR
+  TICK["每分鐘喚醒"] --> SCAN["掃描 job store\n找到期任務"]
+  SCAN --> DUE{"有到期\n任務?"}
+  DUE -->|"否"| SLEEP["睡眠到下分鐘"]
+  SLEEP --> TICK
+  DUE -->|"是"| TYPE{"任務類型?"}
+  TYPE -->|"no-agent"| SCRIPT["直接執行 Python 腳本\n零 LLM 費用"]
+  TYPE -->|"agent"| AGENT["建立 AIAgent\n執行 prompt"]
+  SCRIPT --> DELIVER["投遞結果\n到指定目標"]
+  AGENT --> DELIVER
+  DELIVER --> SLEEP
+    </div>
+  </div>
+
+  <h4>Cron 架構的三個組件</h4>
+  <div class="grid2">
+    <div class="card">
+      <h5>Job Store（cron/job_store.py）</h5>
+      <p>以 JSON 檔儲存所有 job 定義：schedule、prompt、no_agent flag、script、delivery target。提供 CRUD 和「找到期 job」查詢。</p>
+    </div>
+    <div class="card">
+      <h5>Scheduler（cron/scheduler.py）</h5>
+      <p>Tick loop 主程序。用 <code>asyncio</code> 非同步，每 60 秒喚醒一次，呼叫 job store 找到期任務，分發給執行器。</p>
+    </div>
+    <div class="card">
+      <h5>Cron Tool（tools/cron_tool.py）</h5>
+      <p>agent 在對話中用來管理 cron job 的 tool：create / list / pause / resume / delete。參數包含自然語言 schedule。</p>
+    </div>
+  </div>
+</section>
+
+<div class="div"></div>
+
+<!-- 7.2 -->
+<section class="chapter" id="p7-2">
+  <div class="chapter-header">
+    <div class="ch-badge">7.2</div>
+    <div class="ch-meta">
+      <div class="ch-label">Part 7 · 自動化引擎</div>
+      <h2>Job Store 設計與 Cron Tool</h2>
+    </div>
+  </div>
+  <div class="cb"><div class="cb-head"><div class="cb-meta"><span class="cb-lang">python</span><span class="cb-file">cron/job_store.py（完整實作）</span></div><button class="copy-btn" onclick="copyCode(this)">複製</button></div>
+<pre><span class="sa">"""
+cron/job_store.py — Cron Job Store
+以 JSON 檔儲存所有 cron job，提供 CRUD 和 next-due 查詢。
+"""</span>
+<span class="k">from</span> <span class="n">__future__</span> <span class="k">import</span> <span class="n">annotations</span>
+<span class="k">import</span> <span class="n">json</span><span class="p">,</span> <span class="n">time</span><span class="p">,</span> <span class="n">uuid</span>
+<span class="k">from</span> <span class="n">dataclasses</span> <span class="k">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">asdict</span>
+<span class="k">from</span> <span class="n">pathlib</span> <span class="k">import</span> <span class="nc">Path</span>
+<span class="k">from</span> <span class="n">agent.prompt_builder</span> <span class="k">import</span> <span class="n">get_agent_home</span>
+
+
+<span class="k">@dataclass</span>
+<span class="k">class</span> <span class="nc">CronJob</span>:
+    <span class="s">"""單一 cron job 的完整定義。"""</span>
+    id: <span class="nc">str</span>
+    name: <span class="nc">str</span>
+    schedule: <span class="nc">str</span>         <span class="cm"># cron expression 或 natural language</span>
+    schedule_seconds: <span class="nb">int</span>  <span class="cm"># 解析後的間隔秒數（簡化版）</span>
+    prompt: <span class="nc">str</span>            <span class="cm"># agent 執行的 prompt</span>
+    no_agent: <span class="nb">bool</span>         <span class="cm"># True = 純腳本模式</span>
+    script: <span class="nc">str</span>            <span class="cm"># no_agent=True 時執行的 Python 腳本</span>
+    enabled: <span class="nb">bool</span>
+    last_run: <span class="nb">float</span>        <span class="cm"># Unix timestamp</span>
+    next_run: <span class="nb">float</span>        <span class="cm"># Unix timestamp</span>
+    created_at: <span class="nb">float</span>
+    toolsets: <span class="nb">list</span>[<span class="nc">str</span>]   <span class="cm"># agent 模式時啟用的 toolset</span>
+    workdir: <span class="nc">str</span>           <span class="cm"># 執行目錄</span>
+    run_count: <span class="nb">int</span> = <span class="mi">0</span>
+
+
+<span class="k">def</span> <span class="nf">_parse_schedule</span>(schedule: <span class="nc">str</span>) <span class="o">-&gt;</span> <span class="nb">int</span>:
+    <span class="s">"""
+    把 schedule 字串解析成間隔秒數（簡化版）。
+    完整實作應支援 cron expression 和自然語言解析。
+    """</span>
+    schedule = schedule.lower().strip()
+    <span class="cm"># 常用間隔</span>
+    presets = {
+        <span class="s">"every 1h"</span>: <span class="mi">3600</span>, <span class="s">"every hour"</span>: <span class="mi">3600</span>, <span class="s">"hourly"</span>: <span class="mi">3600</span>,
+        <span class="s">"every 30m"</span>: <span class="mi">1800</span>, <span class="s">"every 2h"</span>: <span class="mi">7200</span>, <span class="s">"every 6h"</span>: <span class="mi">21600</span>,
+        <span class="s">"every 12h"</span>: <span class="mi">43200</span>, <span class="s">"daily"</span>: <span class="mi">86400</span>, <span class="s">"every day"</span>: <span class="mi">86400</span>,
+        <span class="s">"weekly"</span>: <span class="mi">604800</span>,
+    }
+    <span class="k">if</span> schedule <span class="ow">in</span> presets:
+        <span class="k">return</span> presets[schedule]
+    <span class="cm"># 簡單的 "every Nm" 或 "every Ns" 解析</span>
+    <span class="k">import</span> <span class="n">re</span>
+    m = re.match(<span class="s">r'every\s+(\d+)\s*(m|min|h|hour|d|day|s|sec)'</span>, schedule)
+    <span class="k">if</span> m:
+        n, unit = <span class="nb">int</span>(m.group(<span class="mi">1</span>)), m.group(<span class="mi">2</span>)
+        mult = {<span class="s">'s'</span>: <span class="mi">1</span>, <span class="s">'sec'</span>: <span class="mi">1</span>, <span class="s">'m'</span>: <span class="mi">60</span>, <span class="s">'min'</span>: <span class="mi">60</span>, <span class="s">'h'</span>: <span class="mi">3600</span>, <span class="s">'hour'</span>: <span class="mi">3600</span>, <span class="s">'d'</span>: <span class="mi">86400</span>, <span class="s">'day'</span>: <span class="mi">86400</span>}
+        <span class="k">return</span> n * mult.get(unit, <span class="mi">60</span>)
+    <span class="k">return</span> <span class="mi">3600</span>  <span class="cm"># 預設 1 小時</span>
+
+
+<span class="k">class</span> <span class="nc">CronJobStore</span>:
+
+    <span class="k">def</span> <span class="nf">__init__</span>(<span class="bp">self</span>) <span class="o">-&gt;</span> <span class="k">None</span>:
+        <span class="bp">self</span>._path = get_agent_home() / <span class="s">"cron_jobs.json"</span>
+
+    <span class="k">def</span> <span class="nf">_load</span>(<span class="bp">self</span>) <span class="o">-&gt;</span> <span class="nb">dict</span>[<span class="nc">str</span>, <span class="nb">dict</span>]:
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span>._path.exists():
+            <span class="k">return</span> {}
+        <span class="k">try</span>:
+            <span class="k">return</span> json.loads(<span class="bp">self</span>._path.read_text())
+        <span class="k">except</span>:
+            <span class="k">return</span> {}
+
+    <span class="k">def</span> <span class="nf">_save</span>(<span class="bp">self</span>, jobs: <span class="nb">dict</span>[<span class="nc">str</span>, <span class="nb">dict</span>]) <span class="o">-&gt;</span> <span class="k">None</span>:
+        <span class="bp">self</span>._path.write_text(json.dumps(jobs, indent=<span class="mi">2</span>))
+
+    <span class="k">def</span> <span class="nf">create</span>(
+        <span class="bp">self</span>,
+        name: <span class="nc">str</span>,
+        schedule: <span class="nc">str</span>,
+        prompt: <span class="nc">str</span> = <span class="s">""</span>,
+        no_agent: <span class="nb">bool</span> = <span class="k">False</span>,
+        script: <span class="nc">str</span> = <span class="s">""</span>,
+        toolsets: <span class="nb">list</span>[<span class="nc">str</span>] | <span class="k">None</span> = <span class="k">None</span>,
+        workdir: <span class="nc">str</span> = <span class="s">""</span>,
+    ) <span class="o">-&gt;</span> <span class="nc">CronJob</span>:
+        now = time.time()
+        secs = _parse_schedule(schedule)
+        job = <span class="nc">CronJob</span>(
+            id=uuid.uuid4().hex[:<span class="mi">8</span>],
+            name=name,
+            schedule=schedule,
+            schedule_seconds=secs,
+            prompt=prompt,
+            no_agent=no_agent,
+            script=script,
+            enabled=<span class="k">True</span>,
+            last_run=<span class="mi">0</span>,
+            next_run=now + secs,
+            created_at=now,
+            toolsets=toolsets <span class="ow">or</span> [<span class="s">"web"</span>, <span class="s">"terminal"</span>],
+            workdir=workdir,
+        )
+        jobs = <span class="bp">self</span>._load()
+        jobs[job.id] = asdict(job)
+        <span class="bp">self</span>._save(jobs)
+        <span class="k">return</span> job
+
+    <span class="k">def</span> <span class="nf">due_jobs</span>(<span class="bp">self</span>) <span class="o">-&gt;</span> <span class="nb">list</span>[<span class="nc">CronJob</span>]:
+        <span class="s">"""回傳所有已到期且啟用的 job。"""</span>
+        now = time.time()
+        jobs = <span class="bp">self</span>._load()
+        due = []
+        <span class="k">for</span> d <span class="ow">in</span> jobs.values():
+            <span class="k">if</span> d.get(<span class="s">"enabled"</span>) <span class="ow">and</span> d.get(<span class="s">"next_run"</span>, <span class="mi">0</span>) <= now:
+                due.append(<span class="nc">CronJob</span>(**d))
+        <span class="k">return</span> due
+
+    <span class="k">def</span> <span class="nf">mark_ran</span>(<span class="bp">self</span>, job_id: <span class="nc">str</span>) <span class="o">-&gt;</span> <span class="k">None</span>:
+        <span class="s">"""更新 last_run 和 next_run。"""</span>
+        jobs = <span class="bp">self</span>._load()
+        <span class="k">if</span> job_id <span class="ow">in</span> jobs:
+            now = time.time()
+            jobs[job_id][<span class="s">"last_run"</span>] = now
+            jobs[job_id][<span class="s">"next_run"</span>] = now + jobs[job_id][<span class="s">"schedule_seconds"</span>]
+            jobs[job_id][<span class="s">"run_count"</span>] = jobs[job_id].get(<span class="s">"run_count"</span>, <span class="mi">0</span>) + <span class="mi">1</span>
+            <span class="bp">self</span>._save(jobs)
+
+    <span class="k">def</span> <span class="nf">list_all</span>(<span class="bp">self</span>) <span class="o">-&gt;</span> <span class="nb">list</span>[<span class="nc">CronJob</span>]:
+        <span class="k">return</span> [<span class="nc">CronJob</span>(**d) <span class="k">for</span> d <span class="ow">in</span> <span class="bp">self</span>._load().values()]
+
+    <span class="k">def</span> <span class="nf">toggle</span>(<span class="bp">self</span>, job_id: <span class="nc">str</span>, enabled: <span class="nb">bool</span>) <span class="o">-&gt;</span> <span class="nb">bool</span>:
+        jobs = <span class="bp">self</span>._load()
+        <span class="k">if</span> job_id <span class="ow">in</span> jobs:
+            jobs[job_id][<span class="s">"enabled"</span>] = enabled
+            <span class="bp">self</span>._save(jobs)
+            <span class="k">return</span> <span class="k">True</span>
+        <span class="k">return</span> <span class="k">False</span>
+
+    <span class="k">def</span> <span class="nf">delete</span>(<span class="bp">self</span>, job_id: <span class="nc">str</span>) <span class="o">-&gt;</span> <span class="nb">bool</span>:
+        jobs = <span class="bp">self</span>._load()
+        <span class="k">if</span> job_id <span class="ow">in</span> jobs:
+            <span class="k">del</span> jobs[job_id]
+            <span class="bp">self</span>._save(jobs)
+            <span class="k">return</span> <span class="k">True</span>
+        <span class="k">return</span> <span class="k">False</span></pre></div>
+
+  <h4>Scheduler Tick Loop</h4>
+  <div class="cb"><div class="cb-head"><div class="cb-meta"><span class="cb-lang">python</span><span class="cb-file">cron/scheduler.py</span></div><button class="copy-btn" onclick="copyCode(this)">複製</button></div>
+<pre><span class="sa">"""cron/scheduler.py — Cron Tick Loop"""</span>
+<span class="k">import</span> <span class="n">asyncio</span><span class="p">,</span> <span class="n">logging</span><span class="p">,</span> <span class="n">time</span>
+<span class="k">from</span> <span class="n">cron.job_store</span> <span class="k">import</span> <span class="nc">CronJobStore</span><span class="p">,</span> <span class="nc">CronJob</span>
+
+<span class="n">logger</span> = logging.getLogger(<span class="n">__name__</span>)
+
+
+<span class="k">async def</span> <span class="nf">_run_no_agent_job</span>(job: <span class="nc">CronJob</span>) <span class="o">-&gt;</span> <span class="nc">str</span>:
+    <span class="s">"""執行 no-agent 腳本，回傳 stdout 輸出。"""</span>
+    <span class="k">import</span> <span class="n">io</span><span class="p">,</span> <span class="n">contextlib</span>
+    buf = io.StringIO()
+    <span class="k">try</span>:
+        <span class="k">with</span> contextlib.redirect_stdout(buf):
+            exec(job.script, {<span class="s">"__name__"</span>: <span class="s">"__cron__"</span>})
+        <span class="k">return</span> buf.getvalue()
+    <span class="k">except</span> <span class="nc">Exception</span> <span class="k">as</span> e:
+        <span class="k">return</span> <span class="sa">f</span><span class="s">"[Script error] {type(e).__name__}: {e}"</span>
+
+
+<span class="k">async def</span> <span class="nf">_run_agent_job</span>(job: <span class="nc">CronJob</span>) <span class="o">-&gt;</span> <span class="nc">str</span>:
+    <span class="s">"""建立 AIAgent 執行 job prompt，回傳 final_response。"""</span>
+    <span class="k">from</span> <span class="n">agent.core</span> <span class="k">import</span> <span class="nc">AIAgent</span>
+    <span class="k">from</span> <span class="n">agent.providers.resolver</span> <span class="k">import</span> <span class="nc">ProviderConfig</span>
+    <span class="k">from</span> <span class="n">tools.registry</span> <span class="k">import</span> <span class="n">registry</span>
+    <span class="k">from</span> <span class="n">tools.toolsets</span> <span class="k">import</span> <span class="n">resolve_toolset_names</span>
+    <span class="k">from</span> <span class="n">pathlib</span> <span class="k">import</span> <span class="nc">Path</span>
+
+    <span class="cm"># Cron session 使用自動偵測 provider</span>
+    cfg = <span class="nc">ProviderConfig</span>(provider=<span class="s">"auto"</span>, model=<span class="s">"claude-haiku-4"</span>)
+
+    <span class="cm"># 把 toolset 名稱解析成 schema 和 handler</span>
+    tool_names = resolve_toolset_names(job.toolsets, platform=<span class="s">"batch"</span>)
+    tool_schemas = registry.get_schemas(toolsets=job.toolsets)
+
+    <span class="cm"># 注意：cron session 不允許建立新的 cron job（防止遞迴排程）</span>
+    tool_schemas = [s <span class="k">for</span> s <span class="ow">in</span> tool_schemas <span class="k">if</span> s.get(<span class="s">"name"</span>) != <span class="s">"cronjob"</span>]
+
+    agent = <span class="nc">AIAgent</span>(
+        provider_cfg=cfg,
+        system_prompt=<span class="sa">f</span><span class="s">"You are an automated agent. Execute the following task precisely: {job.name}"</span>,
+        max_iterations=<span class="mi">15</span>,
+        tool_schemas=tool_schemas,
+        cwd=<span class="nc">Path</span>(job.workdir) <span class="k">if</span> job.workdir <span class="k">else</span> <span class="k">None</span>,
+    )
+    result = agent.run_conversation(job.prompt)
+    <span class="k">return</span> result.final_response
+
+
+<span class="k">async def</span> <span class="nf">run_scheduler</span>(tick_interval: <span class="nb">int</span> = <span class="mi">60</span>) <span class="o">-&gt;</span> <span class="k">None</span>:
+    <span class="s">"""主 tick loop，每 tick_interval 秒喚醒一次。"""</span>
+    store = <span class="nc">CronJobStore</span>()
+    logger.info(<span class="s">"Cron scheduler started"</span>)
+
+    <span class="k">while</span> <span class="k">True</span>:
+        <span class="k">try</span>:
+            due = store.due_jobs()
+            <span class="k">for</span> job <span class="ow">in</span> due:
+                logger.info(<span class="sa">f</span><span class="s">"Running cron job: {job.name} ({job.id})"</span>)
+                <span class="k">try</span>:
+                    <span class="k">if</span> job.no_agent:
+                        result = <span class="k">await</span> _run_no_agent_job(job)
+                    <span class="k">else</span>:
+                        result = <span class="k">await</span> _run_agent_job(job)
+                    logger.info(<span class="sa">f</span><span class="s">"Job '{job.name}' completed: {result[:100]}"</span>)
+                <span class="k">except</span> <span class="nc">Exception</span> <span class="k">as</span> e:
+                    logger.error(<span class="sa">f</span><span class="s">"Job '{job.name}' failed: {e}"</span>)
+                <span class="k">finally</span>:
+                    store.mark_ran(job.id)
+        <span class="k">except</span> <span class="nc">Exception</span> <span class="k">as</span> e:
+            logger.error(<span class="sa">f</span><span class="s">"Scheduler tick error: {e}"</span>)
+
+        <span class="k">await</span> asyncio.sleep(tick_interval)</pre></div>
+</section>
+
+<div class="div"></div>
+
+<!-- 7.3 -->
+<section class="chapter" id="p7-3">
+  <div class="chapter-header">
+    <div class="ch-badge">7.3</div>
+    <div class="ch-meta">
+      <div class="ch-label">Part 7 · 自動化引擎</div>
+      <h2>No-Agent 腳本模式：零 LLM 費用</h2>
+    </div>
+  </div>
+  <p>
+    No-agent mode 讓高頻監控任務（每分鐘、每 5 分鐘）完全不消耗 LLM token——
+    直接執行 Python 腳本，stdout 作為結果。
+  </p>
+  <div class="cb"><div class="cb-head"><div class="cb-meta"><span class="cb-lang">python</span><span class="cb-file">no-agent cron job 使用範例</span></div><button class="copy-btn" onclick="copyCode(this)">複製</button></div>
+<pre><span class="k">from</span> <span class="n">cron.job_store</span> <span class="k">import</span> <span class="nc">CronJobStore</span>
+
+store = <span class="nc">CronJobStore</span>()
+
+<span class="cm"># 每 5 分鐘檢查服務狀態（零 LLM 費用）</span>
+store.create(
+    name=<span class="s">"service-health-check"</span>,
+    schedule=<span class="s">"every 5m"</span>,
+    no_agent=<span class="k">True</span>,
+    script=<span class="s">"""
+import requests, json
+
+try:
+    r = requests.get('https://api.myservice.com/health', timeout=10)
+    data = r.json()
+    if data.get('status') != 'ok':
+        print(f"ALERT: service unhealthy: {data}")
+    else:
+        print(f"OK: service healthy, latency={data.get('latency_ms')}ms")
+except Exception as e:
+    print(f"ALERT: health check failed: {e}")
+"""</span>
+)
+
+<span class="cm"># 每天早上 9 點（agent 模式，會消耗 LLM token）</span>
+store.create(
+    name=<span class="s">"daily-briefing"</span>,
+    schedule=<span class="s">"daily"</span>,    <span class="cm"># 簡化：精確時間用 cron expression</span>
+    prompt=<span class="s">"搜集今天的 AI 新聞，整理成 3 個重點，存入 ~/briefings/today.md"</span>,
+    toolsets=[<span class="s">"web"</span>, <span class="s">"file"</span>],
+)</pre></div>
+
+  <div class="tw"><table>
+    <thead><tr><th>模式</th><th>LLM 費用</th><th>適用場景</th><th>最小間隔建議</th></tr></thead>
+    <tbody>
+      <tr><td>no-agent（腳本）</td><td>零</td><td>健康檢查、數據採集、格式轉換</td><td>1 分鐘</td></tr>
+      <tr><td>agent（輕量模型）</td><td>低（Haiku 級）</td><td>需要判斷或摘要的定期任務</td><td>30 分鐘</td></tr>
+      <tr><td>agent（強模型）</td><td>中-高</td><td>複雜研究、程式碼審查</td><td>每天</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<div class="div"></div>
+
+<!-- 7.4 -->
+<section class="chapter" id="p7-4">
+  <div class="chapter-header">
+    <div class="ch-badge">7.4</div>
+    <div class="ch-meta">
+      <div class="ch-label">Part 7 · 自動化引擎</div>
+      <h2>Subagent Delegation：並行任務分發</h2>
+    </div>
+  </div>
+  <p>
+    <code>delegate_task</code> 建立子 AIAgent 實例，每個子代理有完全隔離的 context，
+    並行處理各自的任務，只把最終摘要回傳給父代理。
+  </p>
+  <div class="cb"><div class="cb-head"><div class="cb-meta"><span class="cb-lang">python</span><span class="cb-file">tools/delegation_tool.py（完整實作）</span></div><button class="copy-btn" onclick="copyCode(this)">複製</button></div>
+<pre><span class="sa">"""
+tools/delegation_tool.py — Subagent Delegation Tool
+建立子 AIAgent 實例，並行執行獨立任務。
+"""</span>
+<span class="k">import</span> <span class="n">asyncio</span><span class="p">,</span> <span class="n">json</span>
+<span class="k">from</span> <span class="n">tools.registry</span> <span class="k">import</span> <span class="n">registry</span>
+
+<span class="nc">DELEGATE_SCHEMA</span> = {
+    <span class="s">"name"</span>: <span class="s">"delegate_task"</span>,
+    <span class="s">"description"</span>: (
+        <span class="s">"Spawn one or more subagents to handle independent tasks in parallel. "</span>
+        <span class="s">"Each subagent has isolated context. Only final summaries are returned."</span>
+    ),
+    <span class="s">"parameters"</span>: {
+        <span class="s">"type"</span>: <span class="s">"object"</span>,
+        <span class="s">"properties"</span>: {
+            <span class="s">"tasks"</span>: {
+                <span class="s">"type"</span>: <span class="s">"array"</span>,
+                <span class="s">"description"</span>: <span class="s">"List of tasks for subagents"</span>,
+                <span class="s">"items"</span>: {
+                    <span class="s">"type"</span>: <span class="s">"object"</span>,
+                    <span class="s">"properties"</span>: {
+                        <span class="s">"goal"</span>: {<span class="s">"type"</span>: <span class="s">"string"</span>, <span class="s">"description"</span>: <span class="s">"Task goal"</span>},
+                        <span class="s">"context"</span>: {<span class="s">"type"</span>: <span class="s">"string"</span>, <span class="s">"description"</span>: <span class="s">"All info the subagent needs"</span>},
+                        <span class="s">"toolsets"</span>: {<span class="s">"type"</span>: <span class="s">"array"</span>, <span class="s">"items"</span>: {<span class="s">"type"</span>: <span class="s">"string"</span>}},
+                    },
+                    <span class="s">"required"</span>: [<span class="s">"goal"</span>],
+                },
+            },
+            <span class="s">"max_concurrent"</span>: {
+                <span class="s">"type"</span>: <span class="s">"integer"</span>,
+                <span class="s">"description"</span>: <span class="s">"Max parallel subagents (default 3)"</span>,
+                <span class="s">"default"</span>: <span class="mi">3</span>,
+            },
+        },
+        <span class="s">"required"</span>: [<span class="s">"tasks"</span>],
+    },
+}
+
+
+<span class="k">async def</span> <span class="nf">_run_subagent</span>(goal: <span class="nc">str</span>, context: <span class="nc">str</span>, toolsets: <span class="nb">list</span>[<span class="nc">str</span>]) <span class="o">-&gt;</span> <span class="nb">dict</span>:
+    <span class="s">"""
+    建立一個完全隔離的子 AIAgent 並執行任務。
+    子代理看不到父代理的任何對話歷史。
+    """</span>
+    <span class="k">from</span> <span class="n">agent.core</span> <span class="k">import</span> <span class="nc">AIAgent</span>
+    <span class="k">from</span> <span class="n">agent.providers.resolver</span> <span class="k">import</span> <span class="nc">ProviderConfig</span>
+    <span class="k">from</span> <span class="n">tools.registry</span> <span class="k">import</span> <span class="n">registry</span>
+
+    cfg = <span class="nc">ProviderConfig</span>(provider=<span class="s">"auto"</span>, model=<span class="s">"claude-haiku-4"</span>)
+    schemas = registry.get_schemas(toolsets=toolsets <span class="ow">or</span> [<span class="s">"web"</span>, <span class="s">"file"</span>])
+
+    <span class="cm"># 子代理的 system prompt 只包含目標，不包含父代理的記憶或 skills</span>
+    agent = <span class="nc">AIAgent</span>(
+        provider_cfg=cfg,
+        system_prompt=<span class="sa">f</span><span class="s">"You are a focused subagent. Complete the following task precisely.\nTask: {goal}"</span>,
+        max_iterations=<span class="mi">15</span>,
+        tool_schemas=schemas,
+    )
+
+    <span class="k">try</span>:
+        result = agent.run_conversation(context <span class="k">if</span> context <span class="k">else</span> <span class="sa">f</span><span class="s">"Please complete: {goal}"</span>)
+        <span class="k">return</span> {
+            <span class="s">"goal"</span>: goal,
+            <span class="s">"success"</span>: <span class="ow">not</span> result.stopped_by_budget,
+            <span class="s">"result"</span>: result.final_response,
+            <span class="s">"iterations"</span>: result.iterations_used,
+        }
+    <span class="k">except</span> <span class="nc">Exception</span> <span class="k">as</span> e:
+        <span class="k">return</span> {<span class="s">"goal"</span>: goal, <span class="s">"success"</span>: <span class="k">False</span>, <span class="s">"result"</span>: <span class="sa">f</span><span class="s">"Subagent error: {e}"</span>, <span class="s">"iterations"</span>: <span class="mi">0</span>}
+
+
+<span class="k">def</span> <span class="nf">_delegation_handler</span>(args: <span class="nb">dict</span>) <span class="o">-&gt;</span> <span class="nc">str</span>:
+    tasks = args.get(<span class="s">"tasks"</span>, [])
+    max_concurrent = args.get(<span class="s">"max_concurrent"</span>, <span class="mi">3</span>)
+    <span class="k">if</span> <span class="ow">not</span> tasks:
+        <span class="k">return</span> json.dumps({<span class="s">"error"</span>: <span class="s">"tasks list is empty"</span>})
+
+    <span class="k">async def</span> <span class="nf">_run_all</span>() <span class="o">-&gt;</span> <span class="nb">list</span>:
+        sem = asyncio.Semaphore(max_concurrent)
+        <span class="k">async def</span> <span class="nf">_bounded</span>(task):
+            <span class="k">async with</span> sem:
+                <span class="k">return</span> <span class="k">await</span> _run_subagent(
+                    task.get(<span class="s">"goal"</span>, <span class="s">""</span>),
+                    task.get(<span class="s">"context"</span>, <span class="s">""</span>),
+                    task.get(<span class="s">"toolsets"</span>, [<span class="s">"web"</span>]),
+                )
+        <span class="k">return</span> <span class="k">await</span> asyncio.gather(*[_bounded(t) <span class="k">for</span> t <span class="ow">in</span> tasks])
+
+    <span class="k">try</span>:
+        loop = asyncio.get_event_loop()
+        results = loop.run_until_complete(_run_all())
+    <span class="k">except</span> RuntimeError:
+        results = asyncio.run(_run_all())
+
+    successes = [r <span class="k">for</span> r <span class="ow">in</span> results <span class="k">if</span> r[<span class="s">"success"</span>]]
+    <span class="k">return</span> json.dumps({
+        <span class="s">"total"</span>: <span class="nb">len</span>(tasks),
+        <span class="s">"succeeded"</span>: <span class="nb">len</span>(successes),
+        <span class="s">"results"</span>: results,
+    }, ensure_ascii=<span class="k">False</span>)
+
+
+registry.register(name=<span class="s">"delegate_task"</span>, toolset=<span class="s">"delegation"</span>, schema=<span class="nc">DELEGATE_SCHEMA</span>, handler=<span class="n">_delegation_handler</span>)</pre></div>
+</section>
+
+<div class="div"></div>
+
+<!-- 7.5 -->
+<section class="chapter" id="p7-5">
+  <div class="chapter-header">
+    <div class="ch-badge">7.5</div>
+    <div class="ch-meta">
+      <div class="ch-label">Part 7 · 自動化引擎</div>
+      <h2>為何子代理看不到父代理的歷史</h2>
+    </div>
+  </div>
+  <p>
+    子代理以<strong>完全空白的對話</strong>開始，對父代理的對話歷史、記憶、tool call 一無所知。
+    這是刻意的設計，不是限制。
+  </p>
+  <div class="grid2">
+    <div class="card">
+      <h5>為何要隔離？</h5>
+      <p>父代理的完整 context 可能有 50K+ tokens。把這些全部傳給每個子代理，
+      token 費用會爆炸。隔離讓子代理用最小的 context 完成明確的子任務。</p>
+    </div>
+    <div class="card">
+      <h5>怎麼讓子代理有足夠資訊？</h5>
+      <p>在 <code>context</code> 欄位明確提供所有子代理需要的資訊。
+      <strong>不要假設子代理知道任何東西</strong>——把它當作一個從未與你對話的全新 agent。</p>
+    </div>
+  </div>
+
+  <div class="callout c-warn">
+    <div class="ct">⚠ 最常見的 Delegation 錯誤</div>
+    <strong>錯誤：</strong>把子任務的 context 欄位留空，假設子代理「知道」父代理之前說過什麼。<br>
+    <strong>後果：</strong>子代理不知道專案路徑、認證資訊、限制條件，執行出完全不符合預期的結果。<br>
+    <strong>正確做法：</strong>在 context 中提供完整的背景資訊——就算看起來很冗長也是正確的。
+  </div>
+
+  <div class="decision">
+    <div class="dt">設計決策日誌 #009</div>
+    <p><strong>決策：</strong>子代理不繼承父代理的 history，也不繼承記憶 snapshot。<br>
+    <strong>理由：</strong>子代理是「工具」，不是「分身」。它的目標是高效完成一個明確的子任務，
+    而不是複製父代理的完整人格和知識。繼承父代理的 20K tokens system prompt 只會增加費用，
+    不會提升任務完成品質。<br>
+    <strong>例外：</strong>若子任務確實需要某些記憶（如環境資訊），明確地把相關內容複製到 context 欄位。</p>
+  </div>
+</section>
+
+<div class="div"></div>
+
+<!-- 7.6 -->
+<section class="chapter" id="p7-6">
+  <div class="chapter-header">
+    <div class="ch-badge">7.6</div>
+    <div class="ch-meta">
+      <div class="ch-label">Part 7 · 自動化引擎</div>
+      <h2>execute_code Tool：多步驟壓縮成單一 Turn</h2>
+    </div>
+  </div>
+  <p>
+    <code>execute_code</code> 讓 agent 撰寫 Python 腳本，在腳本中直接呼叫 tools，
+    把多個 tool call 壓縮成一個 LLM turn——只有最終 <code>print()</code> 輸出進入 context。
+  </p>
+
+  <div class="mm-wrap">
+    <span class="mm-label">圖 7-2 · execute_code vs 逐一呼叫的 Context 差異</span>
+    <div class="mermaid">
+graph LR
+  subgraph A["逐一呼叫（10 個 tool calls）"]
+    T1["LLM turn"] --> TC1["tool call 1"]
+    TC1 --> R1["tool result 1"]
+    R1 --> T2["LLM turn"]
+    T2 --> TC2["... 重複 10 次 ..."]
+  end
+  subgraph B["execute_code（1 個 LLM turn）"]
+    EX["LLM 撰寫腳本"] --> PROC["腳本執行\n10 個 tool 呼叫\n中間結果不進 context"]
+    PROC --> OUT["print 最終輸出"]
+  end
+    </div>
+  </div>
+
+  <div class="cb"><div class="cb-head"><div class="cb-meta"><span class="cb-lang">python</span><span class="cb-file">tools/execute_code_tool.py（簡化版實作）</span></div><button class="copy-btn" onclick="copyCode(this)">複製</button></div>
+<pre><span class="sa">"""
+tools/execute_code_tool.py — Execute Python code with tool access
+把多步驟 tool 呼叫壓縮成單一 LLM turn。
+
+注意：完整版 Hermes 用 Unix socket RPC 讓腳本非同步呼叫 tools。
+這是簡化版：直接用 registry.dispatch() 作為 tool 呼叫介面。
+"""</span>
+<span class="k">import</span> <span class="n">io</span><span class="p">,</span> <span class="n">json</span><span class="p">,</span> <span class="n">contextlib</span>
+<span class="k">from</span> <span class="n">tools.registry</span> <span class="k">import</span> <span class="n">registry</span>
+
+<span class="nc">EXECUTE_CODE_SCHEMA</span> = {
+    <span class="s">"name"</span>: <span class="s">"execute_code"</span>,
+    <span class="s">"description"</span>: (
+        <span class="s">"Execute a Python script that can call tools directly. "</span>
+        <span class="s">"Use when a task requires 3+ tool calls or complex looping logic. "</span>
+        <span class="s">"Intermediate tool results stay in the script scope, not in context. "</span>
+        <span class="s">"Only print() output is returned."</span>
+    ),
+    <span class="s">"parameters"</span>: {
+        <span class="s">"type"</span>: <span class="s">"object"</span>,
+        <span class="s">"properties"</span>: {
+            <span class="s">"script"</span>: {
+                <span class="s">"type"</span>: <span class="s">"string"</span>,
+                <span class="s">"description"</span>: (
+                    <span class="s">"Python script. Use tool(name, **kwargs) to call tools. "</span>
+                    <span class="s">"Example: result = tool('terminal', command='ls -la')"</span>
+                ),
+            },
+        },
+        <span class="s">"required"</span>: [<span class="s">"script"</span>],
+    },
+}
+
+
+<span class="k">def</span> <span class="nf">_execute_code_handler</span>(args: <span class="nb">dict</span>) <span class="o">-&gt;</span> <span class="nc">str</span>:
+    script = args.get(<span class="s">"script"</span>, <span class="s">""</span>)
+    <span class="k">if</span> <span class="ow">not</span> script.strip():
+        <span class="k">return</span> json.dumps({<span class="s">"error"</span>: <span class="s">"script is empty"</span>})
+
+    buf = io.StringIO()
+    err_buf = io.StringIO()
+
+    <span class="k">def</span> <span class="nf">tool_caller</span>(name: <span class="nc">str</span>, **kwargs) <span class="o">-&gt;</span> <span class="nb">dict</span>:
+        <span class="s">"""腳本內呼叫 tool 的介面函數。"""</span>
+        result_str = registry.dispatch(name, kwargs)
+        <span class="k">try</span>:
+            <span class="k">return</span> json.loads(result_str)
+        <span class="k">except</span>:
+            <span class="k">return</span> {<span class="s">"output"</span>: result_str}
+
+    sandbox_globals = {
+        <span class="s">"tool"</span>: tool_caller,
+        <span class="s">"json"</span>: json,
+        <span class="s">"print"</span>: <span class="k">lambda</span> *a, **kw: <span class="nb">print</span>(*a, **kw, file=buf),
+        <span class="s">"__name__"</span>: <span class="s">"__execute_code__"</span>,
+    }
+
+    <span class="k">try</span>:
+        <span class="k">with</span> contextlib.redirect_stderr(err_buf):
+            exec(script, sandbox_globals)
+        output = buf.getvalue()
+        err = err_buf.getvalue()
+        <span class="k">return</span> json.dumps({
+            <span class="s">"output"</span>: output.strip() <span class="ow">or</span> <span class="s">"(no output)"</span>,
+            <span class="s">"stderr"</span>: err.strip() <span class="k">if</span> err.strip() <span class="k">else</span> <span class="k">None</span>,
+        }, ensure_ascii=<span class="k">False</span>)
+    <span class="k">except</span> <span class="nc">Exception</span> <span class="k">as</span> e:
+        <span class="k">return</span> json.dumps({<span class="s">"error"</span>: <span class="sa">f</span><span class="s">"{type(e).__name__}: {e}"</span>, <span class="s">"output"</span>: buf.getvalue()})
+
+
+registry.register(name=<span class="s">"execute_code"</span>, toolset=<span class="s">"code_execution"</span>, schema=<span class="nc">EXECUTE_CODE_SCHEMA</span>, handler=<span class="n">_execute_code_handler</span>)</pre></div>
+
+  <h4>實際使用範例（agent 撰寫的 script）</h4>
+  <div class="cb"><div class="cb-head"><div class="cb-meta"><span class="cb-lang">python</span><span class="cb-file">agent 在 execute_code 中會撰寫的腳本</span></div></div>
+<pre><span class="cm"># 找出 src/ 目錄下所有超過 500 行的 Python 檔案並重構</span>
+result = tool(<span class="s">"terminal"</span>, command=<span class="s">"find src/ -name '*.py' | xargs wc -l | sort -rn | head -20"</span>)
+lines = result[<span class="s">"stdout"</span>].strip().split(<span class="s">"\n"</span>)
+
+fixed, failed = [], []
+<span class="k">for</span> line <span class="ow">in</span> lines:
+    parts = line.strip().split()
+    <span class="k">if</span> <span class="nb">len</span>(parts) == <span class="mi">2</span>:
+        count, path = <span class="nb">int</span>(parts[<span class="mi">0</span>]), parts[<span class="mi">1</span>]
+        <span class="k">if</span> count > <span class="mi">500</span> <span class="ow">and</span> path.endswith(<span class="s">".py"</span>):
+            r = tool(<span class="s">"read_file"</span>, path=path)
+            content = r.get(<span class="s">"content"</span>, <span class="s">""</span>)
+            <span class="cm"># 在腳本中可以做任意處理</span>
+            fixed.append(path)
+
+<span class="nb">print</span>(<span class="sa">f</span><span class="s">"Found {len(fixed)} large files: {', '.join(fixed)}"</span>)
+<span class="cm"># 只有這一行 print 輸出進入 LLM context</span></pre></div>
+</section>
+
+<div class="div"></div>
+
+<!-- 7.7 -->
+<section class="chapter" id="p7-7">
+  <div class="chapter-header">
+    <div class="ch-badge">7.7</div>
+    <div class="ch-meta">
+      <div class="ch-label">Part 7 · 自動化引擎</div>
+      <h2>Persistent Goals（Ralph Loop）</h2>
+    </div>
+  </div>
+  <p>
+    Persistent Goals 讓 agent 設定一個跨 turn 的長期目標，
+    在每次 session 開始時檢查目標是否達成，未達成則繼續追蹤。
+  </p>
+  <div class="cb"><div class="cb-head"><div class="cb-meta"><span class="cb-lang">python</span><span class="cb-file">agent/goals.py（Goal 追蹤系統）</span></div><button class="copy-btn" onclick="copyCode(this)">複製</button></div>
+<pre><span class="sa">"""
+agent/goals.py — Persistent Goals
+跨 session 的長期目標追蹤，在 ephemeral layer 注入當前目標狀態。
+"""</span>
+<span class="k">from</span> <span class="n">__future__</span> <span class="k">import</span> <span class="n">annotations</span>
+<span class="k">import</span> <span class="n">json</span><span class="p">,</span> <span class="n">time</span>
+<span class="k">from</span> <span class="n">pathlib</span> <span class="k">import</span> <span class="nc">Path</span>
+<span class="k">from</span> <span class="n">agent.prompt_builder</span> <span class="k">import</span> <span class="n">get_agent_home</span>
+
+
+<span class="k">class</span> <span class="nc">GoalStore</span>:
+    <span class="k">def</span> <span class="nf">__init__</span>(<span class="bp">self</span>) <span class="o">-&gt;</span> <span class="k">None</span>:
+        <span class="bp">self</span>._path = get_agent_home() / <span class="s">"goals.json"</span>
+
+    <span class="k">def</span> <span class="nf">_load</span>(<span class="bp">self</span>) <span class="o">-&gt;</span> <span class="nb">dict</span>:
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span>._path.exists():
+            <span class="k">return</span> {}
+        <span class="k">try</span>:
+            <span class="k">return</span> json.loads(<span class="bp">self</span>._path.read_text())
+        <span class="k">except</span>:
+            <span class="k">return</span> {}
+
+    <span class="k">def</span> <span class="nf">set_goal</span>(<span class="bp">self</span>, goal_text: <span class="nc">str</span>) <span class="o">-&gt;</span> <span class="k">None</span>:
+        data = <span class="bp">self</span>._load()
+        data[<span class="s">"current"</span>] = {
+            <span class="s">"text"</span>: goal_text,
+            <span class="s">"set_at"</span>: time.time(),
+            <span class="s">"check_count"</span>: <span class="mi">0</span>,
+            <span class="s">"status"</span>: <span class="s">"active"</span>,
+        }
+        <span class="bp">self</span>._path.write_text(json.dumps(data, indent=<span class="mi">2</span>))
+
+    <span class="k">def</span> <span class="nf">get_current</span>(<span class="bp">self</span>) <span class="o">-&gt;</span> <span class="nb">dict</span> | <span class="k">None</span>:
+        <span class="k">return</span> <span class="bp">self</span>._load().get(<span class="s">"current"</span>)
+
+    <span class="k">def</span> <span class="nf">complete_goal</span>(<span class="bp">self</span>, note: <span class="nc">str</span> = <span class="s">""</span>) <span class="o">-&gt;</span> <span class="k">None</span>:
+        data = <span class="bp">self</span>._load()
+        <span class="k">if</span> <span class="s">"current"</span> <span class="ow">in</span> data:
+            data[<span class="s">"current"</span>][<span class="s">"status"</span>] = <span class="s">"completed"</span>
+            data[<span class="s">"current"</span>][<span class="s">"completed_at"</span>] = time.time()
+            data[<span class="s">"current"</span>][<span class="s">"note"</span>] = note
+            data.setdefault(<span class="s">"history"</span>, []).append(data.pop(<span class="s">"current"</span>))
+            <span class="bp">self</span>._path.write_text(json.dumps(data, indent=<span class="mi">2</span>))
+
+    <span class="k">def</span> <span class="nf">clear_goal</span>(<span class="bp">self</span>) <span class="o">-&gt;</span> <span class="k">None</span>:
+        data = <span class="bp">self</span>._load()
+        data.pop(<span class="s">"current"</span>, <span class="k">None</span>)
+        <span class="bp">self</span>._path.write_text(json.dumps(data, indent=<span class="mi">2</span>))
+
+    <span class="k">def</span> <span class="nf">to_ephemeral_layer</span>(<span class="bp">self</span>) <span class="o">-&gt;</span> <span class="nc">str</span>:
+        <span class="s">"""生成注入 ephemeral layer 的目標提示文字。"""</span>
+        goal = <span class="bp">self</span>.get_current()
+        <span class="k">if</span> <span class="ow">not</span> goal <span class="ow">or</span> goal.get(<span class="s">"status"</span>) != <span class="s">"active"</span>:
+            <span class="k">return</span> <span class="s">""</span>
+        <span class="k">return</span> (
+            <span class="sa">f</span><span class="s">"PERSISTENT GOAL (still active): {goal['text']}\n"</span>
+            <span class="s">"Check if this goal has been achieved. If so, call goal_complete. "</span>
+            <span class="s">"If not, continue working towards it."</span>
+        )</pre></div>
+
+  <div class="callout c-tip">
+    <div class="ct">💡 Goal 整合進 Ephemeral Layer</div>
+    把 <code>goal_store.to_ephemeral_layer()</code> 的輸出加入 <code>build_ephemeral_layers()</code> 中（Layer 10），
+    這樣每次 API call 都會提醒 agent 當前的長期目標，但不影響 Layers 1-8 的 cache 穩定性。
+  </div>
+</section>
+
+<div class="div"></div>
+
+<!-- 7.8 Exercise -->
+<section class="chapter" id="p7-8">
+  <div class="chapter-header">
+    <div class="ch-badge">7.8</div>
+    <div class="ch-meta">
+      <div class="ch-label">Part 7 · 自動化引擎</div>
+      <h2>實作練習</h2>
+    </div>
+  </div>
+  <div class="exercise">
+    <div class="ex-header">
+      <div class="ex-icon">⚡</div>
+      <div>
+        <div class="ex-title">練習 7.8：Cron 定時任務端到端驗證</div>
+        <div class="ex-sub">目標：no-agent cron job 每分鐘執行，並確認結果被記錄</div>
+      </div>
+    </div>
+    <ol class="ex-steps">
+      <li><div class="ex-num">1</div><div>建立 <code>CronJobStore</code>，呼叫 <code>create()</code> 建立一個 no-agent job（schedule: "every 1m"，script: 印出當前時間）</div></li>
+      <li><div class="ex-num">2</div><div>手動把 job 的 <code>next_run</code> 設為過去時間，呼叫 <code>store.due_jobs()</code>，確認它出現在結果裡</div></li>
+      <li><div class="ex-num">3</div><div>呼叫 <code>asyncio.run(_run_no_agent_job(job))</code>，確認輸出包含時間字串</div></li>
+      <li><div class="ex-num">4</div><div>呼叫 <code>store.mark_ran(job.id)</code>，確認 <code>last_run</code> 更新且 <code>next_run = last_run + 60</code></div></li>
+      <li><div class="ex-num">5</div><div>測試 <code>delegate_task</code> tool：傳入兩個子任務（一個搜尋新聞、一個讀取本地檔案），確認兩者並行執行並各自回傳結果</div></li>
+      <li><div class="ex-num">6</div><div>測試 <code>execute_code</code> tool：撰寫一個腳本，呼叫 <code>tool("terminal", command="echo hello")</code>，確認 print 輸出被回傳</div></li>
+      <li><div class="ex-num">7</div><div>測試 <code>GoalStore</code>：設定目標、呼叫 <code>to_ephemeral_layer()</code>，確認輸出包含目標文字；呼叫 <code>complete_goal()</code> 後，<code>to_ephemeral_layer()</code> 應回傳空字串</div></li>
+    </ol>
+    <div class="ex-expected">完整整合：對 agent 說「每 30 分鐘檢查 GitHub 上有沒有新的 starred repo，存入 ~/new-stars.md」，agent 應建立一個 cron job 並立即跑一次驗證。</div>
+  </div>
+
+  <div class="callout c-ok">
+    <div class="ct">✅ Part 7 完成</div>
+    自動化引擎的完整實作：Cron scheduler（tick loop + job store + no-agent 模式）、
+    Subagent Delegation（context 隔離 + 並行執行 + Semaphore 限流）、
+    <code>execute_code</code>（多步驟壓縮成單一 turn）、
+    以及 Persistent Goals 跨 session 追蹤機制。<br><br>
+    <strong>目前完成的完整模組列表（Part 1-7）：</strong>
+    <code>agent/core.py</code>、<code>agent/providers/</code>、<code>agent/prompt_builder.py</code>、
+    <code>agent/session_db.py</code>、<code>agent/goals.py</code>、
+    <code>tools/registry.py</code>、<code>tools/terminal_tool.py</code>、<code>tools/file_tool.py</code>、
+    <code>tools/memory_tool.py</code>、<code>tools/skill_create_tool.py</code>、
+    <code>tools/delegation_tool.py</code>、<code>tools/execute_code_tool.py</code>、
+    <code>tools/toolsets.py</code>、<code>tools/approval.py</code>、
+    <code>skills/loader.py</code>、<code>skills/curator.py</code>、
+    <code>cron/job_store.py</code>、<code>cron/scheduler.py</code><br><br>
+    <strong>Part 8</strong> 進入 Gateway——讓你的 agent 從 terminal 走向 Telegram，
+    從任何裝置遠端控制，並接受 Webhook 事件觸發。
+  </div>
+</section>
+
+</main>
+</div>
+<footer class="site-footer">
+  <p>從零打造自進化 Agent · Part 7 — 自動化引擎</p>
+  <p style="margin-top:4px">對照原始碼：<a href="https://github.com/NousResearch/hermes-agent">NousResearch/hermes-agent</a> · <code>batch_runner.py</code> · <code>tools/delegate_tool.py</code></p>
+</footer>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.3/mermaid.min.js"></script>
+<script>
+(function(){
+  function isDark(){return document.documentElement.dataset.theme==='dark';}
+  function tv(d){return d?{primaryColor:'#1e3a5f',primaryTextColor:'#93c5fd',lineColor:'#475569',textColor:'#cbd5e1',edgeLabelBackground:'#1e293b'}:{primaryColor:'#dbeafe',primaryTextColor:'#1e3a8a',lineColor:'#94a3b8',textColor:'#334155',edgeLabelBackground:'#f8fafc'};}
+  function init(){
+    mermaid.initialize({startOnLoad:false,theme:isDark()?'dark':'default',fontFamily:'"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif',fontSize:13,flowchart:{htmlLabels:true,curve:'basis'},themeVariables:tv(isDark())});
+    document.querySelectorAll('.mermaid').forEach(function(el){if(!el.getAttribute('data-src'))el.setAttribute('data-src',el.textContent.trim());});
+    mermaid.run({nodes:document.querySelectorAll('.mermaid')});}
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+  window.addEventListener('jhsun:theme-changed',function(){
+    mermaid.initialize({startOnLoad:false,theme:isDark()?'dark':'default',fontFamily:'"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif',fontSize:13,flowchart:{htmlLabels:true,curve:'basis'},themeVariables:tv(isDark())});
+    document.querySelectorAll('.mermaid').forEach(function(el){var s=el.getAttribute('data-src');if(s){el.removeAttribute('data-processed');el.innerHTML=s;}});
+    mermaid.run({nodes:document.querySelectorAll('.mermaid')});});
+})();
+</script>
+<script>
+function copyCode(btn){var pre=btn.closest('.cb').querySelector('pre');navigator.clipboard.writeText(pre.innerText).then(function(){btn.textContent='已複製 ✓';btn.classList.add('copied');setTimeout(function(){btn.textContent='複製';btn.classList.remove('copied');},2000);}).catch(function(){btn.textContent='失敗';setTimeout(function(){btn.textContent='複製';},2000);});}
+</script>
+<script>
+(function(){var obs=new IntersectionObserver(function(entries){entries.forEach(function(e){if(e.isIntersecting){document.querySelectorAll('.sidebar a').forEach(function(l){l.classList.remove('active');});var a=document.querySelector('.sidebar a[href="#'+e.target.id+'"]');if(a)a.classList.add('active');}});},{rootMargin:'-60px 0px -70% 0px'});document.querySelectorAll('section[id]').forEach(function(s){obs.observe(s);});})();
+</script>
+<script>
+(function(){
+  var K='jhsun-theme',IC={light:'☀',dark:'☾',system:'◐'},LB={light:'Light',dark:'Dark',system:'System'};
+  function gs(){try{return localStorage.getItem(K);}catch(_){return null;}}
+  function ss(v){try{if(v==='system'||v==null)localStorage.removeItem(K);else localStorage.setItem(K,v);}catch(_){}}
+  function sp(){return window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  function ef(m){return m==='system'?sp():m;}
+  function ap(m){var e=ef(m);document.documentElement.dataset.theme=e;document.documentElement.dataset.themeMode=m;up(m);window.dispatchEvent(new CustomEvent('jhsun:theme-changed',{detail:{theme:e,mode:m}}));}
+  function up(m){document.querySelectorAll('[data-theme-toggle]').forEach(function(b){b.dataset.themeMode=m;b.setAttribute('aria-label','Theme: '+LB[m]);b.title='Theme: '+LB[m];if(!b.dataset.themeToggleStyled)b.innerHTML='<span>'+IC[m]+'</span><span>'+LB[m]+'</span>';});}
+  function cy(c){return c==='light'?'dark':c==='dark'?'system':'light';}
+  function gm(){return gs()||'system';}
+  function init(){ap(gm());document.querySelectorAll('[data-theme-toggle]').forEach(function(b){b.addEventListener('click',function(){var n=cy(gm());ss(n);ap(n);});});window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',function(){if(gm()==='system')ap('system');});}
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+})();
+</script>
+</body>
+</html>

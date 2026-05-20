@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.18 Reconcile 效能調優 — Argo CD 完整教學手冊</title>
+<style>
+:root {
+  --tk-hue:200;--tk-chroma:0.11;
+  --color-success:#16a34a;--color-success-soft:#dcfce7;
+  --color-warning:#d97706;--color-warning-soft:#fef3c7;
+  --color-danger:#dc2626;--color-danger-soft:#fee2e2;
+  --color-info:#0891b2;--color-info-soft:#cffafe;
+  --color-neutral-accent:#7c3aed;
+  --color-primary:oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:oklch(0.96 calc(var(--tk-chroma)*.25) var(--tk-hue));
+  --color-primary-text:oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas:oklch(0.985 0.004 60);--bg-surface:oklch(0.995 0.003 60);
+  --bg-muted:oklch(0.96 0.005 60);--bg-code:oklch(0.975 0.006 60);
+  --border-soft:oklch(0.92 0.006 60);--border-mid:oklch(0.85 0.008 60);
+  --text-primary:oklch(0.22 0.008 60);--text-secondary:oklch(0.42 0.008 60);--text-muted:oklch(0.58 0.008 60);
+  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --font-sans:"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif;
+  --font-serif:"Playfair Display","Source Serif 4","Noto Serif TC",Georgia,serif;
+  --font-body:"Source Serif 4","Noto Serif TC",Georgia,serif;
+  --text-xs:12px;--text-sm:14px;--text-base:16px;--text-md:18px;--text-lg:20px;--text-xl:24px;--text-2xl:32px;--text-3xl:44px;
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-7:48px;--space-8:64px;--space-9:96px;
+  --radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:20px;
+  --shadow-sm:0 1px 3px oklch(0.20 0.01 60/0.07);--shadow-md:0 4px 14px oklch(0.20 0.01 60/0.10);
+}
+:root[data-theme="dark"]{
+  --color-success:#4ade80;--color-success-soft:oklch(0.28 0.08 145);
+  --color-warning:#fbbf24;--color-warning-soft:oklch(0.30 0.10 70);
+  --color-danger:#f87171;--color-danger-soft:oklch(0.30 0.10 27);
+  --color-info:#22d3ee;--color-info-soft:oklch(0.30 0.08 200);
+  --color-neutral-accent:#a78bfa;
+  --color-primary:oklch(0.72 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-hover:oklch(0.80 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-soft:oklch(0.28 calc(var(--tk-chroma)*.6) var(--tk-hue));
+  --color-primary-text:oklch(0.85 calc(var(--tk-chroma)*.6) var(--tk-hue));
+  --bg-canvas:oklch(0.14 0.008 50);--bg-surface:oklch(0.18 0.009 50);
+  --bg-muted:oklch(0.21 0.010 50);--bg-code:oklch(0.16 0.009 50);
+  --border-soft:oklch(0.26 0.010 50);--border-mid:oklch(0.34 0.012 50);
+  --text-primary:oklch(0.93 0.005 60);--text-secondary:oklch(0.74 0.006 60);--text-muted:oklch(0.56 0.007 60);
+  --shadow-sm:0 1px 3px oklch(0.04 0 0/.50);--shadow-md:0 4px 14px oklch(0.04 0 0/.60);
+}
+html{color-scheme:light dark;}html[data-theme="light"]{color-scheme:light;}html[data-theme="dark"]{color-scheme:dark;}
+body{background:var(--bg-canvas);color:var(--text-primary);font-family:var(--font-sans);font-size:var(--text-base);line-height:1.7;margin:0;padding:0;transition:background .25s,color .25s;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+.topbar{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:10px var(--space-6);background:var(--bg-surface);border-bottom:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.tb-left{display:flex;align-items:center;gap:var(--space-3);}
+.tb-logo{width:30px;height:30px;border-radius:var(--radius-md);background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:13px;font-weight:800;}
+.tb-trail{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.tb-trail .sep{color:var(--border-mid);}.tb-trail .cur{color:var(--color-primary);font-weight:600;}
+.tb-right{display:flex;align-items:center;gap:var(--space-2);}
+.pill{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);border:1px solid;}
+.pill-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.pill-ver{background:var(--color-info-soft);color:var(--color-info);border-color:var(--color-info);}
+[data-theme-toggle]{cursor:pointer;border:1px solid var(--border-mid);background:var(--bg-muted);color:var(--text-secondary);border-radius:var(--radius-md);padding:6px var(--space-3);font-family:var(--font-sans);font-size:var(--text-sm);display:flex;align-items:center;gap:6px;transition:all .2s;}
+[data-theme-toggle]:hover{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.page{display:flex;min-height:100vh;}
+.toc-sidebar{width:230px;flex-shrink:0;position:sticky;top:49px;height:calc(100vh - 49px);overflow-y:auto;padding:var(--space-5) var(--space-3);border-right:1px solid var(--border-soft);background:var(--bg-surface);}
+.toc-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-3);}
+.toc-list{list-style:none;}
+.toc-list li{margin-bottom:2px;}
+.toc-list a{display:block;padding:4px var(--space-2);font-size:var(--text-sm);color:var(--text-secondary);text-decoration:none;border-radius:var(--radius-sm);border-left:2px solid transparent;transition:all .15s;line-height:1.4;}
+.toc-list a:hover,.toc-list a.active{color:var(--color-primary);background:var(--color-primary-soft);border-left-color:var(--color-primary);font-weight:600;}
+.toc-h3{padding-left:var(--space-4)!important;font-size:var(--text-xs)!important;}
+.toc-lbl{display:block;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:var(--space-3) var(--space-2) var(--space-1);margin-top:var(--space-2);}
+.content{flex:1;min-width:0;padding:var(--space-8) var(--space-7) var(--space-9);max-width:900px;}
+.ch-header{margin-bottom:var(--space-8);padding-bottom:var(--space-6);border-bottom:1px solid var(--border-soft);}
+.ch-meta{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-4);flex-wrap:wrap;}
+.m-badge{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);}
+.m-ch{background:var(--color-primary);color:#fff;}
+.m-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border:1px solid var(--color-primary);}
+.m-time{background:var(--bg-muted);color:var(--text-muted);border:1px solid var(--border-soft);}
+.ch-header h1{font-family:var(--font-serif);font-size:clamp(var(--text-2xl),4vw,var(--text-3xl));font-weight:700;color:var(--text-primary);line-height:1.2;margin-bottom:var(--space-4);}
+.ch-header h1 em{font-style:normal;color:var(--color-primary);}
+.ch-lead{font-size:var(--text-md);color:var(--text-secondary);line-height:1.7;max-width:700px;font-family:var(--font-body);}
+.prereq{margin-top:var(--space-5);display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--bg-muted);border-radius:var(--radius-md);border:1px solid var(--border-soft);}
+.prereq .pico{font-size:var(--text-lg);flex-shrink:0;margin-top:1px;}
+.prereq p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;}
+.prereq strong{color:var(--text-primary);}
+.obj-box{background:var(--color-primary-soft);border:1px solid var(--color-primary);border-radius:var(--radius-lg);padding:var(--space-5);margin-bottom:var(--space-7);}
+.obj-box h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--color-primary-text);font-weight:700;margin-bottom:var(--space-3);}
+.obj-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-2);}
+.obj-list li{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-sm);color:var(--color-primary-text);line-height:1.5;}
+.obj-list li::before{content:"✓";font-weight:700;color:var(--color-primary);flex-shrink:0;margin-top:1px;}
+.sec{margin-bottom:var(--space-9);scroll-margin-top:80px;}
+.sec h2{font-family:var(--font-serif);font-size:var(--text-2xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-4);padding-bottom:var(--space-3);border-bottom:2px solid var(--border-soft);display:flex;align-items:center;gap:var(--space-3);}
+.sn{font-family:var(--font-mono);font-size:var(--text-sm);background:var(--color-primary);color:#fff;padding:2px 8px;border-radius:var(--radius-sm);font-weight:700;white-space:nowrap;flex-shrink:0;}
+.sec h3{font-family:var(--font-sans);font-size:var(--text-lg);font-weight:700;color:var(--text-primary);margin:var(--space-6) 0 var(--space-3);}
+.sec h4{font-family:var(--font-sans);font-size:var(--text-base);font-weight:700;color:var(--text-primary);margin:var(--space-5) 0 var(--space-2);}
+p{font-family:var(--font-body);font-size:var(--text-base);color:var(--text-secondary);line-height:1.8;margin-bottom:var(--space-4);}
+strong{color:var(--text-primary);}em{color:var(--color-primary);font-style:normal;}
+.cal{display:flex;gap:var(--space-3);padding:var(--space-4) var(--space-5);border-radius:var(--radius-lg);margin:var(--space-5) 0;border-left:4px solid;}
+.ci{background:var(--color-info-soft);border-color:var(--color-info);}
+.cw{background:var(--color-warning-soft);border-color:var(--color-warning);}
+.ct{background:var(--color-success-soft);border-color:var(--color-success);}
+.cd{background:var(--color-primary-soft);border-color:var(--color-primary);}
+.cal .ic{font-size:var(--text-lg);flex-shrink:0;margin-top:2px;}
+.cal h4{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-1);font-family:var(--font-sans);}
+.cal p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.65;margin:0;font-family:var(--font-sans);}
+.code-wrap{margin:var(--space-4) 0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.code-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px var(--space-4);background:var(--bg-muted);border-bottom:1px solid var(--border-soft);}
+.code-lang{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;}
+.copy-btn{cursor:pointer;font-family:var(--font-mono);font-size:11px;padding:3px 10px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--border-mid);color:var(--text-muted);transition:all .2s;}
+.copy-btn:hover{background:var(--color-primary-soft);color:var(--color-primary);border-color:var(--color-primary);}
+.copy-btn.copied{background:var(--color-success-soft);color:var(--color-success);border-color:var(--color-success);}
+pre{margin:0;padding:var(--space-5);background:var(--bg-code);overflow-x:auto;font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.65;color:var(--text-primary);}
+code{font-family:var(--font-mono);font-size:.92em;background:var(--bg-code);padding:1px 5px;border-radius:var(--radius-sm);color:var(--color-primary-text);border:1px solid var(--border-soft);}
+pre code{background:none;padding:0;border:none;color:inherit;font-size:inherit;}
+.yk{color:var(--color-info);}.yv{color:var(--color-success);}.yc{color:var(--text-muted);font-style:italic;}
+.yn{color:var(--color-warning);}.yh{color:var(--color-neutral-accent);font-weight:700;}
+.tw{overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);margin:var(--space-5) 0;}
+table{width:100%;border-collapse:collapse;font-size:var(--text-sm);}
+thead th{background:var(--bg-muted);padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.07em;border-bottom:2px solid var(--border-mid);text-align:left;white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--border-soft);transition:background .12s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--bg-muted);}
+td{padding:var(--space-3) var(--space-4);vertical-align:top;line-height:1.6;font-family:var(--font-sans);}
+td:first-child{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--color-primary-text);background:var(--color-primary-soft);white-space:nowrap;font-weight:600;}
+.tc{font-size:var(--text-xs);color:var(--text-muted);}
+/* perf bottleneck cards */
+.bot-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--space-4);margin:var(--space-5) 0;}
+.bot{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-4);box-shadow:var(--shadow-sm);position:relative;overflow:hidden;}
+.bot::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--botc);}
+.bot-icon{font-size:24px;margin-bottom:var(--space-2);}
+.bot-name{font-family:var(--font-mono);font-size:var(--text-xs);font-weight:700;color:var(--botc);margin-bottom:var(--space-1);}
+.bot-symptom{font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-bottom:var(--space-2);font-style:italic;}
+.bot-fix{font-size:var(--text-xs);color:var(--text-secondary);line-height:1.55;font-family:var(--font-sans);}
+/* metric cards */
+.met-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:var(--space-3);margin:var(--space-5) 0;}
+.mc{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-md);padding:var(--space-4);box-shadow:var(--shadow-sm);}
+.mc-name{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--color-primary-text);background:var(--bg-muted);padding:2px 8px;border-radius:var(--radius-sm);display:inline-block;margin-bottom:var(--space-2);}
+.mc-desc{font-size:var(--text-xs);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);margin-bottom:var(--space-2);}
+.mc-alert{font-size:11px;color:var(--color-warning);font-weight:600;font-family:var(--font-sans);}
+/* kp */
+.kp{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);margin:var(--space-7) 0;box-shadow:var(--shadow-sm);}
+.kp h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-4);margin-top:0;}
+.kp-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-3);}
+.kp-list li{display:flex;align-items:flex-start;gap:var(--space-3);font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.kp-ic{font-size:var(--text-md);flex-shrink:0;margin-top:1px;}
+.ch-nav{display:flex;justify-content:space-between;margin-top:var(--space-9);padding-top:var(--space-6);border-top:1px solid var(--border-soft);}
+.nav-btn{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);text-decoration:none;font-size:var(--text-sm);font-weight:600;transition:all .2s;box-shadow:var(--shadow-md);}
+.nav-prev{background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-mid);}.nav-prev:hover{background:var(--bg-muted);transform:translateX(-2px);}
+.nav-next{background:var(--color-primary);color:#fff;}.nav-next:hover{background:var(--color-primary-hover);transform:translateX(2px);}
+.nav-sub{font-size:11px;opacity:.75;font-family:var(--font-mono);}
+footer{border-top:1px solid var(--border-soft);padding:var(--space-5) var(--space-8);font-family:var(--font-mono);font-size:11px;color:var(--text-muted);text-align:center;}
+footer strong{color:var(--color-primary);}
+@media(max-width:900px){.toc-sidebar{display:none;}.content{padding:var(--space-6) var(--space-4) var(--space-8);}.bot-grid{grid-template-columns:1fr;}.met-grid{grid-template-columns:1fr;}}
+@media(max-width:640px){.topbar{padding:8px var(--space-4);}.tb-trail{display:none;}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="tb-left">
+    <div class="tb-logo">A</div>
+    <nav class="tb-trail">
+      <span>Argo CD 完整教學手冊</span><span class="sep">›</span>
+      <span>Vol 3 Operator 運維</span><span class="sep">›</span>
+      <span class="cur">Ch.18 Reconcile 效能調優</span>
+    </nav>
+  </div>
+  <div class="tb-right">
+    <span class="pill pill-vol">Vol 3 · Ch.18</span>
+    <span class="pill pill-ver">v3.4</span>
+    <button data-theme-toggle></button>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="toc-sidebar">
+    <div class="toc-title">本章目錄</div>
+    <ul class="toc-list">
+      <li><a href="#obj">學習目標</a></li>
+      <span class="toc-lbl">第一節</span>
+      <li><a href="#s1">Reconcile 流程拆解</a></li>
+      <li><a href="#s1a" class="toc-h3">六階段管線</a></li>
+      <li><a href="#s1b" class="toc-h3">三大瓶頸定位</a></li>
+      <span class="toc-lbl">第二節</span>
+      <li><a href="#s2">application-controller 調優</a></li>
+      <li><a href="#s2a" class="toc-h3">status / operation processors</a></li>
+      <li><a href="#s2b" class="toc-h3">kubectl-parallelism-limit</a></li>
+      <li><a href="#s2c" class="toc-h3">workqueue rate limiter</a></li>
+      <span class="toc-lbl">第三節</span>
+      <li><a href="#s3">repo-server 調優</a></li>
+      <li><a href="#s3a" class="toc-h3">parallelism limit</a></li>
+      <li><a href="#s3b" class="toc-h3">manifest cache + shallow clone</a></li>
+      <span class="toc-lbl">第四節</span>
+      <li><a href="#s4">Reconciliation 間隔調優</a></li>
+      <li><a href="#s4a" class="toc-h3">timeout.reconciliation</a></li>
+      <li><a href="#s4b" class="toc-h3">Webhook 即時觸發</a></li>
+      <span class="toc-lbl">第五節</span>
+      <li><a href="#s5">減少不必要的 Reconcile</a></li>
+      <li><a href="#s5a" class="toc-h3">ignoreResourceUpdates</a></li>
+      <li><a href="#s5b" class="toc-h3">resource.exclusions</a></li>
+      <li><a href="#s5c" class="toc-h3">manifest-generate-paths</a></li>
+      <span class="toc-lbl">第六節</span>
+      <li><a href="#s6">大型 cluster cache 調優</a></li>
+      <span class="toc-lbl">第七節</span>
+      <li><a href="#s7">效能監控指標</a></li>
+      <span class="toc-lbl">第八節</span>
+      <li><a href="#s8">效能調優 Playbook</a></li>
+      <span class="toc-lbl">總結</span>
+      <li><a href="#sum">重點回顧</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <header class="ch-header">
+      <div class="ch-meta">
+        <span class="m-badge m-ch">Chapter 18</span>
+        <span class="m-badge m-vol">Vol 3 — Operator 運維手冊</span>
+        <span class="m-badge m-time">⏱ 預計閱讀時間 45 分鐘</span>
+      </div>
+      <h1>Reconcile 效能調優：<br><em>大規模 Argo CD 的瓶頸與對策</em></h1>
+      <p class="ch-lead">當 Application 數量從 100 成長到 1000+，預設配置會碰到各種瓶頸：UI 載入緩慢、sync 排隊、controller OOM、Git 平台 rate limit。本章拆解 reconcile 六階段流程、三大效能瓶頸（controller / repo-server / cluster cache），逐一給出調優公式與設定，最後提供效能 Playbook 與監控指標。</p>
+      <div class="prereq">
+        <span class="pico">📋</span>
+        <p><strong>前置：</strong>已閱讀 Ch.13（HA + Sharding）。理解 application-controller 與 repo-server 的角色（Ch.03）、Prometheus 監控基本概念。</p>
+      </div>
+    </header>
+
+    <div class="obj-box" id="obj">
+      <h3>🎯 學習目標</h3>
+      <ul class="obj-list">
+        <li>理解 reconcile 六階段流程：取 manifest → 比對 → 排隊 → sync → 寫入 → 更新狀態</li>
+        <li>能依症狀定位三大瓶頸：controller queue 堆積 / repo-server CPU 飆高 / cluster cache 過時</li>
+        <li>掌握 application-controller 調優：status-processors、operation-processors、kubectl-parallelism-limit、workqueue rate limiter</li>
+        <li>掌握 repo-server 調優：parallelism.limit、shallow clone、manifest cache、--allow-concurrency 標記</li>
+        <li>正確設定 timeout.reconciliation + jitter，搭配 Webhook 達成「快速感知 + 低 polling 負載」</li>
+        <li>使用 ignoreResourceUpdates 與 manifest-generate-paths 大幅減少不必要的 reconcile</li>
+        <li>大型 cluster 的 cache 調優（ARGOCD_CLUSTER_CACHE_LIST_PAGE_BUFFER_SIZE）</li>
+        <li>建立關鍵效能指標的 Prometheus alert 與 Grafana dashboard</li>
+      </ul>
+    </div>
+
+    <!-- S1 Reconcile 流程拆解 -->
+    <section class="sec" id="s1">
+      <h2><span class="sn">1</span>Reconcile 流程拆解</h2>
+
+      <h3 id="s1a">1.1 六階段管線</h3>
+      <p>每次 Application reconcile 都經過六個階段。理解這個流程才能定位效能瓶頸：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Pipeline — Reconcile 六階段</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">┌─────────────────────────────────────────────────────────────────────┐
+│  Stage 1: Detect Trigger                                            │
+│  - timer fires (timeout.reconciliation, default 180s + 60s jitter)  │
+│  - webhook arrives (Git push)                                       │
+│  - resource update (Kubernetes watch event)                         │
+│  - manual refresh (UI / CLI / API)                                  │
+└──────────┬──────────────────────────────────────────────────────────┘
+           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Stage 2: Manifest Generation (repo-server)                         │
+│  - git clone / fetch (cache hit if same commit SHA)                 │
+│  - helm template / kustomize build / cmp generate                   │
+│  - return rendered manifests                                        │
+└──────────┬──────────────────────────────────────────────────────────┘  ← 通常最慢
+           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Stage 3: Live State Read (controller cluster cache)                │
+│  - 從 cache 讀取目前 cluster 狀態（避免每次都打 K8s API）            │
+│  - cache 由 watch APIs 持續更新                                     │
+└──────────┬──────────────────────────────────────────────────────────┘
+           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Stage 4: Diff & Status Update                                      │
+│  - 比對 desired vs live                                             │
+│  - 計算 sync status (Synced/OutOfSync) + health status              │
+│  - 更新 Application CR 的 status                                    │
+└──────────┬──────────────────────────────────────────────────────────┘
+           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Stage 5: Sync (only if OutOfSync + auto-sync enabled)              │
+│  - 透過 kubectl apply / SSA 寫入 K8s（消耗 operation-processors）   │
+└──────────┬──────────────────────────────────────────────────────────┘
+           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Stage 6: Status Update                                             │
+│  - 更新 Application CR 的 status.sync.status / health.status         │
+│  - 更新 Application Set 的彙總狀態                                  │
+└─────────────────────────────────────────────────────────────────────┘</span></code></pre>
+      </div>
+
+      <h3 id="s1b">1.2 三大瓶頸定位</h3>
+
+      <div class="bot-grid">
+        <div class="bot" style="--botc:var(--color-warning)">
+          <div class="bot-icon">📦</div>
+          <div class="bot-name">瓶頸 1：repo-server 慢</div>
+          <div class="bot-symptom">"Context deadline exceeded"<br>repo-server CPU 飆 80%+<br>queued requests 持續增加</div>
+          <div class="bot-fix">最常見的瓶頸。Helm template / Kustomize build / git clone 太慢。對策：parallelism limit、shallow clone、manifest cache、horizontal scale。</div>
+        </div>
+
+        <div class="bot" style="--botc:var(--color-danger)">
+          <div class="bot-icon">⚙️</div>
+          <div class="bot-name">瓶頸 2：controller queue 堆積</div>
+          <div class="bot-symptom">UI status 過時<br>新 commit 數分鐘後才 OutOfSync<br>controller CPU 飆高</div>
+          <div class="bot-fix">application 太多但 processors 太少。對策：status/operation processors 增加、Sharding（多個 controller）、reduce reconcile 頻率。</div>
+        </div>
+
+        <div class="bot" style="--botc:var(--color-info)">
+          <div class="bot-icon">💾</div>
+          <div class="bot-name">瓶頸 3：cluster cache 過大</div>
+          <div class="bot-symptom">controller OOM<br>"continue parameter is too old"<br>cache initial sync 超時</div>
+          <div class="bot-fix">受管 cluster 中資源太多。對策：resource.exclusions 排除高頻資源、ARGOCD_CLUSTER_CACHE_LIST_PAGE_BUFFER_SIZE 調高、增加 controller memory。</div>
+        </div>
+
+        <div class="bot" style="--botc:var(--color-neutral-accent)">
+          <div class="bot-icon">🌐</div>
+          <div class="bot-name">瓶頸 4：Git 平台 rate limit</div>
+          <div class="bot-symptom">"rate limit exceeded"<br>repo-server 與 Git 連線失敗<br>許多 OutOfSync 但無法 detect</div>
+          <div class="bot-fix">許多 App 同時 polling 同 repo。對策：repo-server.git.request.timeout 加長、用 GitHub App（5000 RPS）、webhook 取代 polling。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- S2 controller 調優 -->
+    <section class="sec" id="s2">
+      <h2><span class="sn">2</span>application-controller 調優</h2>
+
+      <h3 id="s2a">2.1 Status / Operation Processors</h3>
+      <p>controller 內部有兩個 worker pool：<code>status processors</code> 處理 reconciliation（diff 計算），<code>operation processors</code> 處理實際 sync 操作。預設 20 / 10，<strong>1000+ Application 環境必須調高</strong>：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — controller processors 設定</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## 方式：argocd-cmd-params-cm（推薦，宣告式）</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-cmd-params-cm</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yc"># Status processors（reconciliation 並發數）</span>
+  <span class="yc"># 預設 20。1000 App 用 50，3000+ App 用 100</span>
+  <span class="yk">controller.status.processors:</span> <span class="yv">"50"</span>
+
+  <span class="yc"># Operation processors（sync 操作並發數）</span>
+  <span class="yc"># 預設 10。1000 App 用 25，3000+ App 用 50</span>
+  <span class="yk">controller.operation.processors:</span> <span class="yv">"25"</span>
+
+  <span class="yc"># 注意：increase processors 會線性增加 CPU + memory</span>
+  <span class="yc"># 50/25 配置：~2 CPU + 2 GB memory（單 controller）</span>
+  <span class="yc"># 100/50 配置：~4 CPU + 4 GB memory</span></code></pre>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>Processors 增加的時機</h4>
+          <p>當 UI 顯示某 App 已經 OutOfSync 但 Argo CD 「沒在做事」時，通常是 status processors 不夠用，App 還在 queue 中等待。觀察 <code>argocd_workqueue_depth</code> 指標，若持續 &gt; 0 且 status processors 全忙，就要增加。</p>
+        </div>
+      </div>
+
+      <h3 id="s2b">2.2 kubectl-parallelism-limit</h3>
+      <p>controller 用 kubectl fork/exec 將 manifest 寫入 K8s 與轉換 resource version。沒有限制時，大量並發 fork 會造成 controller pod OOM：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — kubectl-parallelism-limit</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">data:</span>
+  <span class="yc"># kubectl 並發 fork/exec 限制（防止 controller OOM）</span>
+  <span class="yc"># 預設無限制；建議 20</span>
+  <span class="yk">controller.kubectl.parallelism.limit:</span> <span class="yv">"20"</span>
+
+  <span class="yc"># 每個 sync 內部的 K8s API 並發數（Argo CD v2.10+）</span>
+  <span class="yk">controller.sync.timeout.seconds:</span> <span class="yv">"180"</span></code></pre>
+      </div>
+
+      <h3 id="s2c">2.3 Workqueue Rate Limiter</h3>
+      <p>當異常 Application（例如 manifest 一直生成失敗）持續觸發 reconcile，會造成 sync loop 與其他 App 排隊。Rate limiter 限制單一 Application 的重試頻率：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Workqueue Rate Limiter（環境變數）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## 在 argocd-application-controller StatefulSet 設定 env</span>
+<span class="yk">env:</span>
+  <span class="yc">## ── Per-item rate limiter（exponential backoff）─────────</span>
+  - <span class="yk">name:</span> <span class="yv">WORKQUEUE_FAILURE_COOLDOWN</span>
+    <span class="yk">value:</span> <span class="yv">"10s"</span>     <span class="yc"># 失敗後最短重試間隔</span>
+  - <span class="yk">name:</span> <span class="yv">WORKQUEUE_BASE_DELAY</span>
+    <span class="yk">value:</span> <span class="yv">"5ms"</span>
+  - <span class="yk">name:</span> <span class="yv">WORKQUEUE_MAX_DELAY</span>
+    <span class="yk">value:</span> <span class="yv">"1000s"</span>   <span class="yc"># 失敗多次後最長間隔（指數成長）</span>
+
+  <span class="yc">## ── Global rate limiter（防止 burst）──────────────────</span>
+  - <span class="yk">name:</span> <span class="yv">WORKQUEUE_BUCKET_SIZE</span>
+    <span class="yk">value:</span> <span class="yv">"500"</span>     <span class="yc"># 單秒最多入 queue 的項目數</span>
+  - <span class="yk">name:</span> <span class="yv">WORKQUEUE_BUCKET_QPS</span>
+    <span class="yk">value:</span> <span class="yv">"50"</span>      <span class="yc"># 平均 QPS（fill rate）</span>
+
+<span class="yc">## 效果：</span>
+<span class="yc"># 失敗的 App 自動退避，不會佔用 worker</span>
+<span class="yc"># 突發大量 webhook 不會把其他 App 擠出 queue</span></code></pre>
+      </div>
+    </section>
+
+    <!-- S3 repo-server 調優 -->
+    <section class="sec" id="s3">
+      <h2><span class="sn">3</span>repo-server 調優（最常見瓶頸）</h2>
+
+      <h3 id="s3a">3.1 parallelism.limit</h3>
+      <p>單一 repo-server replica 的並發 manifest 生成上限。預設無限制，500+ Application 同時 reconcile 時會 OOM：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — repo-server parallelism limit</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">data:</span>
+  <span class="yc"># 公式：limit = (CPU cores × 2)</span>
+  <span class="yc"># 4 CPU → 8</span>
+  <span class="yc"># 2 CPU → 4-5</span>
+  <span class="yk">reposerver.parallelism.limit:</span> <span class="yv">"10"</span>
+
+  <span class="yc"># Git 連線並發限制（保護 Git 平台）</span>
+  <span class="yc"># 0 = 無限制；超過 200 App 用同 repo 時必須設定</span>
+  <span class="yk">reposerver.git.requests.concurrency.limit:</span> <span class="yv">"20"</span>
+
+<span class="yc"># 公式說明：</span>
+<span class="yc"># Total parallelism = replicas × per-replica limit</span>
+<span class="yc"># 3 replica × 10 limit = 30 並發 manifest 生成</span>
+<span class="yc"># 30 是個合理的中型生產環境配置（管理 500-1000 App）</span></code></pre>
+      </div>
+
+      <h3 id="s3b">3.2 Manifest Cache + Shallow Clone</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — repo-server 快取與 clone 優化</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">data:</span>
+  <span class="yc"># Shallow clone（只取最新 commit，不取歷史）</span>
+  <span class="yc"># 大型 mono-repo（10000+ commits）效益顯著：</span>
+  <span class="yc"># - 50MB clone 取代 500MB</span>
+  <span class="yc"># - 5 秒取代 30 秒</span>
+  <span class="yk">reposerver.git.shallow.clone:</span> <span class="yv">"true"</span>
+
+  <span class="yc"># Manifest cache TTL（Argo CD 內部 cache，存於 Redis）</span>
+  <span class="yc"># 預設 24h；對 immutable 的 commit SHA 已足夠</span>
+  <span class="yc"># 對追蹤 branch 的場景，配合 webhook 可大幅減少 helm template 次數</span>
+
+  <span class="yc"># Helm template timeout</span>
+  <span class="yk">reposerver.git.request.timeout:</span> <span class="yv">"60s"</span>
+
+  <span class="yc"># 標記允許並發的 chart（建立 .argocd-allow-concurrency 檔案）</span>
+  <span class="yc"># 在 chart 目錄根新增空檔案 .argocd-allow-concurrency</span>
+  <span class="yc"># 表示此 chart 不修改本地檔案，可並發處理</span></code></pre>
+      </div>
+
+      <p>Mono-repo 場景的 <code>.argocd-allow-concurrency</code> 標記示範：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — 為所有 chart 標記允許並發</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment"># 在 mono-repo 中為每個 chart 目錄建立 .argocd-allow-concurrency</span>
+<span class="sh-comment">$ find . -name "Chart.yaml" -exec dirname {} \; | \</span>
+<span class="sh-comment">    xargs -I {} touch {}/.argocd-allow-concurrency</span>
+
+<span class="sh-comment"># 同樣為 kustomize overlay：</span>
+<span class="sh-comment">$ find . -name "kustomization.yaml" -exec dirname {} \; | \</span>
+<span class="sh-comment">    xargs -I {} touch {}/.argocd-allow-concurrency</span>
+
+<span class="sh-comment"># commit 進 Git，repo-server 重啟後生效</span>
+<span class="sh-comment"># 效果：同 repo 多個 chart 可並發 template，大幅縮短大批量 reconcile 時間</span></code></pre>
+      </div>
+    </section>
+
+    <!-- S4 Reconciliation 間隔 -->
+    <section class="sec" id="s4">
+      <h2><span class="sn">4</span>Reconciliation 間隔調優</h2>
+
+      <h3 id="s4a">4.1 timeout.reconciliation</h3>
+      <p>controller 預設每 180 秒 + 60 秒 jitter 對所有 Application 重新 reconcile。500+ App 環境，預設值會造成持續高負載：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — timeout.reconciliation 調優</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-cm</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yc"># 預設 180s + 60s jitter，總 polling 間隔 ~3 分鐘</span>
+  <span class="yc"># 配合 webhook 後，可拉長到 600s（10 分鐘）甚至 1800s（30 分鐘）</span>
+  <span class="yk">timeout.reconciliation:</span> <span class="yv">600s</span>
+  <span class="yk">timeout.reconciliation.jitter:</span> <span class="yv">120s</span>
+  <span class="yc"># 設為 0 完全停用 polling（純 webhook 模式）</span>
+  <span class="yc"># timeout.reconciliation: 0s</span></code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>jitter 不是可選</h4>
+          <p>若 jitter = 0，所有 Application 會在啟動後同一時間點同時 reconcile（雪崩效應）。<strong>永遠保留至少 timeout 的 30-50% 作為 jitter</strong>。例如 timeout = 600s，jitter = 120-180s。</p>
+        </div>
+      </div>
+
+      <h3 id="s4b">4.2 Webhook 即時觸發</h3>
+      <p>Webhook 讓 Argo CD 在 Git push 後 ~10 秒內感知變更，不需要等下次 polling。這是<strong>最關鍵的效能優化</strong>——可以將 timeout.reconciliation 拉長到 30 分鐘而仍維持快速 sync：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML + Bash — Git Webhook 完整設定</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## ── Step 1：取得 webhook secret ────────────────────────</span>
+<span class="sh-comment">## 在 argocd-secret 中設定（用於驗證 webhook 真實性）</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: Secret</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-secret</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">stringData:</span>
+  <span class="yc"># GitHub</span>
+  <span class="yk">webhook.github.secret:</span> <span class="yv">my-github-webhook-secret</span>
+  <span class="yc"># GitLab</span>
+  <span class="yk">webhook.gitlab.secret:</span> <span class="yv">my-gitlab-webhook-secret</span>
+  <span class="yc"># Bitbucket</span>
+  <span class="yc"># webhook.bitbucketserver.secret: ...</span>
+
+<span class="yc">## ── Step 2：在 GitHub repo 設定 webhook ────────────────</span>
+<span class="sh-comment">## Repo Settings → Webhooks → Add webhook</span>
+<span class="sh-comment"># Payload URL:    https://argocd.example.com/api/webhook</span>
+<span class="sh-comment"># Content type:   application/json</span>
+<span class="sh-comment"># Secret:         my-github-webhook-secret（與上方 secret 相同）</span>
+<span class="sh-comment"># Events:         Just the push event（精確比 "Send everything" 好）</span>
+
+<span class="yc">## ── Step 3：使用 manifest-generate-paths 進一步優化 ─────</span>
+<span class="yc">## 在 Application 加入 annotation，告訴 Argo CD：</span>
+<span class="yc">## 「只有當這些 path 變更時才重新生成 manifest」</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: Application</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app</span>
+  <span class="yk">annotations:</span>
+    <span class="yc"># 多 path 用分號分隔</span>
+    <span class="yk">argocd.argoproj.io/manifest-generate-paths:</span> <span class="yv">.;../shared-libs</span>
+<span class="yk">spec:</span>
+  <span class="yk">source:</span>
+    <span class="yk">path:</span> <span class="yv">apps/my-app</span>
+
+<span class="yc">## 效果：</span>
+<span class="yc"># Mono-repo 收到 webhook 時：</span>
+<span class="yc"># Argo CD 解析 webhook payload 中的 changed files</span>
+<span class="yc"># 若沒有任何檔案在 my-app/ 或 shared-libs/，跳過 reconcile</span>
+<span class="yc"># 大幅減少不必要的 manifest 生成</span></code></pre>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>典型優化組合</h4>
+          <p><strong>500 App + Mono-repo</strong>：① timeout.reconciliation = 1800s；② jitter = 600s；③ Webhook + manifest-generate-paths；④ <code>.argocd-allow-concurrency</code> 標記。實測效果：repo-server CPU 從 80% 降至 15%，Git push 後感知時間從 2-5 分鐘降至 5-10 秒。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S5 減少 reconcile -->
+    <section class="sec" id="s5">
+      <h2><span class="sn">5</span>減少不必要的 Reconcile</h2>
+
+      <h3 id="s5a">5.1 ignoreResourceUpdates（v2.10+）</h3>
+      <p>許多 K8s controller 會週期性更新 resource status（如 ExternalSecret 的 <code>status.refreshTime</code>、cert-manager 的 conditions）。每次更新觸發 Argo CD 重新 reconcile，但實際上沒有 sync 需求。<code>ignoreResourceUpdates</code> 讓 Argo CD 忽略這些變更：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — ignoreResourceUpdates 設定</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-cm</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yc"># 全域：忽略所有 resource 的 .status 變更</span>
+  <span class="yk">resource.customizations.ignoreResourceUpdates.all:</span> |
+    jsonPointers:
+      - /status
+
+  <span class="yc"># 針對特定資源：忽略 ExternalSecret 的 refreshTime</span>
+  <span class="yk">resource.customizations.ignoreResourceUpdates.external-secrets.io_ExternalSecret:</span> |
+    jsonPointers:
+      - /status/refreshTime
+      - /status/conditions
+
+  <span class="yc"># 針對 Certificate（cert-manager）：忽略 renewal time 變更</span>
+  <span class="yk">resource.customizations.ignoreResourceUpdates.cert-manager.io_Certificate:</span> |
+    jsonPointers:
+      - /status/renewalTime
+      - /status/conditions
+
+  <span class="yc"># 預設啟用（v2.10+）：</span>
+  <span class="yk">resource.ignoreResourceUpdatesEnabled:</span> <span class="yv">"true"</span></code></pre>
+      </div>
+
+      <p>對於不在 Application 管理範圍但仍會觸發 watch 的 untracked resources，可在 manifest 加 annotation：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — untracked resource annotation</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## 在依賴資源加上 annotation（如 cert-manager 自建的 Secret）</span>
+<span class="yk">metadata:</span>
+  <span class="yk">annotations:</span>
+    <span class="yk">argocd.argoproj.io/ignore-resource-updates:</span> <span class="yv">"true"</span></code></pre>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>找出高 churn 資源類型</h4>
+          <p>把 controller log level 設為 debug，搜尋 <code>"Requesting app refresh caused by object update"</code>。按 api-version/kind 計數，找到頻繁觸發的資源類型，再針對性加入 ignoreResourceUpdates。</p>
+        </div>
+      </div>
+
+      <h3 id="s5b">5.2 resource.exclusions（v3.0 預設已強化）</h3>
+      <p>排除高頻 / 高 churn 但不需要 GitOps 管理的 K8s 資源類型，避免 cluster cache 過大與 watch event 過多：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — resource.exclusions（v3.0 預設值）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">data:</span>
+  <span class="yc"># v3.0 起預設排除以下資源（無需手動設定）：</span>
+  <span class="yk">resource.exclusions:</span> |
+    <span class="yc"># 高頻更新（performance critical）</span>
+    - apiGroups: [""]
+      kinds: [Endpoints]
+      clusters: ["*"]
+    - apiGroups: ["discovery.k8s.io"]
+      kinds: [EndpointSlice]
+      clusters: ["*"]
+    - apiGroups: ["coordination.k8s.io"]
+      kinds: [Lease]
+      clusters: ["*"]
+    <span class="yc"># Token / Review 類（暫時性 + 高頻）</span>
+    - apiGroups: ["authentication.k8s.io"]
+      kinds: [SelfSubjectReview, TokenReview]
+    - apiGroups: ["authorization.k8s.io"]
+      kinds: [LocalSubjectAccessReview, SelfSubjectAccessReview, SelfSubjectRulesReview, SubjectAccessReview]
+    - apiGroups: ["certificates.k8s.io"]
+      kinds: [CertificateSigningRequest]
+    <span class="yc"># PolicyReport（OPA Gatekeeper / Kyverno）</span>
+    - apiGroups: ["wgpolicyk8s.io"]
+      kinds: [PolicyReport, ClusterPolicyReport]
+
+  <span class="yc"># 自定義排除：服務網格的高頻資源</span>
+  <span class="yc"># （在預設值之外擴充，注意不要覆蓋預設）</span></code></pre>
+      </div>
+
+      <h3 id="s5c">5.3 manifest-generate-paths（mono-repo 必備）</h3>
+      <p>Mono-repo 中，App A 在 <code>apps/a/</code>，App B 在 <code>apps/b/</code>。若沒有 manifest-generate-paths annotation，任何一個 commit 都會觸發 A 和 B 都重新 reconcile（每次都 helm template）。設定後只有對應 path 變更才觸發：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — manifest-generate-paths 範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## App A：只在 apps/a/ 或共享 lib/ 變更時 reconcile</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: Application</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">app-a</span>
+  <span class="yk">annotations:</span>
+    <span class="yc"># 多 path 用分號分隔；. 表示 source.path 本身</span>
+    <span class="yc"># ../shared-lib 表示 path 的相對路徑</span>
+    <span class="yk">argocd.argoproj.io/manifest-generate-paths:</span> <span class="yv">".;../shared-lib"</span>
+<span class="yk">spec:</span>
+  <span class="yk">source:</span>
+    <span class="yk">repoURL:</span> <span class="yv">https://github.com/myorg/mono-repo.git</span>
+    <span class="yk">path:</span> <span class="yv">apps/a</span>
+
+<span class="yc"># 注意：此功能只在 webhook 模式下生效</span>
+<span class="yc"># Polling 模式下（webhook 未設定），仍會所有 App reconcile</span></code></pre>
+      </div>
+    </section>
+
+    <!-- S6 cluster cache -->
+    <section class="sec" id="s6">
+      <h2><span class="sn">6</span>大型 Cluster Cache 調優</h2>
+      <p>controller 透過 K8s watch API 維護 cluster 快取（avoid query K8s API 每次 reconcile）。當 cluster 中資源數量極多（10000+）時，初次 cache sync 可能超時：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Cluster cache 環境變數</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## 在 argocd-application-controller StatefulSet 設定</span>
+<span class="yk">env:</span>
+  <span class="yc"># 單次 list page size（K8s API 分頁讀取）</span>
+  <span class="yc"># 預設 500，大 cluster 可調至 2000</span>
+  - <span class="yk">name:</span> <span class="yv">ARGOCD_CLUSTER_CACHE_LIST_PAGE_SIZE</span>
+    <span class="yk">value:</span> <span class="yv">"500"</span>
+
+  <span class="yc"># Page buffer 數（並發處理多少 page）</span>
+  <span class="yc"># 預設 1，大 cluster 調至 5-10</span>
+  <span class="yc"># 防止 etcd compaction 期間「continue parameter is too old」錯誤</span>
+  - <span class="yk">name:</span> <span class="yv">ARGOCD_CLUSTER_CACHE_LIST_PAGE_BUFFER_SIZE</span>
+    <span class="yk">value:</span> <span class="yv">"5"</span>
+
+  <span class="yc"># 公式：PAGE_SIZE × BUFFER_SIZE 應大於最大資源類型總數</span>
+  <span class="yc"># 例：cluster 中 10000 個 Pod → 500 × 20 = 10000 OK</span>
+
+  <span class="yc"># Cache 重新同步間隔（預設 24h）</span>
+  - <span class="yk">name:</span> <span class="yv">ARGOCD_CLUSTER_CACHE_RESYNC_DURATION</span>
+    <span class="yk">value:</span> <span class="yv">"24h"</span>
+
+  <span class="yc"># Watch retry 間隔</span>
+  - <span class="yk">name:</span> <span class="yv">ARGOCD_CLUSTER_CACHE_WATCH_RESYNC_DURATION</span>
+    <span class="yk">value:</span> <span class="yv">"60s"</span></code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>controller OOM 的真兇通常是 cache</h4>
+          <p>Argo CD controller 記憶體用量主要來自 cluster cache。10000+ resources 的 cluster 可能需要 2-4 GB memory。觀察 <code>argocd_cluster_cache_resources</code> 指標，依此調整 controller resources.limits.memory。Sharding 是進一步分擔 cache 負載的方案（每 shard 只 cache 部分 cluster）。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S7 監控指標 -->
+    <section class="sec" id="s7">
+      <h2><span class="sn">7</span>效能監控指標</h2>
+
+      <p>沒有監控就沒有調優。以下是必須監控的關鍵指標：</p>
+
+      <div class="met-grid">
+        <div class="mc">
+          <div class="mc-name">argocd_app_reconcile_bucket</div>
+          <div class="mc-desc">Application reconciliation 持續時間 histogram。99th percentile &gt; 120s 表示有效能問題。</div>
+          <div class="mc-alert">⚠ Alert: p99 &gt; 120s for 10m</div>
+        </div>
+        <div class="mc">
+          <div class="mc-name">argocd_app_k8s_request_total</div>
+          <div class="mc-desc">每 Application 對 K8s API 的請求數。某 App 異常高表示其資源使用了 non-preferred version（cache miss）。</div>
+          <div class="mc-alert">⚠ 找出 outlier App 並修復 manifest</div>
+        </div>
+        <div class="mc">
+          <div class="mc-name">argocd_repo_pending_request_total</div>
+          <div class="mc-desc">repo-server 中等待處理的請求數。持續 &gt; 0 代表 parallelism limit 太低或 repo-server 過載。</div>
+          <div class="mc-alert">⚠ Alert: &gt; 0 for 5m</div>
+        </div>
+        <div class="mc">
+          <div class="mc-name">argocd_workqueue_depth</div>
+          <div class="mc-desc">controller queue 深度。持續 &gt; 0 + status processors 全忙 = 需要增加 processors。</div>
+          <div class="mc-alert">⚠ Alert: &gt; 50 for 5m</div>
+        </div>
+        <div class="mc">
+          <div class="mc-name">argocd_cluster_cache_resources</div>
+          <div class="mc-desc">cache 中的資源數量。極端大表示 resource.exclusions 不足或 cluster 過大需 sharding。</div>
+          <div class="mc-alert">⚠ Alert: &gt; 50000 per cluster</div>
+        </div>
+        <div class="mc">
+          <div class="mc-name">argocd_git_request_duration_seconds</div>
+          <div class="mc-desc">Git operation 持續時間。&gt; 30s 表示 Git 平台慢、network 問題、或 repo 過大需 shallow clone。</div>
+          <div class="mc-alert">⚠ Alert: p95 &gt; 30s</div>
+        </div>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Prometheus Alert Rules 範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: monitoring.coreos.com/v1</span>
+<span class="yh">kind: PrometheusRule</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-performance</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">spec:</span>
+  <span class="yk">groups:</span>
+    - <span class="yk">name:</span> <span class="yv">argocd-performance</span>
+      <span class="yk">rules:</span>
+        - <span class="yk">alert:</span> <span class="yv">ArgoCDSlowReconciliation</span>
+          <span class="yk">expr:</span> |
+            histogram_quantile(0.99,
+              rate(argocd_app_reconcile_bucket[5m])
+            ) > 120
+          <span class="yk">for:</span> <span class="yv">10m</span>
+          <span class="yk">labels:</span>
+            <span class="yk">severity:</span> <span class="yv">warning</span>
+          <span class="yk">annotations:</span>
+            <span class="yk">summary:</span> <span class="yv">"Argo CD reconciliation taking too long"</span>
+
+        - <span class="yk">alert:</span> <span class="yv">ArgoCDRepoServerOverloaded</span>
+          <span class="yk">expr:</span> <span class="yv">argocd_repo_pending_request_total > 5</span>
+          <span class="yk">for:</span> <span class="yv">5m</span>
+          <span class="yk">labels:</span>
+            <span class="yk">severity:</span> <span class="yv">warning</span>
+          <span class="yk">annotations:</span>
+            <span class="yk">summary:</span> <span class="yv">"repo-server has pending requests"</span>
+            <span class="yk">description:</span> <span class="yv">"Increase replicas or parallelism limit"</span>
+
+        - <span class="yk">alert:</span> <span class="yv">ArgoCDControllerQueueDepthHigh</span>
+          <span class="yk">expr:</span> <span class="yv">argocd_workqueue_depth > 50</span>
+          <span class="yk">for:</span> <span class="yv">5m</span>
+          <span class="yk">labels:</span>
+            <span class="yk">severity:</span> <span class="yv">warning</span></code></pre>
+      </div>
+    </section>
+
+    <!-- S8 Playbook -->
+    <section class="sec" id="s8">
+      <h2><span class="sn">8</span>效能調優 Playbook（依規模對照）</h2>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>規模</th><th>application-controller</th><th>repo-server</th><th>關鍵設定</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>小（&lt;100 App）</td>
+              <td>1 replica<br>status:20 op:10<br>0.5 CPU 1G mem</td>
+              <td>2 replicas<br>parallelism:10<br>0.5 CPU 0.5G mem</td>
+              <td>預設值即可<br>timeout: 180s + 60s jitter</td>
+            </tr>
+            <tr>
+              <td>中（100-500 App）</td>
+              <td>1 replica<br>status:30 op:15<br>1 CPU 2G mem</td>
+              <td>3 replicas<br>parallelism:10<br>1 CPU 1G mem</td>
+              <td>啟用 webhook<br>timeout: 600s + 120s jitter</td>
+            </tr>
+            <tr>
+              <td>大（500-2000 App）</td>
+              <td>2 replica（Sharding）<br>status:50 op:25<br>2 CPU 4G mem</td>
+              <td>5 replicas + HPA<br>parallelism:10<br>2 CPU 2G mem</td>
+              <td>webhook + manifest-generate-paths<br>shallow clone<br>ignoreResourceUpdates<br>timeout: 1800s + 600s jitter</td>
+            </tr>
+            <tr>
+              <td>超大（2000+ App）</td>
+              <td>3-5 replicas（Sharding consistent-hashing）<br>status:100 op:50<br>4 CPU 8G mem</td>
+              <td>10+ replicas + HPA<br>parallelism:10<br>2 CPU 2G mem</td>
+              <td>同上 + cluster cache 調優<br>workqueue rate limiter<br>kubectl-parallelism-limit:20</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>調優順序建議</h4>
+          <p>① <strong>啟用 Webhook</strong>（最大效益，幾乎免費）；② <strong>shallow clone</strong>（5 分鐘設定）；③ <strong>ignoreResourceUpdates</strong>（找 high-churn 資源）；④ <strong>調 processors / parallelism</strong>（依 metrics 決定）；⑤ <strong>Sharding</strong>（&gt;30 cluster 才需要）；⑥ <strong>cluster cache 調優</strong>（&gt;10000 resource 才需要）。先省力且有大效益的優化，後針對性調參。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Summary -->
+    <section class="sec" id="sum">
+      <h2><span class="sn">✓</span>本章重點回顧</h2>
+      <div class="kp">
+        <h3>📌 Key Takeaways</h3>
+        <ul class="kp-list">
+          <li><span class="kp-ic">📊</span><span><strong>Reconcile 六階段瓶頸定位</strong>：① repo-server 慢（最常見，CPU/OOM）；② controller queue 堆積（processors 不夠）；③ cluster cache 過大（OOM）；④ Git rate limit。先看 metrics 找瓶頸，不要盲目調參。</span></li>
+          <li><span class="kp-ic">⚙️</span><span><strong>controller processors 公式</strong>：1000 App → status:50 / op:25；3000+ App → status:100 / op:50。<code>kubectl-parallelism-limit:20</code> 必設（防 OOM）。Workqueue rate limiter 處理 sync loop。</span></li>
+          <li><span class="kp-ic">📦</span><span><strong>repo-server 調優三件套</strong>：① <code>parallelism.limit = CPU × 2</code>；② <code>shallow.clone: true</code>（mono-repo 效益巨大）；③ 在 chart 目錄放 <code>.argocd-allow-concurrency</code> 標記允許並發。</span></li>
+          <li><span class="kp-ic">🌐</span><span><strong>Webhook 是最大投資報酬比的優化</strong>：設定後 timeout.reconciliation 可拉長到 1800s，repo-server CPU 降 3x，Git push 後感知時間從分鐘級降到秒級。配合 <code>manifest-generate-paths</code> 在 mono-repo 進一步避免不必要的 reconcile。</span></li>
+          <li><span class="kp-ic">🔇</span><span><strong>ignoreResourceUpdates 大幅降低無效 reconcile</strong>：對 ExternalSecret / Certificate / 任何高 churn 資源類型設定。debug log 找 <code>"Requesting app refresh caused by object update"</code> 找出兇手。v3.0 預設啟用。</span></li>
+          <li><span class="kp-ic">📈</span><span><strong>必須監控的關鍵指標</strong>：argocd_app_reconcile（duration p99）、argocd_repo_pending_request_total（&gt; 0 即警告）、argocd_workqueue_depth、argocd_cluster_cache_resources。沒有監控就無法判斷調優是否有效。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <nav class="ch-nav">
+      <a href="ch17-repository-credentials.html" class="nav-btn nav-prev">
+        <div><div class="nav-sub">上一章 / PREV</div><div>← Ch.17 Repository Credentials 與 SSH 管理</div></div>
+      </a>
+      <a href="#" class="nav-btn nav-next">
+        <div><div class="nav-sub">下一章 / NEXT</div><div>Ch.19 災難復原與備份還原 →</div></div>
+      </a>
+    </nav>
+  </main>
+</div>
+
+<footer>Argo CD 完整教學手冊 · <strong>Vol 3 Ch.18</strong> · 基於 Argo CD <strong>v3.4</strong> · 2026-05-09</footer>
+
+<script>
+(function(){
+  'use strict';
+  const KEY='jhsun-theme';
+  const IC={light:'☀',dark:'☾',system:'◐'};
+  const LB={light:'Light',dark:'Dark',system:'System'};
+  function gs(){try{return localStorage.getItem(KEY);}catch(_){return null;}}
+  function ss(v){try{v==='system'||v==null?localStorage.removeItem(KEY):localStorage.setItem(KEY,v);}catch(_){}}
+  function sp(){return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  function ef(m){return m==='system'?sp():m;}
+  function apply(m){
+    const e=ef(m);
+    document.documentElement.dataset.theme=e;
+    document.documentElement.dataset.themeMode=m;
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{
+      b.dataset.themeMode=m;
+      b.setAttribute('aria-label','Theme: '+LB[m]);
+      b.title='Theme: '+LB[m];
+      if(!b.dataset.themeToggleStyled)b.innerHTML='<span>'+IC[m]+'</span><span>'+LB[m]+'</span>';
+    });
+    dispatchEvent(new CustomEvent('jhsun:theme-changed',{detail:{theme:e,mode:m}}));
+  }
+  function cyc(c){return c==='light'?'dark':c==='dark'?'system':'light';}
+  function cur(){return gs()||'system';}
+  function init(){
+    apply(cur());
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{b.addEventListener('click',()=>{const n=cyc(cur());ss(n);apply(n);});});
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(cur()==='system')apply('system');});
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+  window.JHsunTheme={get:cur,set:m=>{ss(m);apply(m);},toggle:()=>{const n=cyc(cur());ss(n);apply(n);}};
+})();
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('.copy-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const pre=btn.closest('.code-wrap').querySelector('pre');
+      navigator.clipboard.writeText(pre.innerText).then(()=>{btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},2000);});
+    });
+  });
+  const hds=document.querySelectorAll('.sec h2,.sec h3');
+  const lks=document.querySelectorAll('.toc-list a');
+  const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){lks.forEach(l=>l.classList.remove('active'));const id=e.target.id||e.target.closest('[id]')?.id;if(id){const a=document.querySelector('.toc-list a[href="#'+id+'"]');if(a)a.classList.add('active');}}});},{rootMargin:'-60px 0px -70% 0px'});
+  hds.forEach(h=>{if(h.id)obs.observe(h);});
+});
+</script>
+</body>
+</html>

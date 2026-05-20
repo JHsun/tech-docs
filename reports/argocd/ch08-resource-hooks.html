@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.08 Resource Hooks：PreSync / Sync / PostSync / SyncFail — Argo CD 完整教學手冊</title>
+<style>
+:root {
+  --tk-hue:200;--tk-chroma:0.11;
+  --color-success:#16a34a;--color-success-soft:#dcfce7;
+  --color-warning:#d97706;--color-warning-soft:#fef3c7;
+  --color-danger:#dc2626;--color-danger-soft:#fee2e2;
+  --color-info:#0891b2;--color-info-soft:#cffafe;
+  --color-neutral-accent:#7c3aed;
+  --color-primary:oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:oklch(0.96 calc(var(--tk-chroma)*.25) var(--tk-hue));
+  --color-primary-text:oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas:oklch(0.985 0.004 60);--bg-surface:oklch(0.995 0.003 60);
+  --bg-muted:oklch(0.96 0.005 60);--bg-code:oklch(0.975 0.006 60);
+  --border-soft:oklch(0.92 0.006 60);--border-mid:oklch(0.85 0.008 60);
+  --text-primary:oklch(0.22 0.008 60);--text-secondary:oklch(0.42 0.008 60);--text-muted:oklch(0.58 0.008 60);
+  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --font-sans:"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif;
+  --font-serif:"Playfair Display","Source Serif 4","Noto Serif TC",Georgia,serif;
+  --font-body:"Source Serif 4","Noto Serif TC",Georgia,serif;
+  --text-xs:12px;--text-sm:14px;--text-base:16px;--text-md:18px;--text-lg:20px;--text-xl:24px;--text-2xl:32px;--text-3xl:44px;
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-7:48px;--space-8:64px;--space-9:96px;
+  --radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:20px;
+  --shadow-sm:0 1px 3px oklch(0.20 0.01 60/0.07);--shadow-md:0 4px 14px oklch(0.20 0.01 60/0.10);
+}
+:root[data-theme="dark"]{
+  --color-success:#4ade80;--color-success-soft:oklch(0.28 0.08 145);
+  --color-warning:#fbbf24;--color-warning-soft:oklch(0.30 0.10 70);
+  --color-danger:#f87171;--color-danger-soft:oklch(0.30 0.10 27);
+  --color-info:#22d3ee;--color-info-soft:oklch(0.30 0.08 200);
+  --color-neutral-accent:#a78bfa;
+  --color-primary:oklch(0.72 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-hover:oklch(0.80 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-soft:oklch(0.28 calc(var(--tk-chroma)*.6) var(--tk-hue));
+  --color-primary-text:oklch(0.85 calc(var(--tk-chroma)*.6) var(--tk-hue));
+  --bg-canvas:oklch(0.14 0.008 50);--bg-surface:oklch(0.18 0.009 50);
+  --bg-muted:oklch(0.21 0.010 50);--bg-code:oklch(0.16 0.009 50);
+  --border-soft:oklch(0.26 0.010 50);--border-mid:oklch(0.34 0.012 50);
+  --text-primary:oklch(0.93 0.005 60);--text-secondary:oklch(0.74 0.006 60);--text-muted:oklch(0.56 0.007 60);
+  --shadow-sm:0 1px 3px oklch(0.04 0 0/.50);--shadow-md:0 4px 14px oklch(0.04 0 0/.60);
+}
+html{color-scheme:light dark;}html[data-theme="light"]{color-scheme:light;}html[data-theme="dark"]{color-scheme:dark;}
+body{background:var(--bg-canvas);color:var(--text-primary);font-family:var(--font-sans);font-size:var(--text-base);line-height:1.7;margin:0;padding:0;transition:background .25s,color .25s;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+.topbar{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:10px var(--space-6);background:var(--bg-surface);border-bottom:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.tb-left{display:flex;align-items:center;gap:var(--space-3);}
+.tb-logo{width:30px;height:30px;border-radius:var(--radius-md);background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:13px;font-weight:800;}
+.tb-trail{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.tb-trail .sep{color:var(--border-mid);}.tb-trail .cur{color:var(--color-primary);font-weight:600;}
+.tb-right{display:flex;align-items:center;gap:var(--space-2);}
+.pill{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);border:1px solid;}
+.pill-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.pill-ver{background:var(--color-info-soft);color:var(--color-info);border-color:var(--color-info);}
+[data-theme-toggle]{cursor:pointer;border:1px solid var(--border-mid);background:var(--bg-muted);color:var(--text-secondary);border-radius:var(--radius-md);padding:6px var(--space-3);font-family:var(--font-sans);font-size:var(--text-sm);display:flex;align-items:center;gap:6px;transition:all .2s;}
+[data-theme-toggle]:hover{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.page{display:flex;min-height:100vh;}
+.toc-sidebar{width:230px;flex-shrink:0;position:sticky;top:49px;height:calc(100vh - 49px);overflow-y:auto;padding:var(--space-5) var(--space-3);border-right:1px solid var(--border-soft);background:var(--bg-surface);}
+.toc-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-3);}
+.toc-list{list-style:none;}
+.toc-list li{margin-bottom:2px;}
+.toc-list a{display:block;padding:4px var(--space-2);font-size:var(--text-sm);color:var(--text-secondary);text-decoration:none;border-radius:var(--radius-sm);border-left:2px solid transparent;transition:all .15s;line-height:1.4;}
+.toc-list a:hover,.toc-list a.active{color:var(--color-primary);background:var(--color-primary-soft);border-left-color:var(--color-primary);font-weight:600;}
+.toc-h3{padding-left:var(--space-4)!important;font-size:var(--text-xs)!important;}
+.toc-lbl{display:block;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:var(--space-3) var(--space-2) var(--space-1);margin-top:var(--space-2);}
+.content{flex:1;min-width:0;padding:var(--space-8) var(--space-7) var(--space-9);max-width:900px;}
+.ch-header{margin-bottom:var(--space-8);padding-bottom:var(--space-6);border-bottom:1px solid var(--border-soft);}
+.ch-meta{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-4);flex-wrap:wrap;}
+.m-badge{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);}
+.m-ch{background:var(--color-primary);color:#fff;}
+.m-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border:1px solid var(--color-primary);}
+.m-time{background:var(--bg-muted);color:var(--text-muted);border:1px solid var(--border-soft);}
+.ch-header h1{font-family:var(--font-serif);font-size:clamp(var(--text-2xl),4vw,var(--text-3xl));font-weight:700;color:var(--text-primary);line-height:1.2;margin-bottom:var(--space-4);}
+.ch-header h1 em{font-style:normal;color:var(--color-primary);}
+.ch-lead{font-size:var(--text-md);color:var(--text-secondary);line-height:1.7;max-width:700px;font-family:var(--font-body);}
+.prereq{margin-top:var(--space-5);display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--bg-muted);border-radius:var(--radius-md);border:1px solid var(--border-soft);}
+.prereq .pico{font-size:var(--text-lg);flex-shrink:0;margin-top:1px;}
+.prereq p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;}
+.prereq strong{color:var(--text-primary);}
+.obj-box{background:var(--color-primary-soft);border:1px solid var(--color-primary);border-radius:var(--radius-lg);padding:var(--space-5);margin-bottom:var(--space-7);}
+.obj-box h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--color-primary-text);font-weight:700;margin-bottom:var(--space-3);}
+.obj-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-2);}
+.obj-list li{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-sm);color:var(--color-primary-text);line-height:1.5;}
+.obj-list li::before{content:"✓";font-weight:700;color:var(--color-primary);flex-shrink:0;margin-top:1px;}
+.sec{margin-bottom:var(--space-9);scroll-margin-top:80px;}
+.sec h2{font-family:var(--font-serif);font-size:var(--text-2xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-4);padding-bottom:var(--space-3);border-bottom:2px solid var(--border-soft);display:flex;align-items:center;gap:var(--space-3);}
+.sn{font-family:var(--font-mono);font-size:var(--text-sm);background:var(--color-primary);color:#fff;padding:2px 8px;border-radius:var(--radius-sm);font-weight:700;white-space:nowrap;flex-shrink:0;}
+.sec h3{font-family:var(--font-sans);font-size:var(--text-lg);font-weight:700;color:var(--text-primary);margin:var(--space-6) 0 var(--space-3);}
+.sec h4{font-family:var(--font-sans);font-size:var(--text-base);font-weight:700;color:var(--text-primary);margin:var(--space-5) 0 var(--space-2);}
+p{font-family:var(--font-body);font-size:var(--text-base);color:var(--text-secondary);line-height:1.8;margin-bottom:var(--space-4);}
+strong{color:var(--text-primary);}em{color:var(--color-primary);font-style:normal;}
+.cal{display:flex;gap:var(--space-3);padding:var(--space-4) var(--space-5);border-radius:var(--radius-lg);margin:var(--space-5) 0;border-left:4px solid;}
+.ci{background:var(--color-info-soft);border-color:var(--color-info);}
+.cw{background:var(--color-warning-soft);border-color:var(--color-warning);}
+.ct{background:var(--color-success-soft);border-color:var(--color-success);}
+.cd{background:var(--color-primary-soft);border-color:var(--color-primary);}
+.cal .ic{font-size:var(--text-lg);flex-shrink:0;margin-top:2px;}
+.cal h4{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-1);font-family:var(--font-sans);}
+.cal p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.65;margin:0;font-family:var(--font-sans);}
+.code-wrap{margin:var(--space-4) 0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.code-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px var(--space-4);background:var(--bg-muted);border-bottom:1px solid var(--border-soft);}
+.code-lang{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;}
+.copy-btn{cursor:pointer;font-family:var(--font-mono);font-size:11px;padding:3px 10px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--border-mid);color:var(--text-muted);transition:all .2s;}
+.copy-btn:hover{background:var(--color-primary-soft);color:var(--color-primary);border-color:var(--color-primary);}
+.copy-btn.copied{background:var(--color-success-soft);color:var(--color-success);border-color:var(--color-success);}
+pre{margin:0;padding:var(--space-5);background:var(--bg-code);overflow-x:auto;font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.65;color:var(--text-primary);}
+code{font-family:var(--font-mono);font-size:.92em;background:var(--bg-code);padding:1px 5px;border-radius:var(--radius-sm);color:var(--color-primary-text);border:1px solid var(--border-soft);}
+pre code{background:none;padding:0;border:none;color:inherit;font-size:inherit;}
+.yk{color:var(--color-info);}.yv{color:var(--color-success);}.yc{color:var(--text-muted);font-style:italic;}
+.yn{color:var(--color-warning);}.yh{color:var(--color-neutral-accent);font-weight:700;}
+/* Hook phase timeline */
+.hook-timeline{display:flex;align-items:stretch;gap:0;margin:var(--space-5) 0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border-mid);box-shadow:var(--shadow-sm);}
+.ht-phase{flex:1;padding:var(--space-4);border-right:1px solid var(--border-mid);position:relative;}
+.ht-phase:last-child{border-right:none;}
+.ht-label{font-family:var(--font-mono);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;margin-bottom:var(--space-2);}
+.ht-name{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-1);}
+.ht-desc{font-size:11px;color:var(--text-secondary);line-height:1.5;font-family:var(--font-sans);}
+.ht-fail{font-size:10px;color:var(--color-danger);font-family:var(--font-mono);margin-top:var(--space-2);font-weight:600;}
+/* hook cards */
+.hook-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--space-4);margin:var(--space-5) 0;}
+.hk{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-5);box-shadow:var(--shadow-sm);position:relative;overflow:hidden;transition:box-shadow .2s,transform .2s;}
+.hk:hover{box-shadow:var(--shadow-md);transform:translateY(-2px);}
+.hk::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--hc);}
+.hk-icon{font-size:28px;margin-bottom:var(--space-2);}
+.hk-name{font-family:var(--font-mono);font-size:var(--text-sm);font-weight:700;color:var(--hc);margin-bottom:var(--space-1);}
+.hk-timing{font-size:11px;color:var(--text-muted);font-family:var(--font-sans);margin-bottom:var(--space-3);}
+.hk-desc{font-size:var(--text-xs);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.hk-examples{margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--border-soft);}
+.hk-ex-label{font-size:10px;font-family:var(--font-mono);color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:var(--space-1);}
+.hk-ex-items{font-size:11px;color:var(--text-secondary);font-family:var(--font-sans);line-height:1.6;}
+/* delete policy table */
+.tw{overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);margin:var(--space-5) 0;}
+table{width:100%;border-collapse:collapse;font-size:var(--text-sm);}
+thead th{background:var(--bg-muted);padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.07em;border-bottom:2px solid var(--border-mid);text-align:left;white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--border-soft);transition:background .12s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--bg-muted);}
+td{padding:var(--space-3) var(--space-4);vertical-align:top;line-height:1.6;font-family:var(--font-sans);}
+td:first-child{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--color-primary-text);background:var(--color-primary-soft);white-space:nowrap;font-weight:600;}
+.tc{font-size:var(--text-xs);color:var(--text-muted);}
+/* scenario */
+.scenario{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);overflow:hidden;margin:var(--space-5) 0;box-shadow:var(--shadow-sm);}
+.sc-head{padding:var(--space-3) var(--space-5);font-family:var(--font-sans);font-size:var(--text-sm);font-weight:700;color:var(--text-primary);border-bottom:1px solid var(--border-soft);background:var(--bg-muted);display:flex;align-items:center;gap:var(--space-3);}
+.sc-tag{font-family:var(--font-mono);font-size:10px;padding:2px 7px;border-radius:var(--radius-sm);font-weight:600;}
+/* kp */
+.kp{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);margin:var(--space-7) 0;box-shadow:var(--shadow-sm);}
+.kp h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-4);margin-top:0;}
+.kp-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-3);}
+.kp-list li{display:flex;align-items:flex-start;gap:var(--space-3);font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.kp-ic{font-size:var(--text-md);flex-shrink:0;margin-top:1px;}
+.ch-nav{display:flex;justify-content:space-between;margin-top:var(--space-9);padding-top:var(--space-6);border-top:1px solid var(--border-soft);}
+.nav-btn{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);text-decoration:none;font-size:var(--text-sm);font-weight:600;transition:all .2s;box-shadow:var(--shadow-md);}
+.nav-prev{background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-mid);}.nav-prev:hover{background:var(--bg-muted);transform:translateX(-2px);}
+.nav-next{background:var(--color-primary);color:#fff;}.nav-next:hover{background:var(--color-primary-hover);transform:translateX(2px);}
+.nav-sub{font-size:11px;opacity:.75;font-family:var(--font-mono);}
+footer{border-top:1px solid var(--border-soft);padding:var(--space-5) var(--space-8);font-family:var(--font-mono);font-size:11px;color:var(--text-muted);text-align:center;}
+footer strong{color:var(--color-primary);}
+@media(max-width:900px){.toc-sidebar{display:none;}.content{padding:var(--space-6) var(--space-4) var(--space-8);}.hook-cards{grid-template-columns:1fr;}.hook-timeline{flex-direction:column;}.ht-phase{border-right:none;border-bottom:1px solid var(--border-mid);}}
+@media(max-width:640px){.topbar{padding:8px var(--space-4);}.tb-trail{display:none;}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="tb-left">
+    <div class="tb-logo">A</div>
+    <nav class="tb-trail">
+      <span>Argo CD 完整教學手冊</span><span class="sep">›</span>
+      <span>Vol 2 應用程式管理</span><span class="sep">›</span>
+      <span class="cur">Ch.08 Resource Hooks</span>
+    </nav>
+  </div>
+  <div class="tb-right">
+    <span class="pill pill-vol">Vol 2 · Ch.08</span>
+    <span class="pill pill-ver">v3.4</span>
+    <button data-theme-toggle></button>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="toc-sidebar">
+    <div class="toc-title">本章目錄</div>
+    <ul class="toc-list">
+      <li><a href="#obj">學習目標</a></li>
+      <span class="toc-lbl">第一節</span>
+      <li><a href="#s1">Hook 概念與執行流程</a></li>
+      <li><a href="#s1a" class="toc-h3">Sync 生命週期完整圖</a></li>
+      <li><a href="#s1b" class="toc-h3">Hook vs 一般資源的差異</a></li>
+      <span class="toc-lbl">第二節</span>
+      <li><a href="#s2">六種 Hook 類型詳解</a></li>
+      <li><a href="#s2a" class="toc-h3">PreSync</a></li>
+      <li><a href="#s2b" class="toc-h3">Sync</a></li>
+      <li><a href="#s2c" class="toc-h3">PostSync</a></li>
+      <li><a href="#s2d" class="toc-h3">SyncFail</a></li>
+      <li><a href="#s2e" class="toc-h3">PreDelete（v3.3）</a></li>
+      <li><a href="#s2f" class="toc-h3">Skip</a></li>
+      <span class="toc-lbl">第三節</span>
+      <li><a href="#s3">Hook Delete Policy</a></li>
+      <li><a href="#s3a" class="toc-h3">三種 Policy 詳解</a></li>
+      <li><a href="#s3b" class="toc-h3">組合策略</a></li>
+      <span class="toc-lbl">第四節</span>
+      <li><a href="#s4">Hook 可支援的資源類型</a></li>
+      <span class="toc-lbl">第五節</span>
+      <li><a href="#s5">實戰場景完整範例</a></li>
+      <li><a href="#s5a" class="toc-h3">DB Schema Migration</a></li>
+      <li><a href="#s5b" class="toc-h3">PostSync Smoke Test</a></li>
+      <li><a href="#s5c" class="toc-h3">SyncFail 告警通知</a></li>
+      <li><a href="#s5d" class="toc-h3">PreDelete 清理任務</a></li>
+      <span class="toc-lbl">第六節</span>
+      <li><a href="#s6">Hook 的限制與最佳實踐</a></li>
+      <span class="toc-lbl">總結</span>
+      <li><a href="#sum">重點回顧</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <header class="ch-header">
+      <div class="ch-meta">
+        <span class="m-badge m-ch">Chapter 08</span>
+        <span class="m-badge m-vol">Vol 2 — 應用程式管理</span>
+        <span class="m-badge m-time">⏱ 預計閱讀時間 35 分鐘</span>
+      </div>
+      <h1>Resource Hooks：<br><em>PreSync / Sync / PostSync / SyncFail</em></h1>
+      <p class="ch-lead">Resource Hooks 讓你在部署的各個階段插入自定義邏輯——部署前執行 DB migration、部署後執行 smoke test、失敗時發送告警、刪除前執行清理。本章深入六種 Hook 類型、三種 Delete Policy，以及實際生產場景的完整 YAML 範例。</p>
+      <div class="prereq">
+        <span class="pico">📋</span>
+        <p><strong>前置：</strong>已閱讀 Ch.06（syncPolicy 與 Sync 流程）。了解 Kubernetes Job / Pod 的基本結構。</p>
+      </div>
+    </header>
+
+    <div class="obj-box" id="obj">
+      <h3>🎯 學習目標</h3>
+      <ul class="obj-list">
+        <li>理解 Hook 在 Sync 生命週期中的執行順序，以及各 Phase 的失敗行為</li>
+        <li>掌握六種 Hook 類型（PreSync / Sync / PostSync / SyncFail / PreDelete / Skip）的適用場景</li>
+        <li>理解三種 Hook Delete Policy（HookSucceeded / HookFailed / BeforeHookCreation）的行為差異與組合方式</li>
+        <li>能撰寫 DB migration PreSync hook、PostSync smoke test、SyncFail 告警通知等完整 Job YAML</li>
+        <li>理解 PreDelete hook（v3.3）的運作機制與 Application 刪除流程</li>
+        <li>了解 Argo CD Hook 與 Helm hook 的差異，以及 Selective Sync 對 hook 的影響</li>
+      </ul>
+    </div>
+
+    <!-- S1 概念與執行流程 -->
+    <section class="sec" id="s1">
+      <h2><span class="sn">1</span>Hook 概念與 Sync 生命週期</h2>
+      <p>Resource Hook 是用特定 annotation 標記的 Kubernetes 資源，告訴 Argo CD 在 sync 的哪個階段執行它。Hook 與一般資源的根本差異在於：<strong>Hook 有明確的生命週期</strong>——執行完成後，Argo CD 可以根據 Delete Policy 自動清理。</p>
+
+      <h3 id="s1a">1.1 Sync 生命週期完整圖</h3>
+
+      <div class="hook-timeline">
+        <div class="ht-phase" style="background:oklch(0.97 0.02 200)">
+          <div class="ht-label" style="color:var(--color-primary)">Phase 1</div>
+          <div class="ht-name">PreSync</div>
+          <div class="ht-desc">在所有應用資源 apply 之前執行。例如 DB migration、前置備份。</div>
+          <div class="ht-fail">❌ 失敗 → 整個 sync 停止，應用資源不受影響</div>
+        </div>
+        <div class="ht-phase" style="background:oklch(0.97 0.02 145)">
+          <div class="ht-label" style="color:var(--color-success)">Phase 2</div>
+          <div class="ht-name">Sync</div>
+          <div class="ht-desc">與應用資源同時 apply（按 sync wave 順序）。複雜部署編排邏輯。</div>
+          <div class="ht-fail">❌ 失敗 → 標記 SyncFail，同時觸發 SyncFail hooks</div>
+        </div>
+        <div class="ht-phase" style="background:oklch(0.97 0.02 50)">
+          <div class="ht-label" style="color:var(--color-warning)">Phase 3</div>
+          <div class="ht-name">PostSync</div>
+          <div class="ht-desc">所有 Sync Phase 資源 Healthy 後執行。Smoke test、通知、cache warming。</div>
+          <div class="ht-fail">❌ 失敗 → 整個操作標記為失敗</div>
+        </div>
+        <div class="ht-phase" style="background:oklch(0.97 0.02 27)">
+          <div class="ht-label" style="color:var(--color-danger)">Phase 4（條件）</div>
+          <div class="ht-name">SyncFail</div>
+          <div class="ht-desc">只在 sync 失敗時執行（Phase 2 或 3 失敗）。清理、回滾、告警。</div>
+          <div class="ht-fail">⚠️ SyncFail hook 本身失敗時僅標記操作失敗，不再遞迴</div>
+        </div>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>PreDelete 與 PostDelete 在獨立的生命週期</h4>
+          <p>PreDelete 與 PostDelete（實驗性）hook 不在 sync 生命週期中執行，而是在 <strong>Application 刪除</strong>流程中執行。PreDelete 在資源刪除前，PostDelete 在所有資源刪除後。詳見 2.5 節。</p>
+        </div>
+      </div>
+
+      <h3 id="s1b">1.2 Hook vs 一般資源的差異</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>面向</th><th>一般資源（非 Hook）</th><th>Hook 資源</th></tr></thead>
+          <tbody>
+            <tr><td>執行時機</td><td>在 Sync Phase（wave 順序）</td><td>在指定 Phase（PreSync / PostSync 等）</td></tr>
+            <tr><td>執行完後的資源狀態</td><td>持續在叢集中（受 Argo CD 管理）</td><td>由 Delete Policy 決定是否清理</td></tr>
+            <tr><td>Health 判定</td><td>由 Argo CD 持續 reconcile</td><td>Pod/Job 完成（Completed）= Hook 成功</td></tr>
+            <tr><td>Selective Sync 影響</td><td>在 Selective Sync 時可能被跳過</td><td>Hook 不受 Selective Sync 影響（不會被跳過）</td></tr>
+            <tr><td>Git 中的位置</td><td>在 source path 中</td><td>也在 source path 中，以 annotation 區分</td></tr>
+            <tr><td>Prune 行為</td><td>啟用 prune 時，從 Git 刪除後會從叢集刪除</td><td>由 Delete Policy 獨立控制，不受 prune 影響</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- S2 六種 Hook -->
+    <section class="sec" id="s2">
+      <h2><span class="sn">2</span>六種 Hook 類型詳解</h2>
+
+      <div class="hook-cards">
+        <div class="hk" style="--hc:var(--color-primary)">
+          <div class="hk-icon">⚡</div>
+          <div class="hk-name">PreSync</div>
+          <div class="hk-timing">在所有應用資源 apply 之前執行</div>
+          <div class="hk-desc">最常使用的 hook。若 PreSync hook 失敗，整個 sync 停止，應用資源完全不受影響，可確保「先遷移資料庫，再部署新程式碼」的安全順序。</div>
+          <div class="hk-examples">
+            <div class="hk-ex-label">典型用途</div>
+            <div class="hk-ex-items">• DB Schema migration<br>• 部署前備份<br>• 前置驗證（如 config lint）<br>• 建立依賴資源（ConfigMap、Secret）</div>
+          </div>
+        </div>
+        <div class="hk" style="--hc:var(--color-success)">
+          <div class="hk-icon">🔄</div>
+          <div class="hk-name">Sync</div>
+          <div class="hk-timing">與應用資源同時 apply（按 sync wave 排序）</div>
+          <div class="hk-desc">較少使用。與一般應用資源在同一 Phase，但受 wave 控制順序。適合需要在部署過程中插入特定操作，且需要與其他資源交錯執行的情境。</div>
+          <div class="hk-examples">
+            <div class="hk-ex-label">典型用途</div>
+            <div class="hk-ex-items">• 複雜部署編排中的中間步驟<br>• 需要在特定 wave 執行的初始化工作<br>• 資料種子（data seeding）</div>
+          </div>
+        </div>
+        <div class="hk" style="--hc:var(--color-info)">
+          <div class="hk-icon">✅</div>
+          <div class="hk-name">PostSync</div>
+          <div class="hk-timing">所有 Sync Phase 資源 Healthy 後執行</div>
+          <div class="hk-desc">在 Sync Phase 的所有資源（含 Sync hooks）都達到 Healthy 後才觸發。適合執行驗證、通知等需要確認部署成功才能進行的工作。PostSync hook 失敗會讓整個操作標記失敗。</div>
+          <div class="hk-examples">
+            <div class="hk-ex-label">典型用途</div>
+            <div class="hk-ex-items">• Smoke test / Integration test<br>• Slack / PagerDuty 成功通知<br>• Cache warming<br>• 觸發下游 CD pipeline</div>
+          </div>
+        </div>
+        <div class="hk" style="--hc:var(--color-danger)">
+          <div class="hk-icon">🚨</div>
+          <div class="hk-name">SyncFail</div>
+          <div class="hk-timing">只在 sync 失敗時執行</div>
+          <div class="hk-desc">當 Sync Phase 或 PostSync Phase 失敗時觸發（PreSync 失敗不觸發）。SyncFail hook 本身失敗，不會進一步遞迴觸發更多 hook，只標記操作為失敗。注意：Selective Sync 不執行 SyncFail hook。</div>
+          <div class="hk-examples">
+            <div class="hk-ex-label">典型用途</div>
+            <div class="hk-ex-items">• 失敗告警通知<br>• DB Schema rollback<br>• 清理部分建立的資源<br>• 更新外部狀態系統（ITSM ticket）</div>
+          </div>
+        </div>
+        <div class="hk" style="--hc:var(--color-warning)">
+          <div class="hk-icon">🗑️</div>
+          <div class="hk-name">PreDelete <span style="font-size:10px;opacity:.7">v3.3</span></div>
+          <div class="hk-timing">Application 刪除前執行（非 sync 生命週期）</div>
+          <div class="hk-desc">在 Application 被刪除（kubectl delete / argocd app delete）時，先執行清理工作再刪除資源。Argo CD 等待 PreDelete hook 達到 Healthy 後，才繼續刪除 Application 資源。若 hook 失敗，刪除流程被阻擋。</div>
+          <div class="hk-examples">
+            <div class="hk-ex-label">典型用途</div>
+            <div class="hk-ex-items">• 服務下線通知<br>• 清理 external resources（DNS、LB）<br>• 資料備份後再刪除<br>• 通知相關系統</div>
+          </div>
+        </div>
+        <div class="hk" style="--hc:var(--text-muted)">
+          <div class="hk-icon">⏭️</div>
+          <div class="hk-name">Skip</div>
+          <div class="hk-timing">告訴 Argo CD 忽略此資源</div>
+          <div class="hk-desc">標記為 Skip 的資源存在於 Git repo 中，但 Argo CD 在 sync 時會完全忽略它（不 apply、不追蹤、不計入 Sync Status）。適合文件用的 manifest 或由其他 controller 管理的資源。</div>
+          <div class="hk-examples">
+            <div class="hk-ex-label">典型用途</div>
+            <div class="hk-ex-items">• 文件性 manifest<br>• 由另一個 Argo CD App 管理的共用資源<br>• 暫時停用的資源</div>
+          </div>
+        </div>
+      </div>
+
+      <h3 id="s2a">2.1 基本 Hook Annotation 語法</h3>
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Hook Annotation 基本語法</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">metadata:</span>
+  <span class="yk">annotations:</span>
+    <span class="yc"># 指定 hook 類型（必填）</span>
+    <span class="yk">argocd.argoproj.io/hook:</span> <span class="yv">PreSync</span>
+
+    <span class="yc"># 指定 hook 刪除策略（選填，預設 BeforeHookCreation）</span>
+    <span class="yk">argocd.argoproj.io/hook-delete-policy:</span> <span class="yv">HookSucceeded</span>
+
+    <span class="yc"># 指定 sync wave（在同一 Phase 中的執行順序，預設 0）</span>
+    <span class="yk">argocd.argoproj.io/sync-wave:</span> <span class="yv">"1"</span>
+
+    <span class="yc"># 多個 hook 類型：同時在多個 Phase 執行（逗號分隔）</span>
+    <span class="yc"># argocd.argoproj.io/hook: PreSync,SyncFail</span></code></pre>
+      </div>
+
+      <h3 id="s2e">2.2 PreDelete Hook 深度說明（v3.3）</h3>
+      <p>PreDelete hook 是 v3.3 新增的功能，解決了「刪除 Application 前需要執行清理作業」的需求。它的執行流程如下：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — PreDelete Hook 完整範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: batch/v1</span>
+<span class="yh">kind: Job</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">pre-delete-cleanup</span>
+  <span class="yk">namespace:</span> <span class="yv">production</span>
+  <span class="yk">annotations:</span>
+    <span class="yc"># 在 Application 刪除前執行</span>
+    <span class="yk">argocd.argoproj.io/hook:</span> <span class="yv">PreDelete</span>
+    <span class="yc"># HookSucceeded：清理成功後刪除此 Job</span>
+    <span class="yk">argocd.argoproj.io/hook-delete-policy:</span> <span class="yv">HookSucceeded</span>
+<span class="yk">spec:</span>
+  <span class="yk">template:</span>
+    <span class="yk">spec:</span>
+      <span class="yk">restartPolicy:</span> <span class="yv">Never</span>
+      <span class="yk">containers:</span>
+        - <span class="yk">name:</span> <span class="yv">cleanup</span>
+          <span class="yk">image:</span> <span class="yv">bitnami/kubectl:latest</span>
+          <span class="yk">command:</span>
+            - <span class="yv">sh</span>
+            - <span class="yv">-c</span>
+            - |
+              <span class="yc"># 發送服務下線通知</span>
+              curl -X POST "$SLACK_WEBHOOK" \
+                -d '{"text":"⚠️ production/my-app 即將刪除，請注意"}'
+              <span class="yc"># 清理 external DNS record</span>
+              kubectl delete externaldns my-app-record --ignore-not-found
+              echo "PreDelete cleanup completed"
+          <span class="yk">env:</span>
+            - <span class="yk">name:</span> <span class="yv">SLACK_WEBHOOK</span>
+              <span class="yk">valueFrom:</span>
+                <span class="yk">secretKeyRef:</span>
+                  <span class="yk">name:</span> <span class="yv">slack-webhook</span>
+                  <span class="yk">key:</span> <span class="yv">url</span></code></pre>
+      </div>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>PreDelete 行為</th><th>說明</th></tr></thead>
+          <tbody>
+            <tr><td>觸發條件</td><td>執行 <code>argocd app delete</code> 或 <code>kubectl delete application</code> 時</td></tr>
+            <tr><td>不觸發條件</td><td>正常 sync 操作，即使啟用了 prune；只有「刪除 Application」才觸發</td></tr>
+            <tr><td>失敗時行為</td><td>刪除操作被阻擋，Application 保持在「刪除中」狀態，需修復 hook 才能繼續</td></tr>
+            <tr><td>等待條件</td><td>Argo CD 等待 PreDelete hook 的 Pod/Job 達到 Healthy（Completed）狀態</td></tr>
+            <tr><td>與 cascade delete 的關係</td><td>PreDelete hook 執行完畢後，才開始 cascade 刪除應用資源</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- S3 Hook Delete Policy -->
+    <section class="sec" id="s3">
+      <h2><span class="sn">3</span>Hook Delete Policy：生命週期管理</h2>
+      <p>若不設定 Delete Policy，每次 sync 都會累積一個完成的 Job 在叢集中。50 次 sync 後，叢集中就有 50 個 completed migration Job，造成資源混亂。Delete Policy 讓 Argo CD 自動清理 hook 資源。</p>
+
+      <h3 id="s3a">3.1 三種 Delete Policy 詳解</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>Policy</th><th>觸發時機</th><th>行為</th><th>適用場景</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>BeforeHookCreation<br><span style="font-size:10px;color:var(--text-muted)">（預設）</span></td>
+              <td>下次 sync 開始時，在建立新 hook 之前</td>
+              <td>刪除同名的舊 hook 資源，再建立新的。上次 hook 的結果（成功或失敗）都保留到下次 sync 前。</td>
+              <td>DB migration、任何需要查看最後一次執行結果的 hook；預設行為，無需特別設定</td>
+            </tr>
+            <tr>
+              <td>HookSucceeded</td>
+              <td>hook 執行成功後立即刪除</td>
+              <td>hook Job/Pod 成功完成後，Argo CD 自動刪除。失敗時保留，便於除錯。</td>
+              <td>Smoke test、通知、任何成功就不需要保留的 hook；最常用的清理策略</td>
+            </tr>
+            <tr>
+              <td>HookFailed</td>
+              <td>hook 執行失敗後立即刪除</td>
+              <td>hook 失敗後立即刪除，成功時保留。較少使用。</td>
+              <td>需要保留成功執行記錄供稽核，但失敗的不重要的 hook</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="s3b">3.2 組合策略（最佳實踐）</h3>
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — 常用組合策略</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## 組合一：成功清理 + 新 sync 前清理（最通用）</span>
+<span class="yc">## 效果：成功後刪除；失敗時保留（便於除錯）；下次 sync 時清理舊的</span>
+<span class="yk">argocd.argoproj.io/hook-delete-policy:</span> <span class="yv">HookSucceeded,BeforeHookCreation</span>
+
+<span class="yc">## 組合二：無論成敗都清理（通知類 hook）</span>
+<span class="yc">## 效果：Job 完成後立即刪除，不需要除錯</span>
+<span class="yk">argocd.argoproj.io/hook-delete-policy:</span> <span class="yv">HookSucceeded,HookFailed</span>
+
+<span class="yc">## 不設定（僅 BeforeHookCreation 效果）</span>
+<span class="yc">## 適合：每次 sync 都想保留最後結果供查看</span>
+<span class="yc">## 但注意：失敗的 Job 若名稱相同，下次 sync 才會被清理</span>
+
+<span class="yc">## generateName 與固定 name 的選擇：</span>
+<span class="yc">## generateName：每次建立不同名稱的 Job（適合 audit trail）</span>
+<span class="yc">## name：固定名稱（配合 BeforeHookCreation 自動清理舊 Job）</span></code></pre>
+      </div>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>Hook 類型</th><th>推薦 Delete Policy</th><th>原因</th></tr></thead>
+          <tbody>
+            <tr><td>PreSync DB migration</td><td>HookSucceeded,BeforeHookCreation</td><td>成功後清理；失敗保留除錯；下次 sync 前重置</td></tr>
+            <tr><td>PostSync smoke test</td><td>HookSucceeded,BeforeHookCreation</td><td>同上；失敗時需要查看 log 排查原因</td></tr>
+            <tr><td>PostSync Slack 通知</td><td>HookSucceeded,HookFailed</td><td>通知 fire-and-forget，無需保留</td></tr>
+            <tr><td>SyncFail 告警</td><td>HookSucceeded,BeforeHookCreation</td><td>成功告警後清理；新 sync 時清理舊告警</td></tr>
+            <tr><td>PreDelete 清理</td><td>HookSucceeded</td><td>成功執行後清理，失敗保留（阻擋刪除直到修復）</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- S4 Hook 支援的資源類型 -->
+    <section class="sec" id="s4">
+      <h2><span class="sn">4</span>Hook 可支援的資源類型</h2>
+      <p>任何 Kubernetes 資源都可以加上 hook annotation，但 Argo CD 判斷 hook「成功」的邏輯因資源類型而異：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>資源類型</th><th>成功條件</th><th>常見使用方式</th></tr></thead>
+          <tbody>
+            <tr><td>Job（最常用）</td><td>Job.status.succeeded >= 1（至少一個 Pod 成功完成）</td><td>DB migration、smoke test、通知</td></tr>
+            <tr><td>Pod</td><td>Pod.status.phase == Succeeded</td><td>簡單的一次性任務</td></tr>
+            <tr><td>Argo Workflow</td><td>Workflow.status.phase == Succeeded</td><td>複雜多步驟工作流（需安裝 Argo Workflows）</td></tr>
+            <tr><td>Deployment</td><td>Deployment Healthy（所有 replica 就緒）</td><td>在特定 Phase 部署輔助服務</td></tr>
+            <tr><td>ConfigMap / Secret</td><td>套用即成功（不等待）</td><td>預先建立配置資源</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>Job 必須設定 restartPolicy: Never</h4>
+          <p>Hook Job 的 Pod template 必須設定 <code>restartPolicy: Never</code>（或 OnFailure）。使用 Never 時，Pod 失敗後不會自動重啟，Job 的 <code>backoffLimit</code> 控制最大重試次數。不設定 restartPolicy 會導致 Job 在 Pod 失敗後無法正確計算成功/失敗狀態。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S5 實戰場景 -->
+    <section class="sec" id="s5">
+      <h2><span class="sn">5</span>實戰場景完整範例</h2>
+
+      <h3 id="s5a">5.1 DB Schema Migration（PreSync）</h3>
+      <div class="scenario">
+        <div class="sc-head">
+          <span>🗄️ 場景：Django DB Migration（部署新版本前自動執行）</span>
+          <span class="sc-tag" style="background:var(--color-primary-soft);color:var(--color-primary-text);border:1px solid var(--color-primary)">PreSync</span>
+        </div>
+        <div class="code-wrap" style="margin:0;border-radius:0;border:none;border-top:1px solid var(--border-soft);">
+          <div class="code-hdr"><span class="code-lang">YAML — DB Migration PreSync Job</span><button class="copy-btn">Copy</button></div>
+          <pre><code><span class="yh">apiVersion: batch/v1</span>
+<span class="yh">kind: Job</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">db-migrate</span>
+  <span class="yk">namespace:</span> <span class="yv">production</span>
+  <span class="yk">annotations:</span>
+    <span class="yk">argocd.argoproj.io/hook:</span> <span class="yv">PreSync</span>
+    <span class="yc"># 成功後清理；失敗時保留（除錯）；下次 sync 前刪舊的</span>
+    <span class="yk">argocd.argoproj.io/hook-delete-policy:</span> <span class="yv">HookSucceeded,BeforeHookCreation</span>
+    <span class="yc"># wave -1：確保在其他 PreSync hook 之前執行</span>
+    <span class="yk">argocd.argoproj.io/sync-wave:</span> <span class="yv">"-1"</span>
+<span class="yk">spec:</span>
+  <span class="yk">backoffLimit:</span> <span class="yn">3</span>  <span class="yc"># 失敗最多重試 3 次</span>
+  <span class="yk">activeDeadlineSeconds:</span> <span class="yn">300</span>  <span class="yc"># 5 分鐘超時</span>
+  <span class="yk">template:</span>
+    <span class="yk">spec:</span>
+      <span class="yk">restartPolicy:</span> <span class="yv">Never</span>
+      <span class="yk">serviceAccountName:</span> <span class="yv">my-app-sa</span>  <span class="yc"># 確保有 DB 連線權限</span>
+      <span class="yk">containers:</span>
+        - <span class="yk">name:</span> <span class="yv">migrate</span>
+          <span class="yc"># 使用與 App 相同的 image，確保 migration 與 code 版本一致</span>
+          <span class="yk">image:</span> <span class="yv">myregistry/my-api:v3.2.1</span>
+          <span class="yk">command:</span> [<span class="yv">"python"</span>, <span class="yv">"manage.py"</span>, <span class="yv">"migrate"</span>, <span class="yv">"--no-input"</span>]
+          <span class="yk">env:</span>
+            - <span class="yk">name:</span> <span class="yv">DATABASE_URL</span>
+              <span class="yk">valueFrom:</span>
+                <span class="yk">secretKeyRef:</span>
+                  <span class="yk">name:</span> <span class="yv">db-credentials</span>
+                  <span class="yk">key:</span> <span class="yv">url</span></code></pre>
+        </div>
+      </div>
+
+      <h3 id="s5b">5.2 PostSync Smoke Test</h3>
+      <div class="scenario">
+        <div class="sc-head">
+          <span>🧪 場景：部署後 HTTP 健康檢查（失敗則標記 sync 失敗）</span>
+          <span class="sc-tag" style="background:var(--color-info-soft);color:var(--color-info);border:1px solid var(--color-info)">PostSync</span>
+        </div>
+        <div class="code-wrap" style="margin:0;border-radius:0;border:none;border-top:1px solid var(--border-soft);">
+          <div class="code-hdr"><span class="code-lang">YAML — PostSync Smoke Test Job</span><button class="copy-btn">Copy</button></div>
+          <pre><code><span class="yh">apiVersion: batch/v1</span>
+<span class="yh">kind: Job</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">smoke-test</span>
+  <span class="yk">namespace:</span> <span class="yv">production</span>
+  <span class="yk">annotations:</span>
+    <span class="yk">argocd.argoproj.io/hook:</span> <span class="yv">PostSync</span>
+    <span class="yk">argocd.argoproj.io/hook-delete-policy:</span> <span class="yv">HookSucceeded,BeforeHookCreation</span>
+<span class="yk">spec:</span>
+  <span class="yk">backoffLimit:</span> <span class="yn">0</span>  <span class="yc"># smoke test 不重試，失敗就是失敗</span>
+  <span class="yk">activeDeadlineSeconds:</span> <span class="yn">120</span>
+  <span class="yk">template:</span>
+    <span class="yk">spec:</span>
+      <span class="yk">restartPolicy:</span> <span class="yv">Never</span>
+      <span class="yk">containers:</span>
+        - <span class="yk">name:</span> <span class="yv">smoke-test</span>
+          <span class="yk">image:</span> <span class="yv">curlimages/curl:latest</span>
+          <span class="yk">command:</span>
+            - <span class="yv">sh</span>
+            - <span class="yv">-c</span>
+            - |
+              <span class="yc"># 等待服務完全就緒</span>
+              sleep 10
+              <span class="yc"># 健康檢查</span>
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+                http://my-api-service:8080/health)
+              if [ "$STATUS" != "200" ]; then
+                echo "Smoke test FAILED: /health returned $STATUS"
+                exit 1
+              fi
+              <span class="yc"># API 功能測試</span>
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+                -H "Authorization: Bearer $TEST_TOKEN" \
+                http://my-api-service:8080/api/v1/users)
+              if [ "$STATUS" != "200" ]; then
+                echo "Smoke test FAILED: /api/v1/users returned $STATUS"
+                exit 1
+              fi
+              echo "All smoke tests PASSED"
+          <span class="yk">env:</span>
+            - <span class="yk">name:</span> <span class="yv">TEST_TOKEN</span>
+              <span class="yk">valueFrom:</span>
+                <span class="yk">secretKeyRef:</span>
+                  <span class="yk">name:</span> <span class="yv">test-credentials</span>
+                  <span class="yk">key:</span> <span class="yv">token</span></code></pre>
+        </div>
+      </div>
+
+      <h3 id="s5c">5.3 SyncFail 告警通知</h3>
+      <div class="scenario">
+        <div class="sc-head">
+          <span>🚨 場景：Sync 失敗時發送 Slack 告警</span>
+          <span class="sc-tag" style="background:var(--color-danger-soft);color:var(--color-danger);border:1px solid var(--color-danger)">SyncFail</span>
+        </div>
+        <div class="code-wrap" style="margin:0;border-radius:0;border:none;border-top:1px solid var(--border-soft);">
+          <div class="code-hdr"><span class="code-lang">YAML — SyncFail Slack 告警</span><button class="copy-btn">Copy</button></div>
+          <pre><code><span class="yh">apiVersion: batch/v1</span>
+<span class="yh">kind: Job</span>
+<span class="yk">metadata:</span>
+  <span class="yk">generateName:</span> <span class="yv">sync-fail-alert-</span>  <span class="yc"># 每次失敗建立不同名稱</span>
+  <span class="yk">namespace:</span> <span class="yv">production</span>
+  <span class="yk">annotations:</span>
+    <span class="yk">argocd.argoproj.io/hook:</span> <span class="yv">SyncFail</span>
+    <span class="yc"># 通知 fire-and-forget，無論成敗都清理</span>
+    <span class="yk">argocd.argoproj.io/hook-delete-policy:</span> <span class="yv">HookSucceeded,HookFailed</span>
+<span class="yk">spec:</span>
+  <span class="yk">backoffLimit:</span> <span class="yn">2</span>
+  <span class="yk">activeDeadlineSeconds:</span> <span class="yn">60</span>
+  <span class="yk">template:</span>
+    <span class="yk">spec:</span>
+      <span class="yk">restartPolicy:</span> <span class="yv">Never</span>
+      <span class="yk">containers:</span>
+        - <span class="yk">name:</span> <span class="yv">slack-alert</span>
+          <span class="yk">image:</span> <span class="yv">curlimages/curl:latest</span>
+          <span class="yk">command:</span>
+            - <span class="yv">sh</span>
+            - <span class="yv">-c</span>
+            - |
+              curl -X POST "$SLACK_WEBHOOK_URL" \
+                -H 'Content-type: application/json' \
+                -d "{
+                  \"text\": \"🚨 *ArgoCD Sync 失敗*\",
+                  \"attachments\": [{
+                    \"color\": \"danger\",
+                    \"fields\": [
+                      {\"title\": \"Application\", \"value\": \"$ARGOCD_APP_NAME\", \"short\": true},
+                      {\"title\": \"Namespace\", \"value\": \"$ARGOCD_APP_NAMESPACE\", \"short\": true}
+                    ]
+                  }]
+                }"
+          <span class="yk">env:</span>
+            - <span class="yk">name:</span> <span class="yv">ARGOCD_APP_NAME</span>
+              <span class="yk">valueFrom:</span>
+                <span class="yk">fieldRef:</span>
+                  <span class="yk">fieldPath:</span> <span class="yv">metadata.labels['app.kubernetes.io/name']</span>
+            - <span class="yk">name:</span> <span class="yv">ARGOCD_APP_NAMESPACE</span>
+              <span class="yk">valueFrom:</span>
+                <span class="yk">fieldRef:</span>
+                  <span class="yk">fieldPath:</span> <span class="yv">metadata.namespace</span>
+            - <span class="yk">name:</span> <span class="yv">SLACK_WEBHOOK_URL</span>
+              <span class="yk">valueFrom:</span>
+                <span class="yk">secretKeyRef:</span>
+                  <span class="yk">name:</span> <span class="yv">slack-webhook</span>
+                  <span class="yk">key:</span> <span class="yv">url</span></code></pre>
+        </div>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>SyncFail 告警：建議改用 Argo CD Notifications</h4>
+          <p>雖然 SyncFail hook 可以發送告警，但 <strong>Argo CD Notifications（Vol 6 Ch.29）</strong>是更好的選擇：Notifications 是 Application 層級的設定，無需修改 manifest；支援更多服務（Slack / PagerDuty / Email / Webhook）；不占用 namespace 資源；發送失敗不影響 sync 狀態。SyncFail hook 更適合複雜的清理邏輯（如 DB rollback），而非單純通知。</p>
+        </div>
+      </div>
+
+      <h3 id="s5d">5.4 完整的 DB Migration + Smoke Test + SyncFail 組合</h3>
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — 完整 Hook 組合（三個 Job 放在同一 YAML 或同一目錄）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## 目錄結構</span>
+<span class="yc">## k8s/</span>
+<span class="yc">## ├── deployment.yaml</span>
+<span class="yc">## ├── service.yaml</span>
+<span class="yc">## ├── hooks/</span>
+<span class="yc">##     ├── presync-migrate.yaml    ← 本節 5.1</span>
+<span class="yc">##     ├── postsync-smoke.yaml     ← 本節 5.2</span>
+<span class="yc">##     └── syncfail-alert.yaml     ← 本節 5.3</span>
+
+<span class="yc">## 執行順序（成功路徑）：</span>
+<span class="yc">## 1. PreSync: db-migrate Job → 等待完成</span>
+<span class="yc">## 2. Sync:    deployment.yaml + service.yaml apply（wave 0）</span>
+<span class="yc">## 3. PostSync: smoke-test Job → 等待完成</span>
+<span class="yc">##    ✅ 成功 → sync 完成，兩個 Job 被 HookSucceeded 清理</span>
+
+<span class="yc">## 執行順序（失敗路徑 - smoke test 失敗）：</span>
+<span class="yc">## 1. PreSync: db-migrate → 成功（Job 被清理）</span>
+<span class="yc">## 2. Sync:    Deployment + Service apply → 成功</span>
+<span class="yc">## 3. PostSync: smoke-test → 失敗（Job 保留供除錯）</span>
+<span class="yc">## 4. SyncFail: sync-fail-alert Job 執行 → 發送告警</span>
+<span class="yc">##    🚨 整體操作標記 SyncFail</span></code></pre>
+      </div>
+    </section>
+
+    <!-- S6 限制與最佳實踐 -->
+    <section class="sec" id="s6">
+      <h2><span class="sn">6</span>Hook 的限制與最佳實踐</h2>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>限制 / 注意點</th><th>說明</th></tr></thead>
+          <tbody>
+            <tr><td>Selective Sync 不執行 Hook</td><td>使用 Selective Sync 時，所有 hook（PreSync / PostSync 等）都不執行，只 apply 選定的資源。若需要 hook，需使用完整 sync。</td></tr>
+            <tr><td>Helm hook annotation 不相容</td><td>Argo CD 不執行 Helm 原生 hook（<code>helm.sh/hook</code>）。若 chart 使用 Helm hook，需要轉換為 Argo CD hook annotation，或使用 <code>skipHooks: true</code> 跳過。</td></tr>
+            <tr><td>SyncFail hook 不遞迴</td><td>SyncFail hook 本身失敗，不會觸發新的 SyncFail hook。只標記操作失敗。</td></tr>
+            <tr><td>PreSync 失敗不觸發 SyncFail</td><td>PreSync hook 失敗時，sync 停止且不觸發 SyncFail hook——因為 Sync Phase 根本沒有開始。</td></tr>
+            <tr><td>Hook 不適合長時間任務</td><td>Hook 執行時間過長會阻擋整個 sync。建議設定 <code>activeDeadlineSeconds</code> 超時，並考慮用 Argo Workflows 處理複雜長時間任務。</td></tr>
+            <tr><td>RBAC 權限</td><td>Hook Job 執行時使用的 ServiceAccount 需要有執行其任務所需的 RBAC 權限。避免使用 default ServiceAccount（通常沒有 API 存取權限）。</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>最佳實踐總結</h4>
+          <p>
+            ① <strong>一定要設定 Delete Policy</strong>，避免 Job 累積。<br>
+            ② <strong>設定 activeDeadlineSeconds 超時</strong>，防止 hook 永遠等待。<br>
+            ③ <strong>PreSync hook 必須設計為冪等的</strong>（idempotent）——因為 retry 可能多次執行。<br>
+            ④ <strong>SyncFail hook 用於清理，通知改用 Argo CD Notifications</strong>。<br>
+            ⑤ <strong>用 sync-wave 控制同 Phase 內 hook 的順序</strong>（如先備份再 migration）。<br>
+            ⑥ <strong>測試 hook 時先在 staging 環境驗證</strong>，錯誤的 PreSync hook 會阻擋所有 sync。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Summary -->
+    <section class="sec" id="sum">
+      <h2><span class="sn">✓</span>本章重點回顧</h2>
+      <div class="kp">
+        <h3>📌 Key Takeaways</h3>
+        <ul class="kp-list">
+          <li><span class="kp-ic">⚡</span><span><strong>六種 Hook 類型的時機</strong>：PreSync（最早，所有資源之前）→ Sync（與資源同時，按 wave）→ PostSync（所有資源 Healthy 後）→ SyncFail（sync 失敗時）。PreDelete（v3.3，Application 刪除前）與 Skip（完全忽略）是特殊類型。</span></li>
+          <li><span class="kp-ic">❌</span><span><strong>失敗行為</strong>：PreSync 失敗 → sync 停止（不觸發 SyncFail）；Sync/PostSync 失敗 → 觸發 SyncFail hook；SyncFail hook 本身失敗 → 只標記失敗，不遞迴。</span></li>
+          <li><span class="kp-ic">🗑️</span><span><strong>Delete Policy 必須設定</strong>：不設定會讓 hook Job 無限累積。推薦組合：DB migration / smoke test 使用 <code>HookSucceeded,BeforeHookCreation</code>；通知類使用 <code>HookSucceeded,HookFailed</code>。</span></li>
+          <li><span class="kp-ic">🔁</span><span><strong>PreSync hook 必須是 idempotent 的</strong>（冪等）：因為 retry 機制可能導致同一 hook 被多次執行。DB migration 工具（如 Flyway、Alembic、Django migrate）通常已內建冪等設計。</span></li>
+          <li><span class="kp-ic">⏭️</span><span><strong>Selective Sync 不執行 Hook</strong>：這是常見的踩坑點。若你手動選擇特定資源做 Selective Sync，PreSync / PostSync 都不會執行。需要 hook 的情境應使用完整 sync。</span></li>
+          <li><span class="kp-ic">📢</span><span><strong>通知建議改用 Argo CD Notifications</strong>（Vol 6 Ch.29）：比 SyncFail hook 更靈活、不占用 namespace 資源、支援更多服務。SyncFail hook 適合的是複雜清理邏輯，而非單純通知。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <nav class="ch-nav">
+      <a href="ch07-diff-strategies.html" class="nav-btn nav-prev">
+        <div><div class="nav-sub">上一章 / PREV</div><div>← Ch.07 Diff 策略與 Diff 客製化</div></div>
+      </a>
+      <a href="#" class="nav-btn nav-next">
+        <div><div class="nav-sub">下一章 / NEXT</div><div>Ch.09 PreDelete Hook 與 Sync Waves 深度實踐 →</div></div>
+      </a>
+    </nav>
+  </main>
+</div>
+
+<footer>Argo CD 完整教學手冊 · <strong>Vol 2 Ch.08</strong> · 基於 Argo CD <strong>v3.4</strong> · 2026-05-08</footer>
+
+<script>
+(function(){
+  'use strict';
+  const KEY='jhsun-theme';
+  const IC={light:'☀',dark:'☾',system:'◐'};
+  const LB={light:'Light',dark:'Dark',system:'System'};
+  function gs(){try{return localStorage.getItem(KEY);}catch(_){return null;}}
+  function ss(v){try{v==='system'||v==null?localStorage.removeItem(KEY):localStorage.setItem(KEY,v);}catch(_){}}
+  function sp(){return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  function ef(m){return m==='system'?sp():m;}
+  function apply(m){
+    const e=ef(m);
+    document.documentElement.dataset.theme=e;
+    document.documentElement.dataset.themeMode=m;
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{
+      b.dataset.themeMode=m;
+      b.setAttribute('aria-label','Theme: '+LB[m]);
+      b.title='Theme: '+LB[m];
+      if(!b.dataset.themeToggleStyled)b.innerHTML='<span>'+IC[m]+'</span><span>'+LB[m]+'</span>';
+    });
+    dispatchEvent(new CustomEvent('jhsun:theme-changed',{detail:{theme:e,mode:m}}));
+  }
+  function cyc(c){return c==='light'?'dark':c==='dark'?'system':'light';}
+  function cur(){return gs()||'system';}
+  function init(){
+    apply(cur());
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{b.addEventListener('click',()=>{const n=cyc(cur());ss(n);apply(n);});});
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(cur()==='system')apply('system');});
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+  window.JHsunTheme={get:cur,set:m=>{ss(m);apply(m);},toggle:()=>{const n=cyc(cur());ss(n);apply(n);}};
+})();
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('.copy-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const pre=btn.closest('.code-wrap').querySelector('pre');
+      navigator.clipboard.writeText(pre.innerText).then(()=>{btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},2000);});
+    });
+  });
+  const hds=document.querySelectorAll('.sec h2,.sec h3');
+  const lks=document.querySelectorAll('.toc-list a');
+  const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){lks.forEach(l=>l.classList.remove('active'));const id=e.target.id||e.target.closest('[id]')?.id;if(id){const a=document.querySelector('.toc-list a[href="#'+id+'"]');if(a)a.classList.add('active');}}});},{rootMargin:'-60px 0px -70% 0px'});
+  hds.forEach(h=>{if(h.id)obs.observe(h);});
+});
+</script>
+</body>
+</html>

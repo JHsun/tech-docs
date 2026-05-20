@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.27 Source Hydrator（v2.13+）：渲染後推回 Git — Argo CD 完整教學手冊</title>
+<style>
+:root{--tk-hue:200;--tk-chroma:0.11;--color-success:#16a34a;--color-success-soft:#dcfce7;--color-warning:#d97706;--color-warning-soft:#fef3c7;--color-danger:#dc2626;--color-danger-soft:#fee2e2;--color-info:#0891b2;--color-info-soft:#cffafe;--color-neutral-accent:#7c3aed;--color-primary:oklch(0.55 var(--tk-chroma) var(--tk-hue));--color-primary-hover:oklch(0.48 var(--tk-chroma) var(--tk-hue));--color-primary-soft:oklch(0.96 calc(var(--tk-chroma)*.25) var(--tk-hue));--color-primary-text:oklch(0.40 var(--tk-chroma) var(--tk-hue));--bg-canvas:oklch(0.985 0.004 60);--bg-surface:oklch(0.995 0.003 60);--bg-muted:oklch(0.96 0.005 60);--bg-code:oklch(0.975 0.006 60);--border-soft:oklch(0.92 0.006 60);--border-mid:oklch(0.85 0.008 60);--text-primary:oklch(0.22 0.008 60);--text-secondary:oklch(0.42 0.008 60);--text-muted:oklch(0.58 0.008 60);--font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;--font-sans:"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif;--font-serif:"Playfair Display","Source Serif 4","Noto Serif TC",Georgia,serif;--font-body:"Source Serif 4","Noto Serif TC",Georgia,serif;--text-xs:12px;--text-sm:14px;--text-base:16px;--text-md:18px;--text-lg:20px;--text-xl:24px;--text-2xl:32px;--text-3xl:44px;--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-7:48px;--space-8:64px;--space-9:96px;--radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:20px;--shadow-sm:0 1px 3px oklch(0.20 0.01 60/0.07);--shadow-md:0 4px 14px oklch(0.20 0.01 60/0.10);}
+:root[data-theme="dark"]{--color-success:#4ade80;--color-success-soft:oklch(0.28 0.08 145);--color-warning:#fbbf24;--color-warning-soft:oklch(0.30 0.10 70);--color-danger:#f87171;--color-danger-soft:oklch(0.30 0.10 27);--color-info:#22d3ee;--color-info-soft:oklch(0.30 0.08 200);--color-neutral-accent:#a78bfa;--color-primary:oklch(0.72 calc(var(--tk-chroma)*.95) var(--tk-hue));--color-primary-hover:oklch(0.80 calc(var(--tk-chroma)*.95) var(--tk-hue));--color-primary-soft:oklch(0.28 calc(var(--tk-chroma)*.6) var(--tk-hue));--color-primary-text:oklch(0.85 calc(var(--tk-chroma)*.6) var(--tk-hue));--bg-canvas:oklch(0.14 0.008 50);--bg-surface:oklch(0.18 0.009 50);--bg-muted:oklch(0.21 0.010 50);--bg-code:oklch(0.16 0.009 50);--border-soft:oklch(0.26 0.010 50);--border-mid:oklch(0.34 0.012 50);--text-primary:oklch(0.93 0.005 60);--text-secondary:oklch(0.74 0.006 60);--text-muted:oklch(0.56 0.007 60);--shadow-sm:0 1px 3px oklch(0.04 0 0/.50);--shadow-md:0 4px 14px oklch(0.04 0 0/.60);}
+html{color-scheme:light dark;}html[data-theme="light"]{color-scheme:light;}html[data-theme="dark"]{color-scheme:dark;}
+body{background:var(--bg-canvas);color:var(--text-primary);font-family:var(--font-sans);font-size:var(--text-base);line-height:1.7;margin:0;padding:0;transition:background .25s,color .25s;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+.topbar{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:10px var(--space-6);background:var(--bg-surface);border-bottom:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.tb-left{display:flex;align-items:center;gap:var(--space-3);}
+.tb-logo{width:30px;height:30px;border-radius:var(--radius-md);background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:13px;font-weight:800;}
+.tb-trail{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.tb-trail .sep{color:var(--border-mid);}.tb-trail .cur{color:var(--color-primary);font-weight:600;}
+.tb-right{display:flex;align-items:center;gap:var(--space-2);}
+.pill{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);border:1px solid;}
+.pill-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.pill-ver{background:var(--color-info-soft);color:var(--color-info);border-color:var(--color-info);}
+[data-theme-toggle]{cursor:pointer;border:1px solid var(--border-mid);background:var(--bg-muted);color:var(--text-secondary);border-radius:var(--radius-md);padding:6px var(--space-3);font-family:var(--font-sans);font-size:var(--text-sm);display:flex;align-items:center;gap:6px;transition:all .2s;}
+[data-theme-toggle]:hover{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.page{display:flex;min-height:100vh;}
+.toc-sidebar{width:230px;flex-shrink:0;position:sticky;top:49px;height:calc(100vh - 49px);overflow-y:auto;padding:var(--space-5) var(--space-3);border-right:1px solid var(--border-soft);background:var(--bg-surface);}
+.toc-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-3);}
+.toc-list{list-style:none;}
+.toc-list li{margin-bottom:2px;}
+.toc-list a{display:block;padding:4px var(--space-2);font-size:var(--text-sm);color:var(--text-secondary);text-decoration:none;border-radius:var(--radius-sm);border-left:2px solid transparent;transition:all .15s;line-height:1.4;}
+.toc-list a:hover,.toc-list a.active{color:var(--color-primary);background:var(--color-primary-soft);border-left-color:var(--color-primary);font-weight:600;}
+.toc-h3{padding-left:var(--space-4)!important;font-size:var(--text-xs)!important;}
+.toc-lbl{display:block;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:var(--space-3) var(--space-2) var(--space-1);margin-top:var(--space-2);}
+.content{flex:1;min-width:0;padding:var(--space-8) var(--space-7) var(--space-9);max-width:900px;}
+.ch-header{margin-bottom:var(--space-8);padding-bottom:var(--space-6);border-bottom:1px solid var(--border-soft);}
+.ch-meta{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-4);flex-wrap:wrap;}
+.m-badge{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);}
+.m-ch{background:var(--color-primary);color:#fff;}
+.m-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border:1px solid var(--color-primary);}
+.m-time{background:var(--bg-muted);color:var(--text-muted);border:1px solid var(--border-soft);}
+.ch-header h1{font-family:var(--font-serif);font-size:clamp(var(--text-2xl),4vw,var(--text-3xl));font-weight:700;color:var(--text-primary);line-height:1.2;margin-bottom:var(--space-4);}
+.ch-header h1 em{font-style:normal;color:var(--color-primary);}
+.ch-lead{font-size:var(--text-md);color:var(--text-secondary);line-height:1.7;max-width:700px;font-family:var(--font-body);}
+.prereq{margin-top:var(--space-5);display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--bg-muted);border-radius:var(--radius-md);border:1px solid var(--border-soft);}
+.prereq .pico{font-size:var(--text-lg);flex-shrink:0;margin-top:1px;}
+.prereq p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;}
+.prereq strong{color:var(--text-primary);}
+.obj-box{background:var(--color-primary-soft);border:1px solid var(--color-primary);border-radius:var(--radius-lg);padding:var(--space-5);margin-bottom:var(--space-7);}
+.obj-box h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--color-primary-text);font-weight:700;margin-bottom:var(--space-3);}
+.obj-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-2);}
+.obj-list li{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-sm);color:var(--color-primary-text);line-height:1.5;}
+.obj-list li::before{content:"\2713";font-weight:700;color:var(--color-primary);flex-shrink:0;margin-top:1px;}
+.sec{margin-bottom:var(--space-9);scroll-margin-top:80px;}
+.sec h2{font-family:var(--font-serif);font-size:var(--text-2xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-4);padding-bottom:var(--space-3);border-bottom:2px solid var(--border-soft);display:flex;align-items:center;gap:var(--space-3);}
+.sn{font-family:var(--font-mono);font-size:var(--text-sm);background:var(--color-primary);color:#fff;padding:2px 8px;border-radius:var(--radius-sm);font-weight:700;white-space:nowrap;flex-shrink:0;}
+.sec h3{font-family:var(--font-sans);font-size:var(--text-lg);font-weight:700;color:var(--text-primary);margin:var(--space-6) 0 var(--space-3);}
+.sec h4{font-family:var(--font-sans);font-size:var(--text-base);font-weight:700;color:var(--text-primary);margin:var(--space-5) 0 var(--space-2);}
+p{font-family:var(--font-body);font-size:var(--text-base);color:var(--text-secondary);line-height:1.8;margin-bottom:var(--space-4);}
+strong{color:var(--text-primary);}em{color:var(--color-primary);font-style:normal;}
+.cal{display:flex;gap:var(--space-3);padding:var(--space-4) var(--space-5);border-radius:var(--radius-lg);margin:var(--space-5) 0;border-left:4px solid;}
+.ci{background:var(--color-info-soft);border-color:var(--color-info);}
+.cw{background:var(--color-warning-soft);border-color:var(--color-warning);}
+.ct{background:var(--color-success-soft);border-color:var(--color-success);}
+.cd{background:var(--color-primary-soft);border-color:var(--color-primary);}
+.cal .ic{font-size:var(--text-lg);flex-shrink:0;margin-top:2px;}
+.cal h4{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-1);font-family:var(--font-sans);}
+.cal p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.65;margin:0;font-family:var(--font-sans);}
+.code-wrap{margin:var(--space-4) 0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.code-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px var(--space-4);background:var(--bg-muted);border-bottom:1px solid var(--border-soft);}
+.code-lang{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;}
+.copy-btn{cursor:pointer;font-family:var(--font-mono);font-size:11px;padding:3px 10px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--border-mid);color:var(--text-muted);transition:all .2s;}
+.copy-btn:hover{background:var(--color-primary-soft);color:var(--color-primary);border-color:var(--color-primary);}
+.copy-btn.copied{background:var(--color-success-soft);color:var(--color-success);border-color:var(--color-success);}
+pre{margin:0;padding:var(--space-5);background:var(--bg-code);overflow-x:auto;font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.65;color:var(--text-primary);}
+code{font-family:var(--font-mono);font-size:.92em;background:var(--bg-code);padding:1px 5px;border-radius:var(--radius-sm);color:var(--color-primary-text);border:1px solid var(--border-soft);}
+pre code{background:none;padding:0;border:none;color:inherit;font-size:inherit;}
+.yk{color:var(--color-info);}.yv{color:var(--color-success);}.yc{color:var(--text-muted);font-style:italic;}
+.yn{color:var(--color-warning);}.yh{color:var(--color-neutral-accent);font-weight:700;}
+.tw{overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);margin:var(--space-5) 0;}
+table{width:100%;border-collapse:collapse;font-size:var(--text-sm);}
+thead th{background:var(--bg-muted);padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.07em;border-bottom:2px solid var(--border-mid);text-align:left;white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--border-soft);transition:background .12s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--bg-muted);}
+td{padding:var(--space-3) var(--space-4);vertical-align:top;line-height:1.6;font-family:var(--font-sans);}
+td:first-child{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--color-primary-text);background:var(--color-primary-soft);white-space:nowrap;font-weight:600;}
+.concept-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);margin:var(--space-5) 0;}
+.concept{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.concept-head{padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:var(--text-sm);font-weight:700;border-bottom:1px solid var(--border-soft);}
+.concept-body{padding:var(--space-4);font-size:11px;color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.concept-body .formula{font-family:var(--font-mono);font-size:11px;background:var(--bg-muted);padding:6px 10px;border-radius:var(--radius-sm);margin:var(--space-2) 0;display:block;color:var(--text-primary);}
+.lifecycle{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-5);margin:var(--space-5) 0;box-shadow:var(--shadow-sm);}
+.lc-step{display:flex;gap:var(--space-3);margin-bottom:var(--space-3);align-items:flex-start;}
+.lc-num{font-family:var(--font-mono);font-size:11px;font-weight:700;background:var(--color-primary);color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.lc-content{flex:1;font-size:var(--text-xs);color:var(--text-secondary);font-family:var(--font-sans);line-height:1.6;}
+.lc-content strong{color:var(--text-primary);}
+.lc-content code{background:var(--bg-muted);padding:1px 6px;border-radius:var(--radius-sm);font-size:11px;}
+.kp{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);margin:var(--space-7) 0;box-shadow:var(--shadow-sm);}
+.kp h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-4);margin-top:0;}
+.kp-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-3);}
+.kp-list li{display:flex;align-items:flex-start;gap:var(--space-3);font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.kp-ic{font-size:var(--text-md);flex-shrink:0;margin-top:1px;}
+.ch-nav{display:flex;justify-content:space-between;margin-top:var(--space-9);padding-top:var(--space-6);border-top:1px solid var(--border-soft);}
+.nav-btn{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);text-decoration:none;font-size:var(--text-sm);font-weight:600;transition:all .2s;box-shadow:var(--shadow-md);}
+.nav-prev{background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-mid);}.nav-prev:hover{background:var(--bg-muted);transform:translateX(-2px);}
+.nav-next{background:var(--color-primary);color:#fff;}.nav-next:hover{background:var(--color-primary-hover);transform:translateX(2px);}
+.nav-sub{font-size:11px;opacity:.75;font-family:var(--font-mono);}
+footer{border-top:1px solid var(--border-soft);padding:var(--space-5) var(--space-8);font-family:var(--font-mono);font-size:11px;color:var(--text-muted);text-align:center;}
+footer strong{color:var(--color-primary);}
+@media(max-width:900px){.toc-sidebar{display:none;}.content{padding:var(--space-6) var(--space-4) var(--space-8);}.concept-grid{grid-template-columns:1fr;}}
+@media(max-width:640px){.topbar{padding:8px var(--space-4);}.tb-trail{display:none;}}
+</style>
+</head><body>
+<header class="topbar">
+  <div class="tb-left">
+    <div class="tb-logo">A</div>
+    <nav class="tb-trail">
+      <span>Argo CD 完整教學手冊</span><span class="sep">›</span>
+      <span>Vol 5 ApplicationSet 與 Source Hydrator</span><span class="sep">›</span>
+      <span class="cur">Ch.27 Source Hydrator</span>
+    </nav>
+  </div>
+  <div class="tb-right">
+    <span class="pill pill-vol">Vol 5 · Ch.27</span>
+    <span class="pill pill-ver">v3.4</span>
+    <button data-theme-toggle></button>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="toc-sidebar">
+    <div class="toc-title">本章目錄</div>
+    <ul class="toc-list">
+      <li><a href="#obj">學習目標</a></li>
+      <span class="toc-lbl">第一節</span>
+      <li><a href="#s1">為什麼需要 Source Hydrator</a></li>
+      <li><a href="#s1a" class="toc-h3">傳統痛點</a></li>
+      <li><a href="#s1b" class="toc-h3">rendered manifests pattern</a></li>
+      <span class="toc-lbl">第二節</span>
+      <li><a href="#s2">Dry vs Hydrated 概念</a></li>
+      <li><a href="#s2a" class="toc-h3">DRY source</a></li>
+      <li><a href="#s2b" class="toc-h3">hydrated source</a></li>
+      <li><a href="#s2c" class="toc-h3">sync source</a></li>
+      <span class="toc-lbl">第三節</span>
+      <li><a href="#s3">啟用與部署</a></li>
+      <li><a href="#s3a" class="toc-h3">commit server 元件</a></li>
+      <li><a href="#s3b" class="toc-h3">repository-push secret</a></li>
+      <span class="toc-lbl">第四節</span>
+      <li><a href="#s4">第一個 sourceHydrator Application</a></li>
+      <span class="toc-lbl">第五節</span>
+      <li><a href="#s5">hydrateTo：staging branch</a></li>
+      <span class="toc-lbl">第六節</span>
+      <li><a href="#s6">完整使用案例</a></li>
+      <li><a href="#s6a" class="toc-h3">Helm 範例</a></li>
+      <li><a href="#s6b" class="toc-h3">Kustomize 範例</a></li>
+      <li><a href="#s6c" class="toc-h3">多環境分支</a></li>
+      <span class="toc-lbl">第七節</span>
+      <li><a href="#s7">Git Trailer 追溯來源</a></li>
+      <span class="toc-lbl">第八節</span>
+      <li><a href="#s8">已知問題與最佳實踐</a></li>
+      <span class="toc-lbl">總結</span>
+      <li><a href="#sum">重點回顧</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <header class="ch-header">
+      <div class="ch-meta">
+        <span class="m-badge m-ch">Chapter 27</span>
+        <span class="m-badge m-vol">Vol 5 — ApplicationSet 與 Source Hydrator</span>
+        <span class="m-badge m-time">⏱ 預計閱讀時間 35 分鐘</span>
+      </div>
+      <h1>Source Hydrator<br><em>(v2.13+) 渲染後推回 Git</em></h1>
+      <p class="ch-lead">Vol 5 最後一章。Source Hydrator 是 Argo CD 自 v2.13 推出的<strong>原生 rendered manifests 模式</strong>——將 Helm / Kustomize 的渲染結果自動 commit 推回 Git 分支，作為實際 sync 來源。這解決了「Git history 中只看到 values.yaml 改了一行，但不知道實際對 K8s 產生了什麼影響」的痛點。本章涵蓋 dry / hydrated / sync 三層概念、commit server 元件啟用、repository-push secret 設定、與 hydrateTo 進階用法。</p>
+      <div class="prereq">
+        <span class="pico">📋</span>
+        <p><strong>前置：</strong>已完整理解 Vol 5 前四章（ApplicationSet 全套）。理解 Helm / Kustomize 的渲染流程（Ch.05）。對 GitOps 「rendered manifests pattern」有基本概念。本章內容為 <strong>Beta feature</strong>，生產環境前請評估風險。</p>
+      </div>
+    </header>
+
+    <div class="obj-box" id="obj">
+      <h3>🎯 學習目標</h3>
+      <ul class="obj-list">
+        <li>理解傳統 GitOps 中只儲存 dry source 的三大痛點：① diff 不直觀；② 升級回滾困難；③ 審計困難</li>
+        <li>掌握 dry source / hydrated source / sync source 三層概念與它們的 Git branch 對應關係</li>
+        <li>啟用 Source Hydrator：在 argocd-cmd-params-cm 設 <code>hydrator.enabled: "true"</code> + 部署 commit server 元件</li>
+        <li>設定 <code>repository-push</code> Secret 提供推送權限（與 repository 拉取 Secret 分離，原則最小權限）</li>
+        <li>建立第一個 <code>spec.sourceHydrator</code> Application：drySource + syncSource 雙來源</li>
+        <li>用 <code>hydrateTo</code> 引入 staging branch：先推 staging，人工 review 後 merge 到 production branch</li>
+        <li>實作 Helm 與 Kustomize 的 sourceHydrator 範例</li>
+        <li>了解 Git trailer 機制：commit 中包含上游 dry commit 的 author / sha / message，實現完整追溯</li>
+        <li>避開 v2.x 與 v3.x 已知問題（hydrateTo 高頻 trigger、Git notes 競爭、tracking-id 缺失）</li>
+      </ul>
+    </div>
+
+    <section class="sec" id="s1">
+      <h2><span class="sn">1</span>為什麼需要 Source Hydrator</h2>
+
+      <h3 id="s1a">1.1 傳統 GitOps 中只儲存 dry source 的痛點</h3>
+
+      <p>傳統 Argo CD 工作流程中，Git 中儲存的是 dry source（Helm chart + values.yaml、Kustomize base + overlays）。Argo CD 在 reconcile 時即時渲染為 K8s manifests，然後 sync。這個模式有三大痛點：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>痛點</th><th>具體情境</th><th>影響</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>1. Diff 不直觀</strong></td>
+              <td>PR 中只看到 values.yaml 的 <code>image.tag: v1.2 → v1.3</code>，看不到實際多少 Deployment / ConfigMap / Service 被影響</td>
+              <td>Reviewer 難以判斷風險，可能漏看引發連鎖反應的變更</td>
+            </tr>
+            <tr>
+              <td><strong>2. Chart 升級風險</strong></td>
+              <td>更新 <code>chart: nginx-1.0 → 2.0</code> 一行，背後可能改了 50 個 K8s 物件，但 PR 中看不出</td>
+              <td>誤升級造成 outage 但 Git history 看起來只是一行小改動</td>
+            </tr>
+            <tr>
+              <td><strong>3. 審計與回滾困難</strong></td>
+              <td>需要回到「2 週前的實際 K8s 狀態」，但 chart 已升級，當時 values + chart 渲染出的 manifest 不易重建</td>
+              <td>Incident response 慢、SOC 2 / FedRAMP 等合規審計困難</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="s1b">1.2 rendered manifests pattern 的演進</h3>
+
+      <p>社群早就發展出「rendered manifests pattern」解決上述痛點：用 CI（如 GitHub Actions）在 PR merge 後自動執行 <code>helm template</code> / <code>kustomize build</code>，把渲染結果 commit 到另一個 branch，Argo CD 從該 branch sync。每次變更的「全部 K8s 影響」都顯式 commit 到 Git。</p>
+
+      <p>但這種 DIY 方案有問題：</p>
+
+      <ul style="margin-left: 24px; margin-bottom: 16px; color: var(--text-secondary); line-height: 1.7;">
+        <li>① 每個團隊各自實作 CI，難維護；</li>
+        <li>② CI 環境的 Helm / Kustomize 版本可能與 Argo CD 不同，渲染結果有差異；</li>
+        <li>③ 推送權限管理複雜，常見 CI 用過寬的 GitHub PAT；</li>
+        <li>④ 沒有官方追溯機制連結 dry commit 與 hydrated commit。</li>
+      </ul>
+
+      <p><strong>Source Hydrator 把這個模式變成 Argo CD 的原生功能</strong>——argocd-controller 直接渲染，commit-server 元件推回 Git，使用同一份 Helm / Kustomize 二進位（與 sync 時一致）。</p>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>Source Hydrator 的核心價值</h4>
+          <p>① <strong>PR review 看到實際 K8s 影響</strong>：reviewer 在 hydrated branch 的 PR 中看到完整 manifest diff；② <strong>歷史可重現</strong>：任何時間點的 hydrated branch HEAD 就是當時的實際 K8s 狀態；③ <strong>chart 升級風險視覺化</strong>：升級 chart 一行，hydrated diff 卻是 1000 行——立刻意識到風險；④ <strong>審計合規</strong>：所有變更都在 Git 中有完整記錄，含 author / time / dry source 追溯。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s2">
+      <h2><span class="sn">2</span>Dry vs Hydrated vs Sync 三層概念</h2>
+
+      <p>Source Hydrator 引入<strong>三個獨立的 Git 來源</strong>，初看複雜，但理解後非常清晰：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>層級</th><th>內容</th><th>誰寫入</th><th>角色</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>1. Dry Source</strong></td>
+              <td>原始 Helm chart + values.yaml / Kustomize base + overlays</td>
+              <td>開發者 commit</td>
+              <td>真實意圖（intent）</td>
+            </tr>
+            <tr>
+              <td><strong>2. Hydrated Source</strong></td>
+              <td>渲染後的純 K8s YAML（Deployment / Service / ConfigMap 完整展開）</td>
+              <td>Argo CD commit-server 自動寫入</td>
+              <td>實際的 K8s 影響（rendered）</td>
+            </tr>
+            <tr>
+              <td><strong>3. Sync Source</strong></td>
+              <td>Argo CD application-controller 實際從哪裡 sync</td>
+              <td>—（指向 hydrated branch）</td>
+              <td>實際部署來源</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="s2a">2.1 Dry Source 範例（開發者寫的）</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — dry source: environments/prod/values.yaml</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc"># dry source（在 main branch 的 environments/prod/values.yaml）</span>
+<span class="yc"># 開發者只需編輯這個小檔案</span>
+<span class="yk">replicaCount:</span> <span class="yn">5</span>
+<span class="yk">image:</span>
+  <span class="yk">tag:</span> <span class="yv">v1.2.3</span>
+<span class="yk">resources:</span>
+  <span class="yk">limits:</span>
+    <span class="yk">memory:</span> <span class="yv">"1Gi"</span>
+    <span class="yk">cpu:</span> <span class="yv">"500m"</span></code></pre>
+      </div>
+
+      <h3 id="s2b">2.2 Hydrated Source 範例（Argo CD 寫的）</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — hydrated source: environments/prod/manifest.yaml</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc"># hydrated source（在 environments/prod branch 的 manifest.yaml）</span>
+<span class="yc"># 由 Argo CD 自動產生並 commit</span>
+<span class="yh">apiVersion: apps/v1</span>
+<span class="yh">kind: Deployment</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app</span>
+  <span class="yk">labels:</span>
+    <span class="yk">app.kubernetes.io/name:</span> <span class="yv">my-app</span>
+    <span class="yk">app.kubernetes.io/version:</span> <span class="yv">v1.2.3</span>
+<span class="yk">spec:</span>
+  <span class="yk">replicas:</span> <span class="yn">5</span>          <span class="yc"># 來自 values.yaml 的 replicaCount</span>
+  <span class="yk">selector:</span>
+    <span class="yk">matchLabels:</span>
+      <span class="yk">app.kubernetes.io/name:</span> <span class="yv">my-app</span>
+  <span class="yk">template:</span>
+    <span class="yk">metadata:</span>
+      <span class="yk">labels:</span>
+        <span class="yk">app.kubernetes.io/name:</span> <span class="yv">my-app</span>
+    <span class="yk">spec:</span>
+      <span class="yk">containers:</span>
+        - <span class="yk">name:</span> <span class="yv">my-app</span>
+          <span class="yk">image:</span> <span class="yv">my-app:v1.2.3</span>     <span class="yc"># Tag 從 values.yaml 注入</span>
+          <span class="yk">resources:</span>
+            <span class="yk">limits:</span>
+              <span class="yk">memory:</span> <span class="yv">"1Gi"</span>
+              <span class="yk">cpu:</span> <span class="yv">"500m"</span>
+          <span class="yk">ports:</span>
+            - <span class="yk">containerPort:</span> <span class="yn">8080</span>
+
+<span class="yh">---</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: Service</span>
+<span class="yc"># ... 完整的 Service 定義（從 Helm chart 模板渲染出來）</span></code></pre>
+      </div>
+
+      <p><strong>關鍵價值</strong>：開發者 PR 修改 values.yaml 的一行 <code>replicaCount: 3 → 5</code>，CI 後 hydrated branch 的 PR 顯示 Deployment 的 <code>replicas: 3 → 5</code>——<strong>意圖</strong>與<strong>影響</strong>都在 Git 中。</p>
+
+      <h3 id="s2c">2.3 Sync Source 是 hydrated branch</h3>
+
+      <p>Argo CD application-controller 不再從 dry source（main branch）sync，而是從 hydrated source（如 environments/prod branch）sync。這意味著：</p>
+
+      <ul style="margin-left: 24px; margin-bottom: 16px; color: var(--text-secondary); line-height: 1.7;">
+        <li>① <strong>Sync 速度更快</strong>：不需要每次 reconcile 都跑 helm template；</li>
+        <li>② <strong>Sync 結果可預測</strong>：hydrated YAML 就是要 apply 的內容；</li>
+        <li>③ <strong>Manifest cache 利用率高</strong>：hydrated branch HEAD 不變則 cache 命中。</li>
+      </ul>
+    </section>
+    <section class="sec" id="s3">
+      <h2><span class="sn">3</span>啟用與部署</h2>
+
+      <h3 id="s3a">3.1 啟用 hydrator.enabled 與 commit server 元件</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — 啟用 Source Hydrator</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## ── Step 1：啟用 hydrator.enabled flag ───────────────────</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-cmd-params-cm</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yk">hydrator.enabled:</span> <span class="yv">"true"</span>
+
+<span class="yc">## 重啟 controller 與 server 套用變更</span>
+<span class="yc">## $ kubectl rollout restart deploy argocd-server -n argocd</span>
+<span class="yc">## $ kubectl rollout restart statefulset argocd-application-controller -n argocd</span>
+
+<span class="yc">## ── Step 2：部署 commit server 元件 ─────────────────────</span>
+<span class="yc">## 方法 A：使用官方 install-with-hydrator.yaml（一次到位）</span>
+<span class="yc">## $ kubectl apply -n argocd \</span>
+<span class="yc">##     -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install-with-hydrator.yaml</span>
+
+<span class="yc">## 方法 B：Helm chart 中啟用 commitServer</span>
+<span class="yc">## values.yaml</span>
+<span class="yk">commitServer:</span>
+  <span class="yk">enabled:</span> <span class="yv">true</span>
+  <span class="yk">replicas:</span> <span class="yn">1</span>          <span class="yc"># 單副本（避免並行 commit 衝突）</span>
+  <span class="yk">resources:</span>
+    <span class="yk">requests:</span> {<span class="yk">cpu:</span> <span class="yv">"100m"</span>, <span class="yk">memory:</span> <span class="yv">"128Mi"</span>}
+    <span class="yk">limits:</span> {<span class="yk">cpu:</span> <span class="yv">"500m"</span>, <span class="yk">memory:</span> <span class="yv">"512Mi"</span>}
+
+<span class="yc">## 驗證部署</span>
+<span class="yc">## $ kubectl get pods -n argocd | grep commit-server</span>
+<span class="yc">## argocd-commit-server-xxxxxxxxx-yyyyy   1/1     Running</span></code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>commit-server 必須單副本</h4>
+          <p>Source Hydrator 的 commit-server 元件<strong>無法水平擴展</strong>——多副本會造成同時 push 到 Git 的競爭條件（race condition），出現 Git notes conflict 等錯誤（issue #25727）。生產環境保持 <code>replicas: 1</code> + K8s Deployment 自動重啟即可。流量極大時 commit-server 可能是瓶頸，這是已知限制。</p>
+        </div>
+      </div>
+
+      <h3 id="s3b">3.2 設定 repository-push Secret</h3>
+
+      <p>傳統 Argo CD 的 repository Secret 只有<strong>讀取</strong>權限（pull）。Source Hydrator 需要<strong>推送</strong>權限（push），用獨立的 <code>repository-push</code> Secret 管理——遵循最小權限原則：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — repository-push Secret 設定</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: v1</span>
+<span class="yh">kind: Secret</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-example-apps-push</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+  <span class="yk">labels:</span>
+    <span class="yc"># 注意是 repository-push 不是 repository！</span>
+    <span class="yk">argocd.argoproj.io/secret-type:</span> <span class="yv">repository-push</span>
+<span class="yk">type:</span> <span class="yv">Opaque</span>
+<span class="yk">stringData:</span>
+  <span class="yk">url:</span> <span class="yv">https://github.com/argoproj/argocd-example-apps.git</span>
+  <span class="yc"># 方法 1：HTTPS + PAT</span>
+  <span class="yk">username:</span> <span class="yv">argocd-bot</span>
+  <span class="yk">password:</span> <span class="yv">ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxx</span>
+  <span class="yc"># 方法 2：SSH</span>
+  <span class="yc"># sshPrivateKey: |</span>
+  <span class="yc">#   -----BEGIN OPENSSH PRIVATE KEY-----</span>
+  <span class="yc">#   ...</span>
+  <span class="yc">#   -----END OPENSSH PRIVATE KEY-----</span>
+
+<span class="yc">## ── 安全建議 ────────────────────────────────────────────</span>
+<span class="yc">## 1. 為 Argo CD bot 建立專屬 GitHub user (argocd-bot)</span>
+<span class="yc">## 2. 該 user 只有 hydrated branch 的 push 權限</span>
+<span class="yc">## 3. 用 GitHub branch protection rules 防止人類直接 push hydrated branch</span>
+<span class="yc">## 4. PAT 設定 90 天過期 + 自動輪替（External Secrets Operator）</span>
+<span class="yc">## 5. SSH key 用 deploy key + write 權限</span></code></pre>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>repository-push 與 repository 是分離的</h4>
+          <p>同一個 repo 可能同時存在 <code>repository</code>（pull 用，連接到原始 source）與 <code>repository-push</code>（push 用，給 hydrator 推 hydrated branch）。<strong>不要</strong>在同一個 Secret 同時設兩種 secret-type；分開設定是設計原則，提供細粒度權限控制。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s4">
+      <h2><span class="sn">4</span>第一個 sourceHydrator Application</h2>
+
+      <p>建立 Application 時用 <code>spec.sourceHydrator</code> 取代 <code>spec.source</code> / <code>spec.sources</code>：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Application with sourceHydrator</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: Application</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app-prod</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">spec:</span>
+  <span class="yk">project:</span> <span class="yv">default</span>
+
+  <span class="yc"># sourceHydrator 與 source / sources 互斥（v3.x 報錯）</span>
+  <span class="yk">sourceHydrator:</span>
+    <span class="yc"># Dry source：原始 chart / kustomize</span>
+    <span class="yk">drySource:</span>
+      <span class="yk">repoURL:</span> <span class="yv">https://github.com/myorg/gitops.git</span>
+      <span class="yk">targetRevision:</span> <span class="yv">main</span>            <span class="yc"># 開發者 commit 到 main</span>
+      <span class="yk">path:</span> <span class="yv">environments/prod</span>          <span class="yc"># 含 Chart.yaml + values.yaml</span>
+
+    <span class="yc"># Sync source：實際 sync 來源 = hydrated branch</span>
+    <span class="yk">syncSource:</span>
+      <span class="yk">targetBranch:</span> <span class="yv">environments/prod</span>  <span class="yc"># hydrator 寫入此 branch</span>
+      <span class="yk">path:</span> <span class="yv">.</span>                          <span class="yc"># branch 內的 path（通常 .）</span>
+
+  <span class="yk">destination:</span>
+    <span class="yk">server:</span> <span class="yv">https://kubernetes.default.svc</span>
+    <span class="yk">namespace:</span> <span class="yv">my-app</span>
+
+  <span class="yk">syncPolicy:</span>
+    <span class="yk">automated:</span>
+      <span class="yk">prune:</span> <span class="yv">true</span>
+      <span class="yk">selfHeal:</span> <span class="yv">true</span>
+    <span class="yk">syncOptions:</span>
+      - <span class="yv">CreateNamespace=true</span></code></pre>
+      </div>
+
+      <h3>運作流程</h3>
+
+      <div class="lifecycle">
+        <div class="lc-step"><div class="lc-num">1</div><div class="lc-content"><strong>開發者</strong>修改 main branch 的 <code>environments/prod/values.yaml</code>（如 <code>image.tag: v1.3</code>）並 commit</div></div>
+        <div class="lc-step"><div class="lc-num">2</div><div class="lc-content"><strong>application-controller</strong> 偵測到 dry source（main）有變化，觸發 hydration</div></div>
+        <div class="lc-step"><div class="lc-num">3</div><div class="lc-content"><strong>repo-server</strong> 渲染 Helm / Kustomize，產生 manifest.yaml</div></div>
+        <div class="lc-step"><div class="lc-num">4</div><div class="lc-content"><strong>commit-server</strong> 將 manifest.yaml commit 到 <code>environments/prod</code> branch，並 push 到 Git（用 repository-push Secret）</div></div>
+        <div class="lc-step"><div class="lc-num">5</div><div class="lc-content"><strong>application-controller</strong> 偵測到 syncSource（environments/prod branch）有新 commit</div></div>
+        <div class="lc-step"><div class="lc-num">6</div><div class="lc-content"><strong>automated sync 觸發</strong>，從 hydrated branch apply 純 K8s manifests 到 cluster</div></div>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>Hydrator 不需要 CI！</h4>
+          <p>這個流程<strong>完全不需要 GitHub Actions / GitLab CI</strong>——argocd-controller 即時偵測 dry source 變化並驅動整個流程。CI 仍然可以做其他事（測試、image build、policy check），但「渲染 + push」由 Argo CD 原生處理。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s5">
+      <h2><span class="sn">5</span>hydrateTo：staging branch 機制</h2>
+
+      <p>進階用法：用 <code>hydrateTo</code> 引入<strong>中間 staging branch</strong>，hydrator 不直接寫入 syncSource branch，而是寫到 staging。<strong>人類 PR review</strong> 確認 hydrated diff 後 merge 到 syncSource branch，application-controller 才 sync——多一層人工把關：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — hydrateTo 進階用法</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">spec:</span>
+  <span class="yk">sourceHydrator:</span>
+    <span class="yk">drySource:</span>
+      <span class="yk">repoURL:</span> <span class="yv">https://github.com/myorg/gitops.git</span>
+      <span class="yk">targetRevision:</span> <span class="yv">main</span>
+      <span class="yk">path:</span> <span class="yv">environments/prod</span>
+
+    <span class="yc"># hydrator 先寫到 staging branch</span>
+    <span class="yk">hydrateTo:</span>
+      <span class="yk">targetBranch:</span> <span class="yv">environments/prod-staging</span>
+
+    <span class="yc"># 但 syncSource 還是讀 production branch</span>
+    <span class="yk">syncSource:</span>
+      <span class="yk">targetBranch:</span> <span class="yv">environments/prod</span>
+      <span class="yk">path:</span> <span class="yv">.</span></code></pre>
+      </div>
+
+      <h3>hydrateTo 工作流程</h3>
+
+      <div class="lifecycle">
+        <div class="lc-step"><div class="lc-num">1</div><div class="lc-content">Dev 修改 main 的 values.yaml → commit</div></div>
+        <div class="lc-step"><div class="lc-num">2</div><div class="lc-content"><strong>hydrator 渲染並寫入 <code>prod-staging</code> branch</strong>（自動 commit）</div></div>
+        <div class="lc-step"><div class="lc-num">3</div><div class="lc-content">CI / GitHub Action 自動開啟 PR：<code>prod-staging → prod</code>，PR description 含 hydrated diff</div></div>
+        <div class="lc-step"><div class="lc-num">4</div><div class="lc-content"><strong>Reviewer 在 PR 中審視實際 K8s 影響</strong>（Deployment 改了什麼、Service 新增了什麼）</div></div>
+        <div class="lc-step"><div class="lc-num">5</div><div class="lc-content">通過 → merge PR → <code>prod</code> branch 更新</div></div>
+        <div class="lc-step"><div class="lc-num">6</div><div class="lc-content"><strong>argocd-controller 偵測 syncSource 變化</strong> → automated sync 觸發</div></div>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>hydrateTo 是 production change-management 的關鍵</h4>
+          <p>金融 / 醫療 / 政府等嚴格 change-management 場景必備：① 機器渲染（hydrator 自動）；② 人工把關（PR review）；③ 完整 audit trail（hydrated diff 留在 PR history）；④ branch protection rule 確保只能 PR merge 不能直接 push。<strong>同時保留 GitOps 自動化與企業審計需求</strong>。</p>
+        </div>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>v2.14 已知 bug：hydrateTo 高頻 trigger（#22506）</h4>
+          <p>v2.14.x 中設定 <code>hydrateTo</code> 可能造成 hydrator 每 5 秒重新觸發一次（看似永無止盡）。<strong>workaround</strong>：① 升級到 v3.x（已修復）；② 暫時不用 hydrateTo，直接寫到 syncSource。生產環境採用前先測試此功能在你的版本是否穩定。</p>
+        </div>
+      </div>
+    </section>
+    <section class="sec" id="s6">
+      <h2><span class="sn">6</span>完整使用案例</h2>
+
+      <h3 id="s6a">6.1 Helm 範例（典型 multi-env Chart）</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Helm Application + sourceHydrator</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: Application</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">webapp-prod</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">spec:</span>
+  <span class="yk">project:</span> <span class="yv">default</span>
+  <span class="yk">sourceHydrator:</span>
+    <span class="yk">drySource:</span>
+      <span class="yk">repoURL:</span> <span class="yv">https://github.com/myorg/webapp-config.git</span>
+      <span class="yk">targetRevision:</span> <span class="yv">main</span>
+      <span class="yk">path:</span> <span class="yv">charts/webapp</span>           <span class="yc"># 含 Chart.yaml + values-prod.yaml</span>
+    <span class="yk">syncSource:</span>
+      <span class="yk">targetBranch:</span> <span class="yv">environments/prod</span>
+      <span class="yk">path:</span> <span class="yv">.</span>
+
+  <span class="yk">destination:</span>
+    <span class="yk">server:</span> <span class="yv">https://kubernetes.default.svc</span>
+    <span class="yk">namespace:</span> <span class="yv">webapp</span>
+
+  <span class="yk">syncPolicy:</span>
+    <span class="yk">automated:</span> {<span class="yk">prune:</span> <span class="yv">true</span>, <span class="yk">selfHeal:</span> <span class="yv">true</span>}</code></pre>
+      </div>
+
+      <p><strong>Repo 結構（同一個 repo，多個 branch）</strong>：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Tree — webapp-config repo 結構</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## main branch（dry source）</span>
+charts/
+  webapp/
+    Chart.yaml
+    values-prod.yaml
+    templates/
+      deployment.yaml
+      service.yaml
+      ingress.yaml
+      configmap.yaml
+
+<span class="sh-comment">## environments/prod branch（hydrated source，自動產生）</span>
+manifest.yaml          <span class="sh-comment"># 全部 K8s 物件渲染後的純 YAML</span>
+README.md              <span class="sh-comment"># hydrator 自動產生（含 dry source 來源資訊）</span></code></pre>
+      </div>
+
+      <h3 id="s6b">6.2 Kustomize 範例</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Kustomize Application + sourceHydrator</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">spec:</span>
+  <span class="yk">sourceHydrator:</span>
+    <span class="yk">drySource:</span>
+      <span class="yk">repoURL:</span> <span class="yv">https://github.com/myorg/k8s-config.git</span>
+      <span class="yk">targetRevision:</span> <span class="yv">main</span>
+      <span class="yk">path:</span> <span class="yv">overlays/production</span>      <span class="yc"># Kustomize overlay 路徑</span>
+    <span class="yk">syncSource:</span>
+      <span class="yk">targetBranch:</span> <span class="yv">environments/production</span>
+      <span class="yk">path:</span> <span class="yv">.</span>
+
+<span class="yc">## Kustomize repo 結構：</span>
+<span class="yc">## main branch：</span>
+<span class="yc">##   base/</span>
+<span class="yc">##     kustomization.yaml</span>
+<span class="yc">##     deployment.yaml</span>
+<span class="yc">##     service.yaml</span>
+<span class="yc">##   overlays/</span>
+<span class="yc">##     dev/        # kustomization.yaml + patches</span>
+<span class="yc">##     staging/</span>
+<span class="yc">##     production/</span>
+<span class="yc">##</span>
+<span class="yc">## environments/production branch：</span>
+<span class="yc">##   manifest.yaml     # kustomize build 渲染後完整 YAML</span></code></pre>
+      </div>
+
+      <h3 id="s6c">6.3 多環境分支策略</h3>
+
+      <p>典型企業使用 3-5 個環境，每個環境一個 hydrated branch：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>環境</th><th>Dry source path</th><th>Sync source branch</th><th>用 hydrateTo？</th></tr></thead>
+          <tbody>
+            <tr><td>dev</td><td><code>environments/dev</code></td><td><code>environments/dev</code></td><td>否（自動推進）</td></tr>
+            <tr><td>staging</td><td><code>environments/staging</code></td><td><code>environments/staging</code></td><td>否</td></tr>
+            <tr><td>prod-canary</td><td><code>environments/prod</code></td><td><code>environments/prod-canary</code></td><td>否（rollout 5%）</td></tr>
+            <tr><td>prod</td><td><code>environments/prod</code></td><td><code>environments/prod</code></td><td><strong>是</strong>（人工 review）</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>Source Hydrator 與 ApplicationSet 結合</h4>
+          <p>可以在 ApplicationSet template 中使用 sourceHydrator（v3.0+）。例如 Cluster generator + sourceHydrator：N 個 cluster 各自有獨立的 hydrated branch（<code>environments/{{ .name }}</code>）。每個 cluster 有自己的「實際 K8s 狀態」記錄在 Git。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s7">
+      <h2><span class="sn">7</span>Git Trailer 追溯來源</h2>
+
+      <p>Source Hydrator 在 commit hydrated branch 時，會在 commit message 加入 <strong>Git trailers</strong>（類似 RFC 2822 標準）標明這次 hydration 對應的 dry commit：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — hydrated commit 範例（含 trailer）</span><button class="copy-btn">Copy</button></div>
+        <pre><code>$ git log environments/prod -1
+commit 8f3a5b2c... (HEAD -&gt; environments/prod)
+Author: argocd-bot &lt;argocd@example.com&gt;
+Date:   Thu May 9 14:32:18 2026 +0000
+
+    Hydrate manifests for prod environment
+
+    Argocd-reference-commit-author: Alice &lt;alice@example.com&gt;
+    Argocd-reference-commit-sha: a1b2c3d4e5f6...
+    Argocd-reference-commit-subject: bump nginx to v1.27
+    Argocd-reference-commit-repourl: https://github.com/myorg/gitops.git
+    Argocd-reference-commit-date: 2026-05-09T14:31:45+00:00
+
+<span class="sh-comment">## 從 hydrated commit 反查 dry commit 的指令</span>
+$ git log environments/prod -1 --format=<span class="yv">'%(trailers:key=Argocd-reference-commit-sha,valueonly=true)'</span>
+<span class="sh-comment">## a1b2c3d4e5f6...</span>
+
+<span class="sh-comment">## 直接 checkout 對應的 dry commit</span>
+$ DRY_SHA=$(git log environments/prod -1 \
+    --format=<span class="yv">'%(trailers:key=Argocd-reference-commit-sha,valueonly=true)'</span>)
+$ git checkout main $DRY_SHA</code></pre>
+      </div>
+
+      <p>實務應用：</p>
+
+      <ul style="margin-left: 24px; margin-bottom: 16px; color: var(--text-secondary); line-height: 1.7;">
+        <li>① <strong>UI 顯示</strong>：Argo CD UI 從 trailer 解析 dry commit info，在 Application 卡片顯示「實際是哪個 dev 改了什麼」（非 argocd-bot 的渲染 commit）；</li>
+        <li>② <strong>Incident 追溯</strong>：發現某次 sync 造成 outage，從 hydrated commit 一步到位看到 dry commit author + message + URL；</li>
+        <li>③ <strong>SOC 2 審計</strong>：「為什麼 production 在 2026-05-09 14:32 做了這個變更？」答：因為 Alice 在 14:31 推了這個 dry commit。</li>
+      </ul>
+    </section>
+
+    <section class="sec" id="s8">
+      <h2><span class="sn">8</span>已知問題與最佳實踐</h2>
+
+      <h3>v2.x / v3.x 已知 Issues</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>Issue</th><th>影響版本</th><th>症狀</th><th>解法</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>#25727 Git notes conflict</td>
+              <td>v3.3.0-rc2+</td>
+              <td>多個 Application 同時 hydrate 時，push <code>refs/notes/hydrator.metadata</code> 衝突失敗</td>
+              <td>降低並行度；commit-server replicas=1；等修復</td>
+            </tr>
+            <tr>
+              <td>#22506 hydrateTo 高頻 trigger</td>
+              <td>v2.14.8</td>
+              <td>設 hydrateTo 後每 5 秒觸發 hydration，UI 不斷出錯</td>
+              <td>升級到 v3.x；或不用 hydrateTo</td>
+            </tr>
+            <tr>
+              <td>#24371 tracking-id 缺失</td>
+              <td>v2.14+</td>
+              <td>hydrated manifest 沒有 <code>argocd.argoproj.io/tracking-id</code> annotation，影響觀測性</td>
+              <td>在 hydrator 後做 post-process（CI 工具補 annotation）</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>運維最佳實踐</h3>
+
+      <div class="cal ct">
+        <span class="ic">✅</span>
+        <div>
+          <h4>Source Hydrator 上線 Checklist</h4>
+          <p>① <strong>commit-server 用單副本</strong>（避免 race condition）；② <strong>repository-push Secret 用 dedicated bot account</strong>（不要用個人 PAT）；③ <strong>GitHub branch protection 啟用</strong>：argocd 用戶 push hydrated branch；人類 PR 才能改 main；④ <strong>關鍵 prod 啟用 hydrateTo</strong>：人工 review hydrated diff；⑤ <strong>PAT 自動輪替</strong>（External Secrets Operator + 90 天輪替）；⑥ <strong>監控 commit-server</strong>（log + restart count）；⑦ <strong>初期僅在 staging 測試</strong>，確認 Helm / Kustomize 版本相容性後再推到 prod；⑧ <strong>關注 Argo CD release notes</strong>，Source Hydrator 仍是 Beta，每版本有變動。</p>
+        </div>
+      </div>
+
+      <h3>遷移建議：從傳統 source 遷移到 sourceHydrator</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — 遷移流程</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## Step 1：在 dev 環境啟用 hydrator，建立第一個 sourceHydrator Application</span>
+<span class="sh-comment">## 跑 1-2 週確認穩定性、效能、團隊習慣</span>
+
+<span class="sh-comment">## Step 2：手動驗證 hydrated branch 內容正確</span>
+$ git checkout environments/dev
+$ helm template ../charts/webapp -f ../charts/webapp/values-dev.yaml \
+    &gt; expected.yaml
+$ diff manifest.yaml expected.yaml      <span class="sh-comment"># 應該為空（或只差 hydrator 加的 metadata）</span>
+
+<span class="sh-comment">## Step 3：對既有 Application 漸進改造</span>
+<span class="sh-comment">## 不要一次性把所有 prod Application 改成 sourceHydrator</span>
+<span class="sh-comment">## 每週改 5-10 個，觀察效能與 commit-server 負載</span>
+
+<span class="sh-comment">## Step 4：監控指標</span>
+$ kubectl logs -n argocd deploy/argocd-commit-server --tail=100 | \
+    grep -i <span class="yv">"error\|fail"</span>
+<span class="sh-comment"># 看是否有 push 失敗、Git conflict 等</span>
+
+<span class="sh-comment">## Step 5：建立 runbook</span>
+<span class="sh-comment">## - 當 hydrator 失敗時如何手動 push hydrated branch（emergency）</span>
+<span class="sh-comment">## - 當 commit-server crash 時如何重啟</span>
+<span class="sh-comment">## - 當 hydrated branch 不一致時如何強制重建（force re-hydrate）</span></code></pre>
+      </div>
+    </section>
+
+    <section class="sec" id="sum">
+      <h2><span class="sn">✓</span>本章重點回顧</h2>
+      <div class="kp">
+        <h3>📌 Key Takeaways</h3>
+        <ul class="kp-list">
+          <li><span class="kp-ic">🚿</span><span><strong>Source Hydrator 是原生的 rendered manifests pattern</strong>（v2.13+）：Argo CD 自動把 Helm / Kustomize 渲染後 commit 推回 Git 分支，作為 sync 來源。解決三大痛點：① diff 顯示真實 K8s 影響；② chart 升級風險視覺化；③ 完整審計與回滾。</span></li>
+          <li><span class="kp-ic">📚</span><span><strong>三層概念分離</strong>：① Dry source（開發者寫的 chart + values）；② Hydrated source（Argo CD 寫的渲染結果）；③ Sync source（指向 hydrated branch）。<strong>意圖與影響都在 Git 中</strong>，dry commit 一行小改 → hydrated PR 顯示 1000 行 K8s diff。</span></li>
+          <li><span class="kp-ic">🔧</span><span><strong>啟用三件事</strong>：① argocd-cmd-params-cm 設 <code>hydrator.enabled: "true"</code>；② 部署 commit-server 元件（單副本）；③ 設定 <code>repository-push</code> Secret（與 repository pull 分開，最小權限）。重啟 controller + server 套用變更。</span></li>
+          <li><span class="kp-ic">⚙️</span><span><strong>commit-server 必須單副本</strong>：多副本造成 push race condition + Git notes conflict（#25727）。生產環境保持 replicas=1 + K8s 自動重啟即可。流量極大時 commit-server 是已知瓶頸。</span></li>
+          <li><span class="kp-ic">📝</span><span><strong>spec.sourceHydrator 取代 source/sources</strong>：三者互斥。drySource + syncSource 兩個必填區塊。流程：dev push main → hydrator 偵測 → 渲染 → commit-server push 到 syncSource branch → application-controller sync。<strong>完全不需要外部 CI</strong>。</span></li>
+          <li><span class="kp-ic">✋</span><span><strong>hydrateTo 進入 staging 機制</strong>（金融/合規場景必備）：hydrator 寫到 <code>prod-staging</code> branch，<strong>CI 自動開 PR 到 prod</strong>，人工 review hydrated diff 後 merge，argocd-controller 才 sync。同時保留 GitOps 自動化 + 企業審計需求。注意 v2.14 已知 bug（#22506）。</span></li>
+          <li><span class="kp-ic">🔗</span><span><strong>Git trailer 提供完整追溯</strong>：hydrated commit 含 <code>Argocd-reference-commit-{author,sha,subject,repourl,date}</code>。從 hydrated commit 一步到位看到 dry commit info。UI 顯示 dev 真名而非 argocd-bot；incident 追溯與 SOC 2 審計輕鬆完成。</span></li>
+          <li><span class="kp-ic">⚠️</span><span><strong>仍是 Beta，謹慎上線</strong>：v2.14 / v3.x 有多個已知 issues（hydrateTo 高頻、Git notes conflict、tracking-id 缺失）。建議：① 先在 dev 環境跑 1-2 週；② 漸進改造既有 Application（每週 5-10 個）；③ 監控 commit-server log；④ 建立 emergency runbook；⑤ 關注 release notes（每版本有變動）。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <div style="background:linear-gradient(135deg,var(--color-success-soft) 0%,var(--color-primary-soft) 100%);border:1px solid var(--color-success);border-radius:var(--radius-lg);padding:var(--space-6);margin:var(--space-7) 0;text-align:center;box-shadow:var(--shadow-md);">
+      <div style="font-size:40px;margin-bottom:var(--space-3);">🎉</div>
+      <h3 style="font-family:var(--font-serif);font-size:var(--text-xl);color:var(--text-primary);font-weight:700;margin-bottom:var(--space-2);">Vol 5 — ApplicationSet 與 Source Hydrator 完成！</h3>
+      <p style="font-size:var(--text-sm);color:var(--text-secondary);margin:0;">恭喜完成 Vol 5 全部五章（Ch.23–Ch.27）。你已掌握 ApplicationSet 全部 8 種 generators、進階 templating 與 strategy 控制、Source Hydrator 原生 rendered manifests 模式。Vol 6 進入「可觀測性、通知與 CI/CD 整合」——Prometheus / Grafana / argocd-notifications / Argo Image Updater 與 CI/CD pipeline 整合。</p>
+    </div>
+
+    <nav class="ch-nav">
+      <a href="ch26-applicationset-advanced.html" class="nav-btn nav-prev">
+        <div><div class="nav-sub">上一章 / PREV</div><div>← Ch.26 ApplicationSet 進階</div></div>
+      </a>
+      <a href="#" class="nav-btn nav-next">
+        <div><div class="nav-sub">下一卷 / NEXT VOL</div><div>Vol 6 Ch.28 可觀測性與監控基礎 →</div></div>
+      </a>
+    </nav>
+  </main>
+</div>
+
+<footer>Argo CD 完整教學手冊 · <strong>Vol 5 Ch.27</strong> · 基於 Argo CD <strong>v3.4</strong> · 2026-05-09</footer>
+
+<script>
+(function(){
+  'use strict';
+  const KEY='jhsun-theme';
+  const IC={light:'☀',dark:'☾',system:'◐'};
+  const LB={light:'Light',dark:'Dark',system:'System'};
+  function gs(){try{return localStorage.getItem(KEY);}catch(_){return null;}}
+  function ss(v){try{v==='system'||v==null?localStorage.removeItem(KEY):localStorage.setItem(KEY,v);}catch(_){}}
+  function sp(){return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  function ef(m){return m==='system'?sp():m;}
+  function apply(m){
+    const e=ef(m);
+    document.documentElement.dataset.theme=e;
+    document.documentElement.dataset.themeMode=m;
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{
+      b.dataset.themeMode=m;
+      b.setAttribute('aria-label','Theme: '+LB[m]);
+      b.title='Theme: '+LB[m];
+      if(!b.dataset.themeToggleStyled)b.innerHTML='<span>'+IC[m]+'</span><span>'+LB[m]+'</span>';
+    });
+    dispatchEvent(new CustomEvent('jhsun:theme-changed',{detail:{theme:e,mode:m}}));
+  }
+  function cyc(c){return c==='light'?'dark':c==='dark'?'system':'light';}
+  function cur(){return gs()||'system';}
+  function init(){
+    apply(cur());
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{b.addEventListener('click',()=>{const n=cyc(cur());ss(n);apply(n);});});
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(cur()==='system')apply('system');});
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+  window.JHsunTheme={get:cur,set:m=>{ss(m);apply(m);},toggle:()=>{const n=cyc(cur());ss(n);apply(n);}};
+})();
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('.copy-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const pre=btn.closest('.code-wrap').querySelector('pre');
+      navigator.clipboard.writeText(pre.innerText).then(()=>{btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},2000);});
+    });
+  });
+  const hds=document.querySelectorAll('.sec h2,.sec h3');
+  const lks=document.querySelectorAll('.toc-list a');
+  const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){lks.forEach(l=>l.classList.remove('active'));const id=e.target.id||e.target.closest('[id]')?.id;if(id){const a=document.querySelector('.toc-list a[href="#'+id+'"]');if(a)a.classList.add('active');}}});},{rootMargin:'-60px 0px -70% 0px'});
+  hds.forEach(h=>{if(h.id)obs.observe(h);});
+});
+</script>
+</body>
+</html>

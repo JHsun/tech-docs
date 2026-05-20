@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.20 SSO 整合與 OIDC 設定 — Argo CD 完整教學手冊</title>
+<style>
+:root {
+  --tk-hue:200;--tk-chroma:0.11;
+  --color-success:#16a34a;--color-success-soft:#dcfce7;
+  --color-warning:#d97706;--color-warning-soft:#fef3c7;
+  --color-danger:#dc2626;--color-danger-soft:#fee2e2;
+  --color-info:#0891b2;--color-info-soft:#cffafe;
+  --color-neutral-accent:#7c3aed;
+  --color-primary:oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:oklch(0.96 calc(var(--tk-chroma)*.25) var(--tk-hue));
+  --color-primary-text:oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas:oklch(0.985 0.004 60);--bg-surface:oklch(0.995 0.003 60);
+  --bg-muted:oklch(0.96 0.005 60);--bg-code:oklch(0.975 0.006 60);
+  --border-soft:oklch(0.92 0.006 60);--border-mid:oklch(0.85 0.008 60);
+  --text-primary:oklch(0.22 0.008 60);--text-secondary:oklch(0.42 0.008 60);--text-muted:oklch(0.58 0.008 60);
+  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --font-sans:"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif;
+  --font-serif:"Playfair Display","Source Serif 4","Noto Serif TC",Georgia,serif;
+  --font-body:"Source Serif 4","Noto Serif TC",Georgia,serif;
+  --text-xs:12px;--text-sm:14px;--text-base:16px;--text-md:18px;--text-lg:20px;--text-xl:24px;--text-2xl:32px;--text-3xl:44px;
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-7:48px;--space-8:64px;--space-9:96px;
+  --radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:20px;
+  --shadow-sm:0 1px 3px oklch(0.20 0.01 60/0.07);--shadow-md:0 4px 14px oklch(0.20 0.01 60/0.10);
+}
+:root[data-theme="dark"]{
+  --color-success:#4ade80;--color-success-soft:oklch(0.28 0.08 145);
+  --color-warning:#fbbf24;--color-warning-soft:oklch(0.30 0.10 70);
+  --color-danger:#f87171;--color-danger-soft:oklch(0.30 0.10 27);
+  --color-info:#22d3ee;--color-info-soft:oklch(0.30 0.08 200);
+  --color-neutral-accent:#a78bfa;
+  --color-primary:oklch(0.72 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-hover:oklch(0.80 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-soft:oklch(0.28 calc(var(--tk-chroma)*.6) var(--tk-hue));
+  --color-primary-text:oklch(0.85 calc(var(--tk-chroma)*.6) var(--tk-hue));
+  --bg-canvas:oklch(0.14 0.008 50);--bg-surface:oklch(0.18 0.009 50);
+  --bg-muted:oklch(0.21 0.010 50);--bg-code:oklch(0.16 0.009 50);
+  --border-soft:oklch(0.26 0.010 50);--border-mid:oklch(0.34 0.012 50);
+  --text-primary:oklch(0.93 0.005 60);--text-secondary:oklch(0.74 0.006 60);--text-muted:oklch(0.56 0.007 60);
+  --shadow-sm:0 1px 3px oklch(0.04 0 0/.50);--shadow-md:0 4px 14px oklch(0.04 0 0/.60);
+}
+html{color-scheme:light dark;}html[data-theme="light"]{color-scheme:light;}html[data-theme="dark"]{color-scheme:dark;}
+body{background:var(--bg-canvas);color:var(--text-primary);font-family:var(--font-sans);font-size:var(--text-base);line-height:1.7;margin:0;padding:0;transition:background .25s,color .25s;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+.topbar{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:10px var(--space-6);background:var(--bg-surface);border-bottom:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.tb-left{display:flex;align-items:center;gap:var(--space-3);}
+.tb-logo{width:30px;height:30px;border-radius:var(--radius-md);background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:13px;font-weight:800;}
+.tb-trail{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.tb-trail .sep{color:var(--border-mid);}.tb-trail .cur{color:var(--color-primary);font-weight:600;}
+.tb-right{display:flex;align-items:center;gap:var(--space-2);}
+.pill{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);border:1px solid;}
+.pill-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.pill-ver{background:var(--color-info-soft);color:var(--color-info);border-color:var(--color-info);}
+[data-theme-toggle]{cursor:pointer;border:1px solid var(--border-mid);background:var(--bg-muted);color:var(--text-secondary);border-radius:var(--radius-md);padding:6px var(--space-3);font-family:var(--font-sans);font-size:var(--text-sm);display:flex;align-items:center;gap:6px;transition:all .2s;}
+[data-theme-toggle]:hover{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.page{display:flex;min-height:100vh;}
+.toc-sidebar{width:230px;flex-shrink:0;position:sticky;top:49px;height:calc(100vh - 49px);overflow-y:auto;padding:var(--space-5) var(--space-3);border-right:1px solid var(--border-soft);background:var(--bg-surface);}
+.toc-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-3);}
+.toc-list{list-style:none;}
+.toc-list li{margin-bottom:2px;}
+.toc-list a{display:block;padding:4px var(--space-2);font-size:var(--text-sm);color:var(--text-secondary);text-decoration:none;border-radius:var(--radius-sm);border-left:2px solid transparent;transition:all .15s;line-height:1.4;}
+.toc-list a:hover,.toc-list a.active{color:var(--color-primary);background:var(--color-primary-soft);border-left-color:var(--color-primary);font-weight:600;}
+.toc-h3{padding-left:var(--space-4)!important;font-size:var(--text-xs)!important;}
+.toc-lbl{display:block;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:var(--space-3) var(--space-2) var(--space-1);margin-top:var(--space-2);}
+.content{flex:1;min-width:0;padding:var(--space-8) var(--space-7) var(--space-9);max-width:900px;}
+.ch-header{margin-bottom:var(--space-8);padding-bottom:var(--space-6);border-bottom:1px solid var(--border-soft);}
+.ch-meta{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-4);flex-wrap:wrap;}
+.m-badge{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);}
+.m-ch{background:var(--color-primary);color:#fff;}
+.m-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border:1px solid var(--color-primary);}
+.m-time{background:var(--bg-muted);color:var(--text-muted);border:1px solid var(--border-soft);}
+.ch-header h1{font-family:var(--font-serif);font-size:clamp(var(--text-2xl),4vw,var(--text-3xl));font-weight:700;color:var(--text-primary);line-height:1.2;margin-bottom:var(--space-4);}
+.ch-header h1 em{font-style:normal;color:var(--color-primary);}
+.ch-lead{font-size:var(--text-md);color:var(--text-secondary);line-height:1.7;max-width:700px;font-family:var(--font-body);}
+.prereq{margin-top:var(--space-5);display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--bg-muted);border-radius:var(--radius-md);border:1px solid var(--border-soft);}
+.prereq .pico{font-size:var(--text-lg);flex-shrink:0;margin-top:1px;}
+.prereq p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;}
+.prereq strong{color:var(--text-primary);}
+.obj-box{background:var(--color-primary-soft);border:1px solid var(--color-primary);border-radius:var(--radius-lg);padding:var(--space-5);margin-bottom:var(--space-7);}
+.obj-box h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--color-primary-text);font-weight:700;margin-bottom:var(--space-3);}
+.obj-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-2);}
+.obj-list li{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-sm);color:var(--color-primary-text);line-height:1.5;}
+.obj-list li::before{content:"✓";font-weight:700;color:var(--color-primary);flex-shrink:0;margin-top:1px;}
+.sec{margin-bottom:var(--space-9);scroll-margin-top:80px;}
+.sec h2{font-family:var(--font-serif);font-size:var(--text-2xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-4);padding-bottom:var(--space-3);border-bottom:2px solid var(--border-soft);display:flex;align-items:center;gap:var(--space-3);}
+.sn{font-family:var(--font-mono);font-size:var(--text-sm);background:var(--color-primary);color:#fff;padding:2px 8px;border-radius:var(--radius-sm);font-weight:700;white-space:nowrap;flex-shrink:0;}
+.sec h3{font-family:var(--font-sans);font-size:var(--text-lg);font-weight:700;color:var(--text-primary);margin:var(--space-6) 0 var(--space-3);}
+.sec h4{font-family:var(--font-sans);font-size:var(--text-base);font-weight:700;color:var(--text-primary);margin:var(--space-5) 0 var(--space-2);}
+p{font-family:var(--font-body);font-size:var(--text-base);color:var(--text-secondary);line-height:1.8;margin-bottom:var(--space-4);}
+strong{color:var(--text-primary);}em{color:var(--color-primary);font-style:normal;}
+.cal{display:flex;gap:var(--space-3);padding:var(--space-4) var(--space-5);border-radius:var(--radius-lg);margin:var(--space-5) 0;border-left:4px solid;}
+.ci{background:var(--color-info-soft);border-color:var(--color-info);}
+.cw{background:var(--color-warning-soft);border-color:var(--color-warning);}
+.ct{background:var(--color-success-soft);border-color:var(--color-success);}
+.cd{background:var(--color-primary-soft);border-color:var(--color-primary);}
+.cal .ic{font-size:var(--text-lg);flex-shrink:0;margin-top:2px;}
+.cal h4{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-1);font-family:var(--font-sans);}
+.cal p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.65;margin:0;font-family:var(--font-sans);}
+.code-wrap{margin:var(--space-4) 0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.code-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px var(--space-4);background:var(--bg-muted);border-bottom:1px solid var(--border-soft);}
+.code-lang{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;}
+.copy-btn{cursor:pointer;font-family:var(--font-mono);font-size:11px;padding:3px 10px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--border-mid);color:var(--text-muted);transition:all .2s;}
+.copy-btn:hover{background:var(--color-primary-soft);color:var(--color-primary);border-color:var(--color-primary);}
+.copy-btn.copied{background:var(--color-success-soft);color:var(--color-success);border-color:var(--color-success);}
+pre{margin:0;padding:var(--space-5);background:var(--bg-code);overflow-x:auto;font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.65;color:var(--text-primary);}
+code{font-family:var(--font-mono);font-size:.92em;background:var(--bg-code);padding:1px 5px;border-radius:var(--radius-sm);color:var(--color-primary-text);border:1px solid var(--border-soft);}
+pre code{background:none;padding:0;border:none;color:inherit;font-size:inherit;}
+.yk{color:var(--color-info);}.yv{color:var(--color-success);}.yc{color:var(--text-muted);font-style:italic;}
+.yn{color:var(--color-warning);}.yh{color:var(--color-neutral-accent);font-weight:700;}
+.tw{overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);margin:var(--space-5) 0;}
+table{width:100%;border-collapse:collapse;font-size:var(--text-sm);}
+thead th{background:var(--bg-muted);padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.07em;border-bottom:2px solid var(--border-mid);text-align:left;white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--border-soft);transition:background .12s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--bg-muted);}
+td{padding:var(--space-3) var(--space-4);vertical-align:top;line-height:1.6;font-family:var(--font-sans);}
+td:first-child{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--color-primary-text);background:var(--color-primary-soft);white-space:nowrap;font-weight:600;}
+.tc{font-size:var(--text-xs);color:var(--text-muted);}
+/* idp comparison */
+.idp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--space-3);margin:var(--space-5) 0;}
+.idp{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-4);box-shadow:var(--shadow-sm);position:relative;overflow:hidden;}
+.idp::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--idpc);}
+.idp-icon{font-size:24px;margin-bottom:var(--space-2);}
+.idp-name{font-family:var(--font-sans);font-size:var(--text-base);font-weight:700;color:var(--idpc);margin-bottom:var(--space-1);}
+.idp-method{font-family:var(--font-mono);font-size:10px;background:var(--bg-muted);color:var(--text-muted);padding:2px 8px;border-radius:var(--radius-sm);display:inline-block;margin-bottom:var(--space-2);}
+.idp-desc{font-size:11px;color:var(--text-secondary);line-height:1.55;font-family:var(--font-sans);}
+/* flow diagram */
+.flow{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-5);margin:var(--space-5) 0;box-shadow:var(--shadow-sm);overflow-x:auto;}
+.flow-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:var(--space-4);text-align:center;}
+.flow-step{display:flex;gap:var(--space-3);margin-bottom:var(--space-2);align-items:flex-start;font-family:var(--font-mono);font-size:var(--text-xs);}
+.flow-num{font-family:var(--font-mono);font-size:11px;font-weight:700;background:var(--color-primary);color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.flow-arrow{color:var(--color-primary);font-weight:700;}
+.flow-content{color:var(--text-secondary);line-height:1.5;flex:1;}
+.flow-content strong{color:var(--text-primary);}
+/* kp */
+.kp{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);margin:var(--space-7) 0;box-shadow:var(--shadow-sm);}
+.kp h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-4);margin-top:0;}
+.kp-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-3);}
+.kp-list li{display:flex;align-items:flex-start;gap:var(--space-3);font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.kp-ic{font-size:var(--text-md);flex-shrink:0;margin-top:1px;}
+.ch-nav{display:flex;justify-content:space-between;margin-top:var(--space-9);padding-top:var(--space-6);border-top:1px solid var(--border-soft);}
+.nav-btn{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);text-decoration:none;font-size:var(--text-sm);font-weight:600;transition:all .2s;box-shadow:var(--shadow-md);}
+.nav-prev{background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-mid);}.nav-prev:hover{background:var(--bg-muted);transform:translateX(-2px);}
+.nav-next{background:var(--color-primary);color:#fff;}.nav-next:hover{background:var(--color-primary-hover);transform:translateX(2px);}
+.nav-sub{font-size:11px;opacity:.75;font-family:var(--font-mono);}
+footer{border-top:1px solid var(--border-soft);padding:var(--space-5) var(--space-8);font-family:var(--font-mono);font-size:11px;color:var(--text-muted);text-align:center;}
+footer strong{color:var(--color-primary);}
+@media(max-width:900px){.toc-sidebar{display:none;}.content{padding:var(--space-6) var(--space-4) var(--space-8);}.idp-grid{grid-template-columns:1fr;}}
+@media(max-width:640px){.topbar{padding:8px var(--space-4);}.tb-trail{display:none;}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="tb-left">
+    <div class="tb-logo">A</div>
+    <nav class="tb-trail">
+      <span>Argo CD 完整教學手冊</span><span class="sep">›</span>
+      <span>Vol 4 身份驗證、授權與多租戶</span><span class="sep">›</span>
+      <span class="cur">Ch.20 SSO 整合與 OIDC 設定</span>
+    </nav>
+  </div>
+  <div class="tb-right">
+    <span class="pill pill-vol">Vol 4 · Ch.20</span>
+    <span class="pill pill-ver">v3.4</span>
+    <button data-theme-toggle></button>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="toc-sidebar">
+    <div class="toc-title">本章目錄</div>
+    <ul class="toc-list">
+      <li><a href="#obj">學習目標</a></li>
+      <span class="toc-lbl">第一節</span>
+      <li><a href="#s1">SSO 兩種路徑</a></li>
+      <li><a href="#s1a" class="toc-h3">Direct OIDC vs Dex</a></li>
+      <li><a href="#s1b" class="toc-h3">OIDC 認證流程</a></li>
+      <span class="toc-lbl">第二節</span>
+      <li><a href="#s2">Direct OIDC 設定</a></li>
+      <span class="toc-lbl">第三節</span>
+      <li><a href="#s3">Okta 完整設定</a></li>
+      <li><a href="#s3a" class="toc-h3">Okta 應用建立</a></li>
+      <li><a href="#s3b" class="toc-h3">Groups Claim</a></li>
+      <span class="toc-lbl">第四節</span>
+      <li><a href="#s4">Azure AD / Entra ID</a></li>
+      <span class="toc-lbl">第五節</span>
+      <li><a href="#s5">Google Workspace</a></li>
+      <span class="toc-lbl">第六節</span>
+      <li><a href="#s6">Dex 進階設定</a></li>
+      <li><a href="#s6a" class="toc-h3">SAML connector</a></li>
+      <li><a href="#s6b" class="toc-h3">GitHub OAuth</a></li>
+      <li><a href="#s6c" class="toc-h3">LDAP connector</a></li>
+      <span class="toc-lbl">第七節</span>
+      <li><a href="#s7">Groups Claim 驗證</a></li>
+      <span class="toc-lbl">第八節</span>
+      <li><a href="#s8">SSO 故障排查</a></li>
+      <span class="toc-lbl">總結</span>
+      <li><a href="#sum">重點回顧</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <header class="ch-header">
+      <div class="ch-meta">
+        <span class="m-badge m-ch">Chapter 20</span>
+        <span class="m-badge m-vol">Vol 4 — 身份驗證、授權與多租戶</span>
+        <span class="m-badge m-time">⏱ 預計閱讀時間 40 分鐘</span>
+      </div>
+      <h1>SSO 整合<br><em>與 OIDC 設定（Direct vs Dex）</em></h1>
+      <p class="ch-lead">SSO 是企業使用 Argo CD 的必要前提。本章從 OIDC 認證流程開始，比較 Direct OIDC（推薦）與 Dex（用於非 OIDC IdP）兩種路徑。提供 Okta、Azure AD/Entra ID、Google Workspace、SAML、GitHub OAuth、LDAP 各自的完整設定範例，並深入 groups claim 取得、IdP 端常見陷阱與故障排查。</p>
+      <div class="prereq">
+        <span class="pico">📋</span>
+        <p><strong>前置：</strong>已閱讀 Ch.14（安全強化）。理解 OAuth2 / OIDC 基本概念（Authorization Code Flow、ID Token、claims）、以及 SAML 的基本流程（如選用 Dex SAML）。</p>
+      </div>
+    </header>
+
+    <div class="obj-box" id="obj">
+      <h3>🎯 學習目標</h3>
+      <ul class="obj-list">
+        <li>理解 Argo CD SSO 兩種路徑：Direct OIDC（IdP 原生支援 OIDC 時推薦）vs Dex（IdP 只支援 SAML / LDAP / GitHub OAuth 時必要）</li>
+        <li>掌握 OIDC Authorization Code Flow 在 Argo CD 中的完整時序</li>
+        <li>能為 Okta、Azure AD/Entra ID、Google Workspace 設定完整 SSO（含 groups claim）</li>
+        <li>使用 Dex 整合 SAML（Okta SAML / ADFS）、GitHub OAuth、LDAP（Active Directory）</li>
+        <li>正確設定 <code>scopes</code> 與 <code>requestedIDTokenClaims</code> 確保 groups 資訊進入 token</li>
+        <li>使用 <code>argocd account can-i</code> 與 JWT decode 工具診斷 SSO 問題</li>
+        <li>理解 <code>policy.default</code> 與 <code>scopes</code> 的關係，避免常見的 RBAC 設定陷阱</li>
+      </ul>
+    </div>
+
+    <!-- S1 SSO 兩種路徑 -->
+    <section class="sec" id="s1">
+      <h2><span class="sn">1</span>SSO 兩種路徑：Direct OIDC vs Dex</h2>
+
+      <p>Argo CD 提供兩種 SSO 整合路徑。理解兩者差異是設計 SSO 架構的第一步：</p>
+
+      <div class="idp-grid">
+        <div class="idp" style="--idpc:var(--color-success)">
+          <div class="idp-icon">⚡</div>
+          <div class="idp-name">Direct OIDC（推薦）</div>
+          <div class="idp-method">argocd-server 直接連 IdP</div>
+          <div class="idp-desc">IdP 原生支援 OIDC 時的最佳選擇。設定在 <code>argocd-cm</code> 的 <code>oidc.config</code>，argocd-server 直接呼叫 IdP，不經過 Dex。<strong>更簡單、更穩定、可水平擴展</strong>（無 Dex HA 限制）。</div>
+        </div>
+
+        <div class="idp" style="--idpc:var(--color-info)">
+          <div class="idp-icon">🌐</div>
+          <div class="idp-name">Dex（必要時使用）</div>
+          <div class="idp-method">argocd-server → Dex → IdP</div>
+          <div class="idp-desc">當 IdP <strong>不支援 OIDC</strong>（只支援 SAML / LDAP / GitHub OAuth），或需要<strong>聚合多個 IdP</strong>（同時讓 Okta + GitHub 使用者登入）時使用。Dex 作為協議轉換器，把各種協議轉成 OIDC 給 argocd-server。</div>
+        </div>
+      </div>
+
+      <h3 id="s1a">1.1 Direct OIDC vs Dex 詳細對比</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>面向</th><th>Direct OIDC</th><th>Dex</th></tr></thead>
+          <tbody>
+            <tr><td>適用 IdP</td><td>Okta（OIDC）、Azure AD、Auth0、Keycloak、Google（無 groups）</td><td>Okta SAML、Azure AD SAML、ADFS、GitHub OAuth、LDAP/AD、Google + Groups</td></tr>
+            <tr><td>HA</td><td>支援水平擴展（argocd-server 多 replica 即可）</td><td><strong>單副本</strong>（in-memory DB），重啟期間使用者需重新登入</td></tr>
+            <tr><td>設定位置</td><td>argocd-cm 的 <code>oidc.config</code></td><td>argocd-cm 的 <code>dex.config</code> + connectors</td></tr>
+            <tr><td>callback URL</td><td><code>/auth/callback</code></td><td><code>/api/dex/callback</code></td></tr>
+            <tr><td>除錯難度</td><td>較簡單（直接連 IdP）</td><td>需檢查 Dex log + IdP log（雙層）</td></tr>
+            <tr><td>跳過 Dex</td><td>—</td><td>可在 Helm 中 <code>dex.enabled: false</code> 完全停用 Dex 元件</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>Vol 3 Ch.13 已建議：能用 Direct OIDC 就不用 Dex</h4>
+          <p>Dex 是 Argo CD 唯一無法水平擴展的元件（in-memory database）。若 IdP 支援 OIDC（Okta、Azure AD、Auth0、Keycloak），優先使用 Direct OIDC 並停用 Dex（<code>dex.enabled: false</code>）。只在必須整合 SAML / LDAP / GitHub OAuth 時才保留 Dex。</p>
+        </div>
+      </div>
+
+      <h3 id="s1b">1.2 OIDC 認證流程（Direct OIDC）</h3>
+
+      <div class="flow">
+        <div class="flow-title">📊 OIDC Authorization Code Flow（Argo CD + Direct OIDC）</div>
+        <div class="flow-step">
+          <div class="flow-num">1</div>
+          <div class="flow-content"><strong>使用者打開 Argo CD UI</strong>（https://argocd.example.com）→ 點選 "Log in via OIDC"</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-num">2</div>
+          <div class="flow-content"><strong>argocd-server 重定向至 IdP</strong>（如 https://myorg.okta.com/oauth2/default/v1/authorize?...）<br>帶上 <code>client_id</code>、<code>redirect_uri</code>、<code>scope=openid profile email groups</code>、<code>response_type=code</code></div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-num">3</div>
+          <div class="flow-content"><strong>使用者在 IdP 登入</strong>（輸入帳號密碼 + MFA）</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-num">4</div>
+          <div class="flow-content"><strong>IdP 重定向回 Argo CD callback</strong>（<code>https://argocd.example.com/auth/callback?code=AUTHORIZATION_CODE</code>）</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-num">5</div>
+          <div class="flow-content"><strong>argocd-server 用 code 向 IdP 換 token</strong>（後端 POST 至 IdP <code>/token</code> endpoint，帶 client_secret）→ 取得 ID Token（JWT）+ access_token</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-num">6</div>
+          <div class="flow-content"><strong>argocd-server 驗證 ID Token</strong>（用 IdP 的 JWKS 公鑰）→ 取出 <code>sub</code>（user ID）、<code>email</code>、<code>groups</code> claims</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-num">7</div>
+          <div class="flow-content"><strong>argocd-server 產生自己的 JWT</strong>（簽名用 argocd-secret 中的 server.secretkey）→ 寫入瀏覽器 cookie</div>
+        </div>
+        <div class="flow-step">
+          <div class="flow-num">8</div>
+          <div class="flow-content"><strong>後續所有 API 請求</strong>都附帶此 JWT。argocd-server 解 JWT 取得 user / groups → 對照 RBAC policy 決定權限</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- S2 Direct OIDC 設定 -->
+    <section class="sec" id="s2">
+      <h2><span class="sn">2</span>Direct OIDC 通用設定範本</h2>
+
+      <p>所有支援 OIDC 的 IdP 都使用同一份設定模板，只需修改 issuer URL、clientID、scopes 等參數：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — argocd-cm + argocd-secret 通用 OIDC 設定</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-cm</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yc"># 必須設定 url（OIDC 重定向需要）</span>
+  <span class="yk">url:</span> <span class="yv">https://argocd.example.com</span>
+
+  <span class="yk">oidc.config:</span> |
+    <span class="yc"># 顯示在 UI 登入按鈕的名稱</span>
+    name: Okta
+    <span class="yc"># IdP 的 OIDC issuer URL（不含 /.well-known/openid-configuration）</span>
+    issuer: https://myorg.okta.com/oauth2/default
+    <span class="yc"># OIDC client ID（在 IdP 的 application 設定中取得）</span>
+    clientID: 0oa1b2c3d4e5f6g7h8i9
+    <span class="yc"># Client secret 從 argocd-secret 動態讀取（$ 表示 reference）</span>
+    clientSecret: $oidc.okta.clientSecret
+
+    <span class="yc"># 要求的 scopes（取得 group 與 email 必須）</span>
+    requestedScopes:
+      - openid
+      - profile
+      - email
+      - groups       <span class="yc"># 必須請求 groups scope</span>
+
+    <span class="yc"># 強制要求 IdP 在 ID token 中放入 groups claim（即使 token 較大）</span>
+    requestedIDTokenClaims:
+      groups:
+        essential: true
+
+    <span class="yc"># 可選：限定可登入的 group（在 token 驗證階段過濾）</span>
+    <span class="yc"># allowedGroups:</span>
+    <span class="yc">#   - argocd-users</span>
+    <span class="yc">#   - platform-team</span>
+
+    <span class="yc"># 可選：CLI 使用的 client（PKCE flow，無 client secret）</span>
+    cliClientID: 0oa-cli-client-id
+
+  <span class="yc"># RBAC 必須對應 group claim（見 Ch.14）</span>
+<span class="yh">---</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-rbac-cm</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yc"># 永遠 deny by default</span>
+  <span class="yk">policy.default:</span> <span class="yv">''</span>
+  <span class="yc"># 從 token 哪個 claim 取出 group 資訊（預設為 groups）</span>
+  <span class="yk">scopes:</span> <span class="yv">'[groups]'</span>
+
+  <span class="yk">policy.csv:</span> |
+    g, "platform-admins", role:admin
+    g, "developers",      role:readonly
+<span class="yh">---</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: Secret</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-secret</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">stringData:</span>
+  <span class="yc"># OIDC client secret（從 IdP 取得）</span>
+  <span class="yk">oidc.okta.clientSecret:</span> <span class="yv">"abc123..."</span></code></pre>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>scopes 與 RBAC scopes 是兩個不同概念</h4>
+          <p>① <code>oidc.config.requestedScopes</code> 是<strong>向 IdP 請求</strong>的 OAuth scopes（決定 IdP 在 token 中放入哪些 claims）；② <code>argocd-rbac-cm.scopes</code> 是<strong>從 token 中讀取哪個 claim 作為 group</strong>。前者是 OIDC 概念（OAuth scope），後者是 RBAC 概念（claim mapping）。設定時都要正確！</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S3 Okta 設定 -->
+    <section class="sec" id="s3">
+      <h2><span class="sn">3</span>Okta 完整設定（最常見場景）</h2>
+
+      <h3 id="s3a">3.1 Step 1：在 Okta 建立應用</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash + Steps — Okta Application 建立流程</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## ── Okta Admin Console 操作步驟 ───────────────────────</span>
+
+<span class="sh-comment"># 1. 登入 Okta Admin Console</span>
+<span class="sh-comment">$ open https://myorg-admin.okta.com</span>
+
+<span class="sh-comment"># 2. Applications → Applications → Create App Integration</span>
+<span class="sh-comment">#    - Sign-in method: OIDC - OpenID Connect</span>
+<span class="sh-comment">#    - Application type: Web Application</span>
+
+<span class="sh-comment"># 3. 設定 Application（重要參數）：</span>
+<span class="sh-comment">#    - App name: Argo CD</span>
+<span class="sh-comment">#    - Grant type: ☑ Authorization Code（必選）</span>
+<span class="sh-comment">#                  ☑ Refresh Token（建議勾選，延長 session）</span>
+<span class="sh-comment">#    - Sign-in redirect URIs:</span>
+<span class="sh-comment">#        https://argocd.example.com/auth/callback</span>
+<span class="sh-comment">#    - Sign-out redirect URIs:</span>
+<span class="sh-comment">#        https://argocd.example.com</span>
+<span class="sh-comment">#    - Assignments: Allow everyone OR Limited to groups</span>
+
+<span class="sh-comment"># 4. 取得設定值（套用到 argocd-cm）：</span>
+<span class="sh-comment">#    - Client ID:     從 General 頁面複製</span>
+<span class="sh-comment">#    - Client secret: 從 General 頁面複製（一次性顯示）</span>
+<span class="sh-comment">#    - Issuer URL:    Security → API → Authorization Servers → default</span>
+<span class="sh-comment">#                     範例：https://myorg.okta.com/oauth2/default</span>
+
+<span class="sh-comment"># 5. 建立 CLI client（可選，給 argocd CLI 使用）</span>
+<span class="sh-comment">#    - 同樣建立 OIDC App，但選 Native Application</span>
+<span class="sh-comment">#    - Grant type: ☑ Authorization Code, ☑ Refresh Token</span>
+<span class="sh-comment">#    - Sign-in redirect URIs:</span>
+<span class="sh-comment">#        http://localhost:8085/auth/callback</span>
+<span class="sh-comment">#    - PKCE: Required（CLI 用 PKCE 而非 client secret）</span></code></pre>
+      </div>
+
+      <h3 id="s3b">3.2 Step 2：設定 Groups Claim（關鍵！）</h3>
+
+      <p>Okta <strong>預設不會在 OIDC token 中包含 groups</strong>。必須手動設定 groups claim：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Steps — Okta Groups Claim 設定</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## ── 在 Okta 設定 Groups Claim ─────────────────────────</span>
+
+<span class="sh-comment"># 1. Security → API → Authorization Servers → default</span>
+<span class="sh-comment"># 2. 選 Claims 分頁 → Add Claim</span>
+<span class="sh-comment">#    - Name: groups</span>
+<span class="sh-comment">#    - Include in token type: ID Token, Always</span>
+<span class="sh-comment">#    - Value type: Groups</span>
+<span class="sh-comment">#    - Filter: Matches regex .* （所有 groups）</span>
+<span class="sh-comment">#       OR    Starts with argocd- （只回傳 argocd- 前綴的 group）</span>
+<span class="sh-comment">#    - Include in: Any scope（或限定 groups scope）</span>
+
+<span class="sh-comment"># 3. 建立 Groups（如果還沒有）：</span>
+<span class="sh-comment">#    Directory → Groups → Add Group</span>
+<span class="sh-comment">#    例：argocd-platform-admins, argocd-developers</span>
+
+<span class="sh-comment"># 4. 將 user 加入 group：</span>
+<span class="sh-comment">#    Directory → People → 選 user → Groups → Edit</span>
+
+<span class="sh-comment"># 5. 將 group 指派給 Argo CD application：</span>
+<span class="sh-comment">#    Applications → Argo CD → Assignments → Assign → Assign to Groups</span>
+
+<span class="sh-comment"># 6. 驗證：用 Postman 或 curl 測試 token endpoint</span>
+<span class="sh-comment">#    JWT decode 後應看到 "groups": ["argocd-platform-admins", ...]</span></code></pre>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Argo CD 對應的 Okta 設定</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-cm</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yk">url:</span> <span class="yv">https://argocd.example.com</span>
+  <span class="yk">oidc.config:</span> |
+    name: Okta
+    issuer: https://myorg.okta.com/oauth2/default
+    clientID: 0oa1b2c3d4e5f6g7h8i9
+    clientSecret: $oidc.okta.clientSecret
+    cliClientID: 0oa-cli-client-id          <span class="yc"># Native CLI client</span>
+    requestedScopes:
+      - openid
+      - profile
+      - email
+      - groups
+    requestedIDTokenClaims:
+      groups:
+        essential: true
+
+<span class="yh">---</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-rbac-cm</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yk">policy.default:</span> <span class="yv">''</span>
+  <span class="yk">scopes:</span> <span class="yv">'[groups,email]'</span>      <span class="yc"># 同時支援 group 與 email 對應</span>
+  <span class="yk">policy.csv:</span> |
+    <span class="yc"># Group 對應</span>
+    g, "argocd-platform-admins", role:admin
+    g, "argocd-developers",      role:readonly
+    <span class="yc"># 個別 user（用 email 對應）</span>
+    g, "alice@example.com",      role:admin</code></pre>
+      </div>
+    </section>
+
+    <!-- S4 Azure AD -->
+    <section class="sec" id="s4">
+      <h2><span class="sn">4</span>Azure AD / Microsoft Entra ID</h2>
+
+      <p>Azure AD（現名 Microsoft Entra ID）原生支援 OIDC，使用 Direct OIDC 即可：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Steps — Azure AD App Registration</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## ── Azure Portal 設定步驟 ─────────────────────────────</span>
+
+<span class="sh-comment"># 1. Azure Portal → Microsoft Entra ID → App registrations → New registration</span>
+<span class="sh-comment">#    - Name: Argo CD</span>
+<span class="sh-comment">#    - Supported account types: Single tenant（單一組織）</span>
+<span class="sh-comment">#    - Redirect URI: Web → https://argocd.example.com/auth/callback</span>
+
+<span class="sh-comment"># 2. 取得 IDs：</span>
+<span class="sh-comment">#    - Application (client) ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx</span>
+<span class="sh-comment">#    - Directory (tenant) ID:   yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy</span>
+<span class="sh-comment">#    - Issuer URL:              https://login.microsoftonline.com/{tenant_id}/v2.0</span>
+
+<span class="sh-comment"># 3. Certificates & secrets → New client secret</span>
+<span class="sh-comment">#    - Description: Argo CD secret</span>
+<span class="sh-comment">#    - Expires: 24 months（最長 2 年；建議短期 + auto rotation）</span>
+
+<span class="sh-comment"># 4. 設定 groups claim（重要）：</span>
+<span class="sh-comment">#    Token configuration → Add groups claim</span>
+<span class="sh-comment">#    - Which groups to include: Security groups（推薦）</span>
+<span class="sh-comment">#                              OR All groups</span>
+<span class="sh-comment">#    - Customize token properties:</span>
+<span class="sh-comment">#        ID: ☑ Group ID 或 ☑ sAMAccountName</span>
+<span class="sh-comment">#        Access: ☑ Group ID</span>
+<span class="sh-comment">#        SAML:  不用設</span>
+
+<span class="sh-comment"># 5. API permissions：</span>
+<span class="sh-comment">#    - Microsoft Graph → User.Read (預設已有)</span>
+<span class="sh-comment">#    - Microsoft Graph → GroupMember.Read.All（讓 token 含 groups）</span>
+<span class="sh-comment">#    - Grant admin consent（管理員同意）</span></code></pre>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Azure AD argocd-cm 設定</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">data:</span>
+  <span class="yk">url:</span> <span class="yv">https://argocd.example.com</span>
+  <span class="yk">oidc.config:</span> |
+    name: Microsoft
+    issuer: https://login.microsoftonline.com/<span class="yh">{TENANT_ID}</span>/v2.0
+    clientID: <span class="yh">{CLIENT_ID}</span>
+    clientSecret: $oidc.azure.clientSecret
+    requestedScopes:
+      - openid
+      - profile
+      - email
+      <span class="yc"># Azure AD 用 https://graph.microsoft.com/.default scope 取代 groups</span>
+    requestedIDTokenClaims:
+      groups:
+        essential: true</code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>Azure AD groups claim 是 GUID 不是名稱</h4>
+          <p>Azure AD 預設在 token 中放入 group 的 <strong>Object ID（GUID）</strong>，而非名稱。RBAC policy 必須使用 GUID：<code>g, "12345678-1234-1234-1234-123456789012", role:admin</code>。若要用名稱，需在 App registration → Token configuration 中啟用 <code>onpremises_sam_account_name</code>（需 hybrid AD 同步）或使用 Azure AD Premium 的 Group Display Name 功能。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S5 Google -->
+    <section class="sec" id="s5">
+      <h2><span class="sn">5</span>Google Workspace（不含 Groups 的 OIDC）</h2>
+
+      <p>Google 的 OIDC <strong>不會在 token 中包含 group 資訊</strong>。如果不需要 group-based RBAC（只用 email 或網域過濾），可以用 Direct OIDC；若需要 Google Groups 整合，必須使用 Dex + 額外的 service account（見下節）。</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Google Direct OIDC（無 groups）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## 在 Google Cloud Console 建立 OAuth 2.0 Client ID</span>
+<span class="yc">##   APIs &amp; Services → Credentials → Create Credentials → OAuth client ID</span>
+<span class="yc">##   - Application type: Web application</span>
+<span class="yc">##   - Authorized redirect URIs: https://argocd.example.com/auth/callback</span>
+
+<span class="yk">data:</span>
+  <span class="yk">url:</span> <span class="yv">https://argocd.example.com</span>
+  <span class="yk">oidc.config:</span> |
+    name: Google
+    issuer: https://accounts.google.com
+    clientID: xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com
+    clientSecret: $oidc.google.clientSecret
+    requestedScopes:
+      - openid
+      - profile
+      - email
+      <span class="yc"># Google 沒有 groups scope</span>
+
+<span class="yh">---</span>
+<span class="yk">data:</span>
+  <span class="yk">policy.default:</span> <span class="yv">''</span>
+  <span class="yk">scopes:</span> <span class="yv">'[email]'</span>          <span class="yc"># 用 email 對應（沒有 groups）</span>
+  <span class="yk">policy.csv:</span> |
+    g, "alice@example.com", role:admin
+    g, "bob@example.com",   role:readonly</code></pre>
+      </div>
+
+      <p>若需要 Google Groups 整合，使用 Dex + Google connector + service account（Dex 會以 service account 呼叫 Admin SDK 查詢使用者的 group 列表）：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Dex + Google Groups（需 GSuite super admin）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">data:</span>
+  <span class="yk">url:</span> <span class="yv">https://argocd.example.com</span>
+  <span class="yk">dex.config:</span> |
+    connectors:
+      - type: google
+        id: google
+        name: Google
+        config:
+          clientID: $dex.google.clientID
+          clientSecret: $dex.google.clientSecret
+          redirectURI: https://argocd.example.com/api/dex/callback
+          <span class="yc"># 限定網域（只允許 example.com 的使用者）</span>
+          hostedDomains:
+            - example.com
+          <span class="yc"># Service account JSON（Dex 用此呼叫 Admin SDK）</span>
+          serviceAccountFilePath: /tmp/google-service-account.json
+          <span class="yc"># 要 impersonate 的 admin user（需要 Domain-wide delegation）</span>
+          adminEmail: admin@example.com</code></pre>
+      </div>
+    </section>
+
+    <!-- S6 Dex 進階 -->
+    <section class="sec" id="s6">
+      <h2><span class="sn">6</span>Dex 進階設定（SAML / GitHub / LDAP）</h2>
+
+      <h3 id="s6a">6.1 SAML connector（Okta SAML / ADFS）</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Dex SAML connector（Okta SAML）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">data:</span>
+  <span class="yk">url:</span> <span class="yv">https://argocd.example.com</span>
+  <span class="yk">dex.config:</span> |
+    connectors:
+      - type: saml
+        id: okta-saml
+        name: Okta SAML
+        config:
+          <span class="yc"># 從 Okta SAML application 設定中取得</span>
+          ssoURL: https://myorg.okta.com/app/xxx/sso/saml
+          <span class="yc"># Okta 提供的 CA certificate（驗證 SAML response）</span>
+          caData: |
+            <span class="yh">LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t...</span>
+          redirectURI: https://argocd.example.com/api/dex/callback
+          <span class="yc"># 必須匹配 Okta 中的 Audience URI（SP Entity ID）</span>
+          entityIssuer: https://argocd.example.com/api/dex/callback
+
+          <span class="yc"># SAML attribute 對應</span>
+          usernameAttr: email
+          emailAttr: email
+          groupsAttr: groups       <span class="yc"># SAML assertion 中的 group 屬性名</span>
+
+          <span class="yc"># 可選：filter group by prefix</span>
+          <span class="yc">## groupsDelim: ","</span>
+
+<span class="sh-comment">## ── Okta SAML 端設定 ─────────────────────────────────</span>
+<span class="sh-comment"># 1. Applications → Create App Integration → SAML 2.0</span>
+<span class="sh-comment"># 2. Single sign-on URL: https://argocd.example.com/api/dex/callback</span>
+<span class="sh-comment"># 3. Audience URI (SP Entity ID): https://argocd.example.com/api/dex/callback</span>
+<span class="sh-comment"># 4. Attribute Statements:</span>
+<span class="sh-comment">#    - email = user.email</span>
+<span class="sh-comment"># 5. Group Attribute Statements:</span>
+<span class="sh-comment">#    - groups = Matches regex .* (or specific filter)</span></code></pre>
+      </div>
+
+      <h3 id="s6b">6.2 GitHub OAuth（小團隊或 OSS 專案）</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Dex GitHub OAuth connector</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">data:</span>
+  <span class="yk">url:</span> <span class="yv">https://argocd.example.com</span>
+  <span class="yk">dex.config:</span> |
+    connectors:
+      - type: github
+        id: github
+        name: GitHub
+        config:
+          clientID: $dex.github.clientID
+          clientSecret: $dex.github.clientSecret
+          <span class="yc"># 限定 GitHub organization</span>
+          orgs:
+            - name: my-github-org
+              <span class="yc"># 只允許特定 team（可選）</span>
+              teams:
+                - argocd-admins
+                - argocd-users
+
+<span class="sh-comment">## ── GitHub OAuth App 設定 ───────────────────────────</span>
+<span class="sh-comment"># 1. GitHub → Settings → Developer settings → OAuth Apps → New</span>
+<span class="sh-comment"># 2. Homepage URL: https://argocd.example.com</span>
+<span class="sh-comment"># 3. Authorization callback URL:</span>
+<span class="sh-comment">#    https://argocd.example.com/api/dex/callback</span>
+<span class="sh-comment"># 4. 取得 Client ID 與 Client Secret 寫入 argocd-secret</span>
+
+<span class="sh-comment">## ── RBAC：使用 GitHub team 名稱 ─────────────────────</span>
+<span class="sh-comment"># groups 的格式為：&lt;org-name&gt;:&lt;team-slug&gt;</span>
+<span class="sh-comment"># g, "my-github-org:argocd-admins", role:admin</span></code></pre>
+      </div>
+
+      <h3 id="s6c">6.3 LDAP connector（企業內部 Active Directory）</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Dex LDAP connector（Active Directory）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">data:</span>
+  <span class="yk">url:</span> <span class="yv">https://argocd.example.com</span>
+  <span class="yk">dex.config:</span> |
+    connectors:
+      - type: ldap
+        id: ldap
+        name: Active Directory
+        config:
+          <span class="yc"># LDAP/AD server</span>
+          host: ldap.example.com:636
+          <span class="yc"># 啟用 LDAPS（TLS）</span>
+          insecureNoSSL: false
+          insecureSkipVerify: false
+          <span class="yc"># Service account（Dex 用此 bind 後查詢）</span>
+          bindDN: cn=argocd-readonly,ou=service-accounts,dc=example,dc=com
+          bindPW: $dex.ldap.bindPW
+
+          <span class="yc"># User search</span>
+          userSearch:
+            baseDN: ou=Users,dc=example,dc=com
+            filter: "(objectClass=person)"
+            username: sAMAccountName        <span class="yc"># AD 中的 username 屬性</span>
+            idAttr: objectGUID
+            emailAttr: mail
+            nameAttr: displayName
+
+          <span class="yc"># Group search</span>
+          groupSearch:
+            baseDN: ou=Groups,dc=example,dc=com
+            filter: "(objectClass=group)"
+            <span class="yc"># 連結 user 與 group 的屬性</span>
+            userMatchers:
+              - userAttr: distinguishedName
+                groupAttr: member
+            <span class="yc"># Group 顯示名稱屬性</span>
+            nameAttr: cn
+
+<span class="sh-comment">## ── RBAC：使用 LDAP/AD group CN ─────────────────────</span>
+<span class="sh-comment"># groups 的格式為 group 的 nameAttr（如 cn）</span>
+<span class="sh-comment"># g, "ArgoCD-Admins", role:admin</span></code></pre>
+      </div>
+    </section>
+
+    <!-- S7 Groups Claim 驗證 -->
+    <section class="sec" id="s7">
+      <h2><span class="sn">7</span>Groups Claim 驗證與除錯</h2>
+
+      <p>SSO 設定完成後，最常見的問題是「登入成功但所有 App 看不到」。這通常是 group claim 沒有正確進入 token，或 RBAC 沒有正確對應。診斷步驟：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — Groups Claim 診斷流程</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## ── 步驟 1：取得當前 user 的 token ───────────────────</span>
+<span class="sh-comment">$ argocd login argocd.example.com --sso</span>
+<span class="sh-comment"># 完成 OIDC 登入後</span>
+
+<span class="sh-comment">$ TOKEN=$(argocd account get-user-info --output json | jq -r '.iss')</span>
+<span class="sh-comment"># 或從 ~/.argocd/config 讀取</span>
+<span class="sh-comment">$ TOKEN=$(yq '.users[0].auth-token' ~/.config/argocd/config)</span>
+
+<span class="sh-comment">## ── 步驟 2：解碼 JWT 看 claims ───────────────────────</span>
+<span class="sh-comment">$ echo $TOKEN | cut -d. -f2 | base64 -d | jq</span>
+<span class="sh-comment">## 範例輸出：</span>
+<span class="sh-comment"># {</span>
+<span class="sh-comment">#   "iss": "https://argocd.example.com/api/dex",</span>
+<span class="sh-comment">#   "sub": "Cg5...",</span>
+<span class="sh-comment">#   "email": "alice@example.com",</span>
+<span class="sh-comment">#   "groups": [</span>
+<span class="sh-comment">#     "argocd-platform-admins",   # ← 確認此處有 group</span>
+<span class="sh-comment">#     "argocd-developers"</span>
+<span class="sh-comment">#   ],</span>
+<span class="sh-comment">#   "name": "Alice",</span>
+<span class="sh-comment">#   "exp": 1738000000</span>
+<span class="sh-comment"># }</span>
+
+<span class="sh-comment">## ── 步驟 3：驗證 RBAC 規則 ───────────────────────────</span>
+<span class="sh-comment">$ argocd account can-i sync application '*/*'</span>
+<span class="sh-comment"># yes / no</span>
+
+<span class="sh-comment"># 詳細權限</span>
+<span class="sh-comment">$ argocd account get-user-info</span>
+
+<span class="sh-comment">## ── 步驟 4：檢查 user info（透過 API）─────────────────</span>
+<span class="sh-comment">$ curl -H "Authorization: Bearer $TOKEN" \</span>
+<span class="sh-comment">    https://argocd.example.com/api/v1/account/can-i/applications/sync/*/*</span>
+<span class="sh-comment">## 回傳 {"value": "yes"} 或 {"value": "no"}</span>
+
+<span class="sh-comment">## ── 步驟 5：在 Argo CD UI 直接看 user info ───────────</span>
+<span class="sh-comment">## 點選右上角 user icon → User Info</span>
+<span class="sh-comment">## 顯示 ID Token 解碼後的所有 claims</span></code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>常見陷阱：scopes 設定不完整</h4>
+          <p>① <code>oidc.config.requestedScopes</code> 沒包含 <code>groups</code>：IdP 不會在 token 中放入 group 資訊。② <code>argocd-rbac-cm.scopes</code> 寫成 <code>'[email]'</code> 卻在 policy.csv 用 group 名稱：永遠 deny。③ Okta 沒設定 groups claim：即使 scopes 對也沒用。三者必須一致。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S8 SSO 故障排查 -->
+    <section class="sec" id="s8">
+      <h2><span class="sn">8</span>SSO 故障排查</h2>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>錯誤訊息</th><th>原因</th><th>解法</th></tr></thead>
+          <tbody>
+            <tr><td>redirect_uri_mismatch</td><td>IdP 設定的 redirect URI 與 Argo CD 不符</td><td>確認 IdP application 中的 redirect URI 是 <code>https://argocd.example.com/auth/callback</code>（Direct OIDC）或 <code>/api/dex/callback</code>（Dex）</td></tr>
+            <tr><td>invalid_client</td><td>clientID / clientSecret 錯誤</td><td>檢查 argocd-cm 的 clientID 與 argocd-secret 中的 clientSecret 是否與 IdP 一致</td></tr>
+            <tr><td>登入後仍看不到任何 App</td><td>groups claim 未進入 token，或 RBAC 不匹配</td><td>① JWT decode 看是否有 groups；② 檢查 scopes；③ 用 <code>argocd account can-i</code> 驗證</td></tr>
+            <tr><td>OIDC: failed to get JWKS</td><td>argocd-server 無法連線 IdP（網路 / firewall）</td><td>檢查 NetworkPolicy egress 是否允許 IdP 網域；DNS 解析；測試 <code>curl https://issuer/.well-known/openid-configuration</code></td></tr>
+            <tr><td>certificate signed by unknown authority</td><td>內部 IdP 用私有 CA</td><td>把 CA cert 加到 argocd-tls-certs-cm；或在 oidc.config 中設定 <code>rootCA: |</code></td></tr>
+            <tr><td>登入後立即重定向回登入頁</td><td>IdP 回傳的 ID Token nonce 驗證失敗</td><td>檢查 argocd-server 多副本時 server.secretkey 是否一致（Helm chart 自動處理）</td></tr>
+            <tr><td>Dex 重啟後使用者被踢</td><td>Dex in-memory DB 限制（已知）</td><td>停用 Dex 改用 Direct OIDC；或接受重啟造成的影響（&lt; 5 秒）</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — 進階除錯指令</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment"># 1. 檢視 argocd-server log（看 OIDC 錯誤）</span>
+<span class="sh-comment">$ kubectl logs -n argocd deploy/argocd-server | grep -i "oidc\|sso\|auth"</span>
+
+<span class="sh-comment"># 2. 檢視 Dex log（Dex 模式時）</span>
+<span class="sh-comment">$ kubectl logs -n argocd deploy/argocd-dex-server</span>
+
+<span class="sh-comment"># 3. 啟用 Dex debug log（暫時）</span>
+<span class="sh-comment">## 在 dex.config 加入：</span>
+<span class="sh-comment">## logger:</span>
+<span class="sh-comment">##   level: debug</span>
+<span class="sh-comment">##   format: json</span>
+
+<span class="sh-comment"># 4. 從 argocd-server pod 直接測試 IdP 連線</span>
+<span class="sh-comment">$ kubectl exec -n argocd deploy/argocd-server -- \</span>
+<span class="sh-comment">    curl -s https://myorg.okta.com/.well-known/openid-configuration | jq</span>
+
+<span class="sh-comment"># 5. 完整 OIDC discovery 文件</span>
+<span class="sh-comment">$ curl https://myorg.okta.com/oauth2/default/.well-known/openid-configuration | jq</span>
+
+<span class="sh-comment"># 6. 解析既有 JWT（除錯使用者 token）</span>
+<span class="sh-comment">$ jwt-cli decode $TOKEN          # 安裝 jwt-cli</span>
+<span class="sh-comment">## 或網頁版：https://jwt.io（不要貼 production token！）</span>
+
+<span class="sh-comment"># 7. 列出當前所有 SSO 使用者</span>
+<span class="sh-comment">$ argocd account list</span></code></pre>
+      </div>
+    </section>
+
+    <!-- Summary -->
+    <section class="sec" id="sum">
+      <h2><span class="sn">✓</span>本章重點回顧</h2>
+      <div class="kp">
+        <h3>📌 Key Takeaways</h3>
+        <ul class="kp-list">
+          <li><span class="kp-ic">⚡</span><span><strong>能用 Direct OIDC 就不用 Dex</strong>：Direct OIDC 設定簡單、可水平擴展、除錯容易。Dex 只在 IdP 不支援 OIDC（SAML / LDAP / GitHub OAuth）或需聚合多 IdP 時使用。Dex 是 Argo CD 唯一無法 HA 的元件。</span></li>
+          <li><span class="kp-ic">🔄</span><span><strong>OIDC 流程關鍵</strong>：argocd-server → IdP authorize → 使用者登入 → callback 帶 code → 後端換 token → 驗證 JWT 取 claims → 產生 Argo CD 自己的 JWT 寫入 cookie。後續所有 API 都帶此 cookie。</span></li>
+          <li><span class="kp-ic">🎯</span><span><strong>Okta 設定四要素</strong>：① Web Application + Authorization Code grant；② Sign-in redirect URI 是 <code>/auth/callback</code>；③ Authorization Server → Claims 中加入 groups claim（Always、ID Token）；④ Group 加入 Argo CD application 的 Assignments。</span></li>
+          <li><span class="kp-ic">🪟</span><span><strong>Azure AD 的 GUID 陷阱</strong>：預設 groups claim 是 GUID 而非名稱，RBAC policy 必須用 GUID。或在 Token configuration 中設定 <code>onpremises_sam_account_name</code> 取得名稱（需 hybrid AD 同步）。</span></li>
+          <li><span class="kp-ic">🌐</span><span><strong>Google 不支援 OIDC groups</strong>：需 Dex + Google Service Account + Domain-wide Delegation 才能取得 Google Groups。沒有 group 需求時可用 Direct OIDC + email 對應。</span></li>
+          <li><span class="kp-ic">🔍</span><span><strong>SSO 除錯三步驟</strong>：① JWT decode 看 token 是否含 groups；② <code>argocd account can-i</code> 驗證權限；③ argocd-server / dex log 看 OIDC 錯誤。最常見的陷阱是 scopes / claims / RBAC 設定不一致。</span></li>
+          <li><span class="kp-ic">🔐</span><span><strong>OIDC scopes 與 RBAC scopes 不同概念</strong>：① <code>oidc.config.requestedScopes</code> 是向 IdP 請求；② <code>argocd-rbac-cm.scopes</code> 是從 token 取出哪個 claim。前者必含 groups（讓 IdP 放入 token），後者必設 <code>'[groups]'</code>（讓 RBAC 讀取）。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <nav class="ch-nav">
+      <a href="ch19-disaster-recovery.html" class="nav-btn nav-prev">
+        <div><div class="nav-sub">上一章 / PREV（Vol 3）</div><div>← Ch.19 災難復原（DR）</div></div>
+      </a>
+      <a href="#" class="nav-btn nav-next">
+        <div><div class="nav-sub">下一章 / NEXT</div><div>Ch.21 進階 RBAC 與 Casbin 規則 →</div></div>
+      </a>
+    </nav>
+  </main>
+</div>
+
+<footer>Argo CD 完整教學手冊 · <strong>Vol 4 Ch.20</strong> · 基於 Argo CD <strong>v3.4</strong> · 2026-05-09</footer>
+
+<script>
+(function(){
+  'use strict';
+  const KEY='jhsun-theme';
+  const IC={light:'☀',dark:'☾',system:'◐'};
+  const LB={light:'Light',dark:'Dark',system:'System'};
+  function gs(){try{return localStorage.getItem(KEY);}catch(_){return null;}}
+  function ss(v){try{v==='system'||v==null?localStorage.removeItem(KEY):localStorage.setItem(KEY,v);}catch(_){}}
+  function sp(){return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  function ef(m){return m==='system'?sp():m;}
+  function apply(m){
+    const e=ef(m);
+    document.documentElement.dataset.theme=e;
+    document.documentElement.dataset.themeMode=m;
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{
+      b.dataset.themeMode=m;
+      b.setAttribute('aria-label','Theme: '+LB[m]);
+      b.title='Theme: '+LB[m];
+      if(!b.dataset.themeToggleStyled)b.innerHTML='<span>'+IC[m]+'</span><span>'+LB[m]+'</span>';
+    });
+    dispatchEvent(new CustomEvent('jhsun:theme-changed',{detail:{theme:e,mode:m}}));
+  }
+  function cyc(c){return c==='light'?'dark':c==='dark'?'system':'light';}
+  function cur(){return gs()||'system';}
+  function init(){
+    apply(cur());
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{b.addEventListener('click',()=>{const n=cyc(cur());ss(n);apply(n);});});
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(cur()==='system')apply('system');});
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+  window.JHsunTheme={get:cur,set:m=>{ss(m);apply(m);},toggle:()=>{const n=cyc(cur());ss(n);apply(n);}};
+})();
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('.copy-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const pre=btn.closest('.code-wrap').querySelector('pre');
+      navigator.clipboard.writeText(pre.innerText).then(()=>{btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},2000);});
+    });
+  });
+  const hds=document.querySelectorAll('.sec h2,.sec h3');
+  const lks=document.querySelectorAll('.toc-list a');
+  const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){lks.forEach(l=>l.classList.remove('active'));const id=e.target.id||e.target.closest('[id]')?.id;if(id){const a=document.querySelector('.toc-list a[href="#'+id+'"]');if(a)a.classList.add('active');}}});},{rootMargin:'-60px 0px -70% 0px'});
+  hds.forEach(h=>{if(h.id)obs.observe(h);});
+});
+</script>
+</body>
+</html>

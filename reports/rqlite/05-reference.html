@@ -1,0 +1,1700 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rqlite 教學手冊 · 第五部 內部原理與參考</title>
+<style>
+:root {
+  --tk-hue: 200;
+  --tk-chroma: 0.11;
+  --color-success:        #16a34a;
+  --color-success-soft:   #dcfce7;
+  --color-warning:        #d97706;
+  --color-warning-soft:   #fef3c7;
+  --color-danger:         #dc2626;
+  --color-danger-soft:    #fee2e2;
+  --color-info:           #0891b2;
+  --color-info-soft:      #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+  --font-mono:       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:       "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif:      "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs:   12px; --text-sm:   14px; --text-base: 16px; --text-md:   18px;
+  --text-lg:   20px; --text-xl:   24px; --text-2xl:  32px; --text-3xl:  44px; --text-4xl:  64px;
+  --space-1:  4px; --space-2:  8px; --space-3:  12px; --space-4:  16px;
+  --space-5:  24px; --space-6:  32px; --space-7:  48px; --space-8:  64px; --space-9:  96px;
+  --container-narrow: 720px;
+  --container-wide:   1280px;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success:        #4ade80;
+  --color-success-soft:   oklch(0.30 0.08 145);
+  --color-warning:        #fbbf24;
+  --color-warning-soft:   oklch(0.32 0.10 70);
+  --color-danger:         #f87171;
+  --color-danger-soft:    oklch(0.32 0.10 27);
+  --color-info:           #22d3ee;
+  --color-info-soft:      oklch(0.32 0.08 200);
+  --color-neutral-accent: #a78bfa;
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas:      oklch(0.16 0.008 50);
+  --bg-surface:     oklch(0.20 0.009 50);
+  --bg-muted:       oklch(0.23 0.010 50);
+  --bg-code:        oklch(0.18 0.009 50);
+  --border-soft:    oklch(0.28 0.010 50);
+  --border-mid:     oklch(0.36 0.012 50);
+  --text-primary:   oklch(0.93 0.005 60);
+  --text-secondary: oklch(0.74 0.006 60);
+  --text-muted:     oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+</style>
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: var(--font-serif-body);
+  font-size: var(--text-md);
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- Top bar with theme toggle ---- */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: oklch(from var(--bg-canvas) l c h / 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border-soft);
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.topbar-title {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.topbar-title strong { color: var(--color-primary); font-weight: 600; }
+
+[data-theme-toggle] {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  color: var(--text-primary);
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.2s, border-color 0.2s;
+}
+[data-theme-toggle]:hover { background: var(--bg-muted); border-color: var(--color-primary); }
+[data-theme-toggle] .theme-icon { font-size: 1.1em; }
+
+/* ---- Layout ---- */
+.layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  max-width: var(--container-wide);
+  margin: 0 auto;
+}
+@media (max-width: 960px) {
+  .layout { grid-template-columns: 1fr; }
+  .toc { display: none; }
+}
+
+/* ---- TOC sidebar ---- */
+.toc {
+  position: sticky;
+  top: 56px;
+  height: calc(100vh - 56px);
+  overflow-y: auto;
+  padding: var(--space-6) var(--space-4) var(--space-6) var(--space-5);
+  border-right: 1px solid var(--border-soft);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+}
+.toc h3 {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin: 0 0 var(--space-3) 0;
+  font-weight: 600;
+}
+.toc ul { list-style: none; padding: 0; margin: 0 0 var(--space-5); }
+.toc li { margin: var(--space-1) 0; }
+.toc a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  display: block;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border-left: 2px solid transparent;
+  line-height: 1.5;
+}
+.toc a:hover { color: var(--color-primary); background: var(--bg-muted); }
+.toc .toc-sub { padding-left: var(--space-4); }
+.toc .toc-sub a { font-size: var(--text-xs); color: var(--text-muted); }
+
+/* ---- Main content ---- */
+.content {
+  padding: var(--space-7) var(--space-7) var(--space-9);
+  max-width: 920px;
+}
+
+/* ---- Hero ---- */
+.hero {
+  margin-bottom: var(--space-8);
+  padding-bottom: var(--space-6);
+  border-bottom: 3px solid var(--color-primary);
+}
+.hero .eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: var(--space-3);
+}
+.hero h1 {
+  font-family: var(--font-serif);
+  font-size: var(--text-3xl);
+  line-height: 1.15;
+  margin: 0 0 var(--space-3);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.hero .subtitle {
+  font-size: var(--text-lg);
+  color: var(--text-secondary);
+  font-style: italic;
+  margin: 0;
+}
+.hero .meta {
+  margin-top: var(--space-5);
+  display: flex;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.hero .meta span strong { color: var(--text-primary); }
+
+/* ---- Headings ---- */
+h2, h3, h4 {
+  font-family: var(--font-sans);
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  font-weight: 700;
+}
+h2 {
+  font-size: var(--text-2xl);
+  margin-top: var(--space-8);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-soft);
+}
+h2 .chap-num {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  padding: 2px 10px;
+  border-radius: var(--radius-sm);
+  vertical-align: middle;
+  margin-right: var(--space-3);
+  letter-spacing: 0.05em;
+}
+h3 {
+  font-size: var(--text-xl);
+  margin-top: var(--space-6);
+  margin-bottom: var(--space-3);
+  color: var(--color-primary-text);
+}
+h4 {
+  font-size: var(--text-md);
+  margin-top: var(--space-5);
+  margin-bottom: var(--space-2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+/* ---- Prose ---- */
+p { margin: var(--space-3) 0; }
+strong { color: var(--text-primary); font-weight: 600; }
+em { color: var(--text-secondary); }
+ul, ol { padding-left: var(--space-5); }
+li { margin: var(--space-1) 0; }
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+  border-bottom: 1px solid oklch(from var(--color-primary) l c h / 0.3);
+}
+a:hover { border-bottom-color: var(--color-primary); }
+
+/* ---- Inline code ---- */
+:not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--bg-code);
+  color: var(--color-primary-text);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+}
+
+/* ---- Code blocks ---- */
+.code-block {
+  position: relative;
+  margin: var(--space-4) 0;
+  background: var(--bg-code);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.code-block .code-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  background: var(--bg-muted);
+  border-bottom: 1px solid var(--border-soft);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.code-block .lang {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+.code-block .copy-btn {
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  color: var(--text-secondary);
+  padding: 2px 10px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.code-block .copy-btn:hover {
+  background: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+}
+.code-block .copy-btn.copied {
+  background: var(--color-success);
+  color: white;
+  border-color: var(--color-success);
+}
+.code-block pre {
+  margin: 0;
+  padding: var(--space-4);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+.code-block code { font-family: var(--font-mono); }
+
+/* Syntax highlighting tokens (theme-aware) */
+.tok-kw  { color: oklch(0.55 0.15 280); font-weight: 600; }
+.tok-str { color: oklch(0.55 0.13 145); }
+.tok-num { color: oklch(0.58 0.18 30); }
+.tok-com { color: var(--text-muted); font-style: italic; }
+.tok-fn  { color: oklch(0.55 0.14 220); }
+.tok-op  { color: oklch(0.50 0.12 340); }
+.tok-cls { color: oklch(0.60 0.13 50); font-weight: 600; }
+.tok-pun { color: var(--text-secondary); }
+.tok-var { color: oklch(0.45 0.10 30); }
+:root[data-theme="dark"] .tok-kw  { color: oklch(0.78 0.14 280); }
+:root[data-theme="dark"] .tok-str { color: oklch(0.78 0.13 145); }
+:root[data-theme="dark"] .tok-num { color: oklch(0.78 0.15 30); }
+:root[data-theme="dark"] .tok-fn  { color: oklch(0.78 0.13 220); }
+:root[data-theme="dark"] .tok-op  { color: oklch(0.78 0.12 340); }
+:root[data-theme="dark"] .tok-cls { color: oklch(0.80 0.12 50); }
+:root[data-theme="dark"] .tok-var { color: oklch(0.80 0.10 30); }
+
+/* ---- Callouts ---- */
+.callout {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md);
+  border-left: 4px solid;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+}
+.callout .callout-title {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.callout p:first-of-type { margin-top: 0; }
+.callout p:last-child { margin-bottom: 0; }
+.callout.info        { border-left-color: var(--color-info);    background: oklch(from var(--color-info) 0.96 0.02 h); }
+.callout.success     { border-left-color: var(--color-success); background: oklch(from var(--color-success) 0.96 0.02 h); }
+.callout.warning     { border-left-color: var(--color-warning); background: oklch(from var(--color-warning) 0.97 0.03 h); }
+.callout.danger      { border-left-color: var(--color-danger);  background: oklch(from var(--color-danger) 0.97 0.02 h); }
+.callout.tip         { border-left-color: var(--color-neutral-accent); background: oklch(from var(--color-neutral-accent) 0.97 0.02 h); }
+:root[data-theme="dark"] .callout.info    { background: oklch(from var(--color-info) 0.22 0.05 h); }
+:root[data-theme="dark"] .callout.success { background: oklch(from var(--color-success) 0.22 0.05 h); }
+:root[data-theme="dark"] .callout.warning { background: oklch(from var(--color-warning) 0.22 0.05 h); }
+:root[data-theme="dark"] .callout.danger  { background: oklch(from var(--color-danger) 0.22 0.05 h); }
+:root[data-theme="dark"] .callout.tip     { background: oklch(from var(--color-neutral-accent) 0.22 0.05 h); }
+.callout.info    .callout-title { color: var(--color-info); }
+.callout.success .callout-title { color: var(--color-success); }
+.callout.warning .callout-title { color: var(--color-warning); }
+.callout.danger  .callout-title { color: var(--color-danger); }
+.callout.tip     .callout-title { color: var(--color-neutral-accent); }
+
+/* ---- Audience tags ---- */
+.audience-row {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin: var(--space-3) 0;
+}
+.tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: 1px solid;
+}
+.tag.beginner { color: var(--color-success); border-color: var(--color-success); background: var(--color-success-soft); }
+.tag.developer { color: var(--color-info); border-color: var(--color-info); background: var(--color-info-soft); }
+.tag.devops { color: var(--color-warning); border-color: var(--color-warning); background: var(--color-warning-soft); }
+:root[data-theme="dark"] .tag.beginner { background: oklch(0.30 0.08 145); }
+:root[data-theme="dark"] .tag.developer { background: oklch(0.30 0.08 200); }
+:root[data-theme="dark"] .tag.devops { background: oklch(0.30 0.08 70); }
+
+/* ---- Audience summary box (end of chapter) ---- */
+.audience-summary {
+  margin: var(--space-6) 0 var(--space-5);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-3);
+}
+.audience-summary .as-card {
+  padding: var(--space-4);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  border-top: 3px solid;
+}
+.audience-summary .as-card.beginner  { border-top-color: var(--color-success); }
+.audience-summary .as-card.developer { border-top-color: var(--color-info); }
+.audience-summary .as-card.devops    { border-top-color: var(--color-warning); }
+.audience-summary h5 {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.audience-summary .as-card.beginner h5  { color: var(--color-success); }
+.audience-summary .as-card.developer h5 { color: var(--color-info); }
+.audience-summary .as-card.devops h5    { color: var(--color-warning); }
+.audience-summary ul {
+  margin: 0;
+  padding-left: var(--space-4);
+  font-size: var(--text-sm);
+}
+
+/* ---- Tables ---- */
+.table-wrap { overflow-x: auto; margin: var(--space-4) 0; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+thead { background: var(--bg-muted); }
+th {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  font-weight: 700;
+  color: var(--color-primary-text);
+  border-bottom: 2px solid var(--border-mid);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: top;
+}
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--bg-muted); }
+td code { font-size: 0.9em; }
+
+/* ---- Mermaid ---- */
+.mermaid-wrap {
+  margin: var(--space-5) 0;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-wrap .mermaid-caption {
+  margin-top: var(--space-3);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-align: center;
+  letter-spacing: 0.05em;
+}
+.mermaid { font-family: var(--font-sans) !important; }
+
+/* ---- Footer ---- */
+.footer {
+  margin-top: var(--space-8);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-soft);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.footer a { color: var(--color-primary); }
+
+/* ---- KBD style ---- */
+kbd {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-mid);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  color: var(--text-primary);
+}
+
+/* ---- Definition list cards ---- */
+.def-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+}
+.def-list .def-card {
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--color-primary);
+}
+.def-list dt {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  color: var(--color-primary-text);
+  font-size: var(--text-md);
+}
+.def-list dd {
+  margin: var(--space-2) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+/* ---- Print ---- */
+@media print {
+  .topbar, .toc { display: none; }
+  .layout { grid-template-columns: 1fr; }
+  .content { padding: var(--space-4); }
+}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-title">rqlite 教學手冊 · <strong>第五部 內部原理與參考</strong></div>
+  <button data-theme-toggle aria-label="切換主題"></button>
+</div>
+
+<div class="layout">
+
+<aside class="toc">
+  <h3>本冊章節</h3>
+  <ul>
+    <li><a href="#ch25">第 25 章 設計與實作原理</a>
+      <ul class="toc-sub">
+        <li><a href="#ch25-1">25.1 整體架構</a></li>
+        <li><a href="#ch25-2">25.2 Raft 在 rqlite</a></li>
+        <li><a href="#ch25-3">25.3 SQLite 的特殊配置</a></li>
+        <li><a href="#ch25-4">25.4 Snapshot &amp; Log Compaction</a></li>
+        <li><a href="#ch25-5">25.5 自動 Clustering 內部</a></li>
+        <li><a href="#ch25-6">25.6 演進史</a></li>
+        <li><a href="#ch25-7">25.7 進階閱讀</a></li>
+      </ul>
+    </li>
+    <li><a href="#ch26">第 26 章 FAQ &amp; 常見誤解</a>
+      <ul class="toc-sub">
+        <li><a href="#ch26-1">26.1 rqlite 是什麼 / 不是什麼</a></li>
+        <li><a href="#ch26-2">26.2 vs SQLite</a></li>
+        <li><a href="#ch26-3">26.3 vs dqlite / Litestream / LiteFS</a></li>
+        <li><a href="#ch26-4">26.4 CAP 定位</a></li>
+        <li><a href="#ch26-5">26.5 單節點與多節點議題</a></li>
+        <li><a href="#ch26-6">26.6 Transaction 限制</a></li>
+        <li><a href="#ch26-7">26.7 邊緣 / 大型節點群</a></li>
+        <li><a href="#ch26-8">26.8 isolation 與並發</a></li>
+        <li><a href="#ch26-9">26.9 依賴與相容性</a></li>
+      </ul>
+    </li>
+    <li><a href="#appendix">附錄</a>
+      <ul class="toc-sub">
+        <li><a href="#app-a">A · Shell 命令速查</a></li>
+        <li><a href="#app-b">B · HTTP 端點清單</a></li>
+        <li><a href="#app-c">C · URL 參數速查</a></li>
+        <li><a href="#app-d">D · 錯誤訊息對照</a></li>
+        <li><a href="#app-e">E · 版本歷史摘要</a></li>
+        <li><a href="#app-f">F · 推薦資源與社群</a></li>
+      </ul>
+    </li>
+  </ul>
+  <h3>讀者類型</h3>
+  <ul>
+    <li><span class="tag developer">Developer</span></li>
+    <li><span class="tag devops">DevOps / SRE</span></li>
+    <li><span class="tag beginner">Beginner</span></li>
+  </ul>
+</aside>
+
+<main class="content">
+
+<header class="hero">
+  <div class="eyebrow">PART V · 內部原理與參考 · INTERNALS &amp; REFERENCE</div>
+  <h1>rqlite 教學手冊 · 第五部</h1>
+  <p class="subtitle">Design &amp; Internals、FAQ、Reference 附錄</p>
+  <div class="meta">
+    <span>版本對應 <strong>rqlite v10.0.0</strong></span>
+    <span>編製 <strong>2026-05-12</strong></span>
+    <span>章節 <strong>第 25-26 章 + 附錄 A-F</strong></span>
+    <span>批次 <strong>5 of 5 (final)</strong></span>
+  </div>
+</header>
+
+
+<section id="ch25">
+  <h2><span class="chap-num">CH. 25</span>設計與實作原理</h2>
+  <div class="audience-row">
+    <span class="tag developer">Developer</span>
+    <span class="tag devops">DevOps</span>
+  </div>
+
+  <p>rqlite 自 2014 年開始開發，至今超過 10 年。共識系統、API、自動 clustering、節點發現都經歷了重大演進。本章解析當前實作的設計決策，理解這些有助於更深入地調校與排錯。</p>
+
+  <section id="ch25-1">
+    <h3>25.1 整體架構</h3>
+    <p>單一 rqlite 節點的高層架構：</p>
+
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+flowchart TB
+  classDef ext fill:#cffafe,stroke:#0891b2,color:#022
+  classDef http fill:#fef3c7,stroke:#d97706,color:#220
+  classDef core fill:#dcfce7,stroke:#16a34a,color:#022,stroke-width:2px
+  classDef store fill:#ede9fe,stroke:#7c3aed,color:#220
+
+  C[Client / Shell / Other Nodes]:::ext
+
+  subgraph Node["rqlite Node"]
+    H[HTTP API Layer<br/>/db/*, /status, /nodes,<br/>/leader, /readyz, /console]:::http
+    S[Store Layer<br/>read-consistency 路由<br/>請求轉發]:::core
+    R[Raft Module<br/>Hashicorp Raft v1<br/>選舉、append log、quorum]:::core
+    SQ[SQLite Module<br/>WAL + dynamic sync mode]:::store
+    CDC[CDC Subsystem<br/>events queue + emit]:::core
+  end
+
+  C -->|HTTP/HTTPS| H
+  H --> S
+  S --> R
+  R --> SQ
+  R -.snapshot+log.-> SQ
+  SQ -.events.-> CDC
+  CDC -->|HTTP POST| Webhook[(Webhook<br/>endpoint)]:::ext
+      </div>
+      <div class="mermaid-caption">圖 25-1 · rqlite 節點的高層架構</div>
+    </div>
+
+    <p>每個子系統的職責：</p>
+    <ul>
+      <li><strong>HTTP API Layer</strong>：接收外部請求、處理 auth、CORS、TLS、URL 參數解析</li>
+      <li><strong>Store Layer</strong>：路由邏輯（哪些 query 要 forward 到 leader、應用哪種一致性）</li>
+      <li><strong>Raft Module</strong>：選舉、append log、quorum 確認、snapshot 觸發</li>
+      <li><strong>SQLite Module</strong>：實際的 SQLite 引擎，rqlite 直接 link 進 binary（不需另裝）</li>
+      <li><strong>CDC Subsystem</strong>（9.0+）：每個節點都記事件到本地 queue；只有 leader 對外發送</li>
+    </ul>
+  </section>
+
+  <section id="ch25-2">
+    <h3>25.2 Raft 在 rqlite</h3>
+    <p>rqlite 用 <a href="https://github.com/hashicorp/raft" target="_blank" rel="noopener">Hashicorp Raft</a> 函式庫實作共識（5.0 起改用 Hashicorp Raft v1）。</p>
+
+    <h4>Raft Log = Authoritative Record</h4>
+    <p>Raft layer 永遠會建立一個檔案 — <strong>Raft log</strong>。它儲存所有 committed SQLite 命令，依執行順序。這個 log 是<strong>系統發生過的所有變更的權威紀錄</strong>。</p>
+
+    <p>有時 read-only queries 也會進 log（當你用 <code>level=strong</code>，雖然官方建議避免）。</p>
+
+    <p>所有節點以<strong>完全相同的方式</strong> apply log entries，這是「為何每個節點的 SQLite 相同」的根本保證。</p>
+
+    <h4>Statement-based Replication</h4>
+    <p>rqlite 是 statement-based 而非 row-based replication：</p>
+    <ul>
+      <li>每個 SQL statement<strong>以原文形式</strong>進 Raft log</li>
+      <li>每個節點 replay 該 statement → 套用到本地 SQLite</li>
+      <li>因為「相同 SQL 在相同 SQLite 上產生相同結果」是<strong>確定性</strong>的，所有節點達到相同狀態</li>
+    </ul>
+
+    <p>這個設計簡單，但需要處理<strong>非確定性函式</strong>（<code>RANDOM()</code>、<code>datetime('now')</code>）。rqlite 在第一個收到請求的節點上把這些函式預先計算成字面值，再進 log。詳見<strong>第 10 章</strong>。</p>
+
+    <h4>寫入完整流程</h4>
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant C as Client
+  participant N as 任一節點 (e.g. follower)
+  participant L as Leader
+  participant F1 as Follower 1
+  participant F2 as Follower 2
+  participant DB as SQLite (in Leader)
+
+  C->>N: POST /db/execute
+  N->>L: forward request<br/>(若 N 非 leader)
+  L->>L: 改寫非確定性函式<br/>(RANDOM / now)
+  L->>L: append Raft log entry
+  L->>F1: AppendEntries
+  L->>F2: AppendEntries
+  par parallel
+    F1->>F1: fsync log
+    F1-->>L: ack
+  and
+    F2->>F2: fsync log
+    F2-->>L: ack
+  end
+  Note over L: 收到 quorum 確認<br/>(含自己 1 + 至少 1 follower)
+  L->>L: fsync log
+  L->>DB: apply statement
+  L-->>N: response
+  N-->>C: 200 OK + result
+  L-->>F1: 下次 heartbeat 帶 commit index
+  L-->>F2: 下次 heartbeat 帶 commit index
+  Note over F1: apply 到本地 SQLite
+  Note over F2: apply 到本地 SQLite
+      </div>
+      <div class="mermaid-caption">圖 25-2 · 寫入請求完整流程（含 forwarding 與 quorum）</div>
+    </div>
+
+    <h4>讀取的多種模式</h4>
+    <p>讀取<strong>不必</strong>進 Raft log（state 不變），所以可以走多種路徑：</p>
+    <ul>
+      <li><code>weak</code>：節點檢查自己是 leader → 讀本地 SQLite</li>
+      <li><code>linearizable</code>：leader 對 quorum heartbeat、等之前的 entry apply 完成、再讀</li>
+      <li><code>none</code>：完全跳過共識檢查，直接讀本地</li>
+      <li><code>strong</code>：把讀也送進 Raft log（測試用）</li>
+    </ul>
+  </section>
+
+  <section id="ch25-3">
+    <h3>25.3 SQLite 的特殊配置</h3>
+    <p>rqlite 對 SQLite 做了兩個關鍵配置以最大化寫入效能：</p>
+
+    <ul>
+      <li><strong>WAL mode</strong>：而非預設 rollback journal</li>
+      <li><strong><code>SYNCHRONOUS=off</code></strong>：寫入後不自動 fsync</li>
+    </ul>
+
+    <p>意義：<strong>SQLite 寫入超快</strong>，因為跳過 fsync 開銷。但這也代表如果<strong>機器突然斷電</strong>，SQLite 檔可能損毀。</p>
+
+    <h4>rqlite 如何處理這個風險</h4>
+    <p>rqlite <strong>週期性把 SQLite 切到 <code>SYNCHRONOUS=FULL</code>、fsync 全資料庫、然後切回 OFF</strong>。這保證了「最近一次 fsync 之後的狀態」是<strong>確定持久</strong>的。</p>
+
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+flowchart LR
+  classDef fast fill:#dcfce7,stroke:#16a34a,color:#022
+  classDef slow fill:#fef3c7,stroke:#d97706,color:#220
+
+  S1[SYNCHRONOUS=OFF<br/>寫入快]:::fast
+  S2[SYNCHRONOUS=FULL<br/>fsync 整個 SQLite]:::slow
+  S3[SYNCHRONOUS=OFF<br/>繼續寫入]:::fast
+
+  S1 --> S2 --> S3 --> S2
+      </div>
+      <div class="mermaid-caption">圖 25-3 · SQLite sync mode 在 rqlite 中的動態切換</div>
+    </div>
+
+    <h4>重啟時的策略</h4>
+    <p>rqlite 重啟時：</p>
+    <ol>
+      <li>嘗試使用<strong>最後一次成功 fsync 的 SQLite 副本</strong>當起點</li>
+      <li>不存在或有疑慮？<strong>完全從 Raft log replay 重建</strong> SQLite</li>
+    </ol>
+
+    <p>這就是「為什麼 Raft log 是 authoritative」— 即使 SQLite 完全毀掉，只要 Raft log 完整，整個資料庫可以重建。</p>
+
+    <div class="callout info">
+      <div class="callout-title">📌 v9.2+ 大資料集快速重啟</div>
+      <p>9.2 引入「fast restarts with GB datasets」優化：對於大型 SQLite 檔，重啟時不必每次都從 Raft log 完整 replay。詳見 <a href="https://philipotoole.com/rqlite-9-2-the-distributed-database-built-on-sqlite-fast-restarts-with-gb-datasets/" target="_blank" rel="noopener">9.2 blog post</a>。</p>
+    </div>
+  </section>
+
+  <section id="ch25-4">
+    <h3>25.4 Snapshot 與 Log Compaction</h3>
+    <p>沒有壓縮機制的話，Raft log 會無限增長 — 磁碟最終會滿。rqlite 自動做 log compaction：</p>
+
+    <ol>
+      <li>達到設定門檻（<code>-raft-snap</code> entries 或 WAL 超過 <code>-raft-snap-wal-size</code>）</li>
+      <li><strong>建立 snapshot</strong>：把 SQLite 整個複製為 snapshot</li>
+      <li><strong>截斷 Raft log</strong>：snapshot 之前的 entries 可以丟棄</li>
+      <li>之後新節點加入 / 落後節點 catch-up 時，先傳 snapshot、再從 snapshot point 後的 entries 重放</li>
+    </ol>
+
+    <div class="callout success">
+      <div class="callout-title">✅ v10 改進：Snapshot 解耦</div>
+      <p>v9 及更早版本中，Leader 在<strong>傳輸舊 snapshot 給落後 follower</strong>時，<strong>不能</strong>建立<strong>新 snapshot</strong>。如果有持續慢的 follower 不斷需要 snapshot，會餓死 leader 的 snapshot 建立 → log 持續增長 → 磁碟用量失控。</p>
+      <p>v10 起兩件事完全解耦，<strong>不再有這個飢餓問題</strong>。這是 v10 主要的可靠性改進。</p>
+    </div>
+  </section>
+
+  <section id="ch25-5">
+    <h3>25.5 自動 Clustering 內部</h3>
+    <p>第 13 章介紹了使用方式，這裡看內部如何運作：</p>
+
+    <h4>Automatic Bootstrapping</h4>
+    <p>每個節點啟動後，<strong>不斷通知所有其他節點自己存在</strong>。第一個收到「<code>-bootstrap-expect</code> 個節點通知」的節點觸發 bootstrap。其他節點之後嘗試 bootstrap 會失敗，於是成為 follower。</p>
+
+    <h4>Consul / etcd KV-based</h4>
+    <p>所有節點對共享的 KV store（Consul 或 etcd）<strong>atomic CAS</strong> 寫入一個 "leader" key。Key 的 value 是該節點的 HTTP + Raft 位址。CAS 失敗的節點則去讀 key，找到 leader 然後 join。</p>
+
+    <p>Leader 變更時，新 leader 也會用 CAS 更新該 key。後來加入的節點可以隨時找到當前 leader。</p>
+
+    <h4>DNS-based</h4>
+    <p>所有節點解析同一個 DNS hostname。回傳的 IP 數量 ≥ <code>-bootstrap-expect</code> 時觸發 bootstrap。bootstrap 過程就像把那些位址用 <code>-join</code> 傳進來一樣。</p>
+
+    <div class="callout info">
+      <div class="callout-title">📌 多種方法殊途同歸</div>
+      <p>不管哪種 auto-clustering 方法，最終都是「找到該叢集的其他節點、形成 quorum、選 leader」。Hashicorp 的 Raft 函式庫不關心你怎麼<strong>發現</strong>節點，只負責<strong>找到之後</strong>的共識。</p>
+    </div>
+  </section>
+
+  <section id="ch25-6">
+    <h3>25.6 演進史摘要</h3>
+    <p>10 年來的重大里程碑：</p>
+
+    <div class="table-wrap"><table>
+      <thead><tr><th>年份</th><th>版本</th><th>關鍵改進</th></tr></thead>
+      <tbody>
+        <tr><td>2014</td><td>初版</td><td>用 Raft 複製 SQLite 的最初實作</td></tr>
+        <tr><td>2016</td><td>4.x</td><td>升級到新版 Raft 共識系統與 API</td></tr>
+        <tr><td>2017</td><td>—</td><td>AWS Lambda 製作 discovery service</td></tr>
+        <tr><td>2020</td><td>5.7</td><td>內部資料結構改用 Protocol Buffers</td></tr>
+        <tr><td>2021</td><td>5.10 → 6.0</td><td>磁碟用量優化、架構大改</td></tr>
+        <tr><td>2022</td><td>7.0</td><td>節點發現 + automatic clustering 系統</td></tr>
+        <tr><td>2022</td><td>—</td><td>Queued Writes（durability vs performance）</td></tr>
+        <tr><td>2022</td><td>—</td><td>Jepsen-style 一致性測試</td></tr>
+        <tr><td>2023</td><td>8.0</td><td>大資料集支援、snapshot 機制大改</td></tr>
+        <tr><td>2024</td><td>8.32</td><td>Linearizable consistency（比 strong 快很多）</td></tr>
+        <tr><td>2025</td><td>9.0</td><td><strong>Change Data Capture（CDC）</strong></td></tr>
+        <tr><td>2025</td><td>9.2</td><td>GB 級資料快速重啟</td></tr>
+        <tr><td>2026</td><td>10.0</td><td>Snapshot 解耦、<code>/console</code> 內建 web app、移除 <code>-on-disk-path</code></td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="callout tip">
+      <div class="callout-title">💡 為什麼 v10 不能 join v9 叢集</div>
+      <p>內部 Raft 訊息格式、snapshot 流程都有調整，無法直接互通。但 <strong>v7+ 可以無縫升級到 v10</strong>（rolling restart）。downgrade 不支援，所以升級前一定要備份。</p>
+    </div>
+  </section>
+
+  <section id="ch25-7">
+    <h3>25.7 進階閱讀</h3>
+
+    <h4>正式論述</h4>
+    <ul>
+      <li><a href="https://www.philipotoole.com/replicating-sqlite-using-raft-consensus/" target="_blank" rel="noopener">Introduction to replicating SQLite with Raft</a>（2014）— 最早的設計動機</li>
+      <li><a href="https://www.philipotoole.com/rqlite-6-0-0-building-for-the-future/" target="_blank" rel="noopener">The evolution of a distributed database design</a>（2021）— 架構演進</li>
+      <li><a href="https://www.philipotoole.com/rqlite-7-0-designing-node-discovery-and-automatic-clustering/" target="_blank" rel="noopener">Designing node discovery and automatic clustering</a>（2022）</li>
+      <li><a href="https://www.philipotoole.com/testing-rqlite-read-consistency/" target="_blank" rel="noopener">Evaluating rqlite consistency with Jepsen-style testing</a>（2022）— 一致性正確性驗證</li>
+      <li><a href="https://philipotoole.com/faster-reads-same-guarantees-linearizable-consistency-in-rqlite-8-32/" target="_blank" rel="noopener">Linearizable Consistency in rqlite 8.32</a>（2024）— 線性化讀取的實作</li>
+      <li><a href="https://philipotoole.com/how-is-rqlite-tested/" target="_blank" rel="noopener">How rqlite is tested</a>（2025）— 測試策略全貌</li>
+      <li><a href="https://philipotoole.com/rqlite-turns-10-lessons-from-a-decade-of-building-distributed-systems/" target="_blank" rel="noopener">rqlite turns 10</a>（2025）— 10 年回顧</li>
+    </ul>
+
+    <h4>影片演講</h4>
+    <ul>
+      <li><a href="https://www.youtube.com/watch?v=8XbxQ1Epi5w" target="_blank" rel="noopener">Build your own Distributed System using Go</a> — GopherCon 2023</li>
+      <li><a href="https://www.youtube.com/watch?v=JLlIAWjvHxM" target="_blank" rel="noopener">Carnegie Mellon Database Group talk</a>（2021）</li>
+    </ul>
+
+    <h4>授權資訊</h4>
+    <p>rqlite 跑時用的所有第三方軟體授權，可從節點 <code>/licenses</code> 端點取得：</p>
+    <div class="code-block"><div class="code-header"><span class="lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code><span class="tok-fn">curl</span> http://localhost:4001/licenses</code></pre></div>
+  </section>
+
+  <div class="audience-summary">
+    <div class="as-card developer">
+      <h5>🔵 開發者重點</h5>
+      <ul>
+        <li>Statement-based replication：依賴 SQL 的確定性</li>
+        <li>非確定性函式由收到請求的節點預先計算</li>
+        <li>Raft log 是 source of truth，SQLite 是 derived state</li>
+      </ul>
+    </div>
+    <div class="as-card devops">
+      <h5>🟡 DevOps / SRE 重點</h5>
+      <ul>
+        <li>SYNCHRONOUS 動態切換：寫入快但有 fsync 間隔風險</li>
+        <li>重啟 = 從最後 fsync 起或從 Raft log replay</li>
+        <li>v10 snapshot 解耦 = 慢 follower 不再餓死 leader</li>
+        <li>v7+ → v10 可無縫升；v10 不能 join v9</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+
+<section id="ch26">
+  <h2><span class="chap-num">CH. 26</span>FAQ &amp; 常見誤解</h2>
+  <div class="audience-row">
+    <span class="tag beginner">Beginner</span>
+    <span class="tag developer">Developer</span>
+    <span class="tag devops">DevOps</span>
+  </div>
+
+  <p>本章彙整 rqlite 最常被問到的問題，按主題分組。內容主要基於官方 FAQ 頁面（2026-01-29 更新），補充本手冊各章節的交叉參考。</p>
+
+  <section id="ch26-1">
+    <h3>26.1 rqlite 是什麼 / 不是什麼</h3>
+
+    <h4>Q：rqlite 究竟做什麼的？</h4>
+    <p>A：把<strong>透過 SQL 寫入的資料複製到多個節點</strong>。複製的目的是容錯（資料分散在不同地方）、可用性（部分機器掛了仍能查詢），或兩者皆有。複製的範圍可以是同機架不同機器、同建築不同樓、不同城市、甚至<strong>不同大陸</strong>。</p>
+
+    <p>在複製之上，rqlite 用 Raft 共識協定保證「相對於一個特殊節點 Leader，所有副本的狀態都是嚴格定義的」。Raft 防止資料 diverge，永遠有一份權威的、一致的副本。</p>
+
+    <h4>Q：什麼時候該用 rqlite？</h4>
+    <p>A：需要<strong>容易使用、容錯、高可用</strong>的關聯式資料庫的應用。輕量特性適合：</p>
+    <ul>
+      <li>邊緣高可用部署（即使在單台設備也提供可靠儲存）</li>
+      <li>雲端應用需要簡單可管理的複製式關聯資料庫</li>
+      <li>需要可靠保存最重要資料的核心服務</li>
+    </ul>
+
+    <h4>Q：和其他分散式資料庫比？為什麼用這個？</h4>
+    <blockquote>
+      <p>Complexity is your enemy.</p>
+    </blockquote>
+    <p>A：rqlite <strong>極其簡單部署、執行、管理</strong> — operational simplicity 是核心設計目標。單一 binary、丟到機器上、跑就對了。組叢集只要幾秒。</p>
+
+    <p>但反過來說，它<strong>可能對你需求來說太簡單了</strong>。對於需要 sharding、複雜分散式 transaction、多 region active-active 寫入的場景，rqlite 不是合適選擇。</p>
+  </section>
+
+  <section id="ch26-2">
+    <h3>26.2 vs SQLite</h3>
+
+    <h4>Q：rqlite 是 SQLite 的 drop-in 替代品嗎？</h4>
+    <p>A：<strong>不是</strong>。rqlite 用 SQLite 當儲存引擎，但你<strong>必須透過 HTTP API 寫入</strong>。也就是說，原本直接 open SQLite file 的 app 必須改成發 HTTP request。不過讀取上 SQLite 的能力幾乎全保留（FTS、JSON、虛擬 table 等）。</p>
+
+    <h4>Q：可以用 rqlite 把我的 SQLite 複製到第二個節點嗎？</h4>
+    <p>A：<strong>不能簡單地這樣用</strong>。rqlite 不是「SQLite 複製工具」。雖然每個節點確實有 SQLite 完整副本，但 rqlite 不只是<strong>複製</strong>那個資料庫 — 它<strong>取代</strong>你直接存取 SQLite 的需求。</p>
+
+    <h4>Q：底層 SQLite serializable isolation 維持嗎？</h4>
+    <p>A：是的，rqlite 保留 SQLite 的 serializable isolation level。</p>
+  </section>
+
+  <section id="ch26-3">
+    <h3>26.3 vs dqlite / Litestream / LiteFS</h3>
+
+    <div class="table-wrap"><table>
+      <thead><tr><th>專案</th><th>性質</th><th>定位</th><th>適用</th></tr></thead>
+      <tbody>
+        <tr><td><strong>rqlite</strong></td><td>獨立 RDBMS server</td><td>HA 分散式關聯資料庫</td><td>需要高可用 + 容錯 + 簡單運維</td></tr>
+        <tr><td><a href="https://github.com/canonical/dqlite" target="_blank" rel="noopener">dqlite</a></td><td>C 函式庫</td><td>嵌入式分散式 SQLite</td><td>整合進你自己的 app（要 C 程式設計）</td></tr>
+        <tr><td><a href="https://github.com/benbjohnson/litestream" target="_blank" rel="noopener">Litestream</a></td><td>SQLite 備份工具</td><td>把 SQLite 連續備份到 S3</td><td>單節點 + 災難復原（非 HA）</td></tr>
+        <tr><td><a href="https://github.com/superfly/litefs" target="_blank" rel="noopener">LiteFS</a></td><td>FUSE 檔案系統</td><td>SQLite 複製（read replicas）</td><td>讀取規模化、有 primary-replica 概念</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>rqlite vs dqlite</h4>
+    <p>dqlite 是 C 函式庫，你<strong>必須整合到自己的程式碼</strong>（需要程式設計）。rqlite 是<strong>獨立 application</strong>，直接跑就好，有完整的 read/write/backup/maintain/monitor 能力。<strong>兩者完全獨立專案，rqlite 不使用 dqlite。事實上 rqlite 出現得比 dqlite 早。</strong></p>
+
+    <h4>rqlite vs Litestream</h4>
+    <p>Litestream 為 SQLite 提供<strong>可靠性</strong>（透過定期備份到 S3）。如果你失去執行 SQLite 的節點，必須從備份還原。<strong>不改變 application 與 SQLite 的互動</strong>，這是其優雅之處。但有極小機率資料遺失，Litestream 讓你能依需求權衡。</p>
+
+    <p>rqlite 同時提供<strong>可靠性與高可用</strong>（透過 clustering）。app 不會察覺單一節點故障，因為其他節點自動接手。對資料遺失的防護顯著更強。但 rqlite <strong>不是</strong> SQLite drop-in 替代。</p>
+
+    <h4>rqlite vs LiteFS</h4>
+    <p>LiteFS 是另一個 SQLite 複製系統，方法與 Litestream 不同，但和 rqlite 的差異類似 — <strong>rqlite 是高可用分散式資料庫解決方案，不是 SQLite 複製系統</strong>。</p>
+  </section>
+
+  <section id="ch26-4">
+    <h3>26.4 CAP 定位</h3>
+
+    <h4>Q：rqlite 在 CAP 定理中的定位？</h4>
+    <p>A：Raft 是 <strong>CP</strong>（Consistency-Partition tolerance）協定。叢集發生網路分區時：</p>
+    <ul>
+      <li><strong>持有多數節點的那側</strong>仍可服務（保持一致性）</li>
+      <li><strong>少數節點側</strong>無法處理寫入</li>
+      <li>分區恢復時自動 reconcile，繼續提供一致的結果</li>
+    </ul>
+
+    <h4>Q：rqlite 接受寫入前都需要共識嗎？</h4>
+    <p>A：是的，這是 Raft 的本質。Leader 需要兩輪 round-trip 給 quorum（雖然平行進行）。</p>
+
+    <p>例外：<strong>Queued Writes</strong>（<code>?queue</code>）— 用 durability 換 throughput，不等共識立刻回應。詳見第 8 章。</p>
+
+    <h4>Q：客戶端如何偵測叢集分區？</h4>
+    <p>A：如果 client 在 quorum 那側，沒事。如果在少數側：</p>
+    <ul>
+      <li>可能被 redirect 到 leader，但聯絡 leader 失敗 → timeout</li>
+      <li>可能直接收到 <code>no leader</code> 錯誤</li>
+    </ul>
+    <p>官方說「未來版本可能讓分區情境對 client 更明顯」。</p>
+  </section>
+
+  <section id="ch26-5">
+    <h3>26.5 單節點與多節點議題</h3>
+
+    <h4>Q：可以跑單一節點嗎？</h4>
+    <p>A：可以，很多人這樣用（喜歡用 HTTP 存取 SQLite）。但<strong>沒有冗餘、沒有容錯</strong>，節點掛了就要重啟。</p>
+
+    <p>重要區分：「單一節點」是<strong>叢集大小為 1</strong>，不是「3 節點掛了兩個」。後者仍是 3 節點叢集（quorum 不夠處於 offline 狀態），不能當單節點用。</p>
+
+    <h4>Q：如何把多節點叢集改成單節點系統？</h4>
+    <p>A：<strong>不能</strong>直接把多數節點關掉留一個 — quorum 不夠會卡死。兩種正確做法：</p>
+    <ol>
+      <li><strong>備份再啟新單節點</strong>：<code>/db/backup</code> 拿到 SQLite 檔，<code>.boot</code> 到新的單節點。最簡單、最快</li>
+      <li><strong>peers.json 強制單節點復原</strong>：依照<strong>第 12.9 節</strong> 走災難復原流程，peers.json 只列一個節點</li>
+    </ol>
+
+    <h4>Q：最大叢集大小？</h4>
+    <p>A：沒有明確上限，但<strong>實務上 voting 節點建議 ≤ 11</strong>。需要更多請改加 read-only 節點（不計入 N，不影響 quorum）。</p>
+  </section>
+
+  <section id="ch26-6">
+    <h3>26.6 Transaction 限制</h3>
+
+    <h4>Q：rqlite 支援 transaction 嗎？</h4>
+    <p>A：支援<strong>某種形式</strong>。可以把 bulk update 包成 transaction（all-or-nothing）— 用 <code>?transaction</code> URL 參數。但<strong>顯式 <code>BEGIN</code> / <code>COMMIT</code> / <code>ROLLBACK</code> 是 undefined behavior</strong>。</p>
+
+    <p>原因：不是這些 SQL 語法不能執行（它們能執行），而是如果節點 / 叢集在 transaction 進行中失效，系統可能進入難以恢復的狀態。在 rqlite 對「失效當下的 transaction」能提供嚴格保證之前，<code>BEGIN</code>/<code>COMMIT</code>/<code>ROLLBACK</code> 官方<strong>不支援</strong>。</p>
+
+    <div class="callout warning">
+      <div class="callout-title">⚠ 不適合某些應用</div>
+      <p>這個限制意味著 rqlite 不適合需要跨多個 HTTP request 的長 transaction 的應用（如複雜的交易系統）。若你的應用每筆操作可以 self-contained 在單一 request 內，rqlite 沒問題。</p>
+    </div>
+  </section>
+
+  <section id="ch26-7">
+    <h3>26.7 邊緣場景與大型節點群</h3>
+
+    <h4>Q：rqlite 適合「節點頻繁來去（如數千個邊緣設備）」嗎？</h4>
+    <p>A：<strong>不太適合</strong>。雖然 read-only 節點讓 rqlite 能擴張到很多節點，但 Raft 共識的核心要求是 <strong>voting 節點不能頻繁變動</strong>。不會 break，但實務不好用。</p>
+
+    <p>但是 — 如果這些節點<strong>只需要保持資料同步並服務查詢</strong>（不寫入），用 read-only nodes 可能很好。</p>
+
+    <h4>Q：可以用 rqlite 廣播變更到大量節點（如數百個 read-only）？</h4>
+    <p>A：可以！這正是 read-only 節點的設計用途。詳見<strong>第 14 章</strong>。</p>
+
+    <h4>Q：read-only 節點上的 client 想寫入怎麼辦？</h4>
+    <p>A：必須把寫入請求送到 leader。如果可達 leader，這實際上提供了一個「邊緣節點向所有其他節點廣播訊息」的方式。</p>
+  </section>
+
+  <section id="ch26-8">
+    <h3>26.8 Isolation 與並發</h3>
+
+    <h4>Q：並發寫入會互相 block 嗎？</h4>
+    <p>A：在這方面 rqlite 與 SQLite 的語意相同。每個 HTTP write 請求在 leader 上<strong>使用同一個 SQLite 連線</strong>，所以 HTTP 寫入會互相 block（SQLite 本身的限制）。</p>
+
+    <p>更根本的原因：Raft log 對所有寫入<strong>序列化</strong>，所以即使 SQLite 支援並行寫入，Raft 也會阻止這種優化。</p>
+
+    <h4>Q：並發讀取會互相 block 嗎？</h4>
+    <p>A：讀取<strong>不會</strong> block 其他讀取，<strong>也不會</strong> block 寫入 — 只要不用 <code>level=strong</code>。</p>
+
+    <p>但有個例外：Raft 系統需要週期性 snapshot SQLite（需要獨佔存取）。<strong>讀取可以 block snapshot</strong>，而 snapshot 期間寫入無法進行，所以理論上<strong>讀取可以間接 block 寫入</strong>。snapshot 通常數毫秒完成，實務上不是問題。</p>
+  </section>
+
+  <section id="ch26-9">
+    <h3>26.9 依賴與相容性</h3>
+
+    <h4>Q：跑 rqlite 需要什麼特殊軟體或依賴？</h4>
+    <p>A：依 OS 不同，可能需要 libc。<strong>Linux 上 glibc &ge; 2.34</strong>。版本不夠 <code>rqlited</code> 可能直接啟動失敗：</p>
+
+    <div class="code-block"><div class="code-header"><span class="lang">text</span><button class="copy-btn">複製</button></div>
+<pre><code>./rqlited: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.33' not found
+            (required by ./rqlited)</code></pre></div>
+
+    <p>解決方法：升 OS / distribution、或下載 <code>-musl</code> 版本（靜態 link，無 glibc 依賴）。</p>
+
+    <p><strong>SQLite 不需要</strong>安裝 — 已經編譯進 rqlite release。</p>
+
+    <h4>Q：怎麼存取資料庫？</h4>
+    <p>A：主要透過<a href="https://rqlite.io/docs/api/api/" target="_blank" rel="noopener">HTTP API</a>。可以直接用，也可以用 <a href="https://rqlite.io/docs/api/client-libraries/" target="_blank" rel="noopener">client library</a>。隨意使用可用 <a href="https://rqlite.io/docs/cli/" target="_blank" rel="noopener">CLI</a>。<code>rqlited</code> 透過 cmdline flag 提供 CORS 支援（瀏覽器端 app）。</p>
+
+    <p>也可以<strong>直接讀</strong> SQLite 檔（但風險高，詳見第 24 章）。</p>
+
+    <h4>Q：直接修改 SQLite 檔可以嗎？</h4>
+    <p>A：<strong>不行</strong>。會破壞 rqlite。詳見第 24 章。</p>
+
+    <h4>Q：直接讀 SQLite 檔可以嗎？</h4>
+    <p>A：可以，但<strong>未經過完整測試</strong>，務必遵守第 24 章的三道防線（OS ACL + <code>mode=ro</code> + 不用 EXCLUSIVE）。</p>
+  </section>
+
+  <div class="audience-summary">
+    <div class="as-card beginner">
+      <h5>🟢 初學者重點</h5>
+      <ul>
+        <li>rqlite 不是 SQLite drop-in；要透過 HTTP 寫入</li>
+        <li>單節點也能跑，但失去 HA</li>
+        <li>跨大陸複製是真的，且 latency 由網路決定</li>
+      </ul>
+    </div>
+    <div class="as-card developer">
+      <h5>🔵 開發者重點</h5>
+      <ul>
+        <li>讀寫都可送任一節點，自動 forward</li>
+        <li>BEGIN/COMMIT 不支援；用 <code>?transaction</code> URL 參數</li>
+        <li>並發寫入會 serialize</li>
+        <li>讀取看 read consistency 等級</li>
+      </ul>
+    </div>
+    <div class="as-card devops">
+      <h5>🟡 DevOps / SRE 重點</h5>
+      <ul>
+        <li>CP 系統：分區時少數側無法寫</li>
+        <li>voting 節點實務上 ≤ 11；更多用 read-only</li>
+        <li>不適合節點頻繁來去的 voter 場景</li>
+        <li>Linux 需 glibc ≥ 2.34，否則用 -musl 版本</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+
+<section id="appendix">
+  <h2><span class="chap-num">附 錄</span>Reference</h2>
+
+  <p>本附錄整理所有速查表，方便日常運維與排查時快速翻找。</p>
+
+  <!-- ====================================================== -->
+  <section id="app-a">
+    <h3>附錄 A · Shell 命令速查</h3>
+    <p>啟動 rqlite shell：<code>rqlite -H localhost -p 4001</code>（或在已有節點的機器直接 <code>rqlite</code>）。</p>
+
+    <h4>連線與資訊</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>命令</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>.help</code></td><td>列出所有命令</td></tr>
+        <tr><td><code>.exit</code> / <code>.quit</code> / Ctrl-D</td><td>離開</td></tr>
+        <tr><td><code>.status</code></td><td>節點狀態、Raft 詳情、build 資訊</td></tr>
+        <tr><td><code>.nodes</code></td><td>叢集所有節點清單</td></tr>
+        <tr><td><code>.leader</code></td><td>顯示當前 Leader</td></tr>
+        <tr><td><code>.expvar</code></td><td>節點 expvar 計數器</td></tr>
+        <tr><td><code>.ready</code></td><td>health check（同 <code>/readyz</code>）</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>查詢與寫入控制</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>命令</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>.tables</code></td><td>列出所有 table</td></tr>
+        <tr><td><code>.schema</code></td><td>顯示所有 table 的 schema</td></tr>
+        <tr><td><code>.schema TABLE</code></td><td>單一 table 的 schema</td></tr>
+        <tr><td><code>.indexes</code></td><td>列出 indexes</td></tr>
+        <tr><td><code>.timer on</code> / <code>off</code></td><td>啟用 / 停用查詢計時</td></tr>
+        <tr><td><code>.consistency [none|weak|strong]</code></td><td>設定 read consistency（shell 限這三種）</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>叢集管理</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>命令</th><th>說明</th><th>需要權限</th></tr></thead>
+      <tbody>
+        <tr><td><code>.remove ID</code></td><td>從叢集移除節點</td><td><code>remove</code></td></tr>
+        <tr><td><code>.stepdown</code></td><td>當前 leader 主動 stepdown</td><td><code>leader-ops</code></td></tr>
+        <tr><td><code>.snapshot</code></td><td>強制觸發 Raft snapshot</td><td><code>snapshot</code></td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>備份與還原</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>命令</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>.backup FILE</code></td><td>備份 SQLite 二進位檔到 FILE</td></tr>
+        <tr><td><code>.dump FILE</code></td><td>備份成 SQL 文字格式</td></tr>
+        <tr><td><code>.boot FILE</code></td><td>從 SQLite 檔 boot 單節點</td></tr>
+        <tr><td><code>.restore FILE</code></td><td>從 SQLite 或 SQL dump 還原</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Extensions</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>命令</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>.extensions</code></td><td>列出已載入的 extensions</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>shell 命令完整範例</h4>
+    <div class="code-block"><div class="code-header"><span class="lang">text</span><button class="copy-btn">複製</button></div>
+<pre><code>$ rqlite
+Welcome to the rqlite CLI. Enter ".help" for usage hints.
+127.0.0.1:4001&gt; .status
+build:
+  version: 10
+  ...
+
+127.0.0.1:4001&gt; CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);
+0 row affected (0.000087 sec)
+
+127.0.0.1:4001&gt; INSERT INTO users(name) VALUES('alice'), ('bob');
+2 rows affected (0.000201 sec)
+
+127.0.0.1:4001&gt; .consistency linearizable
+Consistency level set to linearizable
+
+127.0.0.1:4001&gt; SELECT * FROM users;
++----+-------+
+| id | name  |
++----+-------+
+| 1  | alice |
+| 2  | bob   |
++----+-------+
+
+127.0.0.1:4001&gt; .backup mydb.sqlite
+backup file written successfully
+
+127.0.0.1:4001&gt; .exit
+$</code></pre></div>
+  </section>
+
+  <!-- ====================================================== -->
+  <section id="app-b">
+    <h3>附錄 B · HTTP 端點清單</h3>
+
+    <h4>資料端點（需要 execute / query 權限）</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Method</th><th>端點</th><th>說明</th><th>細節</th></tr></thead>
+      <tbody>
+        <tr><td>POST</td><td><code>/db/execute</code></td><td>寫入（INSERT/UPDATE/DELETE/DDL）</td><td>Ch 5.2</td></tr>
+        <tr><td>GET/POST</td><td><code>/db/query</code></td><td>查詢（SELECT only）</td><td>Ch 5.3</td></tr>
+        <tr><td>POST</td><td><code>/db/request</code></td><td>讀寫混合（Unified Endpoint）</td><td>Ch 5.4</td></tr>
+        <tr><td>POST</td><td><code>/db/sql</code></td><td>SQL rewrite 觀察（不執行）</td><td>Ch 10.5</td></tr>
+        <tr><td>GET</td><td><code>/db/backup</code></td><td>取得 SQLite 備份</td><td>Ch 19.1</td></tr>
+        <tr><td>POST</td><td><code>/db/load</code></td><td>從 SQLite 或 SQL dump 還原</td><td>Ch 19.8</td></tr>
+        <tr><td>POST</td><td><code>/boot</code></td><td>單節點 boot 還原（大檔用）</td><td>Ch 19.8</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>叢集管理端點</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Method</th><th>端點</th><th>說明</th><th>權限</th></tr></thead>
+      <tbody>
+        <tr><td>POST</td><td><code>/join</code></td><td>節點 join 叢集（內部用）</td><td><code>join</code></td></tr>
+        <tr><td>DELETE</td><td><code>/remove</code></td><td>從叢集移除節點</td><td><code>remove</code></td></tr>
+        <tr><td>GET</td><td><code>/leader</code></td><td>當前 leader 資訊</td><td><code>status</code></td></tr>
+        <tr><td>POST</td><td><code>/leader</code></td><td>強制 leader stepdown</td><td><code>leader-ops</code></td></tr>
+        <tr><td>POST</td><td><code>/snapshot</code></td><td>強制觸發 Raft snapshot</td><td><code>snapshot</code></td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>狀態與監控端點</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Method</th><th>端點</th><th>說明</th><th>權限</th></tr></thead>
+      <tbody>
+        <tr><td>GET</td><td><code>/status</code></td><td>節點完整狀態 + Raft 詳情</td><td><code>status</code></td></tr>
+        <tr><td>GET</td><td><code>/nodes</code></td><td>叢集所有節點 + 可達性</td><td><code>status</code></td></tr>
+        <tr><td>GET</td><td><code>/readyz</code></td><td>Liveness/Readiness 健康檢查</td><td><code>ready</code></td></tr>
+        <tr><td>GET</td><td><code>/debug/vars</code></td><td>expvar 計數器</td><td><code>status</code></td></tr>
+        <tr><td>GET</td><td><code>/debug/pprof/*</code></td><td>Go pprof profiling</td><td><code>status</code></td></tr>
+        <tr><td>GET</td><td><code>/licenses</code></td><td>第三方 license 文字</td><td>—</td></tr>
+        <tr><td>GET</td><td><code>/console</code></td><td><strong>v10+</strong> 內建 web app</td><td>—</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>常用呼叫範例</h4>
+    <div class="code-block"><div class="code-header"><span class="lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code><span class="tok-com"># 寫入</span>
+<span class="tok-fn">curl</span> <span class="tok-op">-XPOST</span> <span class="tok-str">'http://localhost:4001/db/execute?pretty&amp;timings'</span> \
+  <span class="tok-op">-H</span> <span class="tok-str">"Content-Type: application/json"</span> \
+  <span class="tok-op">-d</span> <span class="tok-str">'[["INSERT INTO foo(name) VALUES(?)", "alice"]]'</span>
+
+<span class="tok-com"># 讀取（weak，預設）</span>
+<span class="tok-fn">curl</span> <span class="tok-op">-G</span> <span class="tok-str">'http://localhost:4001/db/query?pretty&amp;associative'</span> \
+  <span class="tok-op">--data-urlencode</span> <span class="tok-str">'q=SELECT * FROM foo'</span>
+
+<span class="tok-com"># 看狀態</span>
+<span class="tok-fn">curl</span> http://localhost:4001/status?pretty <span class="tok-op">|</span> <span class="tok-fn">jq</span>
+
+<span class="tok-com"># health check（K8s liveness）</span>
+<span class="tok-fn">curl</span> <span class="tok-op">-f</span> http://localhost:4001/readyz?noleader
+
+<span class="tok-com"># 備份</span>
+<span class="tok-fn">curl</span> <span class="tok-op">-s</span> <span class="tok-op">-XGET</span> <span class="tok-str">'http://localhost:4001/db/backup?compress'</span> <span class="tok-op">-o</span> bak.sqlite3.gz</code></pre></div>
+  </section>
+
+  <!-- ====================================================== -->
+  <section id="app-c">
+    <h3>附錄 C · URL 參數速查</h3>
+
+    <h4>適用於 <code>/db/execute</code> 與 <code>/db/query</code> 的通用參數</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>參數</th><th>值</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>pretty</code></td><td>布林</td><td>JSON pretty-print</td></tr>
+        <tr><td><code>timings</code></td><td>布林</td><td>回傳每個 statement 與整體執行時間</td></tr>
+        <tr><td><code>associative</code></td><td>布林</td><td>row 改為 dict 形式</td></tr>
+        <tr><td><code>blob_array</code></td><td>布林</td><td>BLOB 回傳成 byte array 而非 base64</td></tr>
+        <tr><td><code>db_timeout</code></td><td>duration (e.g. <code>5s</code>)</td><td>每 statement 的 timeout（預設無限）</td></tr>
+        <tr><td><code>raft_index</code></td><td>布林</td><td>回應帶上此寫入的 Raft index</td></tr>
+        <tr><td><code>retries</code></td><td>整數</td><td>節點間 forwarding 失敗時重試次數</td></tr>
+        <tr><td><code>timeout</code></td><td>duration</td><td>forward 給 leader 的 timeout（預設 30s）</td></tr>
+        <tr><td><code>redirect</code></td><td>布林</td><td>不 forward，回 301 + Location</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4><code>/db/execute</code> 專用</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>參數</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>transaction</code></td><td>所有 statement 包進 implicit transaction（all-or-nothing）</td></tr>
+        <tr><td><code>queue</code></td><td>啟用 Queued Writes（trade durability for throughput）</td></tr>
+        <tr><td><code>wait</code></td><td>配合 <code>queue</code>：block 到 queue 全部 flush</td></tr>
+        <tr><td><code>norwrandom</code></td><td>停用 <code>RANDOM()</code> 改寫</td></tr>
+        <tr><td><code>norwtime</code></td><td>停用 <code>datetime('now')</code> 改寫</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4><code>/db/query</code> 專用</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>參數</th><th>值</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>q</code></td><td>SQL 字串</td><td>GET 方式查詢時的 SQL</td></tr>
+        <tr><td><code>level</code></td><td><code>none</code> / <code>weak</code> / <code>linearizable</code> / <code>strong</code> / <code>auto</code></td><td>讀取一致性</td></tr>
+        <tr><td><code>freshness</code></td><td>duration</td><td><code>level=none</code> 時的 staleness 上限</td></tr>
+        <tr><td><code>freshness_strict</code></td><td>布林</td><td>嚴格檢查最新接收的資料時間（需時鐘同步）</td></tr>
+        <tr><td><code>linearizable_timeout</code></td><td>duration</td><td>linearizable 達不到時回錯的 timeout</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4><code>/db/backup</code> 專用</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>參數</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>fmt=sql</code></td><td>輸出 SQL 文字格式而非 SQLite 二進位</td></tr>
+        <tr><td><code>fmt=delete</code></td><td>輸出 DELETE journal mode 的 SQLite 檔（不要 WAL）</td></tr>
+        <tr><td><code>vacuum</code></td><td>先 VACUUM 再輸出</td></tr>
+        <tr><td><code>compress</code></td><td>輸出 gzip 壓縮</td></tr>
+        <tr><td><code>tables=...</code></td><td>逗號分隔的 table 名，只 dump 這些</td></tr>
+        <tr><td><code>noleader</code></td><td>從本節點取（不 forward 到 leader）</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4><code>/nodes</code> 專用</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>參數</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>ver=2</code></td><td>使用 v2 JSON 格式（推薦）</td></tr>
+        <tr><td><code>nonvoters</code></td><td>把 read-only 節點也列入</td></tr>
+        <tr><td><code>timeout</code></td><td>檢查超時（預設 30s）</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4><code>/readyz</code> 專用</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>參數</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>noleader</code></td><td>不檢查 leader（只看節點本身活著）</td></tr>
+        <tr><td><code>sync</code></td><td>block 直到節點 catch up 到 leader commit index</td></tr>
+        <tr><td><code>timeout</code></td><td>配合 <code>sync</code> 的 timeout（預設 30s）</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- ====================================================== -->
+  <section id="app-d">
+    <h3>附錄 D · 錯誤訊息對照</h3>
+
+    <h4>HTTP 層</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>HTTP code</th><th>意義</th><th>可重試</th></tr></thead>
+      <tbody>
+        <tr><td><code>200 OK</code></td><td>請求成功處理；但 <code>results[].error</code> 仍可能有 SQL 錯</td><td>—</td></tr>
+        <tr><td><code>301 Moved Permanently</code></td><td><code>?redirect</code> 模式下 follower 告訴你 leader 位址</td><td>跟著 Location 跳</td></tr>
+        <tr><td><code>400 Bad Request</code></td><td>SQL 語法錯、JSON 格式錯、URL 參數錯</td><td>否（修 code）</td></tr>
+        <tr><td><code>401 Unauthorized</code></td><td>需要 credentials 但沒帶或錯誤</td><td>否</td></tr>
+        <tr><td><code>403 Forbidden</code></td><td>credentials 對，但缺權限</td><td>否</td></tr>
+        <tr><td><code>404 Not Found</code></td><td>端點不存在（檢查路徑）</td><td>否</td></tr>
+        <tr><td><code>500 Internal Server Error</code></td><td>節點內部錯誤</td><td>可重試</td></tr>
+        <tr><td><code>503 Service Unavailable</code></td><td>節點啟動中、leader 切換中等</td><td>backoff 後重試</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>SQL 層（在 <code>results[i].error</code>）</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>錯誤訊息</th><th>原因</th></tr></thead>
+      <tbody>
+        <tr><td><code>near "...": syntax error</code></td><td>SQL 語法錯誤；最常見</td></tr>
+        <tr><td><code>no such table: NAME</code></td><td>table 不存在；用 <code>.tables</code> 確認</td></tr>
+        <tr><td><code>no such column: NAME</code></td><td>欄位不存在；schema 變更時容易遇到</td></tr>
+        <tr><td><code>UNIQUE constraint failed: TABLE.COL</code></td><td>違反 UNIQUE constraint</td></tr>
+        <tr><td><code>FOREIGN KEY constraint failed</code></td><td>違反 FK；rqlite 需 <code>-fk</code> 啟用才會檢查</td></tr>
+        <tr><td><code>database is locked</code></td><td>並發寫入競爭；通常自動解決</td></tr>
+        <tr><td><code>cannot ROLLBACK - no transaction is active</code></td><td>嘗試手動 transaction；不支援</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>叢集層</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>錯誤訊息</th><th>原因</th><th>處理</th></tr></thead>
+      <tbody>
+        <tr><td><code>no leader</code></td><td>叢集失去 quorum，或客戶端在分區的少數側</td><td>檢查 <code>/nodes</code></td></tr>
+        <tr><td><code>not leader</code></td><td>非 leader 收到須 leader 處理的請求且 forwarding 失敗</td><td>檢查網路</td></tr>
+        <tr><td><code>node is shutting down</code></td><td>graceful shutdown 進行中</td><td>連其他節點</td></tr>
+        <tr><td><code>read only</code></td><td>節點是 read-only 但收到寫入請求</td><td>送 leader</td></tr>
+        <tr><td><code>store has not been opened</code></td><td>節點還在啟動初期</td><td>等待 + <code>/readyz</code></td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>啟動失敗</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>訊息</th><th>原因</th><th>解</th></tr></thead>
+      <tbody>
+        <tr><td><code>GLIBC_2.34 not found</code></td><td>系統 glibc 太舊</td><td>升 OS 或用 <code>-musl</code> 版</td></tr>
+        <tr><td><code>extension failed to load</code></td><td>extension 載入失敗</td><td>檢查路徑、權限、平台相容</td></tr>
+        <tr><td><code>permission denied</code> 在 data 路徑</td><td>權限不足</td><td><code>chown</code> 或 <code>chmod</code></td></tr>
+        <tr><td><code>address already in use</code></td><td>port 已被佔用</td><td>換 port 或 <code>fuser/lsof</code> 找占用者</td></tr>
+        <tr><td><code>failed to bootstrap cluster</code></td><td>不夠 <code>-bootstrap-expect</code> 數量</td><td>等其他節點啟動</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="callout tip">
+      <div class="callout-title">💡 排查順序</div>
+      <ol>
+        <li>HTTP code → SQL error → 叢集 error，逐層往下</li>
+        <li>4xx 不要重試（除非錯誤已修）</li>
+        <li>5xx 可 backoff 重試</li>
+        <li><code>results[].error</code> 是 SQL 層，不要當 HTTP 5xx 處理</li>
+        <li>看不出來時 <code>journalctl -u rqlited -n 200</code> 或 stdout log</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ====================================================== -->
+  <section id="app-e">
+    <h3>附錄 E · 版本歷史摘要</h3>
+    <p>主要版本與關鍵變更（截至 v10.0.0）：</p>
+
+    <div class="table-wrap"><table>
+      <thead><tr><th>版本</th><th>釋出日</th><th>關鍵變更</th></tr></thead>
+      <tbody>
+        <tr><td><strong>v10.0.0</strong></td><td>2026-04-28</td><td>Snapshot 解耦於 follower 串流、新增 <code>/console</code> web app、移除 <code>-on-disk-path</code>、v7+ 可無縫升、不可 join v9 叢集</td></tr>
+        <tr><td>v9.4.5</td><td>2026-03-10</td><td>v9 系列最後 patch</td></tr>
+        <tr><td>v9.2.x</td><td>2025</td><td>GB 級資料快速重啟</td></tr>
+        <tr><td><strong>v9.0</strong></td><td>2025-09-15</td><td><strong>引入 Change Data Capture（CDC）</strong></td></tr>
+        <tr><td>v8.32</td><td>2024</td><td>Linearizable consistency 實作（取代多數 strong 用例）</td></tr>
+        <tr><td><strong>v8.0</strong></td><td>2023</td><td>大資料集支援、snapshot 機制全面重新設計</td></tr>
+        <tr><td>v7.0</td><td>2022</td><td>Auto-clustering + node discovery 系統</td></tr>
+        <tr><td>v6.0</td><td>2021</td><td>架構大改，內部資料表示優化</td></tr>
+        <tr><td>v5.7</td><td>2020</td><td>內部資料結構切到 Protocol Buffers</td></tr>
+        <tr><td>v5.0</td><td>2020</td><td>切換到 Hashicorp Raft v1</td></tr>
+        <tr><td>v4.x</td><td>2016</td><td>新版 Raft 系統 + API</td></tr>
+        <tr><td>initial</td><td>2014</td><td>Philip O'Toole 起手，用 Raft 複製 SQLite 的概念驗證</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>升級規則</h4>
+    <ul>
+      <li><strong>v7+ → v10</strong>：無縫滾動升級</li>
+      <li><strong>v10 + v9 混叢集</strong>：<strong>不支援</strong>。要嘛整套升、要嘛整套不升</li>
+      <li><strong>v10 → v9 (downgrade)</strong>：<strong>不支援</strong>。升級前務必備份</li>
+      <li><strong>v6 及更早 → v10</strong>：建議先升到 v8 或 v9，再升 v10（中間版本驗證）</li>
+    </ul>
+
+    <h4>升級檢查清單</h4>
+    <ol>
+      <li><strong>備份</strong>：<code>/db/backup?compress&amp;vacuum</code></li>
+      <li><strong>查 release notes</strong>：CHANGELOG.md 看 breaking change</li>
+      <li><strong>移除過時 flag</strong>：如 <code>-on-disk-path</code></li>
+      <li><strong>staging 先試</strong>：用 production 備份還原一個 staging 叢集走完升級</li>
+      <li><strong>滾動升級</strong>：follower → leader（最後）</li>
+      <li><strong>每節點等 <code>/readyz?sync</code></strong></li>
+      <li><strong>升級後驗證</strong>：smoke test query + 業務驗證</li>
+    </ol>
+  </section>
+
+  <!-- ====================================================== -->
+  <section id="app-f">
+    <h3>附錄 F · 推薦資源與社群</h3>
+
+    <h4>官方資源</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>類型</th><th>URL</th></tr></thead>
+      <tbody>
+        <tr><td>官網</td><td><a href="https://rqlite.io" target="_blank" rel="noopener">https://rqlite.io</a></td></tr>
+        <tr><td>文件</td><td><a href="https://rqlite.io/docs/" target="_blank" rel="noopener">https://rqlite.io/docs/</a></td></tr>
+        <tr><td>GitHub</td><td><a href="https://github.com/rqlite/rqlite" target="_blank" rel="noopener">https://github.com/rqlite/rqlite</a></td></tr>
+        <tr><td>Releases</td><td><a href="https://github.com/rqlite/rqlite/releases" target="_blank" rel="noopener">https://github.com/rqlite/rqlite/releases</a></td></tr>
+        <tr><td>CHANGELOG</td><td><a href="https://github.com/rqlite/rqlite/blob/master/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG.md</a></td></tr>
+        <tr><td>作者部落格</td><td><a href="https://philipotoole.com/tag/rqlite/" target="_blank" rel="noopener">philipotoole.com/tag/rqlite/</a></td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>社群</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>平台</th><th>連結</th></tr></thead>
+      <tbody>
+        <tr><td>Slack</td><td><a href="https://www.rqlite.io/join-slack" target="_blank" rel="noopener">join-slack</a></td></tr>
+        <tr><td>Google Groups</td><td><a href="https://groups.google.com/g/rqlite" target="_blank" rel="noopener">groups.google.com/g/rqlite</a></td></tr>
+        <tr><td>GitHub Issues</td><td><a href="https://github.com/rqlite/rqlite/issues" target="_blank" rel="noopener">issues</a></td></tr>
+        <tr><td>GitHub Discussions</td><td><a href="https://github.com/rqlite/rqlite/discussions" target="_blank" rel="noopener">discussions</a></td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Client Libraries（依語言）</h4>
+    <p>本手冊第 11 章已詳列，速查時去 <a href="https://github.com/rqlite" target="_blank" rel="noopener">github.com/rqlite</a> organization 看當前清單最新。</p>
+
+    <h4>部署相關</h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>類型</th><th>連結</th></tr></thead>
+      <tbody>
+        <tr><td>Docker Hub</td><td><a href="https://hub.docker.com/r/rqlite/rqlite/" target="_blank" rel="noopener">hub.docker.com/r/rqlite/rqlite</a></td></tr>
+        <tr><td>GHCR</td><td><a href="https://github.com/rqlite/rqlite/pkgs/container/rqlite" target="_blank" rel="noopener">ghcr.io/rqlite/rqlite</a></td></tr>
+        <tr><td>Helm Charts</td><td><a href="https://github.com/rqlite/helm-charts" target="_blank" rel="noopener">rqlite/helm-charts</a></td></tr>
+        <tr><td>K8s YAML 範例</td><td><a href="https://github.com/rqlite/kubernetes-configuration" target="_blank" rel="noopener">kubernetes-configuration</a></td></tr>
+        <tr><td>Docker Compose 範例</td><td><a href="https://github.com/rqlite/docker-compose" target="_blank" rel="noopener">rqlite/docker-compose</a></td></tr>
+        <tr><td>Homebrew</td><td><a href="https://formulae.brew.sh/formula/rqlite" target="_blank" rel="noopener">formulae.brew.sh/formula/rqlite</a></td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>SQLite 學習資源</h4>
+    <ul>
+      <li><a href="https://www.sqlite.org/docs.html" target="_blank" rel="noopener">SQLite 官方文件</a> — 任何 SQLite 細節權威來源</li>
+      <li><a href="https://www.sqlite.org/lang.html" target="_blank" rel="noopener">SQL 語法</a></li>
+      <li><a href="https://www.sqlite.org/pragma.html" target="_blank" rel="noopener">PRAGMA 清單</a></li>
+      <li><a href="https://www.sqlite.org/lang_corefunc.html" target="_blank" rel="noopener">內建函式</a></li>
+      <li><a href="https://www.sqlite.org/json1.html" target="_blank" rel="noopener">JSON1 extension</a></li>
+      <li><a href="https://www.sqlite.org/fts5.html" target="_blank" rel="noopener">FTS5 全文搜尋</a></li>
+    </ul>
+
+    <h4>Raft 學習資源</h4>
+    <ul>
+      <li><a href="https://raft.github.io/" target="_blank" rel="noopener">raft.github.io</a> — Raft 演算法官網</li>
+      <li><a href="http://thesecretlivesofdata.com/raft/" target="_blank" rel="noopener">The Secret Lives of Data: Raft</a> — 視覺化簡介</li>
+      <li><a href="https://raft.github.io/raft.pdf" target="_blank" rel="noopener">In Search of an Understandable Consensus Algorithm</a> — 原始論文</li>
+      <li><a href="https://raw.githubusercontent.com/ongardie/dissertation/refs/heads/master/online.pdf" target="_blank" rel="noopener">Diego Ongaro PhD dissertation</a> — Raft 完整論述</li>
+      <li><a href="https://developer.hashicorp.com/consul/docs/architecture/consensus" target="_blank" rel="noopener">Consul Raft 文件</a> — 因為 rqlite 用 Hashicorp Raft，這些細節也適用</li>
+    </ul>
+
+    <h4>相關專案</h4>
+    <ul>
+      <li><a href="https://github.com/canonical/dqlite" target="_blank" rel="noopener">dqlite</a> — Canonical 的 C 函式庫</li>
+      <li><a href="https://github.com/benbjohnson/litestream" target="_blank" rel="noopener">Litestream</a> — SQLite 連續備份到 S3</li>
+      <li><a href="https://github.com/superfly/litefs" target="_blank" rel="noopener">LiteFS</a> — Fly.io 的 SQLite 複製 FUSE FS</li>
+      <li><a href="https://github.com/hashicorp/raft" target="_blank" rel="noopener">hashicorp/raft</a> — rqlite 使用的 Raft 實作</li>
+    </ul>
+  </section>
+</section>
+
+
+<footer class="footer">
+  <div>
+    rqlite 教學手冊 · 第五部 內部原理與參考<br/>
+    對應 rqlite v10.0.0 · 編製 2026-05-12<br/>
+    資料來源：<a href="https://rqlite.io/docs/design/" target="_blank" rel="noopener">Design</a> · <a href="https://rqlite.io/docs/faq/" target="_blank" rel="noopener">FAQ</a>
+  </div>
+  <div>
+    <strong>📕 全套手冊製作完成</strong><br/>
+    上一批：第四部 進階主題篇（Ch 22-24）<br/>
+    本批：第五部 內部原理與參考（Ch 25-26 + 附錄 A-F）<br/>
+    全 5 部 / 26 章 / 6 附錄
+  </div>
+</footer>
+
+</main>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) {
+    try {
+      if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, v);
+    } catch (_) {}
+  }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = cycle(getCurrentMode());
+        setStored(next);
+        applyTheme(next);
+      });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else { init(); }
+  window.JHsunTheme = {
+    get: getCurrentMode,
+    set: (m) => { setStored(m); applyTheme(m); },
+    toggle: () => { const next = cycle(getCurrentMode()); setStored(next); applyTheme(next); },
+  };
+})();
+</script>
+<script>
+(function () {
+  function currentTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default';
+  }
+  function initMermaid() {
+    if (!window.mermaid) return;
+    window.mermaid.initialize({
+      startOnLoad: false,
+      theme: currentTheme(),
+      fontFamily: 'DM Sans, Inter, Noto Sans TC, system-ui, sans-serif',
+      flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+      sequence: { useMaxWidth: true },
+      mindmap: { useMaxWidth: true }
+    });
+    window.mermaid.run({ querySelector: '.mermaid' });
+  }
+  function rerenderMermaid() {
+    // Replace rendered SVGs back to source code, then re-init
+    document.querySelectorAll('.mermaid').forEach(el => {
+      if (el.dataset.source) {
+        el.removeAttribute('data-processed');
+        el.innerHTML = el.dataset.source;
+      } else {
+        el.dataset.source = el.textContent;
+      }
+    });
+    initMermaid();
+  }
+  // Save original source before first render
+  document.querySelectorAll('.mermaid').forEach(el => { el.dataset.source = el.textContent; });
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initMermaid);
+  } else { initMermaid(); }
+  window.addEventListener('jhsun:theme-changed', rerenderMermaid);
+})();
+</script>
+<script>
+document.querySelectorAll('.code-block .copy-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const block = btn.closest('.code-block');
+    const code = block.querySelector('pre').innerText;
+    try {
+      await navigator.clipboard.writeText(code);
+      const orig = btn.textContent;
+      btn.textContent = '已複製 ✓';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1500);
+    } catch (e) {
+      btn.textContent = '複製失敗';
+      setTimeout(() => { btn.textContent = '複製'; }, 1500);
+    }
+  });
+});
+</script>
+
+</body>
+</html>

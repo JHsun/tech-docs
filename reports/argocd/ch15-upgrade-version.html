@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.15 升級流程與版本管理 — Argo CD 完整教學手冊</title>
+<style>
+:root {
+  --tk-hue:200;--tk-chroma:0.11;
+  --color-success:#16a34a;--color-success-soft:#dcfce7;
+  --color-warning:#d97706;--color-warning-soft:#fef3c7;
+  --color-danger:#dc2626;--color-danger-soft:#fee2e2;
+  --color-info:#0891b2;--color-info-soft:#cffafe;
+  --color-neutral-accent:#7c3aed;
+  --color-primary:oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:oklch(0.96 calc(var(--tk-chroma)*.25) var(--tk-hue));
+  --color-primary-text:oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas:oklch(0.985 0.004 60);--bg-surface:oklch(0.995 0.003 60);
+  --bg-muted:oklch(0.96 0.005 60);--bg-code:oklch(0.975 0.006 60);
+  --border-soft:oklch(0.92 0.006 60);--border-mid:oklch(0.85 0.008 60);
+  --text-primary:oklch(0.22 0.008 60);--text-secondary:oklch(0.42 0.008 60);--text-muted:oklch(0.58 0.008 60);
+  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --font-sans:"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif;
+  --font-serif:"Playfair Display","Source Serif 4","Noto Serif TC",Georgia,serif;
+  --font-body:"Source Serif 4","Noto Serif TC",Georgia,serif;
+  --text-xs:12px;--text-sm:14px;--text-base:16px;--text-md:18px;--text-lg:20px;--text-xl:24px;--text-2xl:32px;--text-3xl:44px;
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-7:48px;--space-8:64px;--space-9:96px;
+  --radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:20px;
+  --shadow-sm:0 1px 3px oklch(0.20 0.01 60/0.07);--shadow-md:0 4px 14px oklch(0.20 0.01 60/0.10);
+}
+:root[data-theme="dark"]{
+  --color-success:#4ade80;--color-success-soft:oklch(0.28 0.08 145);
+  --color-warning:#fbbf24;--color-warning-soft:oklch(0.30 0.10 70);
+  --color-danger:#f87171;--color-danger-soft:oklch(0.30 0.10 27);
+  --color-info:#22d3ee;--color-info-soft:oklch(0.30 0.08 200);
+  --color-neutral-accent:#a78bfa;
+  --color-primary:oklch(0.72 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-hover:oklch(0.80 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-soft:oklch(0.28 calc(var(--tk-chroma)*.6) var(--tk-hue));
+  --color-primary-text:oklch(0.85 calc(var(--tk-chroma)*.6) var(--tk-hue));
+  --bg-canvas:oklch(0.14 0.008 50);--bg-surface:oklch(0.18 0.009 50);
+  --bg-muted:oklch(0.21 0.010 50);--bg-code:oklch(0.16 0.009 50);
+  --border-soft:oklch(0.26 0.010 50);--border-mid:oklch(0.34 0.012 50);
+  --text-primary:oklch(0.93 0.005 60);--text-secondary:oklch(0.74 0.006 60);--text-muted:oklch(0.56 0.007 60);
+  --shadow-sm:0 1px 3px oklch(0.04 0 0/.50);--shadow-md:0 4px 14px oklch(0.04 0 0/.60);
+}
+html{color-scheme:light dark;}html[data-theme="light"]{color-scheme:light;}html[data-theme="dark"]{color-scheme:dark;}
+body{background:var(--bg-canvas);color:var(--text-primary);font-family:var(--font-sans);font-size:var(--text-base);line-height:1.7;margin:0;padding:0;transition:background .25s,color .25s;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+.topbar{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:10px var(--space-6);background:var(--bg-surface);border-bottom:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.tb-left{display:flex;align-items:center;gap:var(--space-3);}
+.tb-logo{width:30px;height:30px;border-radius:var(--radius-md);background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:13px;font-weight:800;}
+.tb-trail{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.tb-trail .sep{color:var(--border-mid);}.tb-trail .cur{color:var(--color-primary);font-weight:600;}
+.tb-right{display:flex;align-items:center;gap:var(--space-2);}
+.pill{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);border:1px solid;}
+.pill-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.pill-ver{background:var(--color-info-soft);color:var(--color-info);border-color:var(--color-info);}
+[data-theme-toggle]{cursor:pointer;border:1px solid var(--border-mid);background:var(--bg-muted);color:var(--text-secondary);border-radius:var(--radius-md);padding:6px var(--space-3);font-family:var(--font-sans);font-size:var(--text-sm);display:flex;align-items:center;gap:6px;transition:all .2s;}
+[data-theme-toggle]:hover{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.page{display:flex;min-height:100vh;}
+.toc-sidebar{width:230px;flex-shrink:0;position:sticky;top:49px;height:calc(100vh - 49px);overflow-y:auto;padding:var(--space-5) var(--space-3);border-right:1px solid var(--border-soft);background:var(--bg-surface);}
+.toc-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-3);}
+.toc-list{list-style:none;}
+.toc-list li{margin-bottom:2px;}
+.toc-list a{display:block;padding:4px var(--space-2);font-size:var(--text-sm);color:var(--text-secondary);text-decoration:none;border-radius:var(--radius-sm);border-left:2px solid transparent;transition:all .15s;line-height:1.4;}
+.toc-list a:hover,.toc-list a.active{color:var(--color-primary);background:var(--color-primary-soft);border-left-color:var(--color-primary);font-weight:600;}
+.toc-h3{padding-left:var(--space-4)!important;font-size:var(--text-xs)!important;}
+.toc-lbl{display:block;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:var(--space-3) var(--space-2) var(--space-1);margin-top:var(--space-2);}
+.content{flex:1;min-width:0;padding:var(--space-8) var(--space-7) var(--space-9);max-width:900px;}
+.ch-header{margin-bottom:var(--space-8);padding-bottom:var(--space-6);border-bottom:1px solid var(--border-soft);}
+.ch-meta{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-4);flex-wrap:wrap;}
+.m-badge{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);}
+.m-ch{background:var(--color-primary);color:#fff;}
+.m-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border:1px solid var(--color-primary);}
+.m-time{background:var(--bg-muted);color:var(--text-muted);border:1px solid var(--border-soft);}
+.ch-header h1{font-family:var(--font-serif);font-size:clamp(var(--text-2xl),4vw,var(--text-3xl));font-weight:700;color:var(--text-primary);line-height:1.2;margin-bottom:var(--space-4);}
+.ch-header h1 em{font-style:normal;color:var(--color-primary);}
+.ch-lead{font-size:var(--text-md);color:var(--text-secondary);line-height:1.7;max-width:700px;font-family:var(--font-body);}
+.prereq{margin-top:var(--space-5);display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--bg-muted);border-radius:var(--radius-md);border:1px solid var(--border-soft);}
+.prereq .pico{font-size:var(--text-lg);flex-shrink:0;margin-top:1px;}
+.prereq p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;}
+.prereq strong{color:var(--text-primary);}
+.obj-box{background:var(--color-primary-soft);border:1px solid var(--color-primary);border-radius:var(--radius-lg);padding:var(--space-5);margin-bottom:var(--space-7);}
+.obj-box h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--color-primary-text);font-weight:700;margin-bottom:var(--space-3);}
+.obj-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-2);}
+.obj-list li{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-sm);color:var(--color-primary-text);line-height:1.5;}
+.obj-list li::before{content:"✓";font-weight:700;color:var(--color-primary);flex-shrink:0;margin-top:1px;}
+.sec{margin-bottom:var(--space-9);scroll-margin-top:80px;}
+.sec h2{font-family:var(--font-serif);font-size:var(--text-2xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-4);padding-bottom:var(--space-3);border-bottom:2px solid var(--border-soft);display:flex;align-items:center;gap:var(--space-3);}
+.sn{font-family:var(--font-mono);font-size:var(--text-sm);background:var(--color-primary);color:#fff;padding:2px 8px;border-radius:var(--radius-sm);font-weight:700;white-space:nowrap;flex-shrink:0;}
+.sec h3{font-family:var(--font-sans);font-size:var(--text-lg);font-weight:700;color:var(--text-primary);margin:var(--space-6) 0 var(--space-3);}
+.sec h4{font-family:var(--font-sans);font-size:var(--text-base);font-weight:700;color:var(--text-primary);margin:var(--space-5) 0 var(--space-2);}
+p{font-family:var(--font-body);font-size:var(--text-base);color:var(--text-secondary);line-height:1.8;margin-bottom:var(--space-4);}
+strong{color:var(--text-primary);}em{color:var(--color-primary);font-style:normal;}
+.cal{display:flex;gap:var(--space-3);padding:var(--space-4) var(--space-5);border-radius:var(--radius-lg);margin:var(--space-5) 0;border-left:4px solid;}
+.ci{background:var(--color-info-soft);border-color:var(--color-info);}
+.cw{background:var(--color-warning-soft);border-color:var(--color-warning);}
+.ct{background:var(--color-success-soft);border-color:var(--color-success);}
+.cd{background:var(--color-primary-soft);border-color:var(--color-primary);}
+.cal .ic{font-size:var(--text-lg);flex-shrink:0;margin-top:2px;}
+.cal h4{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-1);font-family:var(--font-sans);}
+.cal p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.65;margin:0;font-family:var(--font-sans);}
+.code-wrap{margin:var(--space-4) 0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.code-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px var(--space-4);background:var(--bg-muted);border-bottom:1px solid var(--border-soft);}
+.code-lang{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;}
+.copy-btn{cursor:pointer;font-family:var(--font-mono);font-size:11px;padding:3px 10px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--border-mid);color:var(--text-muted);transition:all .2s;}
+.copy-btn:hover{background:var(--color-primary-soft);color:var(--color-primary);border-color:var(--color-primary);}
+.copy-btn.copied{background:var(--color-success-soft);color:var(--color-success);border-color:var(--color-success);}
+pre{margin:0;padding:var(--space-5);background:var(--bg-code);overflow-x:auto;font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.65;color:var(--text-primary);}
+code{font-family:var(--font-mono);font-size:.92em;background:var(--bg-code);padding:1px 5px;border-radius:var(--radius-sm);color:var(--color-primary-text);border:1px solid var(--border-soft);}
+pre code{background:none;padding:0;border:none;color:inherit;font-size:inherit;}
+.yk{color:var(--color-info);}.yv{color:var(--color-success);}.yc{color:var(--text-muted);font-style:italic;}
+.yn{color:var(--color-warning);}.yh{color:var(--color-neutral-accent);font-weight:700;}
+.tw{overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);margin:var(--space-5) 0;}
+table{width:100%;border-collapse:collapse;font-size:var(--text-sm);}
+thead th{background:var(--bg-muted);padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.07em;border-bottom:2px solid var(--border-mid);text-align:left;white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--border-soft);transition:background .12s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--bg-muted);}
+td{padding:var(--space-3) var(--space-4);vertical-align:top;line-height:1.6;font-family:var(--font-sans);}
+td:first-child{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--color-primary-text);background:var(--color-primary-soft);white-space:nowrap;font-weight:600;}
+.tc{font-size:var(--text-xs);color:var(--text-muted);}
+/* upgrade phase timeline */
+.phase-timeline{display:flex;align-items:stretch;gap:0;margin:var(--space-5) 0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border-mid);box-shadow:var(--shadow-sm);}
+.pt-step{flex:1;padding:var(--space-4);border-right:1px solid var(--border-mid);position:relative;background:var(--bg-surface);}
+.pt-step:last-child{border-right:none;}
+.pt-num{font-family:var(--font-mono);font-size:11px;font-weight:700;color:var(--text-muted);margin-bottom:var(--space-1);}
+.pt-title{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-1);}
+.pt-desc{font-size:11px;color:var(--text-secondary);line-height:1.5;font-family:var(--font-sans);}
+/* breaking change card */
+.bc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:var(--space-4);margin:var(--space-5) 0;}
+.bc{background:var(--bg-surface);border:1px solid var(--color-warning);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.bc-head{padding:var(--space-3) var(--space-4);background:var(--color-warning-soft);color:var(--color-warning);font-family:var(--font-mono);font-size:var(--text-xs);font-weight:700;text-transform:uppercase;letter-spacing:.07em;display:flex;align-items:center;gap:var(--space-2);}
+.bc-body{padding:var(--space-4);}
+.bc-section{margin-bottom:var(--space-3);}
+.bc-section:last-child{margin-bottom:0;}
+.bc-label{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:var(--space-1);}
+.bc-content{font-size:var(--text-xs);color:var(--text-secondary);line-height:1.55;font-family:var(--font-sans);}
+/* upgrade strategy comparison */
+.strat-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--space-3);margin:var(--space-5) 0;}
+.sgs{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.sgs-head{padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:var(--text-xs);font-weight:700;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid var(--border-soft);}
+.sgs-body{padding:var(--space-4);}
+.sgs-row{display:flex;gap:var(--space-2);margin-bottom:var(--space-2);font-size:var(--text-xs);font-family:var(--font-sans);}
+.sgs-label{color:var(--text-muted);flex-shrink:0;width:55px;}
+.sgs-val{color:var(--text-secondary);flex:1;line-height:1.5;}
+/* kp */
+.kp{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);margin:var(--space-7) 0;box-shadow:var(--shadow-sm);}
+.kp h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-4);margin-top:0;}
+.kp-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-3);}
+.kp-list li{display:flex;align-items:flex-start;gap:var(--space-3);font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.kp-ic{font-size:var(--text-md);flex-shrink:0;margin-top:1px;}
+.ch-nav{display:flex;justify-content:space-between;margin-top:var(--space-9);padding-top:var(--space-6);border-top:1px solid var(--border-soft);}
+.nav-btn{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);text-decoration:none;font-size:var(--text-sm);font-weight:600;transition:all .2s;box-shadow:var(--shadow-md);}
+.nav-prev{background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-mid);}.nav-prev:hover{background:var(--bg-muted);transform:translateX(-2px);}
+.nav-next{background:var(--color-primary);color:#fff;}.nav-next:hover{background:var(--color-primary-hover);transform:translateX(2px);}
+.nav-sub{font-size:11px;opacity:.75;font-family:var(--font-mono);}
+footer{border-top:1px solid var(--border-soft);padding:var(--space-5) var(--space-8);font-family:var(--font-mono);font-size:11px;color:var(--text-muted);text-align:center;}
+footer strong{color:var(--color-primary);}
+@media(max-width:900px){.toc-sidebar{display:none;}.content{padding:var(--space-6) var(--space-4) var(--space-8);}.bc-grid{grid-template-columns:1fr;}.strat-grid{grid-template-columns:1fr;}.phase-timeline{flex-direction:column;}.pt-step{border-right:none;border-bottom:1px solid var(--border-mid);}}
+@media(max-width:640px){.topbar{padding:8px var(--space-4);}.tb-trail{display:none;}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="tb-left">
+    <div class="tb-logo">A</div>
+    <nav class="tb-trail">
+      <span>Argo CD 完整教學手冊</span><span class="sep">›</span>
+      <span>Vol 3 Operator 運維</span><span class="sep">›</span>
+      <span class="cur">Ch.15 升級流程與版本管理</span>
+    </nav>
+  </div>
+  <div class="tb-right">
+    <span class="pill pill-vol">Vol 3 · Ch.15</span>
+    <span class="pill pill-ver">v3.4</span>
+    <button data-theme-toggle></button>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="toc-sidebar">
+    <div class="toc-title">本章目錄</div>
+    <ul class="toc-list">
+      <li><a href="#obj">學習目標</a></li>
+      <span class="toc-lbl">第一節</span>
+      <li><a href="#s1">版本策略與支援週期</a></li>
+      <li><a href="#s1a" class="toc-h3">SemVer 約定</a></li>
+      <li><a href="#s1b" class="toc-h3">支援週期</a></li>
+      <span class="toc-lbl">第二節</span>
+      <li><a href="#s2">五階段升級流程</a></li>
+      <span class="toc-lbl">第三節</span>
+      <li><a href="#s3">v2.x → v3.0 重大變更</a></li>
+      <li><a href="#s3a" class="toc-h3">RBAC 變更</a></li>
+      <li><a href="#s3b" class="toc-h3">Health Status 不再持久化</a></li>
+      <li><a href="#s3c" class="toc-h3">CMP plugin 強制 sidecar</a></li>
+      <li><a href="#s3d" class="toc-h3">tracking method 預設變更</a></li>
+      <li><a href="#s3e" class="toc-h3">Resource Exclusion 預設值</a></li>
+      <li><a href="#s3f" class="toc-h3">Dex sub claim 變更</a></li>
+      <span class="toc-lbl">第四節</span>
+      <li><a href="#s4">Server-Side Apply 必要性（v3.3+）</a></li>
+      <span class="toc-lbl">第五節</span>
+      <li><a href="#s5">三種升級策略</a></li>
+      <li><a href="#s5a" class="toc-h3">In-place（同地）</a></li>
+      <li><a href="#s5b" class="toc-h3">Blue-Green（並行）</a></li>
+      <li><a href="#s5c" class="toc-h3">Self-Managed (GitOps)</a></li>
+      <span class="toc-lbl">第六節</span>
+      <li><a href="#s6">CRD 升級特殊處理</a></li>
+      <span class="toc-lbl">第七節</span>
+      <li><a href="#s7">驗證 Checklist 與 Rollback</a></li>
+      <span class="toc-lbl">總結</span>
+      <li><a href="#sum">重點回顧</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <header class="ch-header">
+      <div class="ch-meta">
+        <span class="m-badge m-ch">Chapter 15</span>
+        <span class="m-badge m-vol">Vol 3 — Operator 運維手冊</span>
+        <span class="m-badge m-time">⏱ 預計閱讀時間 40 分鐘</span>
+      </div>
+      <h1>升級流程與<br><em>版本管理（v2 → v3 完整指南）</em></h1>
+      <p class="ch-lead">Argo CD 升級看似簡單（kubectl apply 即可），但生產環境下一次失敗的升級會中斷整個 GitOps pipeline——所有 Application 停止調和、自動修復停擺、新部署無法進行。本章從版本策略開始，深入 v2 → v3 重大變更（含 RBAC、health status、CMP plugin），介紹三種升級策略，並提供完整 rollback 流程。</p>
+      <div class="prereq">
+        <span class="pico">📋</span>
+        <p><strong>前置：</strong>已閱讀 Ch.12（安裝架構）、Ch.13（HA）、Ch.14（安全）。理解 Helm chart upgrade、CRD lifecycle、Server-Side Apply。</p>
+      </div>
+    </header>
+
+    <div class="obj-box" id="obj">
+      <h3>🎯 學習目標</h3>
+      <ul class="obj-list">
+        <li>掌握 Argo CD 的 SemVer 規則、跳版升級限制（必須逐個 minor 版本）、支援週期</li>
+        <li>熟悉五階段升級流程：閱讀 release notes → 備份 → 測試 → 升級 → 驗證</li>
+        <li>能識別 v2.x → v3.0 的 6 個重大變更，並完成所需的 pre-upgrade 修改</li>
+        <li>理解 v3.3+ 必須使用 SSA（<code>--server-side --force-conflicts</code>）的原因</li>
+        <li>能依環境特性選擇 In-place / Blue-Green / Self-Managed 升級策略</li>
+        <li>處理 CRD 升級的特殊情境（serve 多版本、conversion webhook、storage migration）</li>
+        <li>執行升級後完整的驗證 checklist，與必要時的 rollback 程序</li>
+      </ul>
+    </div>
+
+    <!-- S1 版本策略 -->
+    <section class="sec" id="s1">
+      <h2><span class="sn">1</span>版本策略與支援週期</h2>
+
+      <h3 id="s1a">1.1 Argo CD 的 SemVer 規則</h3>
+      <p>Argo CD 採用 semver-like 版本：<code>MAJOR.MINOR.PATCH</code>（例如 <code>v3.4.0</code>）。每種版本變動的意義：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>變動類型</th><th>範例</th><th>意義</th></tr></thead>
+          <tbody>
+            <tr><td>Patch</td><td>v3.4.0 → v3.4.5</td><td>純 bug fix，無 breaking change，可直接升級</td></tr>
+            <tr><td>Minor</td><td>v3.3.x → v3.4.0</td><td>新功能 + 部分 deprecation；通常向後相容，但需閱讀 release notes</td></tr>
+            <tr><td>Major</td><td>v2.14.x → v3.0.0</td><td>重大 breaking changes、API 變更、預設值變更；必須做 pre-upgrade migration</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="s1b">1.2 支援週期與升級路徑</h3>
+      <p>Argo CD 維護「最新兩個 minor 版本」的 patch release。例如：v3.4 發布後，v3.3 仍會收到 patch；v3.5 發布後，v3.3 停止維護。</p>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>不能跨多個 minor 版本直接升級！</h4>
+          <p>從 v2.10 跳到 v3.0 會錯過 v2.11、v2.12、v2.13、v2.14 期間累積的 deprecation warnings 和 migration 機會。<strong>正確路徑</strong>：v2.10 → v2.11 → ... → v2.14（最新 v2.x） → v3.0 → ... 每個 minor 都升級並等待穩定。生產環境建議停留在 minor 版本後一個 patch（如 v3.4.1 而非 v3.4.0）。</p>
+        </div>
+      </div>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>當前版本</th><th>下個必經版本</th><th>升級路徑</th></tr></thead>
+          <tbody>
+            <tr><td>v2.10.x</td><td>v2.14.x（最新 v2）</td><td>v2.10 → v2.11 → v2.12 → v2.13 → v2.14</td></tr>
+            <tr><td>v2.14.x</td><td>v3.0.x（major 升級）</td><td>需執行 pre-upgrade migration（見第 3 節）</td></tr>
+            <tr><td>v3.0.x</td><td>v3.4.x（最新）</td><td>v3.0 → v3.1 → v3.2 → v3.3 → v3.4（v3.3 起需 SSA）</td></tr>
+            <tr><td>v3.4.x</td><td>v3.4 patch</td><td>直接 v3.4.0 → v3.4.5（無 breaking changes）</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- S2 五階段流程 -->
+    <section class="sec" id="s2">
+      <h2><span class="sn">2</span>五階段升級流程</h2>
+
+      <div class="phase-timeline">
+        <div class="pt-step" style="background:var(--color-info-soft)">
+          <div class="pt-num" style="color:var(--color-info)">PHASE 1</div>
+          <div class="pt-title">閱讀 Release Notes</div>
+          <div class="pt-desc">逐版本檢視 breaking changes、deprecations、CRD 變更</div>
+        </div>
+        <div class="pt-step" style="background:var(--color-warning-soft)">
+          <div class="pt-num" style="color:var(--color-warning)">PHASE 2</div>
+          <div class="pt-title">備份</div>
+          <div class="pt-desc">CRD、ConfigMap、Secret、Application、AppProject 全備份</div>
+        </div>
+        <div class="pt-step" style="background:var(--color-neutral-accent);color:#fff">
+          <div class="pt-num" style="color:rgba(255,255,255,.7)">PHASE 3</div>
+          <div class="pt-title">Staging 測試</div>
+          <div class="pt-desc">在非生產環境完整演練，含 rollback</div>
+        </div>
+        <div class="pt-step" style="background:var(--color-primary-soft)">
+          <div class="pt-num" style="color:var(--color-primary)">PHASE 4</div>
+          <div class="pt-title">執行升級</div>
+          <div class="pt-desc">維護窗口內執行，監控 controller 狀態</div>
+        </div>
+        <div class="pt-step" style="background:var(--color-success-soft)">
+          <div class="pt-num" style="color:var(--color-success)">PHASE 5</div>
+          <div class="pt-title">驗證</div>
+          <div class="pt-desc">所有 App 健康、sync、CLI/UI 正常</div>
+        </div>
+      </div>
+
+      <h3>Phase 1 — 閱讀 Release Notes</h3>
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">URL — Release Notes 速查清單</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc"># 從當前版本開始，逐版本閱讀官方 upgrade notes</span>
+<span class="yc"># 例如從 v2.14 升級到 v3.4：必讀以下文件</span>
+
+https://argo-cd.readthedocs.io/en/stable/operator-manual/upgrading/2.14-3.0/
+https://argo-cd.readthedocs.io/en/stable/operator-manual/upgrading/3.0-3.1/
+https://argo-cd.readthedocs.io/en/stable/operator-manual/upgrading/3.1-3.2/
+https://argo-cd.readthedocs.io/en/stable/operator-manual/upgrading/3.2-3.3/
+https://argo-cd.readthedocs.io/en/stable/operator-manual/upgrading/3.3-3.4/
+
+<span class="yc"># GitHub Releases（含 changelog 與已知問題）</span>
+https://github.com/argoproj/argo-cd/releases
+
+<span class="yc"># 重點檢視：</span>
+<span class="yc"># - Breaking changes 區塊</span>
+<span class="yc"># - Deprecations 區塊（為下次升級預留時間修改）</span>
+<span class="yc"># - Known issues（特別注意 v3.0.6 等中間 patch 已知問題）</span>
+<span class="yc"># - Kubernetes 版本相容性矩陣</span></code></pre>
+      </div>
+
+      <h3>Phase 2 — 完整備份</h3>
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — 升級前備份腳本</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">#!/bin/bash</span>
+<span class="sh-comment"># 升級前備份腳本</span>
+
+BACKUP_DIR=<span class="yv">"argocd-backup-$(date +%Y%m%d-%H%M%S)"</span>
+<span class="yv">mkdir</span> -p $BACKUP_DIR
+
+<span class="sh-comment"># 1. 備份所有 CRDs（必要！）</span>
+kubectl get crd applications.argoproj.io -o yaml &gt; $BACKUP_DIR/crd-application.yaml
+kubectl get crd appprojects.argoproj.io -o yaml &gt; $BACKUP_DIR/crd-appproject.yaml
+kubectl get crd applicationsets.argoproj.io -o yaml &gt; $BACKUP_DIR/crd-applicationset.yaml
+
+<span class="sh-comment"># 2. 備份所有 Application / AppProject / ApplicationSet</span>
+kubectl get applications -A -o yaml &gt; $BACKUP_DIR/applications.yaml
+kubectl get appprojects -A -o yaml &gt; $BACKUP_DIR/appprojects.yaml
+kubectl get applicationsets -A -o yaml &gt; $BACKUP_DIR/applicationsets.yaml
+
+<span class="sh-comment"># 3. 備份所有 ConfigMap（含設定）</span>
+kubectl get cm -n argocd -o yaml &gt; $BACKUP_DIR/configmaps.yaml
+
+<span class="sh-comment"># 4. 備份所有 Secret（cluster credentials、repo credentials、admin secret）</span>
+kubectl get secret -n argocd -o yaml &gt; $BACKUP_DIR/secrets.yaml
+
+<span class="sh-comment"># 5. 備份目前的 Argo CD manifest（用於 rollback）</span>
+ARGOCD_VERSION=$(kubectl -n argocd get deployment argocd-server -o jsonpath=<span class="yv">'{.spec.template.spec.containers[0].image}'</span> | cut -d: -f2)
+echo <span class="yv">"Current version: $ARGOCD_VERSION"</span> &gt; $BACKUP_DIR/version.txt
+
+curl -L -o $BACKUP_DIR/install.yaml \
+  https://raw.githubusercontent.com/argoproj/argo-cd/$ARGOCD_VERSION/manifests/ha/install.yaml
+
+<span class="sh-comment"># 6. 上傳到 S3 / off-cluster 儲存</span>
+tar -czf argocd-backup-$(date +%Y%m%d).tar.gz $BACKUP_DIR
+aws s3 cp argocd-backup-$(date +%Y%m%d).tar.gz s3://my-backup-bucket/argocd/
+
+echo <span class="yv">"Backup completed: $BACKUP_DIR"</span></code></pre>
+      </div>
+    </section>
+
+    <!-- S3 v2->v3 重大變更 -->
+    <section class="sec" id="s3">
+      <h2><span class="sn">3</span>v2.14 → v3.0 六大重大變更</h2>
+      <p>Argo CD 3.0 是 low-risk major 升級，但仍含 6 個必須處理的 breaking changes：</p>
+
+      <div class="bc-grid">
+        <div class="bc">
+          <div class="bc-head"><span>⚠️</span>1. RBAC fine-grained 變更</div>
+          <div class="bc-body">
+            <div class="bc-section">
+              <div class="bc-label">變更</div>
+              <div class="bc-content">v2 中 <code>applications, update/delete, *</code> 同時控制 App 本身與其管理的 K8s 資源；v3 起 <code>update/delete</code> 只控制 App，要操作管理資源需新增 <code>update/*</code> 或 <code>delete/*</code> 規則。</div>
+            </div>
+            <div class="bc-section">
+              <div class="bc-label">緩解</div>
+              <div class="bc-content">設定 <code>server.rbac.disableApplicationFineGrainedRBACInheritance: false</code> 維持 v2 行為，或 audit 並更新 RBAC policy。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bc">
+          <div class="bc-head"><span>⚠️</span>2. logs RBAC 強制執行</div>
+          <div class="bc-body">
+            <div class="bc-section">
+              <div class="bc-label">變更</div>
+              <div class="bc-content">v2 預設 <code>applications, get</code> 自動含 logs 存取；v3 起 logs 必須明確授權。沒有 <code>logs, get</code> 規則的 user 在 UI 看不到 Pod 日誌。</div>
+            </div>
+            <div class="bc-section">
+              <div class="bc-label">緩解</div>
+              <div class="bc-content">為每個有 <code>applications, get</code> 的 role 新增對應的 <code>logs, get, */*, allow</code> 規則。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bc">
+          <div class="bc-head"><span>⚠️</span>3. Health Status 不再持久化</div>
+          <div class="bc-body">
+            <div class="bc-section">
+              <div class="bc-label">變更</div>
+              <div class="bc-content">v3 預設 <code>controller.resource.health.persist: false</code>，Application CR 的 <code>status.resources[].health</code> 改為從 appTree 即時讀取（節省 etcd 空間）。某些舊版 GitOps tooling（如自製儀表板）讀取這個欄位會失效。</div>
+            </div>
+            <div class="bc-section">
+              <div class="bc-label">緩解</div>
+              <div class="bc-content">設定 <code>controller.resource.health.persist: true</code> 維持 v2 行為；或更新 tooling 改讀 <code>status.health.status</code>（這個仍持久化）。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bc">
+          <div class="bc-head"><span>⚠️</span>4. CMP inline plugin 移除</div>
+          <div class="bc-body">
+            <div class="bc-section">
+              <div class="bc-label">變更</div>
+              <div class="bc-content">v3 完全移除 <code>configManagementPlugins</code>（在 argocd-cm 內定義 plugin）的支援。所有 CMP 必須改用 sidecar plugin（見 Ch.11）。</div>
+            </div>
+            <div class="bc-section">
+              <div class="bc-label">緩解</div>
+              <div class="bc-content">在 v2.x 期間就遷移到 sidecar plugin 並驗證可用，再升級。inline plugin 不會自動遷移。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bc">
+          <div class="bc-head"><span>⚠️</span>5. tracking method 預設 annotation</div>
+          <div class="bc-body">
+            <div class="bc-section">
+              <div class="bc-label">變更</div>
+              <div class="bc-content">v3 預設 <code>application.resourceTrackingMethod: annotation+label</code>。仍使用 label tracking 的環境會發現所有 Application 顯示 OutOfSync（因為 annotation 還沒加入）。</div>
+            </div>
+            <div class="bc-section">
+              <div class="bc-label">緩解</div>
+              <div class="bc-content">v2.x 期間先切到 <code>annotation+label</code> 並逐個 sync 所有 App（<code>--prune=false</code>）。詳見 Ch.10。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bc">
+          <div class="bc-head"><span>⚠️</span>6. 預設 Resource Exclusion 擴大</div>
+          <div class="bc-body">
+            <div class="bc-section">
+              <div class="bc-label">變更</div>
+              <div class="bc-content">v3 在 argocd-cm 加入大量預設 <code>resource.exclusions</code>（Endpoints, EndpointSlice, Lease, TokenReview 等高頻資源）。這降低 K8s API 負載，但若原本依賴觀察這些資源的 Application 會看不到它們。</div>
+            </div>
+            <div class="bc-section">
+              <div class="bc-label">緩解</div>
+              <div class="bc-content">大多數環境受益此變更。少數情境（觀察 ServiceMesh 端點）需手動移除特定排除項目。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h3 id="s3f">3.1 Dex sub claim 變更（影響 SSO + RBAC）</h3>
+      <p>v3 起，使用 Dex 的 SSO 認證從原本的 <code>sub</code> claim（不穩定的 base64 編碼字串）改用 <code>federated_claims.user_id</code>。原本 RBAC policy 中以 sub claim 寫的 user mapping 必須更新：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Dex sub claim 遷移</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc"># 識別影響的 policy（base64-encoded sub claims 通常很長）</span>
+<span class="yc">$ kubectl get cm argocd-rbac-cm -n argocd -o jsonpath='{.data.policy\.csv}' | grep -E "^g, [A-Za-z0-9+/=]{20,}"</span>
+
+<span class="yc"># Decode 看看是哪個使用者</span>
+<span class="yc">$ echo "ChdleGFtcGxlQGFyZ29wcm9qLmlvEgJkZXhfY29ubl9pZA" | base64 -d</span>
+<span class="yc"># 輸出：example@argoproj.iodex_conn_id</span>
+
+<span class="yc"># 更新 policy.csv：</span>
+<span class="yk">data:</span>
+  <span class="yk">policy.csv:</span> |
+    <span class="yc"># 舊（v2 行為）：</span>
+    <span class="yc"># g, ChdleGFtcGxlQGFyZ29wcm9qLmlvEgJkZXhfY29ubl9pZA, role:example</span>
+    <span class="yc"># 新（v3 行為）：</span>
+    g, example@argoproj.io, role:example</code></pre>
+      </div>
+    </section>
+
+    <!-- S4 SSA 必要性 -->
+    <section class="sec" id="s4">
+      <h2><span class="sn">4</span>Server-Side Apply 必要性（v3.3+）</h2>
+      <p>從 v3.3 起，<strong>Argo CD manifest 安裝必須使用 Server-Side Apply</strong>。原因是 ApplicationSet CRD 的 size 超過 client-side apply 的 256KB <code>last-applied-configuration</code> annotation 上限，會觸發以下錯誤：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Error — client-side apply 失敗訊息</span><button class="copy-btn">Copy</button></div>
+        <pre><code>The CustomResourceDefinition "applicationsets.argoproj.io" is invalid:
+  metadata.annotations: Too long: may not be more than 262144 bytes</code></pre>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — 正確使用 SSA 升級</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc"># ✅ 正確（v3.3+ 必要）</span>
+<span class="yc">$ kubectl apply -n argocd \</span>
+<span class="yc">    --server-side --force-conflicts \</span>
+<span class="yc">    -f https://raw.githubusercontent.com/argoproj/argo-cd/v3.4.0/manifests/ha/install.yaml</span>
+
+<span class="yc"># ❌ 錯誤（v3.3+ 會失敗）</span>
+<span class="yc">$ kubectl apply -n argocd -f &lt;url&gt;</span>
+
+<span class="yc"># --server-side：使用 SSA 機制（managedFields 取代 last-applied annotation）</span>
+<span class="yc"># --force-conflicts：接管之前由其他工具（如 Helm、舊 kubectl apply）管理的欄位</span>
+
+<span class="yc"># Helm 用戶不受影響：</span>
+<span class="yc"># helm upgrade argocd argo/argo-cd --version 7.x.x 內部使用 SSA</span></code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>--force-conflicts 會覆蓋客製化欄位</h4>
+          <p><code>--force-conflicts</code> 接管之前由其他工具管理的欄位。若你之前用 kubectl apply 編輯過 Argo CD 元件（如修改 affinity、env、resources），這些客製化會被官方 manifest 覆蓋。<strong>建議改用 Helm 或 Kustomize overlay 管理客製化</strong>，不要直接 kubectl edit Argo CD 資源。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S5 三種升級策略 -->
+    <section class="sec" id="s5">
+      <h2><span class="sn">5</span>三種升級策略</h2>
+
+      <div class="strat-grid">
+        <div class="sgs">
+          <div class="sgs-head" style="background:var(--color-primary-soft);color:var(--color-primary-text)">In-place（同地）</div>
+          <div class="sgs-body">
+            <div class="sgs-row"><span class="sgs-label">原理</span><span class="sgs-val">直接在現有 Argo CD 上 apply 新版 manifest</span></div>
+            <div class="sgs-row"><span class="sgs-label">優點</span><span class="sgs-val">最簡單、無額外資源、HA 部署可滾動升級</span></div>
+            <div class="sgs-row"><span class="sgs-label">缺點</span><span class="sgs-val">升級失敗時 Argo CD 自身受影響，rollback 較複雜</span></div>
+            <div class="sgs-row"><span class="sgs-label">適合</span><span class="sgs-val">minor / patch 升級，HA 部署</span></div>
+          </div>
+        </div>
+        <div class="sgs">
+          <div class="sgs-head" style="background:var(--color-info-soft);color:var(--color-info)">Blue-Green（並行）</div>
+          <div class="sgs-body">
+            <div class="sgs-row"><span class="sgs-label">原理</span><span class="sgs-val">新 namespace 部署新版本，驗證後切換流量並刪除舊版</span></div>
+            <div class="sgs-row"><span class="sgs-label">優點</span><span class="sgs-val">完全隔離、rollback 即時（切回舊 namespace）</span></div>
+            <div class="sgs-row"><span class="sgs-label">缺點</span><span class="sgs-val">需要兩倍資源、需處理 Application/Project 遷移、cluster credentials 需複製</span></div>
+            <div class="sgs-row"><span class="sgs-label">適合</span><span class="sgs-val">Major 升級（v2 → v3）、高度敏感環境</span></div>
+          </div>
+        </div>
+        <div class="sgs">
+          <div class="sgs-head" style="background:var(--color-success-soft);color:var(--color-success)">Self-Managed (GitOps)</div>
+          <div class="sgs-body">
+            <div class="sgs-row"><span class="sgs-label">原理</span><span class="sgs-val">Argo CD 透過 Application 管理自己，更新 Git 中的 chart 版本即升級</span></div>
+            <div class="sgs-row"><span class="sgs-label">優點</span><span class="sgs-val">符合 GitOps、版本記錄在 Git、可自動化</span></div>
+            <div class="sgs-row"><span class="sgs-label">缺點</span><span class="sgs-val">「self-update 失敗時無法自我修復」的雞生蛋問題</span></div>
+            <div class="sgs-row"><span class="sgs-label">適合</span><span class="sgs-val">已實作 self-managed 架構的環境（見 Ch.12）</span></div>
+          </div>
+        </div>
+      </div>
+
+      <h3 id="s5a">5.1 In-place 升級（最常用）</h3>
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — In-place 升級流程（Helm）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## 1. 更新 Helm repo</span>
+<span class="yc">$ helm repo update argo</span>
+
+<span class="yc">## 2. 檢查可用版本</span>
+<span class="yc">$ helm search repo argo/argo-cd --versions | head -20</span>
+
+<span class="yc">## 3. Diff（dry-run 看會變更什麼）</span>
+<span class="yc">$ helm diff upgrade argocd argo/argo-cd \</span>
+<span class="yc">    --version 7.5.0 \</span>
+<span class="yc">    --namespace argocd \</span>
+<span class="yc">    --values argocd-values.yaml</span>
+
+<span class="yc">## 4. 升級（HA 部署可滾動）</span>
+<span class="yc">$ helm upgrade argocd argo/argo-cd \</span>
+<span class="yc">    --version 7.5.0 \</span>
+<span class="yc">    --namespace argocd \</span>
+<span class="yc">    --values argocd-values.yaml \</span>
+<span class="yc">    --wait \</span>
+<span class="yc">    --timeout 10m</span>
+
+<span class="yc">## 5. 監控 rollout 狀態</span>
+<span class="yc">$ kubectl rollout status -n argocd deployment/argocd-server</span>
+<span class="yc">$ kubectl rollout status -n argocd statefulset/argocd-application-controller</span>
+<span class="yc">$ kubectl get pods -n argocd</span></code></pre>
+      </div>
+
+      <h3 id="s5b">5.2 Blue-Green 升級（major 版本推薦）</h3>
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — Blue-Green 升級流程</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## 1. 在新 namespace 部署新版（不影響原本 argocd ns）</span>
+<span class="yc">$ kubectl create namespace argocd-v3</span>
+
+<span class="yc">$ helm install argocd-v3 argo/argo-cd \</span>
+<span class="yc">    --version 7.5.0 \</span>
+<span class="yc">    --namespace argocd-v3 \</span>
+<span class="yc">    --values argocd-values.yaml</span>
+
+<span class="yc">## 2. 從舊 namespace 複製 cluster credentials / repo credentials</span>
+<span class="yc">$ kubectl get secrets -n argocd \</span>
+<span class="yc">    -l argocd.argoproj.io/secret-type=cluster \</span>
+<span class="yc">    -o yaml | sed 's/namespace: argocd/namespace: argocd-v3/' | \</span>
+<span class="yc">    kubectl apply -f -</span>
+
+<span class="yc">$ kubectl get secrets -n argocd \</span>
+<span class="yc">    -l argocd.argoproj.io/secret-type=repository \</span>
+<span class="yc">    -o yaml | sed 's/namespace: argocd/namespace: argocd-v3/' | \</span>
+<span class="yc">    kubectl apply -f -</span>
+
+<span class="yc">## 3. 用 GitOps 在新 instance 重新註冊所有 Application（從 Git 讀取）</span>
+<span class="yc">## 若使用 self-managed 架構，只需 apply root Application 即可</span>
+
+<span class="yc">## 4. 驗證新 instance：</span>
+<span class="yc">$ argocd login argocd-v3.example.com  # 新 ingress</span>
+<span class="yc">$ argocd app list                      # 確認所有 App 在新 instance 可見</span>
+<span class="yc">$ argocd app sync test-app --dry-run  # 測試 sync</span>
+
+<span class="yc">## 5. 切換流量（Ingress / DNS）</span>
+<span class="yc">$ kubectl patch ingress argocd-server -n argocd \</span>
+<span class="yc">    --type merge -p '{"spec":{"rules":[{"host":"argocd.example.com","http":{"paths":[{"backend":{"service":{"name":"argocd-server","namespace":"argocd-v3"}}}]}}]}}'</span>
+
+<span class="yc">## 6. 確認穩定後（1-2 週），刪除舊 namespace</span>
+<span class="yc">$ kubectl delete namespace argocd</span>
+<span class="yc">$ kubectl create namespace argocd  # 重新建立（為了下次 blue-green）</span></code></pre>
+      </div>
+
+      <h3 id="s5c">5.3 Self-Managed GitOps 升級</h3>
+      <p>若已建立 self-managed Argo CD（見 Ch.12 第 4 節），升級就是修改 Git 中的 chart 版本：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash + YAML — Self-Managed 升級</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## Git 中的 self-managed Argo CD Application：</span>
+<span class="yk">spec:</span>
+  <span class="yk">source:</span>
+    <span class="yk">repoURL:</span> <span class="yv">https://argoproj.github.io/argo-helm</span>
+    <span class="yk">chart:</span> <span class="yv">argo-cd</span>
+    <span class="yk">targetRevision:</span> <span class="yv">7.5.0</span>      <span class="yc"># ← 修改這裡（從 7.4.x 改為 7.5.0）</span>
+    <span class="yk">helm:</span>
+      <span class="yk">valueFiles:</span>
+        - <span class="yv">$values/argocd/values.yaml</span>
+
+<span class="sh-comment">## 流程：</span>
+<span class="sh-comment"># 1. 修改 Git 中的 targetRevision</span>
+<span class="sh-comment">$ git checkout -b upgrade/argocd-7.5.0</span>
+<span class="sh-comment">$ vim argocd/values.yaml  # 順便處理 breaking changes</span>
+<span class="sh-comment">$ git commit -am "Upgrade Argo CD to 7.5.0"</span>
+<span class="sh-comment">$ git push origin upgrade/argocd-7.5.0</span>
+
+<span class="sh-comment"># 2. 建立 PR、code review、merge</span>
+
+<span class="sh-comment"># 3. Argo CD 偵測到變更，自動 sync 自己（升級）</span>
+<span class="sh-comment"># 4. application-controller 重啟期間，sync queue 暫停（最多 2-3 分鐘）</span>
+<span class="sh-comment"># 5. 升級完成後，自動恢復所有 App 的 reconciliation</span>
+
+<span class="sh-comment">## ⚠️ 重要：自我升級的限制</span>
+<span class="sh-comment"># 若新版本有嚴重 bug，Argo CD 自我修復失效，需要手動介入：</span>
+<span class="sh-comment">$ helm rollback argocd -n argocd  # 或 kubectl apply 舊 manifest</span></code></pre>
+      </div>
+    </section>
+
+    <!-- S6 CRD 升級 -->
+    <section class="sec" id="s6">
+      <h2><span class="sn">6</span>CRD 升級特殊處理</h2>
+      <p>Argo CD 自身的 CRD（Application、AppProject、ApplicationSet）由 Argo CD 升級腳本處理。但<strong>使用者管理的 CRD</strong>（透過 Application 部署的 cert-manager CRD、Argo Rollouts CRD 等）若有版本變更（如 v1 → v2），需要特別處理。</p>
+
+      <h3>CRD 版本升級安全流程</h3>
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — CRD 多版本 serve 期間設定</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## 階段 1：CRD 同時 serve v1 與 v2，仍以 v1 為 storage</span>
+<span class="yh">apiVersion: apiextensions.k8s.io/v1</span>
+<span class="yh">kind: CustomResourceDefinition</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">myresources.example.com</span>
+<span class="yk">spec:</span>
+  <span class="yk">group:</span> <span class="yv">example.com</span>
+  <span class="yk">versions:</span>
+    - <span class="yk">name:</span> <span class="yv">v1</span>
+      <span class="yk">served:</span> <span class="yv">true</span>
+      <span class="yk">storage:</span> <span class="yv">true</span>     <span class="yc"># 仍是 storage version</span>
+    - <span class="yk">name:</span> <span class="yv">v2</span>
+      <span class="yk">served:</span> <span class="yv">true</span>     <span class="yc"># 開始 serve v2</span>
+      <span class="yk">storage:</span> <span class="yv">false</span>
+  <span class="yc"># conversion webhook（v1 ↔ v2 互轉）</span>
+  <span class="yk">conversion:</span>
+    <span class="yk">strategy:</span> <span class="yv">Webhook</span>
+    <span class="yk">webhook:</span>
+      <span class="yk">clientConfig:</span>
+        <span class="yk">service:</span>
+          <span class="yk">name:</span> <span class="yv">crd-converter</span>
+          <span class="yk">namespace:</span> <span class="yv">my-operator</span>
+
+<span class="yc">## 階段 2：所有 custom resources 改用 v2 API（手動 + Argo CD ignoreDifferences）</span>
+<span class="yk">ignoreDifferences:</span>
+  - <span class="yk">group:</span> <span class="yv">example.com</span>
+    <span class="yk">kind:</span> <span class="yv">MyResource</span>
+    <span class="yk">jsonPointers:</span>
+      - <span class="yv">/apiVersion</span>      <span class="yc"># 過渡期忽略 apiVersion 差異</span>
+
+<span class="yc">## 階段 3：切換 storage 為 v2</span>
+<span class="yk">versions:</span>
+  - <span class="yk">name:</span> <span class="yv">v1</span>
+    <span class="yk">served:</span> <span class="yv">true</span>     <span class="yc"># 仍 serve（向後相容）</span>
+    <span class="yk">storage:</span> <span class="yv">false</span>
+  - <span class="yk">name:</span> <span class="yv">v2</span>
+    <span class="yk">served:</span> <span class="yv">true</span>
+    <span class="yk">storage:</span> <span class="yv">true</span>     <span class="yc"># 改為 storage version</span>
+
+<span class="yc">## 階段 4：PostSync hook 觸發 storage migration</span>
+<span class="yh">apiVersion: batch/v1</span>
+<span class="yh">kind: Job</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">migrate-myresources-to-v2</span>
+  <span class="yk">annotations:</span>
+    <span class="yk">argocd.argoproj.io/hook:</span> <span class="yv">PostSync</span>
+    <span class="yk">argocd.argoproj.io/hook-delete-policy:</span> <span class="yv">HookSucceeded</span>
+<span class="yk">spec:</span>
+  <span class="yk">template:</span>
+    <span class="yk">spec:</span>
+      <span class="yk">restartPolicy:</span> <span class="yv">Never</span>
+      <span class="yk">containers:</span>
+        - <span class="yk">name:</span> <span class="yv">migrator</span>
+          <span class="yk">image:</span> <span class="yv">bitnami/kubectl:latest</span>
+          <span class="yk">command:</span> [<span class="yv">"sh"</span>, <span class="yv">"-c"</span>]
+          <span class="yk">args:</span>
+            - |
+              <span class="yc"># 讀寫所有 v1 資源以觸發 v2 storage 寫入</span>
+              kubectl get myresources -A -o json | \
+                jq -c '.items[]' | \
+                while read item; do
+                  echo "$item" | kubectl apply -f -
+                done</code></pre>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>kube-storage-version-migrator 自動化 storage migration</h4>
+          <p>K8s 官方提供的 <code>kube-storage-version-migrator</code> 可自動偵測並重寫所有 storage 不一致的物件，比 PostSync hook 更可靠。生產環境推薦同時部署這個 controller。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S7 驗證與 Rollback -->
+    <section class="sec" id="s7">
+      <h2><span class="sn">7</span>驗證 Checklist 與 Rollback</h2>
+
+      <h3>升級後驗證 Checklist</h3>
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — 完整驗證腳本</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## 1. 確認版本</span>
+<span class="sh-comment">$ argocd version</span>
+<span class="sh-comment">$ kubectl get pods -n argocd -o jsonpath='{.items[*].spec.containers[*].image}' | tr ' ' '\n' | sort -u</span>
+
+<span class="sh-comment">## 2. 確認所有 pod 健康</span>
+<span class="sh-comment">$ kubectl get pods -n argocd</span>
+<span class="sh-comment">## 預期：所有 Pod Ready 1/1，沒有 CrashLoopBackOff / ImagePullBackOff</span>
+
+<span class="sh-comment">## 3. 確認 CRD 正確</span>
+<span class="sh-comment">$ kubectl get crd applications.argoproj.io -o jsonpath='{.spec.versions[*].name}'</span>
+<span class="sh-comment">$ kubectl get crd appprojects.argoproj.io -o jsonpath='{.spec.versions[*].name}'</span>
+<span class="sh-comment">$ kubectl get crd applicationsets.argoproj.io -o jsonpath='{.spec.versions[*].name}'</span>
+
+<span class="sh-comment">## 4. 確認所有 Application 仍可見</span>
+<span class="sh-comment">$ argocd app list | wc -l   # 確認與升級前數量相同</span>
+
+<span class="sh-comment">## 5. 確認所有 Application 為 Synced + Healthy</span>
+<span class="sh-comment">$ argocd app list -o json | jq -r '.[] | select(.status.sync.status != "Synced" or .status.health.status != "Healthy") | .metadata.name'</span>
+<span class="sh-comment">## 預期：空輸出（所有 App 健康）</span>
+
+<span class="sh-comment">## 6. 測試 sync 操作</span>
+<span class="sh-comment">$ argocd app sync test-app</span>
+
+<span class="sh-comment">## 7. 測試 SSO 登入</span>
+<span class="sh-comment">$ argocd login argocd.example.com --sso</span>
+
+<span class="sh-comment">## 8. 確認 RBAC 仍正常</span>
+<span class="sh-comment">$ argocd account can-i sync application '*/*'</span>
+
+<span class="sh-comment">## 9. 檢查 controller log 無 ERROR / FATAL</span>
+<span class="sh-comment">$ kubectl logs -n argocd statefulset/argocd-application-controller --tail=200 | grep -E "(ERROR|FATAL)"</span>
+
+<span class="sh-comment">## 10. 檢查 Webhook 仍運作（若有設定）</span>
+<span class="sh-comment">## 觸發一次 git push，觀察 sync 是否在 ~10 秒內觸發</span></code></pre>
+      </div>
+
+      <h3>Rollback 程序</h3>
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — 升級失敗 Rollback</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## 情境：升級到 v3.x 後發現嚴重 bug，回滾到 v2.14</span>
+
+<span class="sh-comment">## 方式 A：Helm rollback（最簡單）</span>
+<span class="yc">$ helm history argocd -n argocd</span>
+<span class="yc"># REVISION  STATUS    CHART       APP VERSION  DESCRIPTION</span>
+<span class="yc"># 5         deployed  argo-cd-7.5  v3.4.0       Upgrade complete</span>
+<span class="yc"># 4         superseded argo-cd-6.x v2.14.0      Upgrade complete</span>
+
+<span class="yc">$ helm rollback argocd 4 -n argocd</span>
+<span class="yc"># 注意：rollback 不會還原 CRD changes！</span>
+
+<span class="sh-comment">## 方式 B：從備份還原 CRD（必要！）</span>
+<span class="yc">$ kubectl apply --server-side --force-conflicts \</span>
+<span class="yc">    -f $BACKUP_DIR/crd-application.yaml \</span>
+<span class="yc">    -f $BACKUP_DIR/crd-appproject.yaml \</span>
+<span class="yc">    -f $BACKUP_DIR/crd-applicationset.yaml</span>
+
+<span class="sh-comment">## 方式 C：完整 manifest 重新 apply</span>
+<span class="yc">$ kubectl apply -n argocd \</span>
+<span class="yc">    --server-side --force-conflicts \</span>
+<span class="yc">    -f $BACKUP_DIR/install.yaml</span>
+
+<span class="sh-comment">## 方式 D：Blue-Green 切換回舊 instance（最快，無中斷）</span>
+<span class="yc">$ kubectl patch ingress argocd-server -n argocd \</span>
+<span class="yc">    --type merge -p '{"spec":{"rules":[{"host":"argocd.example.com","http":{"paths":[{"backend":{"service":{"name":"argocd-server","namespace":"argocd"}}}]}}]}}'</span>
+
+<span class="sh-comment">## Rollback 後驗證</span>
+<span class="yc">$ argocd version</span>
+<span class="yc">$ argocd app list  # 確認 Application 數量正確</span></code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>CRD downgrade 是危險操作</h4>
+          <p>新版 CRD 中加入的欄位若已被 Application 使用，downgrade 後這些欄位會被 K8s 視為「無效」並可能丟失。<strong>建議</strong>：① 升級前完整備份 Application；② major 升級用 Blue-Green 策略避免直接 CRD downgrade；③ rollback 後立即從備份還原 Application（<code>kubectl apply -f $BACKUP_DIR/applications.yaml</code>）。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Summary -->
+    <section class="sec" id="sum">
+      <h2><span class="sn">✓</span>本章重點回顧</h2>
+      <div class="kp">
+        <h3>📌 Key Takeaways</h3>
+        <ul class="kp-list">
+          <li><span class="kp-ic">📅</span><span><strong>不可跳版升級</strong>：必須逐個 minor 版本（v2.10 → v2.11 → ... → v2.14 → v3.0）。Argo CD 只維護「最新兩個 minor」的 patch release，超過版本就無法獲得 bug fix。生產環境停留在「最新 minor 的後一個 patch」最穩定。</span></li>
+          <li><span class="kp-ic">🔍</span><span><strong>v2 → v3 六大 breaking changes</strong>：① RBAC fine-grained 變更（update/delete 不再繼承）；② logs 強制獨立 RBAC；③ Health status 不持久化；④ CMP inline plugin 移除；⑤ tracking method 預設 annotation；⑥ resource exclusion 預設值擴大。每個都需 pre-upgrade migration。</span></li>
+          <li><span class="kp-ic">⚙️</span><span><strong>v3.3+ 必須使用 SSA</strong>：<code>kubectl apply --server-side --force-conflicts</code>。原因是 ApplicationSet CRD 超過 256KB annotation 上限。Helm 用戶不受影響（內部已用 SSA）。</span></li>
+          <li><span class="kp-ic">🔄</span><span><strong>三種升級策略選擇</strong>：① In-place 適合 minor / patch 升級；② Blue-Green 適合 major 升級或高度敏感環境（兩倍資源代價，但 rollback 即時）；③ Self-Managed 是 GitOps 哲學的極致，但有 self-update 失敗的雞生蛋風險。</span></li>
+          <li><span class="kp-ic">📦</span><span><strong>使用者 CRD 升級需要四階段</strong>：serve 多版本 → custom resource 改用新版 → 切換 storage → PostSync hook 觸發 storage migration（或用 kube-storage-version-migrator）。</span></li>
+          <li><span class="kp-ic">🛡️</span><span><strong>升級前完整備份是底線</strong>：CRD、所有 Application/AppProject、ConfigMap、Secret 必須完整備份到 off-cluster 儲存。Helm rollback 不會還原 CRD changes，必須手動還原。Major 升級強烈建議用 Blue-Green 策略。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <nav class="ch-nav">
+      <a href="ch14-security-hardening.html" class="nav-btn nav-prev">
+        <div><div class="nav-sub">上一章 / PREV</div><div>← Ch.14 安全強化：TLS、RBAC、Network Policies</div></div>
+      </a>
+      <a href="#" class="nav-btn nav-next">
+        <div><div class="nav-sub">下一章 / NEXT</div><div>Ch.16 多叢集連線與管理 →</div></div>
+      </a>
+    </nav>
+  </main>
+</div>
+
+<footer>Argo CD 完整教學手冊 · <strong>Vol 3 Ch.15</strong> · 基於 Argo CD <strong>v3.4</strong> · 2026-05-09</footer>
+
+<script>
+(function(){
+  'use strict';
+  const KEY='jhsun-theme';
+  const IC={light:'☀',dark:'☾',system:'◐'};
+  const LB={light:'Light',dark:'Dark',system:'System'};
+  function gs(){try{return localStorage.getItem(KEY);}catch(_){return null;}}
+  function ss(v){try{v==='system'||v==null?localStorage.removeItem(KEY):localStorage.setItem(KEY,v);}catch(_){}}
+  function sp(){return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  function ef(m){return m==='system'?sp():m;}
+  function apply(m){
+    const e=ef(m);
+    document.documentElement.dataset.theme=e;
+    document.documentElement.dataset.themeMode=m;
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{
+      b.dataset.themeMode=m;
+      b.setAttribute('aria-label','Theme: '+LB[m]);
+      b.title='Theme: '+LB[m];
+      if(!b.dataset.themeToggleStyled)b.innerHTML='<span>'+IC[m]+'</span><span>'+LB[m]+'</span>';
+    });
+    dispatchEvent(new CustomEvent('jhsun:theme-changed',{detail:{theme:e,mode:m}}));
+  }
+  function cyc(c){return c==='light'?'dark':c==='dark'?'system':'light';}
+  function cur(){return gs()||'system';}
+  function init(){
+    apply(cur());
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{b.addEventListener('click',()=>{const n=cyc(cur());ss(n);apply(n);});});
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(cur()==='system')apply('system');});
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+  window.JHsunTheme={get:cur,set:m=>{ss(m);apply(m);},toggle:()=>{const n=cyc(cur());ss(n);apply(n);}};
+})();
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('.copy-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const pre=btn.closest('.code-wrap').querySelector('pre');
+      navigator.clipboard.writeText(pre.innerText).then(()=>{btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},2000);});
+    });
+  });
+  const hds=document.querySelectorAll('.sec h2,.sec h3');
+  const lks=document.querySelectorAll('.toc-list a');
+  const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){lks.forEach(l=>l.classList.remove('active'));const id=e.target.id||e.target.closest('[id]')?.id;if(id){const a=document.querySelector('.toc-list a[href="#'+id+'"]');if(a)a.classList.add('active');}}});},{rootMargin:'-60px 0px -70% 0px'});
+  hds.forEach(h=>{if(h.id)obs.observe(h);});
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.37 AnalysisTemplate 與 Metric Providers：自動化決策的核心 — Argo CD 完整教學手冊</title>
+<style>
+:root{--tk-hue:200;--tk-chroma:0.11;--color-success:#16a34a;--color-success-soft:#dcfce7;--color-warning:#d97706;--color-warning-soft:#fef3c7;--color-danger:#dc2626;--color-danger-soft:#fee2e2;--color-info:#0891b2;--color-info-soft:#cffafe;--color-neutral-accent:#7c3aed;--color-primary:oklch(0.55 var(--tk-chroma) var(--tk-hue));--color-primary-hover:oklch(0.48 var(--tk-chroma) var(--tk-hue));--color-primary-soft:oklch(0.96 calc(var(--tk-chroma)*.25) var(--tk-hue));--color-primary-text:oklch(0.40 var(--tk-chroma) var(--tk-hue));--bg-canvas:oklch(0.985 0.004 60);--bg-surface:oklch(0.995 0.003 60);--bg-muted:oklch(0.96 0.005 60);--bg-code:oklch(0.975 0.006 60);--border-soft:oklch(0.92 0.006 60);--border-mid:oklch(0.85 0.008 60);--text-primary:oklch(0.22 0.008 60);--text-secondary:oklch(0.42 0.008 60);--text-muted:oklch(0.58 0.008 60);--font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;--font-sans:"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif;--font-serif:"Playfair Display","Source Serif 4","Noto Serif TC",Georgia,serif;--font-body:"Source Serif 4","Noto Serif TC",Georgia,serif;--text-xs:12px;--text-sm:14px;--text-base:16px;--text-md:18px;--text-lg:20px;--text-xl:24px;--text-2xl:32px;--text-3xl:44px;--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-7:48px;--space-8:64px;--space-9:96px;--radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:20px;--shadow-sm:0 1px 3px oklch(0.20 0.01 60/0.07);--shadow-md:0 4px 14px oklch(0.20 0.01 60/0.10);}
+:root[data-theme="dark"]{--color-success:#4ade80;--color-success-soft:oklch(0.28 0.08 145);--color-warning:#fbbf24;--color-warning-soft:oklch(0.30 0.10 70);--color-danger:#f87171;--color-danger-soft:oklch(0.30 0.10 27);--color-info:#22d3ee;--color-info-soft:oklch(0.30 0.08 200);--color-neutral-accent:#a78bfa;--color-primary:oklch(0.72 calc(var(--tk-chroma)*.95) var(--tk-hue));--color-primary-hover:oklch(0.80 calc(var(--tk-chroma)*.95) var(--tk-hue));--color-primary-soft:oklch(0.28 calc(var(--tk-chroma)*.6) var(--tk-hue));--color-primary-text:oklch(0.85 calc(var(--tk-chroma)*.6) var(--tk-hue));--bg-canvas:oklch(0.14 0.008 50);--bg-surface:oklch(0.18 0.009 50);--bg-muted:oklch(0.21 0.010 50);--bg-code:oklch(0.16 0.009 50);--border-soft:oklch(0.26 0.010 50);--border-mid:oklch(0.34 0.012 50);--text-primary:oklch(0.93 0.005 60);--text-secondary:oklch(0.74 0.006 60);--text-muted:oklch(0.56 0.007 60);--shadow-sm:0 1px 3px oklch(0.04 0 0/.50);--shadow-md:0 4px 14px oklch(0.04 0 0/.60);}
+html{color-scheme:light dark;}html[data-theme="light"]{color-scheme:light;}html[data-theme="dark"]{color-scheme:dark;}
+body{background:var(--bg-canvas);color:var(--text-primary);font-family:var(--font-sans);font-size:var(--text-base);line-height:1.7;margin:0;padding:0;transition:background .25s,color .25s;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+.topbar{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:10px var(--space-6);background:var(--bg-surface);border-bottom:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.tb-left{display:flex;align-items:center;gap:var(--space-3);}
+.tb-logo{width:30px;height:30px;border-radius:var(--radius-md);background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:13px;font-weight:800;}
+.tb-trail{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.tb-trail .sep{color:var(--border-mid);}.tb-trail .cur{color:var(--color-primary);font-weight:600;}
+.tb-right{display:flex;align-items:center;gap:var(--space-2);}
+.pill{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);border:1px solid;}
+.pill-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.pill-ver{background:var(--color-info-soft);color:var(--color-info);border-color:var(--color-info);}
+[data-theme-toggle]{cursor:pointer;border:1px solid var(--border-mid);background:var(--bg-muted);color:var(--text-secondary);border-radius:var(--radius-md);padding:6px var(--space-3);font-family:var(--font-sans);font-size:var(--text-sm);display:flex;align-items:center;gap:6px;transition:all .2s;}
+[data-theme-toggle]:hover{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.page{display:flex;min-height:100vh;}
+.toc-sidebar{width:230px;flex-shrink:0;position:sticky;top:49px;height:calc(100vh - 49px);overflow-y:auto;padding:var(--space-5) var(--space-3);border-right:1px solid var(--border-soft);background:var(--bg-surface);}
+.toc-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-3);}
+.toc-list{list-style:none;}
+.toc-list li{margin-bottom:2px;}
+.toc-list a{display:block;padding:4px var(--space-2);font-size:var(--text-sm);color:var(--text-secondary);text-decoration:none;border-radius:var(--radius-sm);border-left:2px solid transparent;transition:all .15s;line-height:1.4;}
+.toc-list a:hover,.toc-list a.active{color:var(--color-primary);background:var(--color-primary-soft);border-left-color:var(--color-primary);font-weight:600;}
+.toc-h3{padding-left:var(--space-4)!important;font-size:var(--text-xs)!important;}
+.toc-lbl{display:block;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:var(--space-3) var(--space-2) var(--space-1);margin-top:var(--space-2);}
+.content{flex:1;min-width:0;padding:var(--space-8) var(--space-7) var(--space-9);max-width:900px;}
+.ch-header{margin-bottom:var(--space-8);padding-bottom:var(--space-6);border-bottom:1px solid var(--border-soft);}
+.ch-meta{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-4);flex-wrap:wrap;}
+.m-badge{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);}
+.m-ch{background:var(--color-primary);color:#fff;}
+.m-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border:1px solid var(--color-primary);}
+.m-time{background:var(--bg-muted);color:var(--text-muted);border:1px solid var(--border-soft);}
+.ch-header h1{font-family:var(--font-serif);font-size:clamp(var(--text-2xl),4vw,var(--text-3xl));font-weight:700;color:var(--text-primary);line-height:1.2;margin-bottom:var(--space-4);}
+.ch-header h1 em{font-style:normal;color:var(--color-primary);}
+.ch-lead{font-size:var(--text-md);color:var(--text-secondary);line-height:1.7;max-width:700px;font-family:var(--font-body);}
+.prereq{margin-top:var(--space-5);display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--bg-muted);border-radius:var(--radius-md);border:1px solid var(--border-soft);}
+.prereq .pico{font-size:var(--text-lg);flex-shrink:0;margin-top:1px;}
+.prereq p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;}
+.prereq strong{color:var(--text-primary);}
+.obj-box{background:var(--color-primary-soft);border:1px solid var(--color-primary);border-radius:var(--radius-lg);padding:var(--space-5);margin-bottom:var(--space-7);}
+.obj-box h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--color-primary-text);font-weight:700;margin-bottom:var(--space-3);}
+.obj-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-2);}
+.obj-list li{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-sm);color:var(--color-primary-text);line-height:1.5;}
+.obj-list li::before{content:"\2713";font-weight:700;color:var(--color-primary);flex-shrink:0;margin-top:1px;}
+.sec{margin-bottom:var(--space-9);scroll-margin-top:80px;}
+.sec h2{font-family:var(--font-serif);font-size:var(--text-2xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-4);padding-bottom:var(--space-3);border-bottom:2px solid var(--border-soft);display:flex;align-items:center;gap:var(--space-3);}
+.sn{font-family:var(--font-mono);font-size:var(--text-sm);background:var(--color-primary);color:#fff;padding:2px 8px;border-radius:var(--radius-sm);font-weight:700;white-space:nowrap;flex-shrink:0;}
+.sec h3{font-family:var(--font-sans);font-size:var(--text-lg);font-weight:700;color:var(--text-primary);margin:var(--space-6) 0 var(--space-3);}
+.sec h4{font-family:var(--font-sans);font-size:var(--text-base);font-weight:700;color:var(--text-primary);margin:var(--space-5) 0 var(--space-2);}
+p{font-family:var(--font-body);font-size:var(--text-base);color:var(--text-secondary);line-height:1.8;margin-bottom:var(--space-4);}
+strong{color:var(--text-primary);}em{color:var(--color-primary);font-style:normal;}
+.cal{display:flex;gap:var(--space-3);padding:var(--space-4) var(--space-5);border-radius:var(--radius-lg);margin:var(--space-5) 0;border-left:4px solid;}
+.ci{background:var(--color-info-soft);border-color:var(--color-info);}
+.cw{background:var(--color-warning-soft);border-color:var(--color-warning);}
+.ct{background:var(--color-success-soft);border-color:var(--color-success);}
+.cd{background:var(--color-primary-soft);border-color:var(--color-primary);}
+.cal .ic{font-size:var(--text-lg);flex-shrink:0;margin-top:2px;}
+.cal h4{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-1);font-family:var(--font-sans);}
+.cal p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.65;margin:0;font-family:var(--font-sans);}
+.code-wrap{margin:var(--space-4) 0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.code-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px var(--space-4);background:var(--bg-muted);border-bottom:1px solid var(--border-soft);}
+.code-lang{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;}
+.copy-btn{cursor:pointer;font-family:var(--font-mono);font-size:11px;padding:3px 10px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--border-mid);color:var(--text-muted);transition:all .2s;}
+.copy-btn:hover{background:var(--color-primary-soft);color:var(--color-primary);border-color:var(--color-primary);}
+.copy-btn.copied{background:var(--color-success-soft);color:var(--color-success);border-color:var(--color-success);}
+pre{margin:0;padding:var(--space-5);background:var(--bg-code);overflow-x:auto;font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.65;color:var(--text-primary);}
+code{font-family:var(--font-mono);font-size:.92em;background:var(--bg-code);padding:1px 5px;border-radius:var(--radius-sm);color:var(--color-primary-text);border:1px solid var(--border-soft);}
+pre code{background:none;padding:0;border:none;color:inherit;font-size:inherit;}
+.yk{color:var(--color-info);}.yv{color:var(--color-success);}.yc{color:var(--text-muted);font-style:italic;}
+.yn{color:var(--color-warning);}.yh{color:var(--color-neutral-accent);font-weight:700;}
+.tw{overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);margin:var(--space-5) 0;}
+table{width:100%;border-collapse:collapse;font-size:var(--text-sm);}
+thead th{background:var(--bg-muted);padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.07em;border-bottom:2px solid var(--border-mid);text-align:left;white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--border-soft);transition:background .12s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--bg-muted);}
+td{padding:var(--space-3) var(--space-4);vertical-align:top;line-height:1.6;font-family:var(--font-sans);}
+td:first-child{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--color-primary-text);background:var(--color-primary-soft);white-space:nowrap;font-weight:600;}
+.concept-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);margin:var(--space-5) 0;}
+.concept{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.concept-head{padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:var(--text-sm);font-weight:700;border-bottom:1px solid var(--border-soft);}
+.concept-body{padding:var(--space-4);font-size:11px;color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.concept-body .formula{font-family:var(--font-mono);font-size:11px;background:var(--bg-muted);padding:6px 10px;border-radius:var(--radius-sm);margin:var(--space-2) 0;display:block;color:var(--text-primary);}
+.lifecycle{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-5);margin:var(--space-5) 0;box-shadow:var(--shadow-sm);}
+.lc-step{display:flex;gap:var(--space-3);margin-bottom:var(--space-3);align-items:flex-start;}
+.lc-num{font-family:var(--font-mono);font-size:11px;font-weight:700;background:var(--color-primary);color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.lc-content{flex:1;font-size:var(--text-xs);color:var(--text-secondary);font-family:var(--font-sans);line-height:1.6;}
+.lc-content strong{color:var(--text-primary);}
+.lc-content code{background:var(--bg-muted);padding:1px 6px;border-radius:var(--radius-sm);font-size:11px;}
+.kp{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);margin:var(--space-7) 0;box-shadow:var(--shadow-sm);}
+.kp h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-4);margin-top:0;}
+.kp-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-3);}
+.kp-list li{display:flex;align-items:flex-start;gap:var(--space-3);font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.kp-ic{font-size:var(--text-md);flex-shrink:0;margin-top:1px;}
+.ch-nav{display:flex;justify-content:space-between;margin-top:var(--space-9);padding-top:var(--space-6);border-top:1px solid var(--border-soft);}
+.nav-btn{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);text-decoration:none;font-size:var(--text-sm);font-weight:600;transition:all .2s;box-shadow:var(--shadow-md);}
+.nav-prev{background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-mid);}.nav-prev:hover{background:var(--bg-muted);transform:translateX(-2px);}
+.nav-next{background:var(--color-primary);color:#fff;}.nav-next:hover{background:var(--color-primary-hover);transform:translateX(2px);}
+.nav-sub{font-size:11px;opacity:.75;font-family:var(--font-mono);}
+footer{border-top:1px solid var(--border-soft);padding:var(--space-5) var(--space-8);font-family:var(--font-mono);font-size:11px;color:var(--text-muted);text-align:center;}
+footer strong{color:var(--color-primary);}
+@media(max-width:900px){.toc-sidebar{display:none;}.content{padding:var(--space-6) var(--space-4) var(--space-8);}.concept-grid{grid-template-columns:1fr;}}
+@media(max-width:640px){.topbar{padding:8px var(--space-4);}.tb-trail{display:none;}}
+</style>
+</head><body>
+<header class="topbar">
+  <div class="tb-left">
+    <div class="tb-logo">A</div>
+    <nav class="tb-trail">
+      <span>Argo CD 完整教學手冊</span><span class="sep">›</span>
+      <span>Vol 8 Argo Rollouts 整合</span><span class="sep">›</span>
+      <span class="cur">Ch.37 AnalysisTemplate</span>
+    </nav>
+  </div>
+  <div class="tb-right">
+    <span class="pill pill-vol">Vol 8 · Ch.37</span>
+    <span class="pill pill-ver">v3.4</span>
+    <button data-theme-toggle></button>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="toc-sidebar">
+    <div class="toc-title">本章目錄</div>
+    <ul class="toc-list">
+      <li><a href="#obj">學習目標</a></li>
+      <span class="toc-lbl">第一節</span>
+      <li><a href="#s1">為什麼需要自動化決策</a></li>
+      <li><a href="#s1a" class="toc-h3">手動 pause 的限制</a></li>
+      <li><a href="#s1b" class="toc-h3">analysis 三大角色</a></li>
+      <span class="toc-lbl">第二節</span>
+      <li><a href="#s2">AnalysisTemplate 結構</a></li>
+      <li><a href="#s2a" class="toc-h3">metrics / args / providers</a></li>
+      <li><a href="#s2b" class="toc-h3">success vs failure condition</a></li>
+      <li><a href="#s2c" class="toc-h3">count / interval / failureLimit</a></li>
+      <span class="toc-lbl">第三節</span>
+      <li><a href="#s3">五大 Metric Providers</a></li>
+      <li><a href="#s3a" class="toc-h3">Prometheus</a></li>
+      <li><a href="#s3b" class="toc-h3">Datadog</a></li>
+      <li><a href="#s3c" class="toc-h3">New Relic / CloudWatch</a></li>
+      <li><a href="#s3d" class="toc-h3">Web / Kubernetes Job</a></li>
+      <span class="toc-lbl">第四節</span>
+      <li><a href="#s4">與 Canary 整合</a></li>
+      <li><a href="#s4a" class="toc-h3">Inline analysis</a></li>
+      <li><a href="#s4b" class="toc-h3">Background analysis</a></li>
+      <li><a href="#s4c" class="toc-h3">Pre/Post-promotion</a></li>
+      <span class="toc-lbl">第五節</span>
+      <li><a href="#s5">SLO-Driven Rollouts</a></li>
+      <span class="toc-lbl">第六節</span>
+      <li><a href="#s6">除錯 AnalysisRun</a></li>
+      <span class="toc-lbl">第七節</span>
+      <li><a href="#s7">最佳實踐</a></li>
+      <span class="toc-lbl">總結</span>
+      <li><a href="#sum">重點回顧</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <header class="ch-header">
+      <div class="ch-meta">
+        <span class="m-badge m-ch">Chapter 37</span>
+        <span class="m-badge m-vol">Vol 8 — Argo Rollouts 整合</span>
+        <span class="m-badge m-time">⏱ 預計閱讀時間 50 分鐘</span>
+      </div>
+      <h1>AnalysisTemplate 與 Metric Providers<br><em>自動化決策的核心</em></h1>
+      <p class="ch-lead">Ch.36 介紹的 Canary 中所有 step 都是手動或 duration-based——但「等 5 分鐘」不能告訴你「真的沒問題」。本章進入 <strong>Progressive Delivery 的精華</strong>：<code>AnalysisTemplate</code> 自動查詢 Prometheus / Datadog / New Relic / CloudWatch 等 metric 來源，依 <code>successCondition</code> / <code>failureCondition</code> 做出 promote / abort / pause 決策。完整涵蓋 5 大 Metric Provider、Inline / Background / Pre/Post-promotion 三種 analysis 模式、SLO-driven rollouts、AnalysisRun 除錯、production 最佳實踐。</p>
+      <div class="prereq">
+        <span class="pico">📋</span>
+        <p><strong>前置：</strong>已完成 Ch.36 (Argo Rollouts 基礎)、Ch.28 (Prometheus 觀測)。理解 Prometheus PromQL / Datadog Metric Query Language 基本語法。理解 K8s Job 物件、Secret reference。理解 SLO / Error Budget 概念（Ch.28 涵蓋）。</p>
+      </div>
+    </header>
+
+    <div class="obj-box" id="obj">
+      <h3>🎯 學習目標</h3>
+      <ul class="obj-list">
+        <li>理解為什麼手動 pause 不足以保證生產安全：「等 5 分鐘」≠「驗證沒問題」，需 metric-based 決策</li>
+        <li>掌握 Argo Rollouts analysis 三大角色：<strong>AnalysisTemplate</strong>（範本定義）、<strong>ClusterAnalysisTemplate</strong>（跨 namespace 共用）、<strong>AnalysisRun</strong>（範本實例化執行）</li>
+        <li>撰寫 AnalysisTemplate：<code>metrics</code> 陣列、<code>args</code> 參數、<code>provider</code> 來源、<code>successCondition</code> / <code>failureCondition</code> expression、<code>count</code> / <code>interval</code> / <code>failureLimit</code></li>
+        <li>整合 5 大 Metric Provider：Prometheus（最常用）、Datadog、New Relic、CloudWatch、Web/Job（自訂腳本）</li>
+        <li>區分三種 analysis 模式：① <strong>Inline analysis</strong>（step 中作為一個 step，阻塞推進）；② <strong>Background analysis</strong>（rollout 全程運行）；③ <strong>Pre/Post-promotion analysis</strong>（Blue-Green 切換前後）</li>
+        <li>實作 SLO-driven rollouts：用「99.9% 成功率」「p95 latency &lt; 500ms」等 SLI 自動判斷是否 promote</li>
+        <li>用 <code>kubectl argo rollouts get analysisrun</code>、<code>kubectl describe</code> 除錯失敗的 analysis</li>
+        <li>避開常見陷阱：① empty array 處理（query 沒資料）；② initialDelay 避免新版剛起來 metric 不準；③ failureLimit 過嚴造成 false positive；④ provider secret 在錯誤 namespace；⑤ ClusterAnalysisTemplate 與 AnalysisTemplate 同名衝突</li>
+      </ul>
+    </div>
+
+    <section class="sec" id="s1">
+      <h2><span class="sn">1</span>為什麼需要自動化決策</h2>
+
+      <h3 id="s1a">1.1 手動 pause 的限制</h3>
+
+      <p>Ch.36 介紹的純 <code>setWeight + pause</code> 模式有明顯限制：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>限制</th><th>後果</th></tr></thead>
+          <tbody>
+            <tr><td>等 5 分鐘自動推進</td><td>5 分鐘<strong>沒收到 5xx 不代表沒問題</strong>（可能流量太少、metrics 未到）</td></tr>
+            <tr><td>等待手動 promote</td><td>需要 on-call 工程師<strong>盯著 Grafana 看 metrics</strong>，無法自動化</td></tr>
+            <tr><td>無 abort 邏輯</td><td>error rate 飆升<strong>必須有人手動 abort</strong>，3am 出問題沒人理</td></tr>
+            <tr><td>無客觀標準</td><td>「看起來沒問題」是主觀的，<strong>不同人標準不同</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>AnalysisTemplate 的核心價值</h4>
+          <p>① <strong>客觀標準</strong>：用 metric 數值判斷（success rate ≥ 99.5%），不是主觀感覺；② <strong>24/7 自動化</strong>：3am 部署也能自動 promote 或 abort；③ <strong>多指標複合判斷</strong>：error rate + latency + saturation 三者同時要 OK；④ <strong>SLO-aligned</strong>：直接用 SLO 作為 promotion gate，與 reliability 目標對齊；⑤ <strong>歷史可追溯</strong>：AnalysisRun 物件保存決策依據，事後可分析。</p>
+        </div>
+      </div>
+
+      <h3 id="s1b">1.2 Analysis 三大角色</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>角色</th><th>定位</th><th>Scope</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>AnalysisTemplate</strong></td>
+              <td>定義「如何分析」的範本（metrics、conditions、provider）</td>
+              <td>Namespaced</td>
+            </tr>
+            <tr>
+              <td><strong>ClusterAnalysisTemplate</strong></td>
+              <td>同 AnalysisTemplate 但 cluster-scoped（跨 namespace 共用）</td>
+              <td>Cluster</td>
+            </tr>
+            <tr>
+              <td><strong>AnalysisRun</strong></td>
+              <td>Template 的<strong>實例</strong>（runtime instance）——每次 rollout 觸發產生一個</td>
+              <td>Namespaced（與 Rollout 同）</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Mermaid — 三角色關係</span><button class="copy-btn">Copy</button></div>
+        <pre><code>┌─────────────────────────┐
+│ AnalysisTemplate        │   定義範本（reusable）
+│ (success-rate)          │
+└────────┬────────────────┘
+         │ 被 Rollout 引用
+         │ + 傳入 args
+         ▼
+┌─────────────────────────┐
+│ Rollout                 │
+│ strategy.canary.steps[] │
+│  - analysis:            │
+│      templates: [...]   │
+└────────┬────────────────┘
+         │ rollout 觸發
+         │ 實例化
+         ▼
+┌─────────────────────────┐
+│ AnalysisRun             │   每次 rollout 都產生新的
+│ (success-rate-abc123)   │   Phase: Pending → Running
+│                         │          → Successful / Failed / Inconclusive
+└────────┬────────────────┘
+         │ Phase 結果回報
+         ▼
+   推進 Rollout 或 Abort</code></pre>
+      </div>
+    </section>
+
+    <section class="sec" id="s2">
+      <h2><span class="sn">2</span>AnalysisTemplate 結構</h2>
+
+      <h3 id="s2a">2.1 完整結構</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — AnalysisTemplate 完整骨架</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: AnalysisTemplate</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">success-rate</span>
+  <span class="yk">namespace:</span> <span class="yv">my-app</span>
+<span class="yk">spec:</span>
+  <span class="yc"># 1) Args：可從 Rollout 傳入的參數</span>
+  <span class="yk">args:</span>
+    - <span class="yk">name:</span> <span class="yv">service-name</span>          <span class="yc"># 必填參數（無 value）</span>
+    - <span class="yk">name:</span> <span class="yv">prometheus-port</span>
+      <span class="yk">value:</span> <span class="yv">"9090"</span>             <span class="yc"># 預設值，可被 Rollout 覆蓋</span>
+    - <span class="yk">name:</span> <span class="yv">api-token</span>
+      <span class="yk">valueFrom:</span>                    <span class="yc"># 從 Secret 取得</span>
+        <span class="yk">secretKeyRef:</span>
+          <span class="yk">name:</span> <span class="yv">api-credentials</span>
+          <span class="yk">key:</span> <span class="yv">token</span>
+
+  <span class="yc"># 2) Metrics：要查詢的指標陣列</span>
+  <span class="yk">metrics:</span>
+    - <span class="yk">name:</span> <span class="yv">success-rate</span>          <span class="yc"># 指標名稱</span>
+
+      <span class="yc"># Sampling 設定</span>
+      <span class="yk">initialDelay:</span> <span class="yv">30s</span>           <span class="yc"># 啟動延遲（等新版 ready）</span>
+      <span class="yk">interval:</span> <span class="yv">1m</span>                <span class="yc"># 每分鐘採樣一次</span>
+      <span class="yk">count:</span> <span class="yn">5</span>                     <span class="yc"># 總共採樣 5 次（不設則 indefinite）</span>
+
+      <span class="yc"># 條件判斷</span>
+      <span class="yk">successCondition:</span> <span class="yv">"result[0] &gt;= 0.95"</span>     <span class="yc"># Expr expression</span>
+      <span class="yc"># failureCondition: "result[0] &lt; 0.50"</span>             <span class="yc"># 兩者擇一或並用</span>
+
+      <span class="yc"># 失敗容忍度</span>
+      <span class="yk">failureLimit:</span> <span class="yn">3</span>             <span class="yc"># 允許 3 次失敗（超過視為 Failed）</span>
+      <span class="yk">inconclusiveLimit:</span> <span class="yn">5</span>        <span class="yc"># 允許 5 次 inconclusive（暫停手動）</span>
+      <span class="yk">consecutiveErrorLimit:</span> <span class="yn">4</span>    <span class="yc"># 允許 4 次連續 provider error（如 prom 暫時不可用）</span>
+
+      <span class="yc"># Provider（必填，本章節 3 詳述）</span>
+      <span class="yk">provider:</span>
+        <span class="yk">prometheus:</span>
+          <span class="yk">address:</span> <span class="yv">"http://prometheus.example.com:{{args.prometheus-port}}"</span>
+          <span class="yk">query:</span> |
+            sum(rate(http_requests_total{service="{{args.service-name}}",status!~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{service="{{args.service-name}}"}[5m]))</code></pre>
+      </div>
+
+      <h3 id="s2b">2.2 successCondition vs failureCondition</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>欄位</th><th>意義</th><th>缺一行為</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>successCondition</code></td>
+              <td>true 視為 Successful sample</td>
+              <td>無此欄位則永遠不算 Successful，必須有 failureCondition</td>
+            </tr>
+            <tr>
+              <td><code>failureCondition</code></td>
+              <td>true 視為 Failed sample</td>
+              <td>無此欄位則只看 successCondition（非 success 即視為 inconclusive）</td>
+            </tr>
+            <tr>
+              <td>兩者並用</td>
+              <td>明確區分 success / failure / inconclusive 三狀態</td>
+              <td>推薦做法</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>Expression 語言（Expr）</h4>
+          <p>successCondition / failureCondition 用 <a href="https://expr-lang.org">Expr</a>（與 ApplicationSet 同款）。常用語法：</p>
+          <p style="margin-top:8px"><code>result[0] &gt;= 0.95</code>（陣列第一個 ≥ 95%）；<code>len(result) == 0 || result[0] &gt;= 0.95</code>（empty array 也算成功）；<code>default(result, 0) &lt; 10</code>（無資料時用 0）；<code>asFloat(result) &lt; 100</code>（轉 float 比較）；<code>result =~ "success"</code>（regex match，web provider 用）。</p>
+        </div>
+      </div>
+
+      <h3 id="s2c">2.3 count / interval / failureLimit 行為</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — 三種採樣模式</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## 模式 1：單次採樣（不設 interval，預設 count: 1）</span>
+<span class="yk">metrics:</span>
+  - <span class="yk">name:</span> <span class="yv">smoke-test</span>
+    <span class="yk">successCondition:</span> <span class="yv">"result == 'ok'"</span>
+    <span class="yc"># 一次性測試，跑完就結束</span>
+
+<span class="yc">## 模式 2：固定次數採樣（count + interval）</span>
+<span class="yk">metrics:</span>
+  - <span class="yk">name:</span> <span class="yv">latency-check</span>
+    <span class="yk">count:</span> <span class="yn">5</span>            <span class="yc"># 採樣 5 次</span>
+    <span class="yk">interval:</span> <span class="yv">1m</span>       <span class="yc"># 每 1 分鐘一次</span>
+    <span class="yk">failureLimit:</span> <span class="yn">2</span>    <span class="yc"># 5 次中允許 2 次失敗</span>
+    <span class="yk">successCondition:</span> <span class="yv">"result[0] &lt; 500"</span>
+    <span class="yc"># 5 分鐘內持續驗證 latency</span>
+
+<span class="yc">## 模式 3：持續採樣（只設 interval，無 count）</span>
+<span class="yk">metrics:</span>
+  - <span class="yk">name:</span> <span class="yv">error-rate</span>
+    <span class="yk">interval:</span> <span class="yv">30s</span>      <span class="yc"># 每 30 秒一次</span>
+    <span class="yk">failureLimit:</span> <span class="yn">3</span>    <span class="yc"># 連續 3 次失敗才 abort</span>
+    <span class="yk">successCondition:</span> <span class="yv">"result[0] &gt;= 0.99"</span>
+    <span class="yc"># 無 end time：背景持續監控直到 rollout 完成或 abort</span></code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>failureLimit 設太嚴會造成 false positive</h4>
+          <p>① <strong>failureLimit: 0</strong>：任何一次失敗就 abort——太敏感，網路抖動就 rollback；② <strong>failureLimit: 3</strong>：允許 3 次失敗（推薦預設）；③ <strong>consecutiveErrorLimit</strong>：provider 本身錯誤（如 prometheus 連不上）的容忍次數，不要與 failureLimit 混淆。<strong>實務</strong>：interval 30s + failureLimit 3 = 至少 90 秒持續錯誤才 abort，平衡敏感度與穩定。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s3">
+      <h2><span class="sn">3</span>五大 Metric Providers</h2>
+
+      <h3 id="s3a">3.1 Prometheus（最常用）</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Prometheus AnalysisTemplate</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: AnalysisTemplate</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">success-rate</span>
+<span class="yk">spec:</span>
+  <span class="yk">args:</span>
+    - <span class="yk">name:</span> <span class="yv">service-name</span>
+  <span class="yk">metrics:</span>
+    - <span class="yk">name:</span> <span class="yv">success-rate</span>
+      <span class="yk">initialDelay:</span> <span class="yv">30s</span>
+      <span class="yk">interval:</span> <span class="yv">2m</span>
+      <span class="yk">count:</span> <span class="yn">5</span>
+      <span class="yc"># 處理 empty array（流量太少 query 沒結果）</span>
+      <span class="yk">successCondition:</span> <span class="yv">"len(result) == 0 || result[0] &gt;= 0.95"</span>
+      <span class="yk">failureLimit:</span> <span class="yn">3</span>
+      <span class="yk">provider:</span>
+        <span class="yk">prometheus:</span>
+          <span class="yk">address:</span> <span class="yv">http://prometheus.monitoring.svc:9090</span>
+          <span class="yk">query:</span> |
+            sum(irate(
+              istio_requests_total{
+                reporter="source",
+                destination_service=~"{{args.service-name}}",
+                response_code!~"5.*"
+              }[5m]
+            ))
+            /
+            sum(irate(
+              istio_requests_total{
+                reporter="source",
+                destination_service=~"{{args.service-name}}"
+              }[5m]
+            ))
+
+          <span class="yc"># 進階：自訂 HTTP headers（如認證）</span>
+          <span class="yc"># headers:</span>
+          <span class="yc">#   - key: Authorization</span>
+          <span class="yc">#     value: "Bearer xxx"</span>
+
+          <span class="yc"># 進階：自訂 timeout</span>
+          <span class="yc"># timeout: 30</span></code></pre>
+      </div>
+
+      <h3 id="s3b">3.2 Datadog</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Datadog AnalysisTemplate (v2 API)</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## 1) Datadog credentials Secret（與 argo-rollouts controller 同 namespace）</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: Secret</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">datadog</span>           <span class="yc"># 名稱固定為 datadog</span>
+  <span class="yk">namespace:</span> <span class="yv">argo-rollouts</span>
+<span class="yk">stringData:</span>
+  <span class="yk">address:</span> <span class="yv">https://api.datadoghq.com</span>
+  <span class="yk">api-key:</span> <span class="yv">&lt;datadog-api-key&gt;</span>
+  <span class="yk">app-key:</span> <span class="yv">&lt;datadog-app-key&gt;</span>
+
+<span class="yh">---</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: AnalysisTemplate</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">error-rate</span>
+<span class="yk">spec:</span>
+  <span class="yk">args:</span>
+    - <span class="yk">name:</span> <span class="yv">service-name</span>
+  <span class="yk">metrics:</span>
+    - <span class="yk">name:</span> <span class="yv">error-rate</span>
+      <span class="yk">interval:</span> <span class="yv">30s</span>
+      <span class="yk">successCondition:</span> <span class="yv">"default(result, 0) &lt; 0.01"</span>
+      <span class="yk">failureLimit:</span> <span class="yn">3</span>
+      <span class="yk">provider:</span>
+        <span class="yk">datadog:</span>
+          <span class="yk">apiVersion:</span> <span class="yv">v2</span>            <span class="yc"># v1 / v2（v2 支援 formula）</span>
+          <span class="yk">interval:</span> <span class="yv">5m</span>              <span class="yc"># DD 查詢的時間範圍（看過去 5 分鐘）</span>
+          <span class="yc"># v2 支援多 query + formula</span>
+          <span class="yk">queries:</span>
+            <span class="yk">errors:</span> <span class="yv">"sum:requests.errors{service:{{args.service-name}}}.as_count()"</span>
+            <span class="yk">total:</span> <span class="yv">"sum:requests{service:{{args.service-name}}}.as_count()"</span>
+          <span class="yk">formula:</span> <span class="yv">"errors / total"</span></code></pre>
+      </div>
+
+      <h3 id="s3c">3.3 New Relic / CloudWatch / Wavefront</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — New Relic 與 CloudWatch 範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## ── New Relic ──────────────────────</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: AnalysisTemplate</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">nr-error-rate</span>
+<span class="yk">spec:</span>
+  <span class="yk">metrics:</span>
+    - <span class="yk">name:</span> <span class="yv">error-rate</span>
+      <span class="yk">successCondition:</span> <span class="yv">"result.errorRate &lt; 0.01"</span>
+      <span class="yk">provider:</span>
+        <span class="yk">newRelic:</span>
+          <span class="yk">profile:</span> <span class="yv">my-newrelic-secret</span>     <span class="yc"># 同 namespace 的 Secret</span>
+          <span class="yk">query:</span> |
+            SELECT percentage(count(*), WHERE error IS true) as errorRate
+            FROM Transaction WHERE appName = 'my-app' SINCE 5 minutes ago
+
+<span class="yh">---</span>
+<span class="yc">## ── CloudWatch (AWS) ──────────────</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: AnalysisTemplate</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">alb-5xx-rate</span>
+<span class="yk">spec:</span>
+  <span class="yk">metrics:</span>
+    - <span class="yk">name:</span> <span class="yv">5xx-count</span>
+      <span class="yk">interval:</span> <span class="yv">30s</span>
+      <span class="yk">successCondition:</span> <span class="yv">"result[0] &lt; 10"</span>
+      <span class="yk">provider:</span>
+        <span class="yk">cloudWatch:</span>
+          <span class="yk">interval:</span> <span class="yv">5m</span>
+          <span class="yk">metricDataQueries:</span>
+            - <span class="yk">id:</span> <span class="yv">errors</span>
+              <span class="yk">metricStat:</span>
+                <span class="yk">metric:</span>
+                  <span class="yk">namespace:</span> <span class="yv">AWS/ApplicationELB</span>
+                  <span class="yk">metricName:</span> <span class="yv">HTTPCode_Target_5XX_Count</span>
+                  <span class="yk">dimensions:</span>
+                    - <span class="yk">name:</span> <span class="yv">LoadBalancer</span>
+                      <span class="yk">value:</span> <span class="yv">app/my-alb/abc123</span>
+                <span class="yk">period:</span> <span class="yn">60</span>
+                <span class="yk">stat:</span> <span class="yv">Sum</span></code></pre>
+      </div>
+
+      <h3 id="s3d">3.4 Web Provider 與 Kubernetes Job</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Web / Job providers（自訂測試）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## ── Web Provider：HTTP request 自訂 endpoint ─────</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: AnalysisTemplate</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">api-smoke-test</span>
+<span class="yk">spec:</span>
+  <span class="yk">metrics:</span>
+    - <span class="yk">name:</span> <span class="yv">smoke-test</span>
+      <span class="yc"># JSON path 解析 response</span>
+      <span class="yk">successCondition:</span> <span class="yv">"result.healthy == true &amp;&amp; result.version == 'v2'"</span>
+      <span class="yk">provider:</span>
+        <span class="yk">web:</span>
+          <span class="yk">url:</span> <span class="yv">"http://my-app-canary.my-app.svc/health"</span>
+          <span class="yk">timeoutSeconds:</span> <span class="yn">10</span>
+          <span class="yk">jsonPath:</span> <span class="yv">"{$}"</span>          <span class="yc"># 取整個 JSON</span>
+          <span class="yc"># 認證 headers</span>
+          <span class="yc"># headers:</span>
+          <span class="yc">#   - key: Authorization</span>
+          <span class="yc">#     value: "Bearer xxx"</span>
+
+<span class="yh">---</span>
+<span class="yc">## ── Job Provider：執行自訂 K8s Job ─────────────</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: AnalysisTemplate</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">integration-test</span>
+<span class="yk">spec:</span>
+  <span class="yk">metrics:</span>
+    - <span class="yk">name:</span> <span class="yv">integration-test</span>
+      <span class="yc"># Job exit code 0 = success；非 0 = failure</span>
+      <span class="yc"># 不需 successCondition（Job 內建邏輯）</span>
+      <span class="yk">provider:</span>
+        <span class="yk">job:</span>
+          <span class="yk">spec:</span>
+            <span class="yk">backoffLimit:</span> <span class="yn">0</span>
+            <span class="yk">template:</span>
+              <span class="yk">spec:</span>
+                <span class="yk">restartPolicy:</span> <span class="yv">Never</span>
+                <span class="yk">containers:</span>
+                  - <span class="yk">name:</span> <span class="yv">test</span>
+                    <span class="yk">image:</span> <span class="yv">myorg/integration-tests:v1</span>
+                    <span class="yk">command:</span>
+                      - <span class="yv">/bin/sh</span>
+                      - <span class="yv">-c</span>
+                      - |
+                        <span class="yc"># 跑完整 integration test suite</span>
+                        pytest tests/ --canary-url http://my-app-canary.my-app.svc
+                        <span class="yc"># exit 0 = success；exit 1 = failure</span></code></pre>
+      </div>
+    </section>
+    <section class="sec" id="s4">
+      <h2><span class="sn">4</span>與 Canary 整合：3 種 Analysis 模式</h2>
+
+      <h3 id="s4a">4.1 Inline Analysis（作為 step）</h3>
+
+      <p>Analysis 作為一個 step，<strong>阻塞推進到下一個 step</strong>——success 才繼續，failed 則 abort。最直觀的 metric-based gate：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Inline analysis 完整範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: Rollout</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app</span>
+<span class="yk">spec:</span>
+  <span class="yk">strategy:</span>
+    <span class="yk">canary:</span>
+      <span class="yk">steps:</span>
+        <span class="yc"># Step 1：10% 流量</span>
+        - <span class="yk">setWeight:</span> <span class="yn">10</span>
+        - <span class="yk">pause:</span> {<span class="yk">duration:</span> <span class="yv">2m</span>}    <span class="yc"># 等待 metric 穩定</span>
+
+        <span class="yc"># Step 2：跑 analysis（阻塞，必須 success 才繼續）</span>
+        - <span class="yk">analysis:</span>
+            <span class="yk">templates:</span>
+              - <span class="yk">templateName:</span> <span class="yv">success-rate</span>
+              - <span class="yk">templateName:</span> <span class="yv">latency-check</span>    <span class="yc"># 可以多個 template 同時跑</span>
+            <span class="yk">args:</span>
+              - <span class="yk">name:</span> <span class="yv">service-name</span>
+                <span class="yk">value:</span> <span class="yv">my-app-canary.my-app.svc</span>
+              <span class="yc"># 用 valueFrom 動態取得 canary hash（v2.10+）</span>
+              - <span class="yk">name:</span> <span class="yv">canary-hash</span>
+                <span class="yk">valueFrom:</span>
+                  <span class="yk">podTemplateHashValue:</span> <span class="yv">Latest</span>
+
+        <span class="yc"># Step 3：50% 流量（前面 analysis 成功才到這）</span>
+        - <span class="yk">setWeight:</span> <span class="yn">50</span>
+        - <span class="yk">pause:</span> {<span class="yk">duration:</span> <span class="yv">2m</span>}
+
+        <span class="yc"># Step 4：再跑 analysis（50% 流量下的 metric）</span>
+        - <span class="yk">analysis:</span>
+            <span class="yk">templates:</span>
+              - <span class="yk">templateName:</span> <span class="yv">success-rate</span>
+            <span class="yk">args:</span>
+              - <span class="yk">name:</span> <span class="yv">service-name</span>
+                <span class="yk">value:</span> <span class="yv">my-app-canary.my-app.svc</span>
+
+        <span class="yc"># Step 5：100% 流量</span>
+        - <span class="yk">setWeight:</span> <span class="yn">100</span></code></pre>
+      </div>
+
+      <h3 id="s4b">4.2 Background Analysis（rollout 全程運行）</h3>
+
+      <p>Analysis 在 rollout 開始時觸發，<strong>全程在背景監控</strong>。一旦 failureCondition 達標立即 abort，不等到下一個 step：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Background analysis</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">spec:</span>
+  <span class="yk">strategy:</span>
+    <span class="yk">canary:</span>
+      <span class="yc"># Background analysis（與 steps 平行運行）</span>
+      <span class="yk">analysis:</span>
+        <span class="yk">templates:</span>
+          - <span class="yk">templateName:</span> <span class="yv">error-rate-monitor</span>
+        <span class="yk">startingStep:</span> <span class="yn">2</span>           <span class="yc"># 從第 2 個 step 開始監控</span>
+        <span class="yk">args:</span>
+          - <span class="yk">name:</span> <span class="yv">service-name</span>
+            <span class="yk">value:</span> <span class="yv">my-app-canary.my-app.svc</span>
+
+      <span class="yk">steps:</span>
+        - <span class="yk">setWeight:</span> <span class="yn">10</span>
+        - <span class="yk">pause:</span> {<span class="yk">duration:</span> <span class="yv">5m</span>}    <span class="yc"># Background analysis 持續監控</span>
+        - <span class="yk">setWeight:</span> <span class="yn">30</span>
+        - <span class="yk">pause:</span> {<span class="yk">duration:</span> <span class="yv">5m</span>}
+        - <span class="yk">setWeight:</span> <span class="yn">100</span>
+        <span class="yc"># 全程都被 background analysis 監控</span>
+        <span class="yc"># 任何一秒 error rate 飆升 → 立即 abort</span>
+
+<span class="yh">---</span>
+<span class="yc">## 對應的 AnalysisTemplate（無 count，持續採樣）</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: AnalysisTemplate</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">error-rate-monitor</span>
+<span class="yk">spec:</span>
+  <span class="yk">args:</span>
+    - <span class="yk">name:</span> <span class="yv">service-name</span>
+  <span class="yk">metrics:</span>
+    - <span class="yk">name:</span> <span class="yv">error-rate</span>
+      <span class="yc"># 不設 count → 持續採樣直到 rollout 完成</span>
+      <span class="yk">interval:</span> <span class="yv">30s</span>
+      <span class="yk">failureCondition:</span> <span class="yv">"result[0] &gt; 0.05"</span>  <span class="yc"># error rate &gt; 5% 視為 fail</span>
+      <span class="yk">failureLimit:</span> <span class="yn">3</span>                       <span class="yc"># 連續 3 次（90 秒）才 abort</span>
+      <span class="yk">provider:</span>
+        <span class="yk">prometheus:</span>
+          <span class="yk">address:</span> <span class="yv">http://prometheus:9090</span>
+          <span class="yk">query:</span> |
+            sum(rate(http_errors_total{service="{{args.service-name}}"}[1m]))
+            /
+            sum(rate(http_requests_total{service="{{args.service-name}}"}[1m]))</code></pre>
+      </div>
+
+      <h3 id="s4c">4.3 Pre/Post-promotion Analysis（Blue-Green）</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Blue-Green 配 pre/post analysis</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">spec:</span>
+  <span class="yk">strategy:</span>
+    <span class="yk">blueGreen:</span>
+      <span class="yk">activeService:</span> <span class="yv">my-app-active</span>
+      <span class="yk">previewService:</span> <span class="yv">my-app-preview</span>
+      <span class="yk">autoPromotionEnabled:</span> <span class="yv">false</span>
+
+      <span class="yc"># Pre-promotion：切換 active 服務前驗證</span>
+      <span class="yc"># 對 preview service 跑測試，通過才 promote</span>
+      <span class="yk">prePromotionAnalysis:</span>
+        <span class="yk">templates:</span>
+          - <span class="yk">templateName:</span> <span class="yv">smoke-test</span>
+          - <span class="yk">templateName:</span> <span class="yv">integration-test</span>
+        <span class="yk">args:</span>
+          - <span class="yk">name:</span> <span class="yv">service-name</span>
+            <span class="yc"># 對 preview service 跑（live traffic 未切換）</span>
+            <span class="yk">value:</span> <span class="yv">my-app-preview.my-app.svc</span>
+
+      <span class="yc"># Post-promotion：active 切到新版後驗證</span>
+      <span class="yc"># 確認 live traffic 沒問題，否則自動 rollback</span>
+      <span class="yk">postPromotionAnalysis:</span>
+        <span class="yk">templates:</span>
+          - <span class="yk">templateName:</span> <span class="yv">error-rate-monitor</span>
+        <span class="yk">args:</span>
+          - <span class="yk">name:</span> <span class="yv">service-name</span>
+            <span class="yk">value:</span> <span class="yv">my-app-active.my-app.svc</span>
+
+<span class="yc">## 流程：</span>
+<span class="yc"># 1. 新版 ReplicaSet 建立（preview service 指向新版）</span>
+<span class="yc"># 2. prePromotionAnalysis 觸發（對 preview 跑）</span>
+<span class="yc"># 3. 全部 success → active service 切到新版（瞬間切換）</span>
+<span class="yc"># 4. postPromotionAnalysis 觸發（持續監控 live traffic）</span>
+<span class="yc"># 5. 持續 OK → scaleDownDelaySeconds 後刪除舊版</span>
+<span class="yc"># 6. failure → 自動切回舊版（active service 改回指向舊版）</span></code></pre>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>三種 analysis 的使用情境</h4>
+          <p>① <strong>Inline</strong>：明確的「gate」——這個 step 沒通過就不能繼續。<strong>適合明確 milestone</strong>（10% 後驗證、50% 後驗證）；② <strong>Background</strong>：「safety net」——全程監控，任何時候失敗立即 abort。<strong>適合 critical metric</strong>（error rate、availability）；③ <strong>Pre/Post-promotion</strong>：Blue-Green 專用——切換前 smoke test、切換後 monitoring。<strong>三者可組合用</strong>：inline 做 milestone gate + background 做 safety net。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s5">
+      <h2><span class="sn">5</span>SLO-Driven Rollouts</h2>
+
+      <p>把 Ch.28 學的 SLI / SLO 直接用於 rollout 決策——「<strong>不允許這次 rollout 燒掉 5% 的 monthly error budget</strong>」：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — SLO-driven AnalysisTemplate</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: AnalysisTemplate</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">slo-burn-rate</span>
+<span class="yk">spec:</span>
+  <span class="yk">args:</span>
+    - <span class="yk">name:</span> <span class="yv">service-name</span>
+  <span class="yk">metrics:</span>
+    <span class="yc"># ── Metric 1：Error rate SLI（success rate ≥ 99.5%）─────</span>
+    - <span class="yk">name:</span> <span class="yv">success-rate-slo</span>
+      <span class="yk">initialDelay:</span> <span class="yv">60s</span>
+      <span class="yk">interval:</span> <span class="yv">1m</span>
+      <span class="yk">count:</span> <span class="yn">5</span>
+      <span class="yk">successCondition:</span> <span class="yv">"result[0] &gt;= 0.995"</span>
+      <span class="yk">failureLimit:</span> <span class="yn">2</span>
+      <span class="yk">provider:</span>
+        <span class="yk">prometheus:</span>
+          <span class="yk">address:</span> <span class="yv">http://prometheus:9090</span>
+          <span class="yk">query:</span> |
+            sum(rate(http_requests_total{service="{{args.service-name}}",status!~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{service="{{args.service-name}}"}[5m]))
+
+    <span class="yc"># ── Metric 2：Latency SLI（p95 &lt; 500ms）─────────────</span>
+    - <span class="yk">name:</span> <span class="yv">latency-slo</span>
+      <span class="yk">initialDelay:</span> <span class="yv">60s</span>
+      <span class="yk">interval:</span> <span class="yv">1m</span>
+      <span class="yk">count:</span> <span class="yn">5</span>
+      <span class="yk">successCondition:</span> <span class="yv">"result[0] &lt; 500"</span>      <span class="yc"># &lt; 500ms</span>
+      <span class="yk">failureLimit:</span> <span class="yn">2</span>
+      <span class="yk">provider:</span>
+        <span class="yk">prometheus:</span>
+          <span class="yk">address:</span> <span class="yv">http://prometheus:9090</span>
+          <span class="yk">query:</span> |
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket{
+                service="{{args.service-name}}"
+              }[5m])) by (le)
+            ) * 1000
+
+    <span class="yc"># ── Metric 3：Burn rate（multi-window，SRE Workbook 推薦）──</span>
+    <span class="yc"># 1 hour burn rate &gt; 14.4 = 在 1 小時內燒掉 2% monthly budget</span>
+    <span class="yc"># 6 hour burn rate &gt; 6 = 在 6 小時內燒掉 5% monthly budget</span>
+    - <span class="yk">name:</span> <span class="yv">slo-burn-rate-1h</span>
+      <span class="yk">interval:</span> <span class="yv">5m</span>
+      <span class="yk">failureCondition:</span> <span class="yv">"result[0] &gt; 14.4"</span>
+      <span class="yk">failureLimit:</span> <span class="yn">1</span>
+      <span class="yk">provider:</span>
+        <span class="yk">prometheus:</span>
+          <span class="yk">address:</span> <span class="yv">http://prometheus:9090</span>
+          <span class="yk">query:</span> |
+            (
+              sum(rate(http_requests_total{service="{{args.service-name}}",status=~"5.."}[1h]))
+              /
+              sum(rate(http_requests_total{service="{{args.service-name}}"}[1h]))
+            ) / 0.005    <span class="yc"># SLO target: 99.5% (允許 0.5% 錯誤)</span></code></pre>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>SLO-driven 的進階模式</h4>
+          <p><strong>Multi-window, multi-burn-rate alerts</strong>（SRE Workbook 推薦）：① 1 小時內 burn rate &gt; 14.4：燒得太快（立即 abort）；② 6 小時內 burn rate &gt; 6：燒得快（abort）；③ 24 小時內 burn rate &gt; 3：警示（pause 等手動）。把 alerting strategy 直接套用到 rollout decision——<strong>確保 progressive delivery 不會耗光 monthly error budget</strong>。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s6">
+      <h2><span class="sn">6</span>除錯 AnalysisRun</h2>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — AnalysisRun 除錯命令</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## 1. 列出 Rollout 的所有 AnalysisRun</span>
+$ kubectl argo rollouts get rollout my-app
+<span class="sh-comment"># 找到 α icon 標記的 AnalysisRun 名稱</span>
+
+$ kubectl get analysisrun -n my-app
+<span class="sh-comment"># NAME                               PHASE        AGE</span>
+<span class="sh-comment"># my-app-6c8c79b696-2-error-rate     Successful   5m</span>
+<span class="sh-comment"># my-app-6c8c79b696-3-error-rate     Failed       3m</span>
+
+<span class="sh-comment">## 2. 查看 AnalysisRun 詳細狀態</span>
+$ kubectl describe analysisrun my-app-6c8c79b696-3-error-rate -n my-app
+<span class="sh-comment"># 重要欄位：</span>
+<span class="sh-comment"># - Status.Phase: Pending | Running | Successful | Failed | Inconclusive | Error</span>
+<span class="sh-comment"># - Status.Message: 失敗原因</span>
+<span class="sh-comment"># - Status.MetricResults[].Measurements: 每次採樣的結果</span>
+<span class="sh-comment"># - Status.MetricResults[].FailureCount: 失敗次數</span>
+<span class="sh-comment"># - Events: 完整 timeline</span>
+
+<span class="sh-comment">## 3. 看每次採樣的實際數值</span>
+$ kubectl get analysisrun my-app-xyz -o yaml | yq '.status.metricResults[].measurements'
+<span class="sh-comment"># - finishedAt: "2026-05-09T14:32:00Z"</span>
+<span class="sh-comment">#   phase: Failed</span>
+<span class="sh-comment">#   startedAt: "2026-05-09T14:32:00Z"</span>
+<span class="sh-comment">#   value: "0.93"          ← 採樣值（成功率 93%，未達 95% 閾值）</span>
+
+<span class="sh-comment">## 4. 看 Controller log（provider 連線錯誤等）</span>
+$ kubectl logs -n argo-rollouts deploy/argo-rollouts -f --tail=200 | \
+    grep -i analysis
+
+<span class="sh-comment">## 5. 手動執行 query 驗證（不依賴 controller）</span>
+$ curl 'http://prometheus:9090/api/v1/query?query=sum(rate(http_requests_total[5m]))'
+<span class="sh-comment"># 確認 query 本身有結果且符合預期</span>
+
+<span class="sh-comment">## 6. UI Dashboard 查看 AnalysisRun 視覺化</span>
+$ kubectl argo rollouts dashboard
+<span class="sh-comment"># 點開 Rollout 看 Analysis 區塊</span></code></pre>
+      </div>
+
+      <h3>常見錯誤對照</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>症狀</th><th>原因</th><th>解法</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Phase: Error（不是 Failed）</td>
+              <td>Provider 本身錯誤（prometheus 連不上、認證失敗）</td>
+              <td>看 controller log；確認 address / Secret 正確</td>
+            </tr>
+            <tr>
+              <td>失敗：value = "[]"（empty array）</td>
+              <td>Query 沒結果（流量太少 / metric 名稱錯）</td>
+              <td>condition 加 <code>len(result) == 0 ||</code> 或調整 query</td>
+            </tr>
+            <tr>
+              <td>失敗：value 是 null</td>
+              <td>JSON path 不正確（web provider）</td>
+              <td>用 <code>default(result, 0)</code></td>
+            </tr>
+            <tr>
+              <td>Datadog 401 unauthorized</td>
+              <td>Secret 在錯誤 namespace</td>
+              <td>Secret 名稱必須是 <code>datadog</code> 且在 <code>argo-rollouts</code> namespace</td>
+            </tr>
+            <tr>
+              <td>連續 false positive</td>
+              <td>initialDelay 不足，新版剛起來 metric 不準</td>
+              <td>調 initialDelay 30s → 60s 或更長</td>
+            </tr>
+            <tr>
+              <td>Rollout 卡 Inconclusive</td>
+              <td>達 inconclusiveLimit，需手動處理</td>
+              <td><code>argo rollouts promote</code> 或 <code>abort</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="sec" id="s7">
+      <h2><span class="sn">7</span>最佳實踐</h2>
+
+      <div class="cal ct">
+        <span class="ic">✅</span>
+        <div>
+          <h4>AnalysisTemplate 撰寫 Checklist（10 項）</h4>
+          <p>① <strong>必設 initialDelay</strong>（≥ 30s，讓新版 ready + metrics 累積）；② <strong>condition 處理 empty array</strong>（<code>len(result) == 0 ||</code> 或 <code>default(result, 0)</code>）；③ <strong>failureLimit ≥ 3</strong>（網路抖動容忍）；④ <strong>用 ClusterAnalysisTemplate</strong> 跨 namespace 共用（如 generic success-rate）；⑤ <strong>args 提供合理 default</strong>，要求參數設為無 value；⑥ <strong>結合 inline + background</strong>（gate + safety net）；⑦ <strong>用 SLI/SLO 而非 hardcoded 數字</strong>；⑧ <strong>Web/Job provider 設 timeout</strong>避免無限等；⑨ <strong>monitor AnalysisRun 數量</strong>（多 rollout 同時跑 analysis 可能耗 Prometheus 資源）；⑩ <strong>先在 dev/staging 跑通</strong>再上 prod。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="sum">
+      <h2><span class="sn">✓</span>本章重點回顧</h2>
+      <div class="kp">
+        <h3>📌 Key Takeaways</h3>
+        <ul class="kp-list">
+          <li><span class="kp-ic">🎯</span><span><strong>AnalysisTemplate 是 Progressive Delivery 的精華</strong>：用客觀 metric 取代主觀 pause，自動判斷 promote / abort。<strong>三角色</strong>：① <strong>AnalysisTemplate</strong>（範本定義）；② <strong>ClusterAnalysisTemplate</strong>（跨 namespace 共用）；③ <strong>AnalysisRun</strong>（每次 rollout 的 runtime 實例）。</span></li>
+          <li><span class="kp-ic">📊</span><span><strong>核心結構：args + metrics + provider + conditions</strong>。<code>args</code> 從 Rollout 傳入（支援 Secret valueFrom）；<code>metrics</code> 陣列定義多個指標；<code>provider</code> 選擇 metric 來源；<code>successCondition</code> + <code>failureCondition</code> 用 Expr 語言判斷。<strong>採樣設定</strong>：count（次數）+ interval（間隔）+ initialDelay（等待）+ failureLimit（容忍）。</span></li>
+          <li><span class="kp-ic">🔌</span><span><strong>5 大 Metric Providers</strong>：① <strong>Prometheus</strong>（最常用，PromQL 查詢）；② <strong>Datadog</strong>（v2 API 支援 formula）；③ <strong>New Relic</strong>（NRQL）；④ <strong>CloudWatch</strong>（AWS metric data queries）；⑤ <strong>Web / Job</strong>（自訂 HTTP request 或 K8s Job 跑 integration test）。Datadog Secret 必須在 <code>argo-rollouts</code> namespace 名稱固定為 <code>datadog</code>。</span></li>
+          <li><span class="kp-ic">⚙️</span><span><strong>處理 empty array 的兩種模式</strong>：① <code>len(result) == 0 || result[0] &gt;= 0.95</code>（empty 視為成功）；② <code>len(result) &gt; 0 && result[0] &gt;= 0.95</code>（empty 視為失敗）；③ <code>default(result, 0) &lt; 10</code>（empty 視為 0）。<strong>必須明確處理</strong>——預設行為可能不是你想的。</span></li>
+          <li><span class="kp-ic">🚦</span><span><strong>3 種 Analysis 整合模式</strong>：① <strong>Inline</strong>（作為 step，阻塞推進）：明確 milestone gate；② <strong>Background</strong>（rollout 全程持續監控）：critical metric safety net；③ <strong>Pre/Post-promotion</strong>（Blue-Green 切換前後）：pre 對 preview service 跑、post 對 active service 監控。<strong>實務組合 inline + background</strong>。</span></li>
+          <li><span class="kp-ic">📈</span><span><strong>SLO-driven Rollouts</strong>：把 Ch.28 學的 SLI 直接用於 rollout 決策。<strong>Multi-window, multi-burn-rate</strong>（SRE Workbook 推薦）：① 1h burn rate &gt; 14.4 立即 abort；② 6h burn rate &gt; 6 abort；③ 24h burn rate &gt; 3 pause。確保 rollout 不耗光 monthly error budget。</span></li>
+          <li><span class="kp-ic">🔬</span><span><strong>failureLimit vs consecutiveErrorLimit 不同</strong>：① <code>failureLimit</code>：condition 為 failure 的累計次數；② <code>consecutiveErrorLimit</code>：provider 本身錯誤（連不上）的容忍次數。預設 4 次 consecutive error 視為 Error phase（不是 Failed）。<strong>網路抖動造成的失敗是 consecutive error 不是 failure</strong>。</span></li>
+          <li><span class="kp-ic">🐛</span><span><strong>AnalysisRun 5 種 phase</strong>：Pending → Running → Successful / Failed / Inconclusive / Error。<strong>除錯</strong>：① <code>kubectl describe analysisrun</code> 看 Status.MetricResults；② <code>controller log grep -i analysis</code>；③ 手動執行 query 驗證；④ UI Dashboard 視覺化；⑤ initialDelay 太短是最常見 false positive 原因。</span></li>
+          <li><span class="kp-ic">⚠️</span><span><strong>常見陷阱</strong>：① empty array 沒處理（流量太少時）；② initialDelay 不足（metrics 還沒累積）；③ failureLimit 太嚴（0 或 1 太敏感）；④ Datadog secret namespace 錯誤；⑤ Prometheus query 在 controller pod 內無法 resolve（service name vs full FQDN）。</span></li>
+          <li><span class="kp-ic">✅</span><span><strong>10 項 Checklist</strong>：initialDelay ≥ 30s、condition 處理 empty array、failureLimit ≥ 3、ClusterAnalysisTemplate 共用、args 合理 default、inline + background 組合、用 SLI/SLO、Web/Job 設 timeout、monitor AnalysisRun 數量、先 dev/staging 驗證。<strong>AnalysisTemplate 是 production rollout 的最重要 safety net</strong>，不要省略此功能。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <nav class="ch-nav">
+      <a href="ch36-argo-rollouts-basics.html" class="nav-btn nav-prev">
+        <div><div class="nav-sub">上一章 / PREV</div><div>← Ch.36 Argo Rollouts 基礎</div></div>
+      </a>
+      <a href="#" class="nav-btn nav-next">
+        <div><div class="nav-sub">下一章 / NEXT</div><div>Ch.38 Argo CD + Rollouts 整合 →</div></div>
+      </a>
+    </nav>
+  </main>
+</div>
+
+<footer>Argo CD 完整教學手冊 · <strong>Vol 8 Ch.37</strong> · 基於 Argo CD <strong>v3.4</strong> · 2026-05-09</footer>
+
+<script>
+(function(){
+  'use strict';
+  const KEY='jhsun-theme';
+  const IC={light:'☀',dark:'☾',system:'◐'};
+  const LB={light:'Light',dark:'Dark',system:'System'};
+  function gs(){try{return localStorage.getItem(KEY);}catch(_){return null;}}
+  function ss(v){try{v==='system'||v==null?localStorage.removeItem(KEY):localStorage.setItem(KEY,v);}catch(_){}}
+  function sp(){return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  function ef(m){return m==='system'?sp():m;}
+  function apply(m){
+    const e=ef(m);
+    document.documentElement.dataset.theme=e;
+    document.documentElement.dataset.themeMode=m;
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{
+      b.dataset.themeMode=m;
+      b.setAttribute('aria-label','Theme: '+LB[m]);
+      b.title='Theme: '+LB[m];
+      if(!b.dataset.themeToggleStyled)b.innerHTML='<span>'+IC[m]+'</span><span>'+LB[m]+'</span>';
+    });
+    dispatchEvent(new CustomEvent('jhsun:theme-changed',{detail:{theme:e,mode:m}}));
+  }
+  function cyc(c){return c==='light'?'dark':c==='dark'?'system':'light';}
+  function cur(){return gs()||'system';}
+  function init(){
+    apply(cur());
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{b.addEventListener('click',()=>{const n=cyc(cur());ss(n);apply(n);});});
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(cur()==='system')apply('system');});
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+  window.JHsunTheme={get:cur,set:m=>{ss(m);apply(m);},toggle:()=>{const n=cyc(cur());ss(n);apply(n);}};
+})();
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('.copy-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const pre=btn.closest('.code-wrap').querySelector('pre');
+      navigator.clipboard.writeText(pre.innerText).then(()=>{btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},2000);});
+    });
+  });
+  const hds=document.querySelectorAll('.sec h2,.sec h3');
+  const lks=document.querySelectorAll('.toc-list a');
+  const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){lks.forEach(l=>l.classList.remove('active'));const id=e.target.id||e.target.closest('[id]')?.id;if(id){const a=document.querySelector('.toc-list a[href="#'+id+'"]');if(a)a.classList.add('active');}}});},{rootMargin:'-60px 0px -70% 0px'});
+  hds.forEach(h=>{if(h.id)obs.observe(h);});
+});
+</script>
+</body>
+</html>

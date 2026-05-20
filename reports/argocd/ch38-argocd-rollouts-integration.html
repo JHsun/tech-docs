@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.38 Argo CD + Argo Rollouts 整合：Istio、Gateway API、生產實踐 — Argo CD 完整教學手冊</title>
+<style>
+:root{--tk-hue:200;--tk-chroma:0.11;--color-success:#16a34a;--color-success-soft:#dcfce7;--color-warning:#d97706;--color-warning-soft:#fef3c7;--color-danger:#dc2626;--color-danger-soft:#fee2e2;--color-info:#0891b2;--color-info-soft:#cffafe;--color-neutral-accent:#7c3aed;--color-primary:oklch(0.55 var(--tk-chroma) var(--tk-hue));--color-primary-hover:oklch(0.48 var(--tk-chroma) var(--tk-hue));--color-primary-soft:oklch(0.96 calc(var(--tk-chroma)*.25) var(--tk-hue));--color-primary-text:oklch(0.40 var(--tk-chroma) var(--tk-hue));--bg-canvas:oklch(0.985 0.004 60);--bg-surface:oklch(0.995 0.003 60);--bg-muted:oklch(0.96 0.005 60);--bg-code:oklch(0.975 0.006 60);--border-soft:oklch(0.92 0.006 60);--border-mid:oklch(0.85 0.008 60);--text-primary:oklch(0.22 0.008 60);--text-secondary:oklch(0.42 0.008 60);--text-muted:oklch(0.58 0.008 60);--font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;--font-sans:"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif;--font-serif:"Playfair Display","Source Serif 4","Noto Serif TC",Georgia,serif;--font-body:"Source Serif 4","Noto Serif TC",Georgia,serif;--text-xs:12px;--text-sm:14px;--text-base:16px;--text-md:18px;--text-lg:20px;--text-xl:24px;--text-2xl:32px;--text-3xl:44px;--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-7:48px;--space-8:64px;--space-9:96px;--radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:20px;--shadow-sm:0 1px 3px oklch(0.20 0.01 60/0.07);--shadow-md:0 4px 14px oklch(0.20 0.01 60/0.10);}
+:root[data-theme="dark"]{--color-success:#4ade80;--color-success-soft:oklch(0.28 0.08 145);--color-warning:#fbbf24;--color-warning-soft:oklch(0.30 0.10 70);--color-danger:#f87171;--color-danger-soft:oklch(0.30 0.10 27);--color-info:#22d3ee;--color-info-soft:oklch(0.30 0.08 200);--color-neutral-accent:#a78bfa;--color-primary:oklch(0.72 calc(var(--tk-chroma)*.95) var(--tk-hue));--color-primary-hover:oklch(0.80 calc(var(--tk-chroma)*.95) var(--tk-hue));--color-primary-soft:oklch(0.28 calc(var(--tk-chroma)*.6) var(--tk-hue));--color-primary-text:oklch(0.85 calc(var(--tk-chroma)*.6) var(--tk-hue));--bg-canvas:oklch(0.14 0.008 50);--bg-surface:oklch(0.18 0.009 50);--bg-muted:oklch(0.21 0.010 50);--bg-code:oklch(0.16 0.009 50);--border-soft:oklch(0.26 0.010 50);--border-mid:oklch(0.34 0.012 50);--text-primary:oklch(0.93 0.005 60);--text-secondary:oklch(0.74 0.006 60);--text-muted:oklch(0.56 0.007 60);--shadow-sm:0 1px 3px oklch(0.04 0 0/.50);--shadow-md:0 4px 14px oklch(0.04 0 0/.60);}
+html{color-scheme:light dark;}html[data-theme="light"]{color-scheme:light;}html[data-theme="dark"]{color-scheme:dark;}
+body{background:var(--bg-canvas);color:var(--text-primary);font-family:var(--font-sans);font-size:var(--text-base);line-height:1.7;margin:0;padding:0;transition:background .25s,color .25s;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+.topbar{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:10px var(--space-6);background:var(--bg-surface);border-bottom:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.tb-left{display:flex;align-items:center;gap:var(--space-3);}
+.tb-logo{width:30px;height:30px;border-radius:var(--radius-md);background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:13px;font-weight:800;}
+.tb-trail{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.tb-trail .sep{color:var(--border-mid);}.tb-trail .cur{color:var(--color-primary);font-weight:600;}
+.tb-right{display:flex;align-items:center;gap:var(--space-2);}
+.pill{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);border:1px solid;}
+.pill-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.pill-ver{background:var(--color-info-soft);color:var(--color-info);border-color:var(--color-info);}
+[data-theme-toggle]{cursor:pointer;border:1px solid var(--border-mid);background:var(--bg-muted);color:var(--text-secondary);border-radius:var(--radius-md);padding:6px var(--space-3);font-family:var(--font-sans);font-size:var(--text-sm);display:flex;align-items:center;gap:6px;transition:all .2s;}
+[data-theme-toggle]:hover{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.page{display:flex;min-height:100vh;}
+.toc-sidebar{width:230px;flex-shrink:0;position:sticky;top:49px;height:calc(100vh - 49px);overflow-y:auto;padding:var(--space-5) var(--space-3);border-right:1px solid var(--border-soft);background:var(--bg-surface);}
+.toc-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-3);}
+.toc-list{list-style:none;}
+.toc-list li{margin-bottom:2px;}
+.toc-list a{display:block;padding:4px var(--space-2);font-size:var(--text-sm);color:var(--text-secondary);text-decoration:none;border-radius:var(--radius-sm);border-left:2px solid transparent;transition:all .15s;line-height:1.4;}
+.toc-list a:hover,.toc-list a.active{color:var(--color-primary);background:var(--color-primary-soft);border-left-color:var(--color-primary);font-weight:600;}
+.toc-h3{padding-left:var(--space-4)!important;font-size:var(--text-xs)!important;}
+.toc-lbl{display:block;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:var(--space-3) var(--space-2) var(--space-1);margin-top:var(--space-2);}
+.content{flex:1;min-width:0;padding:var(--space-8) var(--space-7) var(--space-9);max-width:900px;}
+.ch-header{margin-bottom:var(--space-8);padding-bottom:var(--space-6);border-bottom:1px solid var(--border-soft);}
+.ch-meta{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-4);flex-wrap:wrap;}
+.m-badge{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);}
+.m-ch{background:var(--color-primary);color:#fff;}
+.m-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border:1px solid var(--color-primary);}
+.m-time{background:var(--bg-muted);color:var(--text-muted);border:1px solid var(--border-soft);}
+.ch-header h1{font-family:var(--font-serif);font-size:clamp(var(--text-2xl),4vw,var(--text-3xl));font-weight:700;color:var(--text-primary);line-height:1.2;margin-bottom:var(--space-4);}
+.ch-header h1 em{font-style:normal;color:var(--color-primary);}
+.ch-lead{font-size:var(--text-md);color:var(--text-secondary);line-height:1.7;max-width:700px;font-family:var(--font-body);}
+.prereq{margin-top:var(--space-5);display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--bg-muted);border-radius:var(--radius-md);border:1px solid var(--border-soft);}
+.prereq .pico{font-size:var(--text-lg);flex-shrink:0;margin-top:1px;}
+.prereq p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;}
+.prereq strong{color:var(--text-primary);}
+.obj-box{background:var(--color-primary-soft);border:1px solid var(--color-primary);border-radius:var(--radius-lg);padding:var(--space-5);margin-bottom:var(--space-7);}
+.obj-box h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--color-primary-text);font-weight:700;margin-bottom:var(--space-3);}
+.obj-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-2);}
+.obj-list li{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-sm);color:var(--color-primary-text);line-height:1.5;}
+.obj-list li::before{content:"\2713";font-weight:700;color:var(--color-primary);flex-shrink:0;margin-top:1px;}
+.sec{margin-bottom:var(--space-9);scroll-margin-top:80px;}
+.sec h2{font-family:var(--font-serif);font-size:var(--text-2xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-4);padding-bottom:var(--space-3);border-bottom:2px solid var(--border-soft);display:flex;align-items:center;gap:var(--space-3);}
+.sn{font-family:var(--font-mono);font-size:var(--text-sm);background:var(--color-primary);color:#fff;padding:2px 8px;border-radius:var(--radius-sm);font-weight:700;white-space:nowrap;flex-shrink:0;}
+.sec h3{font-family:var(--font-sans);font-size:var(--text-lg);font-weight:700;color:var(--text-primary);margin:var(--space-6) 0 var(--space-3);}
+.sec h4{font-family:var(--font-sans);font-size:var(--text-base);font-weight:700;color:var(--text-primary);margin:var(--space-5) 0 var(--space-2);}
+p{font-family:var(--font-body);font-size:var(--text-base);color:var(--text-secondary);line-height:1.8;margin-bottom:var(--space-4);}
+strong{color:var(--text-primary);}em{color:var(--color-primary);font-style:normal;}
+.cal{display:flex;gap:var(--space-3);padding:var(--space-4) var(--space-5);border-radius:var(--radius-lg);margin:var(--space-5) 0;border-left:4px solid;}
+.ci{background:var(--color-info-soft);border-color:var(--color-info);}
+.cw{background:var(--color-warning-soft);border-color:var(--color-warning);}
+.ct{background:var(--color-success-soft);border-color:var(--color-success);}
+.cd{background:var(--color-primary-soft);border-color:var(--color-primary);}
+.cal .ic{font-size:var(--text-lg);flex-shrink:0;margin-top:2px;}
+.cal h4{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-1);font-family:var(--font-sans);}
+.cal p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.65;margin:0;font-family:var(--font-sans);}
+.code-wrap{margin:var(--space-4) 0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.code-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px var(--space-4);background:var(--bg-muted);border-bottom:1px solid var(--border-soft);}
+.code-lang{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;}
+.copy-btn{cursor:pointer;font-family:var(--font-mono);font-size:11px;padding:3px 10px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--border-mid);color:var(--text-muted);transition:all .2s;}
+.copy-btn:hover{background:var(--color-primary-soft);color:var(--color-primary);border-color:var(--color-primary);}
+.copy-btn.copied{background:var(--color-success-soft);color:var(--color-success);border-color:var(--color-success);}
+pre{margin:0;padding:var(--space-5);background:var(--bg-code);overflow-x:auto;font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.65;color:var(--text-primary);}
+code{font-family:var(--font-mono);font-size:.92em;background:var(--bg-code);padding:1px 5px;border-radius:var(--radius-sm);color:var(--color-primary-text);border:1px solid var(--border-soft);}
+pre code{background:none;padding:0;border:none;color:inherit;font-size:inherit;}
+.yk{color:var(--color-info);}.yv{color:var(--color-success);}.yc{color:var(--text-muted);font-style:italic;}
+.yn{color:var(--color-warning);}.yh{color:var(--color-neutral-accent);font-weight:700;}
+.tw{overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);margin:var(--space-5) 0;}
+table{width:100%;border-collapse:collapse;font-size:var(--text-sm);}
+thead th{background:var(--bg-muted);padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.07em;border-bottom:2px solid var(--border-mid);text-align:left;white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--border-soft);transition:background .12s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--bg-muted);}
+td{padding:var(--space-3) var(--space-4);vertical-align:top;line-height:1.6;font-family:var(--font-sans);}
+td:first-child{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--color-primary-text);background:var(--color-primary-soft);white-space:nowrap;font-weight:600;}
+.concept-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);margin:var(--space-5) 0;}
+.concept{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.concept-head{padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:var(--text-sm);font-weight:700;border-bottom:1px solid var(--border-soft);}
+.concept-body{padding:var(--space-4);font-size:11px;color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.concept-body .formula{font-family:var(--font-mono);font-size:11px;background:var(--bg-muted);padding:6px 10px;border-radius:var(--radius-sm);margin:var(--space-2) 0;display:block;color:var(--text-primary);}
+.lifecycle{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-5);margin:var(--space-5) 0;box-shadow:var(--shadow-sm);}
+.lc-step{display:flex;gap:var(--space-3);margin-bottom:var(--space-3);align-items:flex-start;}
+.lc-num{font-family:var(--font-mono);font-size:11px;font-weight:700;background:var(--color-primary);color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.lc-content{flex:1;font-size:var(--text-xs);color:var(--text-secondary);font-family:var(--font-sans);line-height:1.6;}
+.lc-content strong{color:var(--text-primary);}
+.lc-content code{background:var(--bg-muted);padding:1px 6px;border-radius:var(--radius-sm);font-size:11px;}
+.kp{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);margin:var(--space-7) 0;box-shadow:var(--shadow-sm);}
+.kp h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-4);margin-top:0;}
+.kp-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-3);}
+.kp-list li{display:flex;align-items:flex-start;gap:var(--space-3);font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.kp-ic{font-size:var(--text-md);flex-shrink:0;margin-top:1px;}
+.ch-nav{display:flex;justify-content:space-between;margin-top:var(--space-9);padding-top:var(--space-6);border-top:1px solid var(--border-soft);}
+.nav-btn{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);text-decoration:none;font-size:var(--text-sm);font-weight:600;transition:all .2s;box-shadow:var(--shadow-md);}
+.nav-prev{background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-mid);}.nav-prev:hover{background:var(--bg-muted);transform:translateX(-2px);}
+.nav-next{background:var(--color-primary);color:#fff;}.nav-next:hover{background:var(--color-primary-hover);transform:translateX(2px);}
+.nav-sub{font-size:11px;opacity:.75;font-family:var(--font-mono);}
+footer{border-top:1px solid var(--border-soft);padding:var(--space-5) var(--space-8);font-family:var(--font-mono);font-size:11px;color:var(--text-muted);text-align:center;}
+footer strong{color:var(--color-primary);}
+@media(max-width:900px){.toc-sidebar{display:none;}.content{padding:var(--space-6) var(--space-4) var(--space-8);}.concept-grid{grid-template-columns:1fr;}}
+@media(max-width:640px){.topbar{padding:8px var(--space-4);}.tb-trail{display:none;}}
+</style>
+</head><body>
+<header class="topbar">
+  <div class="tb-left">
+    <div class="tb-logo">A</div>
+    <nav class="tb-trail">
+      <span>Argo CD 完整教學手冊</span><span class="sep">›</span>
+      <span>Vol 8 Argo Rollouts 整合</span><span class="sep">›</span>
+      <span class="cur">Ch.38 Argo CD + Rollouts 整合</span>
+    </nav>
+  </div>
+  <div class="tb-right">
+    <span class="pill pill-vol">Vol 8 · Ch.38</span>
+    <span class="pill pill-ver">v3.4</span>
+    <button data-theme-toggle></button>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="toc-sidebar">
+    <div class="toc-title">本章目錄</div>
+    <ul class="toc-list">
+      <li><a href="#obj">學習目標</a></li>
+      <span class="toc-lbl">第一節</span>
+      <li><a href="#s1">內建整合機制</a></li>
+      <li><a href="#s1a" class="toc-h3">Rollout health check</a></li>
+      <li><a href="#s1b" class="toc-h3">職責分工</a></li>
+      <span class="toc-lbl">第二節</span>
+      <li><a href="#s2">UI Actions for Rollout</a></li>
+      <li><a href="#s2a" class="toc-h3">promote / abort / restart</a></li>
+      <li><a href="#s2b" class="toc-h3">CSP / Cluster RBAC</a></li>
+      <span class="toc-lbl">第三節</span>
+      <li><a href="#s3">回滾策略</a></li>
+      <li><a href="#s3a" class="toc-h3">Git revert vs abort</a></li>
+      <li><a href="#s3b" class="toc-h3">Out-of-sync 陷阱</a></li>
+      <span class="toc-lbl">第四節</span>
+      <li><a href="#s4">Istio 整合</a></li>
+      <li><a href="#s4a" class="toc-h3">VirtualService + canary</a></li>
+      <li><a href="#s4b" class="toc-h3">DestinationRule subset</a></li>
+      <li><a href="#s4c" class="toc-h3">Istio health checks</a></li>
+      <span class="toc-lbl">第五節</span>
+      <li><a href="#s5">Gateway API 整合</a></li>
+      <li><a href="#s5a" class="toc-h3">HTTPRoute backend</a></li>
+      <li><a href="#s5b" class="toc-h3">traffic router plugin</a></li>
+      <span class="toc-lbl">第六節</span>
+      <li><a href="#s6">NGINX / SMI / ALB</a></li>
+      <span class="toc-lbl">第七節</span>
+      <li><a href="#s7">argocd-notifications + Rollouts</a></li>
+      <span class="toc-lbl">第八節</span>
+      <li><a href="#s8">完整 Production Stack</a></li>
+      <span class="toc-lbl">第九節</span>
+      <li><a href="#s9">已知問題與最佳實踐</a></li>
+      <span class="toc-lbl">總結</span>
+      <li><a href="#sum">重點回顧</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <header class="ch-header">
+      <div class="ch-meta">
+        <span class="m-badge m-ch">Chapter 38</span>
+        <span class="m-badge m-vol">Vol 8 — Argo Rollouts 整合</span>
+        <span class="m-badge m-time">⏱ 預計閱讀時間 55 分鐘</span>
+      </div>
+      <h1>Argo CD + Argo Rollouts 整合<br><em>Istio、Gateway API、生產實踐</em></h1>
+      <p class="ch-lead">Vol 8 最後一章。Ch.36-37 介紹了 Argo Rollouts 與 AnalysisTemplate，本章專注 <strong>Argo CD 與 Argo Rollouts 的協同整合</strong>：Argo CD UI 對 Rollout 的內建 health check（v2.0+）、Actions 按鈕（promote/abort/restart）、回滾策略（Git revert vs argo rollouts abort）、與 Service Mesh / Gateway API 的完整 traffic routing 整合（Istio VirtualService + DestinationRule、Gateway API HTTPRoute、NGINX、SMI、ALB、AppMesh）、Istio 物件的 health check 補完、argocd-notifications 整合 Rollouts events、生產級完整 stack 範例。完成本章後你具備設計、部署、運維 GitOps + Progressive Delivery 完整 platform 的能力。</p>
+      <div class="prereq">
+        <span class="pico">📋</span>
+        <p><strong>前置：</strong>已完成 Ch.36-37（Argo Rollouts 基礎、AnalysisTemplate）、Ch.32（Lua health check）、Ch.29（argocd-notifications）。理解 Istio VirtualService、DestinationRule、Gateway 概念。對 Gateway API（HTTPRoute、Gateway、GatewayClass）有基本認識。</p>
+      </div>
+    </header>
+
+    <div class="obj-box" id="obj">
+      <h3>🎯 學習目標</h3>
+      <ul class="obj-list">
+        <li>理解 Argo CD 對 Rollout 的內建支援：v2.0+ 內建 Rollout health check（不需自訂 Lua），UI 自動顯示 step 進度、setWeight、stable/canary ReplicaSet</li>
+        <li>掌握 Argo CD 與 Argo Rollouts 的職責分工：Argo CD = Git → cluster 同步；Argo Rollouts = ReplicaSet + 流量切換</li>
+        <li>使用 Argo CD UI 的 Rollout Actions：promote（推進）、abort（放棄）、restart（重啟）、retry（重試）——不需切換到 Argo Rollouts CLI / Dashboard</li>
+        <li>區分兩種回滾策略：① <strong>argo rollouts abort</strong>（imperative，僅當前 rollout）；② <strong>git revert</strong>（declarative，GitOps-pure，Argo CD sync 偵測 spec 變更）</li>
+        <li>了解 Argo CD 對 Rollout 的「Out-of-sync」陷阱：abort 後 Git spec 仍指向新版，但 cluster 是舊版——Argo CD 視為 Synced（spec 一致）</li>
+        <li>實作 Istio 整合：① <code>trafficRouting.istio.virtualServices</code> 完整設定；② DestinationRule subset；③ Istio 5 個資源（VirtualService / DestinationRule / Gateway / AuthorizationPolicy / PeerAuthentication）的 health check 補完</li>
+        <li>實作 Gateway API 整合（v1.4+）：<code>trafficRouting.plugins.argoproj-labs/gatewayAPI</code>，HTTPRoute backend 配 stable / canary service</li>
+        <li>實作其他流量路由：NGINX Ingress（v1.4+ 支援 annotations-based 雙 Ingress）、SMI（traffic-spec）、AWS ALB（target groups）、AWS AppMesh</li>
+        <li>整合 argocd-notifications：Rollout 事件透過 Argo CD 通知 Slack / Webhook / Email（Rollout 物件 events 進入 Argo CD trigger 體系）</li>
+        <li>部署完整 production stack：Argo CD + Argo Rollouts + Istio + Prometheus + AnalysisTemplate + Argo CD Notifications 端到端整合</li>
+        <li>避開已知問題：① Issue #22772（Istio Gateway + ALB HTTP/2 認證失敗）；② Argo CD 對 Rollout abort 不會顯示 OutOfSync；③ Rollout selector 與既有 Deployment 衝突</li>
+      </ul>
+    </div>
+
+    <section class="sec" id="s1">
+      <h2><span class="sn">1</span>內建整合機制</h2>
+
+      <h3 id="s1a">1.1 Rollout Health Check（v2.0+ 內建）</h3>
+
+      <p>Argo CD 從 v2.0 起<strong>內建 Rollout 的 health check</strong>——不需要自己寫 Lua（雖然 Ch.37 範例展示了如何寫，那是 fallback 教學）。當 Argo CD 看到 Rollout CR，自動依照 <code>status.phase</code> 判斷 health：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>Rollout phase</th><th>Argo CD health</th><th>UI 顯示</th></tr></thead>
+          <tbody>
+            <tr><td><code>Healthy</code></td><td>Healthy</td><td>綠色心跳 + step 100% / 100%</td></tr>
+            <tr><td><code>Progressing</code></td><td>Progressing</td><td>藍色旋轉 + 當前 step / setWeight</td></tr>
+            <tr><td><code>Paused</code></td><td><strong>Suspended</strong></td><td>橘色暫停 icon + pause reason</td></tr>
+            <tr><td><code>Degraded</code></td><td>Degraded</td><td>紅色驚嘆 + abort reason</td></tr>
+            <tr><td><code>Aborted</code></td><td>Degraded</td><td>紅色 + "Rollout aborted"</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>「Paused = Suspended」是設計上的重要決策</h4>
+          <p>當 Rollout 在 <code>pause: {}</code>（無限等待 manual promote），Argo CD 顯示 <strong>Suspended</strong> 而非 Degraded——告訴運維者「<strong>這不是錯誤，是等你互動</strong>」。Suspended 也不會觸發 Notifications 的 on-health-degraded trigger（Ch.29），避免半夜 paging。<strong>但 sync wave 會卡住</strong>——Rollout 沒到 Healthy，下個 wave 不會推進，所以 Suspended 仍然影響整體部署流程。</p>
+        </div>
+      </div>
+
+      <h3 id="s1b">1.2 職責分工</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Mermaid — Argo CD + Argo Rollouts 協作</span><button class="copy-btn">Copy</button></div>
+        <pre><code>┌──────────────┐
+│ Git Repo     │  Rollout YAML (image: v2.0.0)
+│              │  + AnalysisTemplate
+│              │  + VirtualService (Istio)
+└──────┬───────┘
+       │ git pull
+       ▼
+┌──────────────────────────────────┐
+│ Argo CD application-controller   │
+│                                  │
+│ 職責：                            │
+│ 1. Git ↔ cluster spec 同步        │
+│ 2. apply Rollout / AnalysisTpl   │
+│    / VirtualService / Service    │
+│ 3. 顯示 Rollout health           │
+│ 4. 提供 UI Actions (promote/abort)│
+└──────────────┬───────────────────┘
+               │ kubectl apply
+               ▼
+┌──────────────────────────────────┐
+│ K8s cluster                      │
+│                                  │
+│ Rollout (spec.image: v2.0.0) ────┼──┐
+│                                  │  │ watch
+│ ↑ Argo CD 管 spec                 │  ▼
+│                                  │  ┌─────────────────────┐
+│ ReplicaSet stable (v1.0.0)       │  │ Argo Rollouts       │
+│ ReplicaSet canary (v2.0.0)       │  │ controller          │
+│ VirtualService (weight 10/90)    │  │                     │
+│                                  │  │ 職責：               │
+│ ↑ Argo Rollouts 管實體            │  │ 1. 建 canary ReplicaSet
+└──────────────────────────────────┘  │ 2. 改 VirtualService weight
+                                      │ 3. 跑 AnalysisRun
+                                      │ 4. promote / abort  │
+                                      └─────────────────────┘</code></pre>
+      </div>
+
+      <p>關鍵理解：</p>
+
+      <ul style="margin-left: 24px; margin-bottom: 16px; color: var(--text-secondary); line-height: 1.7;">
+        <li>① <strong>Argo CD 管 spec</strong>：Rollout / AnalysisTemplate / VirtualService 等 CRD 的 <code>spec</code> 由 Git 控制；</li>
+        <li>② <strong>Argo Rollouts 管實體</strong>：ReplicaSet 數量、VirtualService 的 weight、AnalysisRun 結果由 Rollouts controller 動態管理；</li>
+        <li>③ <strong>兩者透過 K8s API 解耦</strong>：Argo CD 不需要知道 Rollouts 存在（就是個 CRD），Rollouts 也不依賴 Argo CD。</li>
+      </ul>
+    </section>
+
+    <section class="sec" id="s2">
+      <h2><span class="sn">2</span>UI Actions for Rollout</h2>
+
+      <h3 id="s2a">2.1 promote / abort / restart 按鈕</h3>
+
+      <p>Argo CD UI 在 Rollout 物件提供四個 action 按鈕——直接從 Argo CD UI 操作，<strong>不需切換到 kubectl 或 Argo Rollouts Dashboard</strong>：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>UI Action</th><th>對應 CLI</th><th>使用情境</th></tr></thead>
+          <tbody>
+            <tr><td><strong>promote</strong></td><td><code>kubectl argo rollouts promote</code></td><td>從 pause:{} 推進到下一個 step</td></tr>
+            <tr><td><strong>promote-full</strong></td><td><code>promote --full</code></td><td>跳過剩餘 step 直接 100%</td></tr>
+            <tr><td><strong>abort</strong></td><td><code>abort</code></td><td>放棄這次 rollout，流量切回 stable</td></tr>
+            <tr><td><strong>restart</strong></td><td><code>restart</code></td><td>滾動重啟所有 pod（不換版本）</td></tr>
+            <tr><td><strong>retry</strong></td><td><code>retry rollout</code></td><td>abort 後重新觸發</td></tr>
+            <tr><td><strong>resume</strong></td><td><code>--unpause</code></td><td>從 manual pause 恢復</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>使用流程：</p>
+
+      <div class="lifecycle">
+        <div class="lc-step"><div class="lc-num">1</div><div class="lc-content">Argo CD UI → 點開 Application → 找到 Rollout 物件</div></div>
+        <div class="lc-step"><div class="lc-num">2</div><div class="lc-content">右鍵或點選 Rollout → 看到 "ACTIONS" 下拉選單</div></div>
+        <div class="lc-step"><div class="lc-num">3</div><div class="lc-content">選擇 promote / abort / restart 等 action</div></div>
+        <div class="lc-step"><div class="lc-num">4</div><div class="lc-content">Argo CD 透過 Rollout subresource API 觸發對應動作</div></div>
+        <div class="lc-step"><div class="lc-num">5</div><div class="lc-content">Argo Rollouts controller 偵測到變更，執行實際邏輯</div></div>
+      </div>
+
+      <h3 id="s2b">2.2 CSP / Cluster RBAC 設定</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — RBAC: 允許 dev 看 / SRE 操作 Rollout</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-rbac-cm</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yk">policy.csv:</span> |
+    # ── Role: developer（只能看，不能操作 Rollout）─────
+    p, role:developer, applications, get, */*, allow
+    p, role:developer, applications, sync, */*, allow
+    <span class="yc"># 不允許 application action（包含 Rollout actions）</span>
+
+    # ── Role: sre（可操作 Rollout actions）──────────
+    p, role:sre, applications, get, */*, allow
+    p, role:sre, applications, sync, */*, allow
+    <span class="yc"># 關鍵：允許 application action（promote / abort / restart）</span>
+    p, role:sre, applications, action/*, */*, allow
+
+    # ── Role: emergency-on-call（緊急可用）──────────
+    p, role:emergency, applications, action/argoproj.io/Rollout/*, */*, allow
+    <span class="yc"># 只給 Rollout actions（不能改其他資源）</span>
+
+    # ── 用戶分組 ──────────────────────────────────
+    g, dev-team, role:developer
+    g, sre-team, role:sre
+    g, on-call-bot, role:emergency</code></pre>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>細粒度 RBAC：只允許特定 Rollout action</h4>
+          <p>除了 <code>action/*</code> 通用權限，還可以細分到特定 action：① <code>action/argoproj.io/Rollout/restart</code>（只允許 restart）；② <code>action/argoproj.io/Rollout/abort</code>（只允許 abort）。<strong>實務</strong>：dev role 給 restart（重啟 pod 不換版本，影響小）；SRE role 才給 promote / abort（會影響流量切換）。on-call bot 給 abort 緊急回滾。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s3">
+      <h2><span class="sn">3</span>回滾策略：Git revert vs argo rollouts abort</h2>
+
+      <h3 id="s3a">3.1 兩種回滾路徑</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>面向</th><th>argo rollouts abort（imperative）</th><th>git revert（declarative，GitOps-pure）</th></tr></thead>
+          <tbody>
+            <tr><td>觸發方式</td><td>Argo CD UI Actions / CLI</td><td>Git 中 revert commit</td></tr>
+            <tr><td>速度</td><td>立即（&lt; 10 秒）</td><td>Git push → Argo CD sync（通常 1-3 分鐘）</td></tr>
+            <tr><td>Git 留痕</td><td>❌ 沒 commit</td><td>✅ 完整 audit trail</td></tr>
+            <tr><td>Argo CD 認知</td><td><strong>Synced</strong>（spec 仍指向新版）</td><td>OutOfSync → Synced（spec 改回舊版）</td></tr>
+            <tr><td>下次 sync 行為</td><td>⚠️ 自動 sync 可能再次觸發 rollout</td><td>✅ 一切正常</td></tr>
+            <tr><td>適合</td><td>緊急止血</td><td>確定回滾的長期決定</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="s3b">3.2 abort 的 Out-of-sync 陷阱</h3>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>argo rollouts abort 後 Argo CD 不會顯示 OutOfSync</h4>
+          <p>關鍵問題：abort 把流量切回 stable，但 <strong>Rollout spec.image 仍指向 v2.0.0（新版）</strong>——Git 與 cluster 的 spec <strong>完全一致</strong>，Argo CD 視為 Synced。<strong>後果</strong>：① 啟用 auto-sync + selfHeal 的話，Argo CD 看到 spec 一致就不會做任何事，但 Argo Rollouts 可能會再次嘗試 rollout（被 abort 後 status 是 Degraded）；② 重新觸發 sync（如修改 unrelated 物件）可能讓 Rollouts 再試一次 v2.0.0；③ 沒有 Git audit trail 記錄回滾決定。<strong>所以 abort 是 quick stop，正式 rollback 必須跟 git revert</strong>。</p>
+        </div>
+      </div>
+
+      <h3>正確的 production rollback 流程</h3>
+
+      <div class="lifecycle">
+        <div class="lc-step"><div class="lc-num">1</div><div class="lc-content"><strong>發現問題</strong>：metric alert / customer report / AnalysisRun 顯示 Failed</div></div>
+        <div class="lc-step"><div class="lc-num">2</div><div class="lc-content"><strong>立即止血</strong>：Argo CD UI 點 Rollout abort（&lt; 10 秒切回 stable）</div></div>
+        <div class="lc-step"><div class="lc-num">3</div><div class="lc-content"><strong>確認流量切回</strong>：看 Prometheus / Grafana 確認 error rate 下降</div></div>
+        <div class="lc-step"><div class="lc-num">4</div><div class="lc-content"><strong>Git revert</strong>：<code>git revert &lt;commit&gt;</code> push 到 GitOps repo</div></div>
+        <div class="lc-step"><div class="lc-num">5</div><div class="lc-content"><strong>Argo CD 偵測到 spec 變更</strong>：自動 sync 或手動觸發</div></div>
+        <div class="lc-step"><div class="lc-num">6</div><div class="lc-content"><strong>Rollout 重新進入 Healthy</strong>：spec 與 cluster 一致（都是舊版）</div></div>
+        <div class="lc-step"><div class="lc-num">7</div><div class="lc-content"><strong>事後分析</strong>：retrospective / postmortem，準備 fix 後再 deploy</div></div>
+      </div>
+    </section>
+    <section class="sec" id="s4">
+      <h2><span class="sn">4</span>Istio 整合</h2>
+
+      <p>Istio 是 Argo Rollouts 最成熟的 traffic routing integration——支援精細的流量分配（不限於 replica ratio）：</p>
+
+      <h3 id="s4a">4.1 VirtualService + Canary 流量切換</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Istio 整合完整範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: Rollout</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app</span>
+<span class="yk">spec:</span>
+  <span class="yk">strategy:</span>
+    <span class="yk">canary:</span>
+      <span class="yk">canaryService:</span> <span class="yv">my-app-canary</span>      <span class="yc"># 指向 canary ReplicaSet</span>
+      <span class="yk">stableService:</span> <span class="yv">my-app-stable</span>      <span class="yc"># 指向 stable ReplicaSet</span>
+
+      <span class="yk">trafficRouting:</span>
+        <span class="yk">istio:</span>
+          <span class="yc"># 支援多 VirtualService（v1.0+）</span>
+          <span class="yk">virtualServices:</span>
+            - <span class="yk">name:</span> <span class="yv">my-app-vsvc</span>
+              <span class="yc"># 多個 route 時必須指定 route name</span>
+              <span class="yk">routes:</span>
+                - <span class="yv">http-primary</span>
+              <span class="yc"># 若有 HTTPS/TLS route：</span>
+              <span class="yc"># tlsRoutes:</span>
+              <span class="yc">#   - port: 443</span>
+              <span class="yc">#     sniHosts:</span>
+              <span class="yc">#       - my-app.example.com</span>
+
+          <span class="yc"># DestinationRule subset（v0.10+，更精細控制）</span>
+          <span class="yk">destinationRule:</span>
+            <span class="yk">name:</span> <span class="yv">my-app-dr</span>
+            <span class="yk">canarySubsetName:</span> <span class="yv">canary</span>
+            <span class="yk">stableSubsetName:</span> <span class="yv">stable</span>
+
+      <span class="yk">steps:</span>
+        - <span class="yk">setWeight:</span> <span class="yn">10</span>
+        - <span class="yk">pause:</span> {<span class="yk">duration:</span> <span class="yv">5m</span>}
+        - <span class="yk">analysis:</span>
+            <span class="yk">templates:</span>
+              - <span class="yk">templateName:</span> <span class="yv">success-rate</span>
+        - <span class="yk">setWeight:</span> <span class="yn">50</span>
+        - <span class="yk">pause:</span> {<span class="yk">duration:</span> <span class="yv">5m</span>}
+        - <span class="yk">setWeight:</span> <span class="yn">100</span>
+
+<span class="yh">---</span>
+<span class="yc">## VirtualService — Argo Rollouts 會自動更新 weight</span>
+<span class="yh">apiVersion: networking.istio.io/v1beta1</span>
+<span class="yh">kind: VirtualService</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app-vsvc</span>
+<span class="yk">spec:</span>
+  <span class="yk">hosts:</span>
+    - <span class="yv">my-app.example.com</span>
+  <span class="yk">gateways:</span>
+    - <span class="yv">my-app-gateway</span>
+  <span class="yk">http:</span>
+    - <span class="yk">name:</span> <span class="yv">http-primary</span>      <span class="yc"># 對應 rollout.trafficRouting.istio.virtualServices.routes</span>
+      <span class="yk">route:</span>
+        - <span class="yk">destination:</span>
+            <span class="yk">host:</span> <span class="yv">my-app-stable</span>    <span class="yc"># 指向 stableService</span>
+          <span class="yk">weight:</span> <span class="yn">100</span>                 <span class="yc"># 初始 100，Rollouts 動態更新</span>
+        - <span class="yk">destination:</span>
+            <span class="yk">host:</span> <span class="yv">my-app-canary</span>    <span class="yc"># 指向 canaryService</span>
+          <span class="yk">weight:</span> <span class="yn">0</span>                   <span class="yc"># 初始 0，Rollouts 動態更新</span></code></pre>
+      </div>
+
+      <h3 id="s4b">4.2 DestinationRule + Subset（進階）</h3>
+
+      <p>DestinationRule subset 提供<strong>更精細的流量控制</strong>（如 retry policy、circuit breaker、mTLS 設定可以各 subset 不同）：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — DestinationRule + subset</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: networking.istio.io/v1beta1</span>
+<span class="yh">kind: DestinationRule</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app-dr</span>
+<span class="yk">spec:</span>
+  <span class="yk">host:</span> <span class="yv">my-app</span>      <span class="yc"># 共同的 base service（非 canary/stable）</span>
+  <span class="yk">subsets:</span>
+    <span class="yc"># Argo Rollouts 動態更新 labels 切換 subset</span>
+    - <span class="yk">name:</span> <span class="yv">stable</span>
+      <span class="yk">labels:</span>
+        <span class="yk">app:</span> <span class="yv">my-app</span>
+        <span class="yc"># Rollouts 自動加 rollouts-pod-template-hash label</span>
+    - <span class="yk">name:</span> <span class="yv">canary</span>
+      <span class="yk">labels:</span>
+        <span class="yk">app:</span> <span class="yv">my-app</span>
+
+  <span class="yc"># Subset 共用的 traffic policy</span>
+  <span class="yk">trafficPolicy:</span>
+    <span class="yk">connectionPool:</span>
+      <span class="yk">http:</span>
+        <span class="yk">http1MaxPendingRequests:</span> <span class="yn">10</span>
+        <span class="yk">http2MaxRequests:</span> <span class="yn">100</span>
+    <span class="yk">outlierDetection:</span>
+      <span class="yk">consecutiveErrors:</span> <span class="yn">5</span>
+      <span class="yk">interval:</span> <span class="yv">30s</span></code></pre>
+      </div>
+
+      <h3 id="s4c">4.3 Istio 物件的 Health Checks（Ch.32 補完）</h3>
+
+      <p>Argo CD 預設不知道 Istio CRD 是否「健康」——預設「存在 = Healthy」（Ch.32 講過）。實務上應該補上 Istio 5 大物件的 health checks：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — argocd-cm 補完 Istio 物件 health checks</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-cm</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yc"># VirtualService — 多數情境直接視為 Healthy（無 status conditions）</span>
+  <span class="yk">resource.customizations.health.networking.istio.io_VirtualService:</span> |
+    hs = {}
+    hs.status = "Healthy"
+    hs.message = "VirtualService is configured"
+    return hs
+
+  <span class="yc"># DestinationRule</span>
+  <span class="yk">resource.customizations.health.networking.istio.io_DestinationRule:</span> |
+    hs = {}
+    hs.status = "Healthy"
+    hs.message = "DestinationRule is configured"
+    return hs
+
+  <span class="yc"># Gateway</span>
+  <span class="yk">resource.customizations.health.networking.istio.io_Gateway:</span> |
+    hs = {}
+    hs.status = "Healthy"
+    hs.message = "Gateway is configured"
+    return hs
+
+  <span class="yc"># AuthorizationPolicy</span>
+  <span class="yk">resource.customizations.health.security.istio.io_AuthorizationPolicy:</span> |
+    hs = {}
+    hs.status = "Healthy"
+    hs.message = "AuthorizationPolicy is configured"
+    return hs
+
+  <span class="yc"># PeerAuthentication</span>
+  <span class="yk">resource.customizations.health.security.istio.io_PeerAuthentication:</span> |
+    hs = {}
+    hs.status = "Healthy"
+    hs.message = "PeerAuthentication is configured"
+    return hs</code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>避免 ignoreDifferences 把 VirtualService 整個 spec.http 忽略</h4>
+          <p>常見錯誤：因為 Argo Rollouts 動態更新 VirtualService 的 <code>weight</code>，新手會在 Argo CD 加 <code>ignoreDifferences</code> 忽略整個 <code>spec.http</code>——這會造成 Argo CD <strong>完全看不到 VirtualService 的變更</strong>。正確做法：只忽略 weight 欄位：</p>
+          <p style="margin-top:8px"><code>jsonPointers: ["/spec/http/0/route/0/weight", "/spec/http/0/route/1/weight"]</code></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s5">
+      <h2><span class="sn">5</span>Gateway API 整合（v1.4+）</h2>
+
+      <p>Gateway API 是 K8s 官方逐步取代 Ingress 的新標準（v1.0 GA 2023-10）。Argo Rollouts v1.4+ 透過 <strong>traffic router plugin</strong> 支援：</p>
+
+      <h3 id="s5a">5.1 HTTPRoute Backend 配 Canary</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Gateway API HTTPRoute 範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: gateway.networking.k8s.io/v1</span>
+<span class="yh">kind: HTTPRoute</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app-route</span>
+<span class="yk">spec:</span>
+  <span class="yk">parentRefs:</span>
+    - <span class="yk">name:</span> <span class="yv">my-gateway</span>
+      <span class="yk">namespace:</span> <span class="yv">istio-system</span>
+  <span class="yk">hostnames:</span>
+    - <span class="yv">my-app.example.com</span>
+  <span class="yk">rules:</span>
+    - <span class="yk">matches:</span>
+        - <span class="yk">path:</span> {<span class="yk">type:</span> <span class="yv">PathPrefix</span>, <span class="yk">value:</span> <span class="yv">/</span>}
+      <span class="yc"># Argo Rollouts 動態更新兩個 backend weight</span>
+      <span class="yk">backendRefs:</span>
+        - <span class="yk">name:</span> <span class="yv">my-app-stable</span>
+          <span class="yk">port:</span> <span class="yn">80</span>
+          <span class="yk">weight:</span> <span class="yn">100</span>          <span class="yc"># 初始值，Rollouts 動態更新</span>
+        - <span class="yk">name:</span> <span class="yv">my-app-canary</span>
+          <span class="yk">port:</span> <span class="yn">80</span>
+          <span class="yk">weight:</span> <span class="yn">0</span>            <span class="yc"># 初始值</span></code></pre>
+      </div>
+
+      <h3 id="s5b">5.2 trafficRouting plugin 設定</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Rollout 配 Gateway API plugin</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## Step 1: 在 Argo Rollouts controller 啟用 Gateway API plugin</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argo-rollouts-config</span>
+  <span class="yk">namespace:</span> <span class="yv">argo-rollouts</span>
+<span class="yk">data:</span>
+  <span class="yk">trafficRouterPlugins:</span> |
+    - name: "argoproj-labs/gatewayAPI"
+      location: "https://github.com/argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi/releases/download/v0.6.0/gateway-api-plugin-linux-amd64"
+
+<span class="yh">---</span>
+<span class="yc">## Step 2: 套用後 restart controller 載入 plugin</span>
+<span class="yc">## $ kubectl rollout restart deploy/argo-rollouts -n argo-rollouts</span>
+
+<span class="yh">---</span>
+<span class="yc">## Step 3: 在 Rollout 使用 plugin</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: Rollout</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app</span>
+<span class="yk">spec:</span>
+  <span class="yk">strategy:</span>
+    <span class="yk">canary:</span>
+      <span class="yk">canaryService:</span> <span class="yv">my-app-canary</span>
+      <span class="yk">stableService:</span> <span class="yv">my-app-stable</span>
+
+      <span class="yk">trafficRouting:</span>
+        <span class="yk">plugins:</span>
+          <span class="yk">argoproj-labs/gatewayAPI:</span>
+            <span class="yk">httpRoute:</span> <span class="yv">my-app-route</span>
+            <span class="yk">namespace:</span> <span class="yv">my-app</span>
+
+      <span class="yk">steps:</span>
+        - <span class="yk">setWeight:</span> <span class="yn">10</span>
+        - <span class="yk">pause:</span> {<span class="yk">duration:</span> <span class="yv">5m</span>}
+        - <span class="yk">setWeight:</span> <span class="yn">50</span>
+        - <span class="yk">pause:</span> {<span class="yk">duration:</span> <span class="yv">5m</span>}
+        - <span class="yk">setWeight:</span> <span class="yn">100</span></code></pre>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>Gateway API 取代 Istio VirtualService 的方向</h4>
+          <p>Istio 從 v1.20 開始原生支援 Gateway API（不只是 plugin），未來方向是<strong>用 Gateway API 取代 VirtualService</strong> 作為 ingress 標準。優勢：① cross-vendor 標準（Istio、Linkerd、Cilium、NGINX 全支援）；② 更明確的 role separation（GatewayClass / Gateway / HTTPRoute）。<strong>新專案直接用 Gateway API + Argo Rollouts plugin</strong>，舊專案漸進遷移。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s6">
+      <h2><span class="sn">6</span>NGINX / SMI / ALB / AppMesh 整合</h2>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — 多種 traffic router 範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## ── NGINX Ingress (most common with non-mesh) ─────</span>
+<span class="yk">trafficRouting:</span>
+  <span class="yk">nginx:</span>
+    <span class="yk">stableIngress:</span> <span class="yv">my-app-ingress</span>
+    <span class="yc"># Argo Rollouts 自動建立 my-app-ingress-canary Ingress（含 canary annotation）</span>
+    <span class="yc"># NGINX 看兩個 Ingress + weight 路由</span>
+
+    <span class="yc"># 可選：自訂 annotation prefix</span>
+    <span class="yk">annotationPrefix:</span> <span class="yv">nginx.ingress.kubernetes.io</span>
+
+    <span class="yc"># 可選：額外的 canary annotations</span>
+    <span class="yk">additionalIngressAnnotations:</span>
+      <span class="yk">canary-by-header:</span> <span class="yv">X-Canary</span>
+      <span class="yk">canary-by-header-value:</span> <span class="yv">always</span>
+      <span class="yc"># 含 X-Canary: always header 的 request 強制走 canary</span>
+
+<span class="yc">## ── SMI (Service Mesh Interface) ──────────────────</span>
+<span class="yk">trafficRouting:</span>
+  <span class="yk">smi:</span>
+    <span class="yk">rootService:</span> <span class="yv">my-app</span>
+    <span class="yk">trafficSplitName:</span> <span class="yv">my-app-split</span>
+    <span class="yc"># 用 TrafficSplit CRD（Linkerd / Open Service Mesh 支援）</span>
+
+<span class="yc">## ── AWS ALB (Application Load Balancer) ────────────</span>
+<span class="yk">trafficRouting:</span>
+  <span class="yk">alb:</span>
+    <span class="yk">ingress:</span> <span class="yv">my-app-ingress</span>
+    <span class="yk">servicePort:</span> <span class="yn">80</span>
+    <span class="yc"># 用 AWS ALB target groups + weighted target group action</span>
+
+<span class="yc">## ── AWS AppMesh ────────────────────────────────────</span>
+<span class="yk">trafficRouting:</span>
+  <span class="yk">appMesh:</span>
+    <span class="yk">virtualService:</span>
+      <span class="yk">name:</span> <span class="yv">my-app-virtual-service</span>
+    <span class="yk">virtualNodeGroup:</span>
+      <span class="yk">canaryVirtualNodeRef:</span>
+        <span class="yk">name:</span> <span class="yv">my-app-canary</span>
+      <span class="yk">stableVirtualNodeRef:</span>
+        <span class="yk">name:</span> <span class="yv">my-app-stable</span>
+
+<span class="yc">## ── Traefik ────────────────────────────────────────</span>
+<span class="yk">trafficRouting:</span>
+  <span class="yk">traefik:</span>
+    <span class="yk">weightedTraefikServiceName:</span> <span class="yv">my-app-traefik</span></code></pre>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>Traffic router 選擇建議</h4>
+          <p>① <strong>已用 Istio</strong> → 用 Istio integration（最成熟）；② <strong>新專案 + Istio</strong> → 直接用 Gateway API plugin；③ <strong>無 service mesh + AWS</strong> → ALB（與 IRSA / Workload Identity 整合好）；④ <strong>無 service mesh + 簡單需求</strong> → NGINX Ingress（最普及）；⑤ <strong>多家 vendor 共存</strong> → SMI（標準介面但 vendor 支援不一）。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s7">
+      <h2><span class="sn">7</span>argocd-notifications + Rollouts 事件整合</h2>
+
+      <p>Argo CD 把 Rollout 物件視為一般 K8s 資源——Rollout 的 status 變化可以觸發 argocd-notifications（Ch.29）：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Rollouts events 整合 Notifications</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-notifications-cm</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yc"># ── Trigger：Rollout aborted ─────────────────────</span>
+  <span class="yk">trigger.on-rollout-aborted:</span> |
+    - description: Rollout aborted (canary failed)
+      send: [slack-rollout-aborted]
+      when: |
+        app.status.health.status == 'Degraded' &amp;&amp;
+        app.status.resources.any(r =&gt;
+          r.kind == 'Rollout' &amp;&amp;
+          r.health.message contains 'aborted'
+        )
+
+  <span class="yc"># ── Trigger：Rollout paused (manual promotion needed) ──</span>
+  <span class="yk">trigger.on-rollout-paused:</span> |
+    - description: Rollout paused, manual promotion needed
+      send: [slack-rollout-pause]
+      oncePer: app.status.sync.revision
+      when: |
+        app.status.health.status == 'Suspended' &amp;&amp;
+        app.status.resources.any(r =&gt;
+          r.kind == 'Rollout' &amp;&amp;
+          r.health.status == 'Suspended'
+        )
+
+  <span class="yc"># ── Template：含 promote / abort 連結 ─────────────</span>
+  <span class="yk">template.slack-rollout-pause:</span> |
+    message: |
+      ⏸ *Rollout paused — manual promotion needed*
+      App: {{.app.metadata.name}}
+      Revision: {{.app.status.sync.revision | slice 7}}
+      Action:
+        • Promote: kubectl argo rollouts promote {{.app.metadata.name}} -n {{.app.spec.destination.namespace}}
+        • Abort: kubectl argo rollouts abort {{.app.metadata.name}} -n {{.app.spec.destination.namespace}}
+        • UI: https://argocd.example.com/applications/{{.app.metadata.name}}
+    slack:
+      attachments: |
+        [{
+          "title": "{{.app.metadata.name}} paused",
+          "color": "#FFA500",
+          "fields": [
+            {"title": "Step", "value": "{{(index .app.status.resources 0).health.message}}"},
+            {"title": "Revision", "value": "{{.app.status.sync.revision | slice 7}}"}
+          ]
+        }]</code></pre>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>Argo Rollouts 也有自己的 notifications</h4>
+          <p>除了 argocd-notifications，<strong>Argo Rollouts 本身有 notification controller</strong>（v1.0+），可以針對 Rollout 事件直接通知（不經過 Argo CD）：① <code>on-rollout-completed</code>；② <code>on-rollout-step-completed</code>；③ <code>on-rollout-paused</code>；④ <code>on-analysis-run-error</code>。<strong>實務</strong>：① Argo CD Notifications 通知「sync / 整體 health」；② Argo Rollouts Notifications 通知「step / analysis 細節」——兩者互補。</p>
+        </div>
+      </div>
+    </section>
+    <section class="sec" id="s8">
+      <h2><span class="sn">8</span>完整 Production Stack 範例</h2>
+
+      <p>整合 Argo CD + Argo Rollouts + Istio + Prometheus + AnalysisTemplate + argocd-notifications 的完整 production deployment：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Production-grade complete stack</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc"># Git repo: gitops/apps/my-app/</span>
+<span class="yc">## ── 1) Application (Argo CD) ──────────────────────</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: Application</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app-prod</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">spec:</span>
+  <span class="yk">project:</span> <span class="yv">production</span>
+  <span class="yk">source:</span>
+    <span class="yk">repoURL:</span> <span class="yv">https://github.com/myorg/gitops.git</span>
+    <span class="yk">path:</span> <span class="yv">apps/my-app/overlays/production</span>
+    <span class="yk">targetRevision:</span> <span class="yv">main</span>
+  <span class="yk">destination:</span>
+    <span class="yk">server:</span> <span class="yv">https://kubernetes.default.svc</span>
+    <span class="yk">namespace:</span> <span class="yv">my-app-prod</span>
+  <span class="yk">syncPolicy:</span>
+    <span class="yk">automated:</span> {<span class="yk">prune:</span> <span class="yv">true</span>, <span class="yk">selfHeal:</span> <span class="yv">true</span>}
+    <span class="yc"># 重要：ignoreDifferences 排除 Rollouts 動態管理的欄位</span>
+  <span class="yk">ignoreDifferences:</span>
+    - <span class="yk">group:</span> <span class="yv">networking.istio.io</span>
+      <span class="yk">kind:</span> <span class="yv">VirtualService</span>
+      <span class="yk">jsonPointers:</span>
+        - <span class="yv">/spec/http/0/route/0/weight</span>
+        - <span class="yv">/spec/http/0/route/1/weight</span>
+
+<span class="yh">---</span>
+<span class="yc">## ── 2) Rollout（Argo Rollouts）────────────────────</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: Rollout</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app</span>
+  <span class="yk">namespace:</span> <span class="yv">my-app-prod</span>
+<span class="yk">spec:</span>
+  <span class="yk">replicas:</span> <span class="yn">10</span>
+  <span class="yk">selector:</span> {<span class="yk">matchLabels:</span> {<span class="yk">app:</span> <span class="yv">my-app</span>}}
+  <span class="yk">template:</span>
+    <span class="yk">metadata:</span>
+      <span class="yk">labels:</span> {<span class="yk">app:</span> <span class="yv">my-app</span>}
+    <span class="yk">spec:</span>
+      <span class="yk">containers:</span>
+        - <span class="yk">name:</span> <span class="yv">my-app</span>
+          <span class="yk">image:</span> <span class="yv">myorg/my-app:v2.0.0</span>
+          <span class="yk">readinessProbe:</span>
+            <span class="yk">httpGet:</span> {<span class="yk">path:</span> <span class="yv">/health</span>, <span class="yk">port:</span> <span class="yn">8080</span>}
+          <span class="yk">resources:</span>
+            <span class="yk">requests:</span> {<span class="yk">cpu:</span> <span class="yv">"200m"</span>, <span class="yk">memory:</span> <span class="yv">"256Mi"</span>}
+            <span class="yk">limits:</span> {<span class="yk">cpu:</span> <span class="yv">"1000m"</span>, <span class="yk">memory:</span> <span class="yv">"512Mi"</span>}
+
+  <span class="yk">strategy:</span>
+    <span class="yk">canary:</span>
+      <span class="yk">canaryService:</span> <span class="yv">my-app-canary</span>
+      <span class="yk">stableService:</span> <span class="yv">my-app-stable</span>
+      <span class="yk">trafficRouting:</span>
+        <span class="yk">istio:</span>
+          <span class="yk">virtualServices:</span>
+            - <span class="yk">name:</span> <span class="yv">my-app-vsvc</span>
+              <span class="yk">routes:</span> [<span class="yv">http-primary</span>]
+
+      <span class="yc"># Background analysis：rollout 全程 safety net</span>
+      <span class="yk">analysis:</span>
+        <span class="yk">templates:</span>
+          - <span class="yk">templateName:</span> <span class="yv">slo-burn-rate</span>
+        <span class="yk">args:</span>
+          - <span class="yk">name:</span> <span class="yv">service-name</span>
+            <span class="yk">value:</span> <span class="yv">my-app-canary.my-app-prod.svc</span>
+        <span class="yk">startingStep:</span> <span class="yn">2</span>
+
+      <span class="yk">steps:</span>
+        <span class="yc"># 10% 流量觀察 5 分鐘</span>
+        - <span class="yk">setWeight:</span> <span class="yn">10</span>
+        - <span class="yk">pause:</span> {<span class="yk">duration:</span> <span class="yv">5m</span>}
+
+        <span class="yc"># 跑 inline analysis：success rate + latency</span>
+        - <span class="yk">analysis:</span>
+            <span class="yk">templates:</span>
+              - <span class="yk">templateName:</span> <span class="yv">success-rate-slo</span>
+              - <span class="yk">templateName:</span> <span class="yv">latency-slo</span>
+            <span class="yk">args:</span>
+              - <span class="yk">name:</span> <span class="yv">service-name</span>
+                <span class="yk">value:</span> <span class="yv">my-app-canary.my-app-prod.svc</span>
+
+        <span class="yc"># 50% 流量觀察 5 分鐘</span>
+        - <span class="yk">setWeight:</span> <span class="yn">50</span>
+        - <span class="yk">pause:</span> {<span class="yk">duration:</span> <span class="yv">5m</span>}
+
+        <span class="yc"># 再跑 analysis</span>
+        - <span class="yk">analysis:</span>
+            <span class="yk">templates:</span>
+              - <span class="yk">templateName:</span> <span class="yv">success-rate-slo</span>
+            <span class="yk">args:</span>
+              - <span class="yk">name:</span> <span class="yv">service-name</span>
+                <span class="yk">value:</span> <span class="yv">my-app-canary.my-app-prod.svc</span>
+
+        <span class="yc"># 100% 流量（手動 promote）</span>
+        - <span class="yk">pause:</span> {}
+        - <span class="yk">setWeight:</span> <span class="yn">100</span>
+
+<span class="yh">---</span>
+<span class="yc">## ── 3) Service x2 (stable / canary) ────────────────</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: Service</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app-stable</span>
+<span class="yk">spec:</span>
+  <span class="yk">selector:</span> {<span class="yk">app:</span> <span class="yv">my-app</span>}
+  <span class="yk">ports:</span>
+    - <span class="yk">port:</span> <span class="yn">80</span>
+
+<span class="yh">---</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: Service</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app-canary</span>
+<span class="yk">spec:</span>
+  <span class="yk">selector:</span> {<span class="yk">app:</span> <span class="yv">my-app</span>}
+  <span class="yk">ports:</span>
+    - <span class="yk">port:</span> <span class="yn">80</span>
+
+<span class="yh">---</span>
+<span class="yc">## ── 4) Istio VirtualService ────────────────────────</span>
+<span class="yh">apiVersion: networking.istio.io/v1beta1</span>
+<span class="yh">kind: VirtualService</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app-vsvc</span>
+<span class="yk">spec:</span>
+  <span class="yk">hosts:</span>
+    - <span class="yv">my-app.example.com</span>
+  <span class="yk">gateways:</span>
+    - <span class="yv">istio-system/default-gateway</span>
+  <span class="yk">http:</span>
+    - <span class="yk">name:</span> <span class="yv">http-primary</span>
+      <span class="yk">route:</span>
+        - <span class="yk">destination:</span> {<span class="yk">host:</span> <span class="yv">my-app-stable</span>}
+          <span class="yk">weight:</span> <span class="yn">100</span>
+        - <span class="yk">destination:</span> {<span class="yk">host:</span> <span class="yv">my-app-canary</span>}
+          <span class="yk">weight:</span> <span class="yn">0</span>
+
+<span class="yh">---</span>
+<span class="yc">## ── 5) AnalysisTemplate (success rate SLO) ─────────</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: AnalysisTemplate</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">success-rate-slo</span>
+<span class="yk">spec:</span>
+  <span class="yk">args:</span>
+    - <span class="yk">name:</span> <span class="yv">service-name</span>
+  <span class="yk">metrics:</span>
+    - <span class="yk">name:</span> <span class="yv">success-rate</span>
+      <span class="yk">initialDelay:</span> <span class="yv">60s</span>
+      <span class="yk">interval:</span> <span class="yv">1m</span>
+      <span class="yk">count:</span> <span class="yn">5</span>
+      <span class="yk">successCondition:</span> <span class="yv">"len(result) == 0 || result[0] &gt;= 0.995"</span>
+      <span class="yk">failureLimit:</span> <span class="yn">2</span>
+      <span class="yk">provider:</span>
+        <span class="yk">prometheus:</span>
+          <span class="yk">address:</span> <span class="yv">http://prometheus.monitoring:9090</span>
+          <span class="yk">query:</span> |
+            sum(rate(istio_requests_total{
+              destination_service=~"{{args.service-name}}",
+              response_code!~"5.."
+            }[5m]))
+            /
+            sum(rate(istio_requests_total{
+              destination_service=~"{{args.service-name}}"
+            }[5m]))</code></pre>
+      </div>
+    </section>
+
+    <section class="sec" id="s9">
+      <h2><span class="sn">9</span>已知問題與最佳實踐</h2>
+
+      <h3>已知問題</h3>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>Issue #22772：Istio Gateway + AWS ALB HTTP/2 認證失敗（v2.14.9）</h4>
+          <p>當 Argo CD 暴露在 <strong>Istio Gateway → AWS ALB（HTTP/2 listener）</strong> 的環境，<code>argocd login</code> CLI 失敗（HTTP 404 / 307）。<strong>workaround</strong>：① ALB listener 改用 HTTP/1.1（移除 <code>alb.ingress.kubernetes.io/backend-protocol-version: HTTP2</code>）；② 用 Ingress 直接連 ALB（不經 Istio）；③ 在 cluster 內部直接連 argocd-server service（不經 Gateway）。<strong>UI 正常運作不受影響</strong>，只有 gRPC CLI 受影響。</p>
+        </div>
+      </div>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>問題</th><th>症狀</th><th>解法</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>abort 後 Argo CD 顯示 Synced</td>
+              <td>spec 一致但 cluster 是舊版</td>
+              <td>必跟 git revert 才完整 rollback</td>
+            </tr>
+            <tr>
+              <td>VirtualService 一直 OutOfSync</td>
+              <td>Rollouts 改 weight，Argo CD 偵測差異</td>
+              <td>用 ignoreDifferences 排除 weight jsonPointers</td>
+            </tr>
+            <tr>
+              <td>Rollout selector 與舊 Deployment 衝突</td>
+              <td>遷移時兩者管同一個 ReplicaSet</td>
+              <td>遷移前先刪除舊 Deployment</td>
+            </tr>
+            <tr>
+              <td>auto-sync 重複觸發 Rollout</td>
+              <td>Rollouts 更新 weight 後 Argo CD selfHeal 改回去</td>
+              <td>必設 ignoreDifferences</td>
+            </tr>
+            <tr>
+              <td>Istio 物件顯示 Unknown</td>
+              <td>Argo CD 沒內建 Istio health check</td>
+              <td>補上 5 個 Istio 物件的 health check</td>
+            </tr>
+            <tr>
+              <td>Gateway API plugin 載入失敗</td>
+              <td>controller 沒重啟</td>
+              <td>修改 trafficRouterPlugins ConfigMap 後 rollout restart controller</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Production 最佳實踐</h3>
+
+      <div class="cal ct">
+        <span class="ic">✅</span>
+        <div>
+          <h4>Argo CD + Rollouts 整合 12 項 Checklist</h4>
+          <p>① <strong>用 v2.0+</strong> 內建 Rollout health check（不需自訂 Lua）；② <strong>必設 VirtualService weight 的 ignoreDifferences</strong>避免 Argo CD selfHeal 與 Rollouts 衝突；③ <strong>補上 Istio 5 大物件的 health check</strong>（VS/DR/GW/AuthPol/PeerAuth）；④ <strong>UI Actions 細粒度 RBAC</strong>（dev: restart only；SRE: all）；⑤ <strong>緊急 rollback 流程</strong>：abort 立即止血 + git revert 永久回滾；⑥ <strong>auto-sync 啟用 selfHeal: true</strong> 但搭配 ignoreDifferences；⑦ <strong>Background analysis</strong> 永遠跑（safety net），加 inline analysis 做 milestone gate；⑧ <strong>argocd-notifications 訂閱 on-rollout-paused</strong>提醒手動 promote；⑨ <strong>遷移舊 Deployment 必先刪</strong>避免 selector 衝突；⑩ <strong>service mesh 選擇</strong>：新專案優先 Gateway API plugin；⑪ <strong>定期 chaos test</strong>：故意 abort 確認流量切回 stable 流程通；⑫ <strong>monitor Rollout metrics</strong>：Prometheus 抓 Argo Rollouts 的 <code>/metrics</code> endpoint（port 8090）。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="sum">
+      <h2><span class="sn">✓</span>本章重點回顧</h2>
+      <div class="kp">
+        <h3>📌 Key Takeaways</h3>
+        <ul class="kp-list">
+          <li><span class="kp-ic">🤝</span><span><strong>Argo CD 與 Argo Rollouts 完美互補但獨立</strong>：① Argo CD = Git → cluster spec 同步；② Argo Rollouts = ReplicaSet + 流量切換實際操作。兩者透過 K8s API（CRD spec）解耦，<strong>v2.0+ Argo CD 內建 Rollout health check</strong>，UI 自動顯示 step / setWeight / stable/canary 進度。</span></li>
+          <li><span class="kp-ic">⚖️</span><span><strong>Rollout phase 對應 Argo CD health 5 種狀態</strong>：Healthy → Healthy（綠）；Progressing → Progressing（藍）；<strong>Paused → Suspended</strong>（橘，<strong>非 Degraded</strong>，避免半夜誤觸發 alert）；Degraded → Degraded（紅）；Aborted → Degraded（紅）。Suspended 仍會卡 sync wave 推進。</span></li>
+          <li><span class="kp-ic">🎮</span><span><strong>UI Actions：promote / abort / restart / retry / resume / promote-full</strong>。從 Argo CD UI 直接操作 Rollout，<strong>不需切換到 kubectl 或 Argo Rollouts Dashboard</strong>。<strong>細粒度 RBAC</strong>：<code>action/argoproj.io/Rollout/restart</code>（dev role）；<code>action/argoproj.io/Rollout/abort</code>（SRE / on-call role）。</span></li>
+          <li><span class="kp-ic">↩️</span><span><strong>回滾兩種路徑必須並用</strong>：① <strong>argo rollouts abort</strong>（imperative）：立即止血（&lt; 10s），但 <strong>Argo CD 不會顯示 OutOfSync</strong>（spec 與 cluster 一致），auto-sync 可能再次觸發 rollout；② <strong>git revert</strong>（declarative）：完整 audit trail。<strong>標準流程</strong>：abort 立即止血 → git revert 永久回滾。</span></li>
+          <li><span class="kp-ic">🕸️</span><span><strong>Istio 整合 4 個關鍵設定</strong>：① <code>trafficRouting.istio.virtualServices</code>（支援多 VS）；② <code>routes</code>（多 route 時必填）；③ <code>destinationRule.canarySubsetName / stableSubsetName</code>（DR subset 進階控制）；④ ignoreDifferences 排除 VS weight 欄位避免 selfHeal 衝突。<strong>Istio 5 大物件 health check 必補</strong>（VS/DR/GW/AuthPol/PeerAuth）。</span></li>
+          <li><span class="kp-ic">🚪</span><span><strong>Gateway API 是未來方向（v1.4+ Argo Rollouts 支援）</strong>：透過 <code>argoproj-labs/gatewayAPI</code> plugin，HTTPRoute backend 配 stable/canary service。<strong>K8s 官方標準</strong>（vs Istio VirtualService 是 Istio-specific），跨 vendor 通用。<strong>新專案直接用 Gateway API</strong>，舊專案漸進遷移。</span></li>
+          <li><span class="kp-ic">🚦</span><span><strong>5 種 traffic router 各有適用</strong>：① <strong>Istio</strong>（最成熟，已有 mesh）；② <strong>Gateway API</strong>（新標準，未來方向）；③ <strong>NGINX Ingress</strong>（無 mesh 最普及，支援 header-based canary）；④ <strong>AWS ALB</strong>（target groups）；⑤ <strong>SMI</strong>（vendor 中立但支援不全）。<strong>traffic-based canary 必選一種</strong>。</span></li>
+          <li><span class="kp-ic">📢</span><span><strong>argocd-notifications + Rollouts 雙層通知</strong>：① <strong>Argo CD Notifications</strong>：on-rollout-aborted、on-rollout-paused 等 trigger 看 app.status.resources；② <strong>Argo Rollouts Notifications</strong>：直接 on-step-completed、on-analysis-run-error 等細節事件。<strong>實務</strong>：Argo CD 通知整體 health；Rollouts 通知 step 細節。</span></li>
+          <li><span class="kp-ic">🏭</span><span><strong>Production stack 完整組合</strong>：Application（Argo CD）+ Rollout（Argo Rollouts）+ 2 個 Service（stable/canary）+ VirtualService（Istio）+ AnalysisTemplate（SLO-driven）+ Notifications。<strong>ignoreDifferences 排除 VirtualService weight 是 critical 設定</strong>，否則 Argo CD selfHeal 會與 Argo Rollouts 動態調整衝突。</span></li>
+          <li><span class="kp-ic">⚠️</span><span><strong>已知問題</strong>：① <strong>Issue #22772</strong>（Istio Gateway + ALB HTTP/2 造成 argocd CLI 失敗，UI 正常）；② <strong>abort 後 Argo CD 不顯示 OutOfSync</strong>（必跟 git revert）；③ <strong>VirtualService 一直 OutOfSync</strong>（必設 ignoreDifferences）；④ <strong>Rollout selector 與舊 Deployment 衝突</strong>（遷移前必刪舊物件）；⑤ <strong>Istio 物件預設 Unknown</strong>（補 health check）。<strong>12 項 Checklist</strong> 解決絕大多數整合問題。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <div style="background:linear-gradient(135deg,var(--color-success-soft) 0%,var(--color-primary-soft) 100%);border:1px solid var(--color-success);border-radius:var(--radius-lg);padding:var(--space-6);margin:var(--space-7) 0;text-align:center;box-shadow:var(--shadow-md);">
+      <div style="font-size:40px;margin-bottom:var(--space-3);">🎉</div>
+      <h3 style="font-family:var(--font-serif);font-size:var(--text-xl);color:var(--text-primary);font-weight:700;margin-bottom:var(--space-2);">Vol 8 — Argo Rollouts 整合 完成！</h3>
+      <p style="font-size:var(--text-sm);color:var(--text-secondary);margin:0;">恭喜完成 Vol 8 全部三章（Ch.36–Ch.38）。你已掌握 Rollout CRD、Canary 與 Blue-Green strategy、AnalysisTemplate 與 5 大 metric providers、SLO-driven rollouts、Argo CD + Argo Rollouts 完整整合（Istio / Gateway API / NGINX / SMI / ALB）、生產級 production stack。Vol 9 進入最後一卷「Argo 生態工具擴充」——Argo Workflows / Events、Kargo（multi-stage promotion）、Argo CD Autopilot、Argo 3.x 遷移與未來展望。</p>
+    </div>
+
+    <nav class="ch-nav">
+      <a href="ch37-analysis-templates.html" class="nav-btn nav-prev">
+        <div><div class="nav-sub">上一章 / PREV</div><div>← Ch.37 AnalysisTemplate</div></div>
+      </a>
+      <a href="#" class="nav-btn nav-next">
+        <div><div class="nav-sub">下一卷 / NEXT VOL</div><div>Vol 9 Ch.39 Argo Workflows 與 Events →</div></div>
+      </a>
+    </nav>
+  </main>
+</div>
+
+<footer>Argo CD 完整教學手冊 · <strong>Vol 8 Ch.38</strong> · 基於 Argo CD <strong>v3.4</strong> · 2026-05-09</footer>
+
+<script>
+(function(){
+  'use strict';
+  const KEY='jhsun-theme';
+  const IC={light:'☀',dark:'☾',system:'◐'};
+  const LB={light:'Light',dark:'Dark',system:'System'};
+  function gs(){try{return localStorage.getItem(KEY);}catch(_){return null;}}
+  function ss(v){try{v==='system'||v==null?localStorage.removeItem(KEY):localStorage.setItem(KEY,v);}catch(_){}}
+  function sp(){return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  function ef(m){return m==='system'?sp():m;}
+  function apply(m){
+    const e=ef(m);
+    document.documentElement.dataset.theme=e;
+    document.documentElement.dataset.themeMode=m;
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{
+      b.dataset.themeMode=m;
+      b.setAttribute('aria-label','Theme: '+LB[m]);
+      b.title='Theme: '+LB[m];
+      if(!b.dataset.themeToggleStyled)b.innerHTML='<span>'+IC[m]+'</span><span>'+LB[m]+'</span>';
+    });
+    dispatchEvent(new CustomEvent('jhsun:theme-changed',{detail:{theme:e,mode:m}}));
+  }
+  function cyc(c){return c==='light'?'dark':c==='dark'?'system':'light';}
+  function cur(){return gs()||'system';}
+  function init(){
+    apply(cur());
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{b.addEventListener('click',()=>{const n=cyc(cur());ss(n);apply(n);});});
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(cur()==='system')apply('system');});
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+  window.JHsunTheme={get:cur,set:m=>{ss(m);apply(m);},toggle:()=>{const n=cyc(cur());ss(n);apply(n);}};
+})();
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('.copy-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const pre=btn.closest('.code-wrap').querySelector('pre');
+      navigator.clipboard.writeText(pre.innerText).then(()=>{btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},2000);});
+    });
+  });
+  const hds=document.querySelectorAll('.sec h2,.sec h3');
+  const lks=document.querySelectorAll('.toc-list a');
+  const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){lks.forEach(l=>l.classList.remove('active'));const id=e.target.id||e.target.closest('[id]')?.id;if(id){const a=document.querySelector('.toc-list a[href="#'+id+'"]');if(a)a.classList.add('active');}}});},{rootMargin:'-60px 0px -70% 0px'});
+  hds.forEach(h=>{if(h.id)obs.observe(h);});
+});
+</script>
+</body>
+</html>

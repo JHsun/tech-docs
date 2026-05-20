@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.07 Diff 策略與 Diff 客製化 — Argo CD 完整教學手冊</title>
+<style>
+:root {
+  --tk-hue:200;--tk-chroma:0.11;
+  --color-success:#16a34a;--color-success-soft:#dcfce7;
+  --color-warning:#d97706;--color-warning-soft:#fef3c7;
+  --color-danger:#dc2626;--color-danger-soft:#fee2e2;
+  --color-info:#0891b2;--color-info-soft:#cffafe;
+  --color-neutral-accent:#7c3aed;
+  --color-primary:oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:oklch(0.96 calc(var(--tk-chroma)*.25) var(--tk-hue));
+  --color-primary-text:oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas:oklch(0.985 0.004 60);--bg-surface:oklch(0.995 0.003 60);
+  --bg-muted:oklch(0.96 0.005 60);--bg-code:oklch(0.975 0.006 60);
+  --border-soft:oklch(0.92 0.006 60);--border-mid:oklch(0.85 0.008 60);
+  --text-primary:oklch(0.22 0.008 60);--text-secondary:oklch(0.42 0.008 60);--text-muted:oklch(0.58 0.008 60);
+  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --font-sans:"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif;
+  --font-serif:"Playfair Display","Source Serif 4","Noto Serif TC",Georgia,serif;
+  --font-body:"Source Serif 4","Noto Serif TC",Georgia,serif;
+  --text-xs:12px;--text-sm:14px;--text-base:16px;--text-md:18px;--text-lg:20px;--text-xl:24px;--text-2xl:32px;--text-3xl:44px;
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-7:48px;--space-8:64px;--space-9:96px;
+  --radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:20px;
+  --shadow-sm:0 1px 3px oklch(0.20 0.01 60/0.07);--shadow-md:0 4px 14px oklch(0.20 0.01 60/0.10);
+}
+:root[data-theme="dark"]{
+  --color-success:#4ade80;--color-success-soft:oklch(0.28 0.08 145);
+  --color-warning:#fbbf24;--color-warning-soft:oklch(0.30 0.10 70);
+  --color-danger:#f87171;--color-danger-soft:oklch(0.30 0.10 27);
+  --color-info:#22d3ee;--color-info-soft:oklch(0.30 0.08 200);
+  --color-neutral-accent:#a78bfa;
+  --color-primary:oklch(0.72 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-hover:oklch(0.80 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-soft:oklch(0.28 calc(var(--tk-chroma)*.6) var(--tk-hue));
+  --color-primary-text:oklch(0.85 calc(var(--tk-chroma)*.6) var(--tk-hue));
+  --bg-canvas:oklch(0.14 0.008 50);--bg-surface:oklch(0.18 0.009 50);
+  --bg-muted:oklch(0.21 0.010 50);--bg-code:oklch(0.16 0.009 50);
+  --border-soft:oklch(0.26 0.010 50);--border-mid:oklch(0.34 0.012 50);
+  --text-primary:oklch(0.93 0.005 60);--text-secondary:oklch(0.74 0.006 60);--text-muted:oklch(0.56 0.007 60);
+  --shadow-sm:0 1px 3px oklch(0.04 0 0/.50);--shadow-md:0 4px 14px oklch(0.04 0 0/.60);
+}
+html{color-scheme:light dark;}html[data-theme="light"]{color-scheme:light;}html[data-theme="dark"]{color-scheme:dark;}
+body{background:var(--bg-canvas);color:var(--text-primary);font-family:var(--font-sans);font-size:var(--text-base);line-height:1.7;margin:0;padding:0;transition:background .25s,color .25s;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+.topbar{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:10px var(--space-6);background:var(--bg-surface);border-bottom:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.tb-left{display:flex;align-items:center;gap:var(--space-3);}
+.tb-logo{width:30px;height:30px;border-radius:var(--radius-md);background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:13px;font-weight:800;}
+.tb-trail{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.tb-trail .sep{color:var(--border-mid);}.tb-trail .cur{color:var(--color-primary);font-weight:600;}
+.tb-right{display:flex;align-items:center;gap:var(--space-2);}
+.pill{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);border:1px solid;}
+.pill-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.pill-ver{background:var(--color-info-soft);color:var(--color-info);border-color:var(--color-info);}
+[data-theme-toggle]{cursor:pointer;border:1px solid var(--border-mid);background:var(--bg-muted);color:var(--text-secondary);border-radius:var(--radius-md);padding:6px var(--space-3);font-family:var(--font-sans);font-size:var(--text-sm);display:flex;align-items:center;gap:6px;transition:all .2s;}
+[data-theme-toggle]:hover{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.page{display:flex;min-height:100vh;}
+.toc-sidebar{width:230px;flex-shrink:0;position:sticky;top:49px;height:calc(100vh - 49px);overflow-y:auto;padding:var(--space-5) var(--space-3);border-right:1px solid var(--border-soft);background:var(--bg-surface);}
+.toc-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-3);}
+.toc-list{list-style:none;}
+.toc-list li{margin-bottom:2px;}
+.toc-list a{display:block;padding:4px var(--space-2);font-size:var(--text-sm);color:var(--text-secondary);text-decoration:none;border-radius:var(--radius-sm);border-left:2px solid transparent;transition:all .15s;line-height:1.4;}
+.toc-list a:hover,.toc-list a.active{color:var(--color-primary);background:var(--color-primary-soft);border-left-color:var(--color-primary);font-weight:600;}
+.toc-h3{padding-left:var(--space-4)!important;font-size:var(--text-xs)!important;}
+.toc-lbl{display:block;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:var(--space-3) var(--space-2) var(--space-1);margin-top:var(--space-2);}
+.content{flex:1;min-width:0;padding:var(--space-8) var(--space-7) var(--space-9);max-width:900px;}
+.ch-header{margin-bottom:var(--space-8);padding-bottom:var(--space-6);border-bottom:1px solid var(--border-soft);}
+.ch-meta{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-4);flex-wrap:wrap;}
+.m-badge{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);}
+.m-ch{background:var(--color-primary);color:#fff;}
+.m-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border:1px solid var(--color-primary);}
+.m-time{background:var(--bg-muted);color:var(--text-muted);border:1px solid var(--border-soft);}
+.ch-header h1{font-family:var(--font-serif);font-size:clamp(var(--text-2xl),4vw,var(--text-3xl));font-weight:700;color:var(--text-primary);line-height:1.2;margin-bottom:var(--space-4);}
+.ch-header h1 em{font-style:normal;color:var(--color-primary);}
+.ch-lead{font-size:var(--text-md);color:var(--text-secondary);line-height:1.7;max-width:700px;font-family:var(--font-body);}
+.prereq{margin-top:var(--space-5);display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--bg-muted);border-radius:var(--radius-md);border:1px solid var(--border-soft);}
+.prereq .pico{font-size:var(--text-lg);flex-shrink:0;margin-top:1px;}
+.prereq p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;}
+.prereq strong{color:var(--text-primary);}
+.obj-box{background:var(--color-primary-soft);border:1px solid var(--color-primary);border-radius:var(--radius-lg);padding:var(--space-5);margin-bottom:var(--space-7);}
+.obj-box h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--color-primary-text);font-weight:700;margin-bottom:var(--space-3);}
+.obj-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-2);}
+.obj-list li{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-sm);color:var(--color-primary-text);line-height:1.5;}
+.obj-list li::before{content:"✓";font-weight:700;color:var(--color-primary);flex-shrink:0;margin-top:1px;}
+.sec{margin-bottom:var(--space-9);scroll-margin-top:80px;}
+.sec h2{font-family:var(--font-serif);font-size:var(--text-2xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-4);padding-bottom:var(--space-3);border-bottom:2px solid var(--border-soft);display:flex;align-items:center;gap:var(--space-3);}
+.sn{font-family:var(--font-mono);font-size:var(--text-sm);background:var(--color-primary);color:#fff;padding:2px 8px;border-radius:var(--radius-sm);font-weight:700;white-space:nowrap;flex-shrink:0;}
+.sec h3{font-family:var(--font-sans);font-size:var(--text-lg);font-weight:700;color:var(--text-primary);margin:var(--space-6) 0 var(--space-3);}
+.sec h4{font-family:var(--font-sans);font-size:var(--text-base);font-weight:700;color:var(--text-primary);margin:var(--space-5) 0 var(--space-2);}
+p{font-family:var(--font-body);font-size:var(--text-base);color:var(--text-secondary);line-height:1.8;margin-bottom:var(--space-4);}
+strong{color:var(--text-primary);}em{color:var(--color-primary);font-style:normal;}
+.cal{display:flex;gap:var(--space-3);padding:var(--space-4) var(--space-5);border-radius:var(--radius-lg);margin:var(--space-5) 0;border-left:4px solid;}
+.ci{background:var(--color-info-soft);border-color:var(--color-info);}
+.cw{background:var(--color-warning-soft);border-color:var(--color-warning);}
+.ct{background:var(--color-success-soft);border-color:var(--color-success);}
+.cd{background:var(--color-primary-soft);border-color:var(--color-primary);}
+.cal .ic{font-size:var(--text-lg);flex-shrink:0;margin-top:2px;}
+.cal h4{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-1);font-family:var(--font-sans);}
+.cal p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.65;margin:0;font-family:var(--font-sans);}
+.code-wrap{margin:var(--space-4) 0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.code-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px var(--space-4);background:var(--bg-muted);border-bottom:1px solid var(--border-soft);}
+.code-lang{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;}
+.copy-btn{cursor:pointer;font-family:var(--font-mono);font-size:11px;padding:3px 10px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--border-mid);color:var(--text-muted);transition:all .2s;}
+.copy-btn:hover{background:var(--color-primary-soft);color:var(--color-primary);border-color:var(--color-primary);}
+.copy-btn.copied{background:var(--color-success-soft);color:var(--color-success);border-color:var(--color-success);}
+pre{margin:0;padding:var(--space-5);background:var(--bg-code);overflow-x:auto;font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.65;color:var(--text-primary);}
+code{font-family:var(--font-mono);font-size:.92em;background:var(--bg-code);padding:1px 5px;border-radius:var(--radius-sm);color:var(--color-primary-text);border:1px solid var(--border-soft);}
+pre code{background:none;padding:0;border:none;color:inherit;font-size:inherit;}
+.yk{color:var(--color-info);}.yv{color:var(--color-success);}.yc{color:var(--text-muted);font-style:italic;}
+.yn{color:var(--color-warning);}.yh{color:var(--color-neutral-accent);font-weight:700;}
+.sh-comment{color:var(--text-muted);font-style:italic;}.sh-prompt{color:var(--color-success);}
+/* strategy comparison */
+.strat-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-5);margin:var(--space-5) 0;}
+.strat-card{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.sc-head{padding:var(--space-3) var(--space-5);font-family:var(--font-mono);font-size:var(--text-xs);font-weight:700;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid var(--border-soft);}
+.sc-body{padding:var(--space-4) var(--space-5);}
+.sc-row{display:flex;gap:var(--space-3);margin-bottom:var(--space-2);font-size:var(--text-sm);font-family:var(--font-sans);}
+.sc-label{color:var(--text-muted);width:80px;flex-shrink:0;}
+.sc-val{color:var(--text-secondary);flex:1;line-height:1.5;}
+/* table */
+.tw{overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);margin:var(--space-5) 0;}
+table{width:100%;border-collapse:collapse;font-size:var(--text-sm);}
+thead th{background:var(--bg-muted);padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.07em;border-bottom:2px solid var(--border-mid);text-align:left;white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--border-soft);transition:background .12s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--bg-muted);}
+td{padding:var(--space-3) var(--space-4);vertical-align:top;line-height:1.6;font-family:var(--font-sans);}
+td:first-child{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--color-primary-text);background:var(--color-primary-soft);white-space:nowrap;font-weight:600;}
+.tc{font-size:var(--text-xs);color:var(--text-muted);}
+/* diff flow */
+.diff-flow{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-5);margin:var(--space-5) 0;box-shadow:var(--shadow-sm);}
+.df-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:var(--space-4);}
+.df-steps{display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap;}
+.df-step{background:var(--bg-muted);border:1px solid var(--border-soft);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--text-xs);font-family:var(--font-mono);color:var(--text-secondary);text-align:center;flex:1;min-width:120px;}
+.df-step strong{color:var(--color-primary);display:block;margin-bottom:3px;}
+.df-arrow{font-size:var(--text-lg);color:var(--text-muted);flex-shrink:0;}
+/* jq examples */
+.jq-examples{display:flex;flex-direction:column;gap:var(--space-3);margin:var(--space-4) 0;}
+.jq-ex{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);overflow:hidden;}
+.jq-hd{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--bg-muted);border-bottom:1px solid var(--border-soft);}
+.jq-scenario{font-size:var(--text-xs);font-weight:700;color:var(--text-primary);font-family:var(--font-sans);}
+.jq-tag{font-family:var(--font-mono);font-size:10px;padding:1px 6px;border-radius:var(--radius-sm);border:1px solid var(--color-info);background:var(--color-info-soft);color:var(--color-info);}
+.jq-body{padding:0;}
+/* kp */
+.kp{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);margin:var(--space-7) 0;box-shadow:var(--shadow-sm);}
+.kp h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-4);margin-top:0;}
+.kp-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-3);}
+.kp-list li{display:flex;align-items:flex-start;gap:var(--space-3);font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.kp-ic{font-size:var(--text-md);flex-shrink:0;margin-top:1px;}
+.ch-nav{display:flex;justify-content:space-between;margin-top:var(--space-9);padding-top:var(--space-6);border-top:1px solid var(--border-soft);}
+.nav-btn{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);text-decoration:none;font-size:var(--text-sm);font-weight:600;transition:all .2s;box-shadow:var(--shadow-md);}
+.nav-prev{background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-mid);}.nav-prev:hover{background:var(--bg-muted);transform:translateX(-2px);}
+.nav-next{background:var(--color-primary);color:#fff;}.nav-next:hover{background:var(--color-primary-hover);transform:translateX(2px);}
+.nav-sub{font-size:11px;opacity:.75;font-family:var(--font-mono);}
+footer{border-top:1px solid var(--border-soft);padding:var(--space-5) var(--space-8);font-family:var(--font-mono);font-size:11px;color:var(--text-muted);text-align:center;}
+footer strong{color:var(--color-primary);}
+@media(max-width:900px){.toc-sidebar{display:none;}.content{padding:var(--space-6) var(--space-4) var(--space-8);}.strat-grid{grid-template-columns:1fr;}}
+@media(max-width:640px){.topbar{padding:8px var(--space-4);}.tb-trail{display:none;}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="tb-left">
+    <div class="tb-logo">A</div>
+    <nav class="tb-trail">
+      <span>Argo CD 完整教學手冊</span><span class="sep">›</span>
+      <span>Vol 2 應用程式管理</span><span class="sep">›</span>
+      <span class="cur">Ch.07 Diff 策略與 Diff 客製化</span>
+    </nav>
+  </div>
+  <div class="tb-right">
+    <span class="pill pill-vol">Vol 2 · Ch.07</span>
+    <span class="pill pill-ver">v3.4</span>
+    <button data-theme-toggle></button>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="toc-sidebar">
+    <div class="toc-title">本章目錄</div>
+    <ul class="toc-list">
+      <li><a href="#obj">學習目標</a></li>
+      <span class="toc-lbl">第一節</span>
+      <li><a href="#s1">Diff 的本質：為何需要客製化</a></li>
+      <li><a href="#s1a" class="toc-h3">常見的 False OutOfSync 根因</a></li>
+      <span class="toc-lbl">第二節</span>
+      <li><a href="#s2">Diff 策略：Client-Side vs Server-Side</a></li>
+      <li><a href="#s2a" class="toc-h3">Client-Side Diff（預設）</a></li>
+      <li><a href="#s2b" class="toc-h3">Server-Side Diff</a></li>
+      <li><a href="#s2c" class="toc-h3">啟用方式</a></li>
+      <li><a href="#s2d" class="toc-h3">Mutation Webhook 支援</a></li>
+      <span class="toc-lbl">第三節</span>
+      <li><a href="#s3">ignoreDifferences 深度指南</a></li>
+      <li><a href="#s3a" class="toc-h3">jsonPointers（RFC 6902）</a></li>
+      <li><a href="#s3b" class="toc-h3">jqPathExpressions（進階過濾）</a></li>
+      <li><a href="#s3c" class="toc-h3">managedFieldsManagers</a></li>
+      <li><a href="#s3d" class="toc-h3">常見場景完整範例集</a></li>
+      <span class="toc-lbl">第四節</span>
+      <li><a href="#s4">系統層級 ignoreDifferences（argocd-cm）</a></li>
+      <li><a href="#s4a" class="toc-h3">resource.customizations 格式</a></li>
+      <li><a href="#s4b" class="toc-h3">全域設定（all）</a></li>
+      <span class="toc-lbl">第五節</span>
+      <li><a href="#s5">resource.compareoptions</a></li>
+      <li><a href="#s5a" class="toc-h3">ignoreResourceStatusField</a></li>
+      <li><a href="#s5b" class="toc-h3">ignoreResourceUpdates</a></li>
+      <span class="toc-lbl">第六節</span>
+      <li><a href="#s6">Parameter Overrides</a></li>
+      <span class="toc-lbl">第七節</span>
+      <li><a href="#s7">Diff 診斷工具</a></li>
+      <span class="toc-lbl">總結</span>
+      <li><a href="#sum">重點回顧</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <header class="ch-header">
+      <div class="ch-meta">
+        <span class="m-badge m-ch">Chapter 07</span>
+        <span class="m-badge m-vol">Vol 2 — 應用程式管理</span>
+        <span class="m-badge m-time">⏱ 預計閱讀時間 35 分鐘</span>
+      </div>
+      <h1>Diff 策略與 Diff 客製化：<br><em>消除 False OutOfSync，精確追蹤真正的 Drift</em></h1>
+      <p class="ch-lead">Argo CD 的 diff 引擎持續比對 Git 與叢集的狀態差異。然而，Kubernetes 的動態特性（API server 預設值、controller 自動更新、admission webhook 注入）常常製造出「噪音差異」，讓 Application 永遠處於 OutOfSync。本章深入 diff 策略的選擇、ignoreDifferences 的三種語法，以及系統層級的全域設定，教你精確定義「什麼算 drift，什麼不算」。</p>
+      <div class="prereq">
+        <span class="pico">📋</span>
+        <p><strong>前置：</strong>已閱讀 Ch.02（Sync Status）、Ch.06（ignoreDifferences 基礎）。具備 jq 基本語法認識會有幫助。</p>
+      </div>
+    </header>
+
+    <div class="obj-box" id="obj">
+      <h3>🎯 學習目標</h3>
+      <ul class="obj-list">
+        <li>理解 Client-Side Diff 與 Server-Side Diff 的架構差異，以及各自的適用場景</li>
+        <li>能啟用 Server-Side Diff（全域與 Application 層級），並處理 Mutation Webhook 的包含設定</li>
+        <li>精通 ignoreDifferences 的三種語法：jsonPointers（含特殊字元 escape）、jqPathExpressions（含條件過濾語法）、managedFieldsManagers</li>
+        <li>為常見場景（HPA、Istio sidecar、admission webhook caBundle、operator 管理欄位）撰寫正確的 ignoreDifferences</li>
+        <li>在 argocd-cm 設定系統層級的全域 ignoreDifferences，避免在每個 Application 重複設定</li>
+        <li>了解 resource.compareoptions 的 ignoreResourceStatusField 與 ignoreResourceUpdates 設定</li>
+        <li>使用 argocd app diff 工具診斷 OutOfSync 的根本原因</li>
+      </ul>
+    </div>
+
+    <!-- S1 為何需要 Diff 客製化 -->
+    <section class="sec" id="s1">
+      <h2><span class="sn">1</span>Diff 的本質：為何需要客製化</h2>
+      <p>Argo CD 的 diff 引擎做的事情看似簡單：比對 <strong>desired state</strong>（Git 中的 manifest）與 <strong>live state</strong>（叢集中的資源）。但 Kubernetes 的設計讓這個比對充滿複雜性——資源從 Git 部署到叢集後，叢集中的實際狀態與 Git 定義可能出現合法的差異。</p>
+
+      <div class="diff-flow">
+        <div class="df-title">📊 Diff 計算流程</div>
+        <div class="df-steps">
+          <div class="df-step"><strong>Git Manifest</strong>你撰寫的 YAML</div>
+          <div class="df-arrow">→</div>
+          <div class="df-step"><strong>Manifest 渲染</strong>helm template / kustomize build</div>
+          <div class="df-arrow">→</div>
+          <div class="df-step"><strong>正規化</strong>去除 timestamp、generation 等動態欄位</div>
+          <div class="df-arrow">→</div>
+          <div class="df-step"><strong>Diff 計算</strong>與叢集 live state 比對</div>
+          <div class="df-arrow">→</div>
+          <div class="df-step"><strong>Sync Status</strong>Synced / OutOfSync</div>
+        </div>
+      </div>
+
+      <h3 id="s1a">1.1 常見的 False OutOfSync 根因</h3>
+      <p>以下是最常見的「噪音差異」來源，這些差異不代表真正的 drift，但 Argo CD 預設情況下仍會偵測到：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>根因類型</th><th>具體範例</th><th>解決方式</th></tr></thead>
+          <tbody>
+            <tr><td>API server 預設值</td><td>spec.replicas（省略時 API server 填 1）、clusterIP、selector defaulting</td><td>Server-Side Diff 或 jsonPointers 忽略</td></tr>
+            <tr><td>HPA 動態管理</td><td>Deployment.spec.replicas 被 HPA 調整為不同值</td><td>jsonPointers: /spec/replicas + RespectIgnoreDifferences</td></tr>
+            <tr><td>Admission Webhook 注入</td><td>Istio sidecar container / init container 被注入</td><td>jqPathExpressions 按 name 過濾 container</td></tr>
+            <tr><td>Controller 自動更新欄位</td><td>MutatingWebhookConfiguration.caBundle 被 cert-manager 更新</td><td>jqPathExpressions: .webhooks[]?.clientConfig.caBundle</td></tr>
+            <tr><td>Operator 管理的 status / 欄位</td><td>ExternalSecret 加入 .status.conditions 或 .metadata.annotations</td><td>jqPathExpressions 過濾或 managedFieldsManagers</td></tr>
+            <tr><td>Deployment revision annotation</td><td>deployment.kubernetes.io/revision 自動遞增</td><td>jsonPointers: /metadata/annotations/deployment.kubernetes.io~1revision</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- S2 Diff 策略 -->
+    <section class="sec" id="s2">
+      <h2><span class="sn">2</span>Diff 策略：Client-Side vs Server-Side</h2>
+      <p>Argo CD 支援兩種根本上不同的 diff 計算策略，選擇正確的策略可以大幅減少需要設定的 ignoreDifferences 數量。</p>
+
+      <div class="strat-grid">
+        <div class="strat-card">
+          <div class="sc-head" style="background:var(--color-primary-soft);color:var(--color-primary-text)">Client-Side Diff（預設）</div>
+          <div class="sc-body">
+            <div class="sc-row"><span class="sc-label">原理</span><span class="sc-val">在 Argo CD 內部計算。將 Git manifest 與 live state 直接比對，依賴 Argo CD 自己的正規化邏輯去除雜訊。</span></div>
+            <div class="sc-row"><span class="sc-label">優點</span><span class="sc-val">不需額外 API 呼叫；不受 Kubernetes 版本影響；行為可預測；支援所有 Kubernetes 版本。</span></div>
+            <div class="sc-row"><span class="sc-label">缺點</span><span class="sc-val">API server 預設值注入的欄位會造成 false OutOfSync；需要更多 ignoreDifferences 設定；無法偵測 mutation webhook 的影響。</span></div>
+            <div class="sc-row"><span class="sc-label">適用</span><span class="sc-val">舊版 Kubernetes（&lt;1.18）；簡單 manifest；需要 diff 行為完全可預測的環境。</span></div>
+          </div>
+        </div>
+        <div class="strat-card">
+          <div class="sc-head" style="background:var(--color-info-soft);color:var(--color-info)">Server-Side Diff（推薦）</div>
+          <div class="sc-body">
+            <div class="sc-row"><span class="sc-label">原理</span><span class="sc-val">向 API server 發送 dry-run server-side apply 請求，讓 K8s 計算「apply 後的預期結果」，再與 live state 比對。</span></div>
+            <div class="sc-row"><span class="sc-label">優點</span><span class="sc-val">自然處理 API server 預設值（因為 dry-run 結果已含預設值）；需要更少的 ignoreDifferences；與 SSA 語義一致；可選擇性地含 mutation webhook 影響。</span></div>
+            <div class="sc-row"><span class="sc-label">缺點</span><span class="sc-val">每次 diff 需要額外 API 呼叫（效能代價）；需要 Kubernetes 1.18+；混用 CSA/SSA 時可能有邊緣案例。</span></div>
+            <div class="sc-row"><span class="sc-label">適用</span><span class="sc-val">現代 Kubernetes（≥1.18）；複雜 operator 環境；已使用 ServerSideApply 的叢集。2025 年後新部署推薦預設啟用。</span></div>
+          </div>
+        </div>
+      </div>
+
+      <h3 id="s2c">2.1 啟用 Server-Side Diff</h3>
+      <p>有三種方式可以啟用 Server-Side Diff，依影響範圍從大到小：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Server-Side Diff 三種啟用方式</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## 方式一：全域啟用（所有 Application）</span>
+<span class="sh-comment">## 在 argocd-cmd-params-cm 設定，需重啟 application-controller</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-cmd-params-cm</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yk">controller.diff.server.side:</span> <span class="yv">"true"</span>
+<span class="sh-comment">---</span>
+<span class="sh-comment">## 重啟 application-controller 使設定生效</span>
+<span class="sh-comment">## kubectl rollout restart statefulset argocd-application-controller -n argocd</span>
+
+<span class="sh-comment">## 方式二：Application 層級啟用（annotation）</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: Application</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app</span>
+  <span class="yk">annotations:</span>
+    <span class="yc"># 啟用 Server-Side Diff</span>
+    <span class="yk">argocd.argoproj.io/compare-options:</span> <span class="yv">ServerSideDiff=true</span>
+
+<span class="sh-comment">## 方式三：全域啟用後，特定 Application 保留 Client-Side Diff</span>
+<span class="yk">metadata:</span>
+  <span class="yk">annotations:</span>
+    <span class="yc"># 在全域啟用 SSD 後，此 Application 退回 Client-Side</span>
+    <span class="yk">argocd.argoproj.io/compare-options:</span> <span class="yv">ServerSideDiff=false</span></code></pre>
+      </div>
+
+      <h3 id="s2d">2.2 Mutation Webhook 的包含設定</h3>
+      <p>預設情況下，Server-Side Diff 的 dry-run 請求不會觸發 Mutation Webhook（避免副作用）。若需要將 mutation webhook 的注入也納入 diff 計算（讓 Argo CD 看到「apply 後真實會是什麼樣子」），需要額外啟用：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — 啟用 Mutation Webhook 包含</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">metadata:</span>
+  <span class="yk">annotations:</span>
+    <span class="yc"># 同時啟用 SSD 和 Mutation Webhook 支援</span>
+    <span class="yk">argocd.argoproj.io/compare-options:</span> <span class="yv">ServerSideDiff=true,IncludeMutationWebhook=true</span>
+
+<span class="yc">## 效果：</span>
+<span class="yc"># Argo CD 的 dry-run 請求會通過 Mutation Webhook（如 Istio）</span>
+<span class="yc"># 計算 diff 時，Istio 注入的 sidecar 已被視為「預期狀態的一部分」</span>
+<span class="yc"># 不需要 ignoreDifferences 來排除 istio-proxy container</span>
+<span class="yc"># 注意：此設定可能造成 dry-run 有副作用，謹慎評估</span></code></pre>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>Server-Side Diff + ServerSideApply = 最佳組合</h4>
+          <p>Server-Side Diff 與 ServerSideApply 搭配使用時效果最好：diff 策略和 apply 策略都以 K8s API server 的語義為準，確保「diff 看到的」和「apply 實際做的」完全一致，大幅減少誤報。2025 年後新部署強烈建議兩者一起啟用。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S3 ignoreDifferences 深度指南 -->
+    <section class="sec" id="s3">
+      <h2><span class="sn">3</span>ignoreDifferences 深度指南</h2>
+      <p><code>ignoreDifferences</code> 是解決 False OutOfSync 的精準工具。每條規則由「資源選擇器」（group / kind / name / namespace）與「欄位選擇器」（jsonPointers / jqPathExpressions / managedFieldsManagers）組成。</p>
+
+      <h3 id="s3a">3.1 jsonPointers：RFC 6902 JSON Pointer 語法</h3>
+      <p>JSON Pointer 是最常用的語法，直觀地以路徑字串指定要忽略的欄位。路徑從根節點 <code>/</code> 開始，各層級以 <code>/</code> 分隔。</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — jsonPointers 語法完整範例（含特殊字元 escape）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">ignoreDifferences:</span>
+  <span class="yc">## 基本欄位路徑</span>
+  - <span class="yk">group:</span> <span class="yv">apps</span>
+    <span class="yk">kind:</span> <span class="yv">Deployment</span>
+    <span class="yk">jsonPointers:</span>
+      - <span class="yv">/spec/replicas</span>                  <span class="yc"># HPA 管理</span>
+      - <span class="yv">/metadata/resourceVersion</span>        <span class="yc"># 系統自動更新</span>
+      - <span class="yv">/metadata/generation</span>             <span class="yc"># 每次更新遞增</span>
+
+  <span class="yc">## 特殊字元 escape 規則（RFC 6902）：</span>
+  <span class="yc">## / 必須 escape 為 ~1</span>
+  <span class="yc">## ~ 必須 escape 為 ~0</span>
+  - <span class="yk">group:</span> <span class="yv">apps</span>
+    <span class="yk">kind:</span> <span class="yv">Deployment</span>
+    <span class="yk">jsonPointers:</span>
+      <span class="yc"># annotation key 含 /，用 ~1 escape</span>
+      - <span class="yv">/metadata/annotations/deployment.kubernetes.io~1revision</span>
+      <span class="yc"># annotation key 含 /，另一個例子</span>
+      - <span class="yv">/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration</span>
+      <span class="yc"># label key 含 /</span>
+      - <span class="yv">/metadata/labels/node-role.kubernetes.io~1worker</span>
+
+  <span class="yc">## 指定陣列索引（但不建議，index 可能變化）</span>
+  - <span class="yk">group:</span> <span class="yv">""</span>  <span class="yc"># core API group</span>
+    <span class="yk">kind:</span> <span class="yv">Service</span>
+    <span class="yk">jsonPointers:</span>
+      - <span class="yv">/spec/clusterIP</span>    <span class="yc"># 由 API server 分配</span>
+      - <span class="yv">/spec/clusterIPs</span>   <span class="yc"># 同上</span>
+      - <span class="yv">/spec/ports/0/nodePort</span>  <span class="yc"># NodePort 動態分配</span>
+
+  <span class="yc">## 限定特定資源名稱（非通配）</span>
+  - <span class="yk">group:</span> <span class="yv">apps</span>
+    <span class="yk">kind:</span> <span class="yv">Deployment</span>
+    <span class="yk">name:</span> <span class="yv">guestbook-ui</span>    <span class="yc"># 只對這個 Deployment 生效</span>
+    <span class="yk">namespace:</span> <span class="yv">default</span>  <span class="yc"># 可選，進一步限縮</span>
+    <span class="yk">jsonPointers:</span>
+      - <span class="yv">/spec/replicas</span>
+
+  <span class="yc">## 全域通配（對所有 group / kind）</span>
+  - <span class="yk">group:</span> <span class="yv">"*"</span>
+    <span class="yk">kind:</span> <span class="yv">"*"</span>
+    <span class="yk">jsonPointers:</span>
+      - <span class="yv">/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration</span></code></pre>
+      </div>
+
+      <h3 id="s3b">3.2 jqPathExpressions：進階條件過濾</h3>
+      <p>jq 語法強大之處在於可以按 name、條件、前綴等過濾陣列元素，解決 jsonPointers 無法按索引以外的條件選擇的限制。Argo CD 支援 jq 語法的子集，注意不是所有 jq 功能都可用。</p>
+
+      <div class="jq-examples">
+        <div class="jq-ex">
+          <div class="jq-hd">
+            <span class="jq-scenario">場景 1：Istio 注入 sidecar container（按 name 過濾）</span>
+            <span class="jq-tag">admission webhook</span>
+          </div>
+          <div class="jq-body">
+            <pre style="margin:0;padding:var(--space-4) var(--space-5);background:var(--bg-code);font-family:var(--font-mono);font-size:var(--text-sm);"><code><span class="yk">ignoreDifferences:</span>
+  - <span class="yk">group:</span> <span class="yv">apps</span>
+    <span class="yk">kind:</span> <span class="yv">Deployment</span>
+    <span class="yk">jqPathExpressions:</span>
+      <span class="yc"># 忽略由 Istio 注入的 sidecar container</span>
+      - <span class="yv">.spec.template.spec.containers[] | select(.name == "istio-proxy")</span>
+      <span class="yc"># 忽略 Istio init container</span>
+      - <span class="yv">.spec.template.spec.initContainers[] | select(.name == "istio-init")</span>
+      <span class="yc"># 忽略 Istio 相關 volumes（名稱以 istio- 開頭）</span>
+      - <span class="yv">.spec.template.spec.volumes[] | select(.name | startswith("istio-"))</span>
+      <span class="yc"># 忽略 Istio 相關 volume mounts</span>
+      - <span class="yv">.spec.template.spec.containers[].volumeMounts[] | select(.name | startswith("istio-"))</span></code></pre>
+          </div>
+        </div>
+
+        <div class="jq-ex">
+          <div class="jq-hd">
+            <span class="jq-scenario">場景 2：MutatingWebhookConfiguration.caBundle（cert-manager 更新）</span>
+            <span class="jq-tag">cert-manager</span>
+          </div>
+          <div class="jq-body">
+            <pre style="margin:0;padding:var(--space-4) var(--space-5);background:var(--bg-code);font-family:var(--font-mono);font-size:var(--text-sm);"><code><span class="yk">ignoreDifferences:</span>
+  - <span class="yk">group:</span> <span class="yv">admissionregistration.k8s.io</span>
+    <span class="yk">kind:</span> <span class="yv">MutatingWebhookConfiguration</span>
+    <span class="yk">jqPathExpressions:</span>
+      <span class="yc"># cert-manager 自動注入 caBundle，不是 Git 管理的欄位</span>
+      - <span class="yv">.webhooks[]?.clientConfig.caBundle</span>
+  <span class="yc"># ValidatingWebhookConfiguration 同理</span>
+  - <span class="yk">group:</span> <span class="yv">admissionregistration.k8s.io</span>
+    <span class="yk">kind:</span> <span class="yv">ValidatingWebhookConfiguration</span>
+    <span class="yk">jqPathExpressions:</span>
+      - <span class="yv">.webhooks[]?.clientConfig.caBundle</span></code></pre>
+          </div>
+        </div>
+
+        <div class="jq-ex">
+          <div class="jq-hd">
+            <span class="jq-scenario">場景 3：按 annotation key 前綴忽略（kubectl 自動加入的 annotation）</span>
+            <span class="jq-tag">kubectl annotation</span>
+          </div>
+          <div class="jq-body">
+            <pre style="margin:0;padding:var(--space-4) var(--space-5);background:var(--bg-code);font-family:var(--font-mono);font-size:var(--text-sm);"><code><span class="yk">ignoreDifferences:</span>
+  - <span class="yk">group:</span> <span class="yv">apps</span>
+    <span class="yk">kind:</span> <span class="yv">Deployment</span>
+    <span class="yk">jqPathExpressions:</span>
+      <span class="yc"># 忽略所有 kubectl.kubernetes.io/ 前綴的 annotation</span>
+      - <span class="yv">.metadata.annotations | to_entries[] | select(.key | startswith("kubectl.kubernetes.io/"))</span>
+      <span class="yc"># 忽略特定 label</span>
+      - <span class="yv">.metadata.labels | to_entries[] | select(.key | startswith("app.kubernetes.io/managed-by"))</span></code></pre>
+          </div>
+        </div>
+
+        <div class="jq-ex">
+          <div class="jq-hd">
+            <span class="jq-scenario">場景 4：按 regex pattern 過濾環境變數</span>
+            <span class="jq-tag">env vars</span>
+          </div>
+          <div class="jq-body">
+            <pre style="margin:0;padding:var(--space-4) var(--space-5);background:var(--bg-code);font-family:var(--font-mono);font-size:var(--text-sm);"><code><span class="yk">ignoreDifferences:</span>
+  - <span class="yk">group:</span> <span class="yv">apps</span>
+    <span class="yk">kind:</span> <span class="yv">Deployment</span>
+    <span class="yk">jqPathExpressions:</span>
+      <span class="yc"># 忽略所有 GENERATED_ 開頭的環境變數（動態注入）</span>
+      - <span class="yv">.spec.template.spec.containers[].env[] | select(.name | test("^GENERATED_"))</span>
+      <span class="yc"># 忽略 cert-manager 相關的 volume mounts（名稱含 tls）</span>
+      - <span class="yv">.spec.template.spec.containers[] | select(.name == "my-app") | .volumeMounts[] | select(.name | contains("tls"))</span></code></pre>
+          </div>
+        </div>
+
+        <div class="jq-ex">
+          <div class="jq-hd">
+            <span class="jq-scenario">場景 5：ExternalSecret operator 管理的欄位</span>
+            <span class="jq-tag">external-secrets</span>
+          </div>
+          <div class="jq-body">
+            <pre style="margin:0;padding:var(--space-4) var(--space-5);background:var(--bg-code);font-family:var(--font-mono);font-size:var(--text-sm);"><code><span class="yk">ignoreDifferences:</span>
+  - <span class="yk">group:</span> <span class="yv">external-secrets.io</span>
+    <span class="yk">kind:</span> <span class="yv">ExternalSecret</span>
+    <span class="yk">jqPathExpressions:</span>
+      <span class="yc"># operator 注入的預設欄位</span>
+      - <span class="yv">.spec.dataFrom[]?.conversionStrategy</span>
+      - <span class="yv">.spec.dataFrom[]?.decodingStrategy</span>
+      - <span class="yv">.spec.dataFrom[]?.metadataPolicy</span>
+      <span class="yc"># operator 更新的 status</span>
+      - <span class="yv">.status</span></code></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>jqPathExpressions 的限制</h4>
+          <p>Argo CD 支援 jq 語法的子集，不支援 <code>reduce</code>、<code>group_by</code>、自定義函式等複雜操作。另外，預設 jq 表達式執行有 1 秒超時，若 jq 表達式過於複雜，可在 argocd-cmd-params-cm 中調整 <code>ignore.normalizer.jq.timeout</code> 設定。</p>
+        </div>
+      </div>
+
+      <h3 id="s3c">3.3 managedFieldsManagers：按 Field Manager 忽略</h3>
+      <p>當使用 Server-Side Apply 時，每個修改資源的工具/controller 都有自己的 field manager name（記錄在 <code>metadata.managedFields</code> 中）。透過 <code>managedFieldsManagers</code> 可以忽略特定 manager 管理的所有欄位：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — managedFieldsManagers 範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">ignoreDifferences:</span>
+  <span class="yc">## 忽略 kube-controller-manager 管理的所有欄位</span>
+  - <span class="yk">group:</span> <span class="yv">apps</span>
+    <span class="yk">kind:</span> <span class="yv">Deployment</span>
+    <span class="yk">managedFieldsManagers:</span>
+      - <span class="yv">kube-controller-manager</span>
+
+  <span class="yc">## 忽略所有資源中 helm 管理的欄位</span>
+  - <span class="yk">group:</span> <span class="yv">"*"</span>
+    <span class="yk">kind:</span> <span class="yv">"*"</span>
+    <span class="yk">managedFieldsManagers:</span>
+      - <span class="yv">helm</span>
+
+  <span class="yc">## 同時指定多個 manager</span>
+  - <span class="yk">group:</span> <span class="yv">""</span>
+    <span class="yk">kind:</span> <span class="yv">ServiceAccount</span>
+    <span class="yk">managedFieldsManagers:</span>
+      - <span class="yv">kube-controller-manager</span>
+      - <span class="yv">tokens-controller</span>
+
+<span class="sh-comment">## 查看資源的 field managers</span>
+<span class="sh-comment">## kubectl get deployment my-app -o json | jq '.metadata.managedFields[].manager'</span></code></pre>
+      </div>
+    </section>
+
+    <!-- S4 系統層級 ignoreDifferences -->
+    <section class="sec" id="s4">
+      <h2><span class="sn">4</span>系統層級 ignoreDifferences（argocd-cm）</h2>
+      <p>若在每個 Application 的 spec 中重複設定相同的 ignoreDifferences（例如每個 App 都需要忽略 MutatingWebhookConfiguration 的 caBundle），維護成本極高。更好的做法是在 <code>argocd-cm</code> 的 <code>resource.customizations.ignoreDifferences</code> 中設定全域預設值。</p>
+
+      <h3 id="s4a">4.1 resource.customizations 格式</h3>
+      <p>Key 格式為 <code>resource.customizations.ignoreDifferences.{group}_{kind}</code>，注意 group 中的 <code>.</code> 保留，<code>/</code> 替換為 <code>_</code>：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — argocd-cm 系統層級 ignoreDifferences</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-cm</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yc">## MutatingWebhookConfiguration：忽略 caBundle（全 Argo CD 實例生效）</span>
+  <span class="yc">## Key 格式：resource.customizations.ignoreDifferences.{group}_{kind}</span>
+  <span class="yc">## admissionregistration.k8s.io 中的 . 保留，/ 替換為 _</span>
+  <span class="yk">resource.customizations.ignoreDifferences.admissionregistration.k8s.io_MutatingWebhookConfiguration:</span> |
+    <span class="yk">jqPathExpressions:</span>
+      - <span class="yv">'.webhooks[]?.clientConfig.caBundle'</span>
+
+  <span class="yc">## apps/Deployment：忽略 kube-controller-manager 管理的欄位</span>
+  <span class="yk">resource.customizations.ignoreDifferences.apps_Deployment:</span> |
+    <span class="yk">managedFieldsManagers:</span>
+      - <span class="yv">kube-controller-manager</span>
+    <span class="yk">jsonPointers:</span>
+      - <span class="yv">/spec/replicas</span>
+
+  <span class="yc">## ValidatingWebhookConfiguration</span>
+  <span class="yk">resource.customizations.ignoreDifferences.admissionregistration.k8s.io_ValidatingWebhookConfiguration:</span> |
+    <span class="yk">jqPathExpressions:</span>
+      - <span class="yv">'.webhooks[]?.clientConfig.caBundle'</span></code></pre>
+      </div>
+
+      <h3 id="s4b">4.2 全域設定（所有 group / kind）</h3>
+      <p>使用特殊的 <code>all</code> key，可以對 Argo CD 管理的所有資源的所有 Application 設定全域忽略規則：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — resource.customizations.ignoreDifferences.all（全域）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">data:</span>
+  <span class="yc">## 對所有資源類型生效</span>
+  <span class="yk">resource.customizations.ignoreDifferences.all:</span> |
+    <span class="yc"># 對所有資源忽略 kube-controller-manager 管理的欄位</span>
+    <span class="yk">managedFieldsManagers:</span>
+      - <span class="yv">kube-controller-manager</span>
+      - <span class="yv">rancher</span>  <span class="yc"># 若使用 Rancher</span>
+    <span class="yc"># 對所有資源忽略 last-applied-configuration annotation</span>
+    <span class="yk">jsonPointers:</span>
+      - <span class="yv">/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration</span></code></pre>
+      </div>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>設定層級</th><th>格式</th><th>影響範圍</th><th>優先順序</th></tr></thead>
+          <tbody>
+            <tr><td>Application spec</td><td>spec.ignoreDifferences</td><td>只影響此 Application 的所有資源</td><td>最高（會疊加在系統層級之上）</td></tr>
+            <tr><td>系統 group/kind 特定</td><td>resource.customizations.ignoreDifferences.{group}_{kind}</td><td>全 Argo CD 實例中此 group/kind 的所有資源</td><td>中</td></tr>
+            <tr><td>系統全域</td><td>resource.customizations.ignoreDifferences.all</td><td>全 Argo CD 實例中的所有資源</td><td>最低（基礎設定）</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- S5 resource.compareoptions -->
+    <section class="sec" id="s5">
+      <h2><span class="sn">5</span>resource.compareoptions</h2>
+      <p><code>resource.compareoptions</code> 是 argocd-cm 中的全域 diff 行為設定，控制 diff 引擎在比對時的整體策略，而不是針對特定欄位的忽略。</p>
+
+      <h3 id="s5a">5.1 ignoreResourceStatusField：忽略 CRD status 欄位</h3>
+      <p>CustomResourceDefinition 常常會在 status 欄位儲存 controller 管理的狀態，若 Git manifest 中也包含了 status（例如某些 Helm chart 會輸出 status 欄位），會造成持續的 diff。</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — resource.compareoptions 設定</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">data:</span>
+  <span class="yk">resource.compareoptions:</span> |
+    <span class="yc"># 停用指定資源類型的 status 欄位 diff</span>
+    <span class="yc"># 'crd'（預設）：只對 CRD 停用 status diff</span>
+    <span class="yc"># 'all'：對所有資源停用 status diff</span>
+    <span class="yc"># 'off'：不停用（完整比對 status）</span>
+    <span class="yk">ignoreResourceStatusField:</span> <span class="yv">crd</span>
+
+    <span class="yc"># 停用 ignoreDifferences 的資源更新行為（預設 false）</span>
+    <span class="yc"># 設為 true 時，resource update 不會觸發 ignoreDifferences 計算</span>
+    <span class="yk">ignoreDifferencesOnResourceUpdates:</span> <span class="yv">false</span></code></pre>
+      </div>
+
+      <h3 id="s5b">5.2 ignoreResourceUpdates：減少 Reconcile 觸發</h3>
+      <p>預設情況下，任何被 Argo CD 追蹤的資源發生變化，都會觸發該 Application 的 Reconcile。若叢集中有高 churn 的資源（如 Lease、Endpoints），會造成不必要的 Reconcile 負載。<code>resource.ignoreResourceUpdates</code> 讓 Argo CD 忽略特定欄位的更新，不觸發 Reconcile：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — resource.customizations.ignoreResourceUpdates（減少噪音 Reconcile）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">data:</span>
+  <span class="yc">## 注意：此設定在 argocd-cm 中，格式略有不同</span>
+
+  <span class="yc">## 對所有資源忽略 /status 欄位更新（最常用）</span>
+  <span class="yk">resource.customizations.ignoreResourceUpdates.all:</span> |
+    <span class="yk">jsonPointers:</span>
+      - <span class="yv">/status</span>
+
+  <span class="yc">## 對 ExternalSecret 忽略 refreshTime 更新</span>
+  <span class="yk">resource.customizations.ignoreResourceUpdates.external-secrets.io_ExternalSecret:</span> |
+    <span class="yk">jsonPointers:</span>
+      - <span class="yv">/status/refreshTime</span>
+
+  <span class="yc">## 全域啟用 ignoreResourceUpdates 功能（預設 true）</span>
+  <span class="yk">resource.ignoreResourceUpdatesEnabled:</span> <span class="yv">"true"</span></code></pre>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>ignoreResourceUpdates vs ignoreDifferences 的差異</h4>
+          <p><strong>ignoreDifferences</strong>：影響 diff 計算，決定 OutOfSync 判定。<strong>ignoreResourceUpdates</strong>：影響是否觸發 Reconcile，當指定欄位更新時不觸發調和（效能優化）。前者是「不算 drift」，後者是「不觸發重新計算」。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S6 Parameter Overrides -->
+    <section class="sec" id="s6">
+      <h2><span class="sn">6</span>Parameter Overrides：UI/CLI 覆寫不提交 Git</h2>
+      <p>Parameter Overrides 允許在 Argo CD UI 或 CLI 中臨時覆寫 Helm / Kustomize 參數（如 image.tag），而不需要提交到 Git。這個覆寫值會儲存在 Application CRD 的 <code>spec.source.helm.parameters</code> 中，比 Git 中的值優先，但仍在 GitOps 框架內（寫在 Application YAML 裡）。</p>
+
+      <p>Parameter Override 與 Diff 的關係：當 Override 的值與 Git 中的值不同，diff 計算時會以 Override 後的值為 desired state，不影響 Sync Status（只要叢集實際狀態與 Override 後的值一致，就是 Synced）。</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — CLI 臨時覆寫 parameter</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment"># 覆寫 Helm image.tag（緊急 hotfix 部署）</span>
+<span class="sh-prompt">$</span> argocd app set my-app \
+  --helm-set image.tag=v2.3.4-hotfix \
+  --helm-set replicaCount=2
+
+<span class="sh-comment"># 查看目前的 parameter overrides</span>
+<span class="sh-prompt">$</span> argocd app get my-app -o yaml | grep -A 10 "parameters:"
+
+<span class="sh-comment"># 清除 override，恢復使用 Git 中的值</span>
+<span class="sh-prompt">$</span> argocd app unset my-app --helm-set image.tag
+
+<span class="sh-comment"># Kustomize image override</span>
+<span class="sh-prompt">$</span> argocd app set my-app \
+  --kustomize-image myapp=registry.example.com/myapp:v2.3.4</code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>Parameter Overrides 不是長期解決方案</h4>
+          <p>Parameter Override 方便用於緊急修復，但不應作為長期配置方式。Override 的值儲存在 Kubernetes（Application CRD），而非 Git，違反了 GitOps 的版本控制原則。緊急使用後，應儘快將值提交回 Git 並清除 Override。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S7 診斷工具 -->
+    <section class="sec" id="s7">
+      <h2><span class="sn">7</span>Diff 診斷工具</h2>
+      <p>當 Application 顯示 OutOfSync 而原因不明時，以下工具可以幫助快速定位：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — Diff 診斷指令集</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## 工具一：argocd app diff（在終端顯示完整 diff）</span>
+<span class="sh-prompt">$</span> argocd app diff my-app
+<span class="sh-comment"># 輸出類似 kubectl diff 的格式：- 表示 Git 有但叢集無/不同，+ 表示叢集有但 Git 無/不同</span>
+
+<span class="sh-comment">## 工具二：強制 hard refresh 後再 diff（排除快取問題）</span>
+<span class="sh-prompt">$</span> argocd app diff my-app --hard-refresh
+<span class="sh-comment"># 清除 manifest 快取，重新從 Git 生成後比對</span>
+
+<span class="sh-comment">## 工具三：查看 diff 包含 ignoreDifferences 的資源</span>
+<span class="sh-prompt">$</span> argocd app diff my-app --exit-code=false 2>&amp;1 | head -50
+<span class="sh-comment"># --exit-code=false：即使有 diff 也回傳 0（適合 CI script）</span>
+
+<span class="sh-comment">## 工具四：查看特定資源的 live vs desired manifest</span>
+<span class="sh-prompt">$</span> argocd app manifests my-app --source=live
+<span class="sh-comment"># live：叢集中的實際 manifest</span>
+<span class="sh-prompt">$</span> argocd app manifests my-app --source=git
+<span class="sh-comment"># git：從 Git 渲染的 desired manifest</span>
+
+<span class="sh-comment">## 工具五：查看 Application 的 resources 清單與 diff 狀態</span>
+<span class="sh-prompt">$</span> argocd app resources my-app
+<span class="sh-comment"># 列出所有追蹤的資源、其 sync status 與 health status</span>
+
+<span class="sh-comment">## 工具六：kubectl 查看 field managers（排查 managedFields 問題）</span>
+<span class="sh-prompt">$</span> kubectl get deployment my-app -n prod \
+  -o json | jq '.metadata.managedFields[].manager'
+<span class="sh-comment"># 找出哪些 manager 在管理此資源的欄位</span>
+
+<span class="sh-comment">## 工具七：確認目前 Application 使用的 diff 策略</span>
+<span class="sh-prompt">$</span> argocd app get my-app -o json | \
+  jq '.metadata.annotations."argocd.argoproj.io/compare-options"'
+<span class="sh-comment"># 若為 null 表示使用全域預設設定</span></code></pre>
+      </div>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>問題現象</th><th>診斷步驟</th><th>常見解法</th></tr></thead>
+          <tbody>
+            <tr><td>Application 永遠 OutOfSync</td><td>argocd app diff 查看具體 diff 欄位</td><td>為該欄位加入 ignoreDifferences</td></tr>
+            <tr><td>ignoreDifferences 設定了但無效</td><td>確認 group/kind 是否正確（大小寫）；jq expression 是否語法正確</td><td>用 argocd app diff 驗證是否還有 diff；考慮改用 managedFieldsManagers</td></tr>
+            <tr><td>同一欄位 sync 後又 OutOfSync</td><td>確認是否需要 RespectIgnoreDifferences=true</td><td>加入 syncOptions: RespectIgnoreDifferences=true</td></tr>
+            <tr><td>大量 Application 有相同 diff 問題</td><td>確認是否適合設定系統層級 ignoreDifferences</td><td>在 argocd-cm 設定 resource.customizations.ignoreDifferences</td></tr>
+            <tr><td>diff 結果不穩定（時有時無）</td><td>查看是否有 jq expression timeout；查看 repo-server log</td><td>調整 ignore.normalizer.jq.timeout；簡化 jq expression</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Summary -->
+    <section class="sec" id="sum">
+      <h2><span class="sn">✓</span>本章重點回顧</h2>
+      <div class="kp">
+        <h3>📌 Key Takeaways</h3>
+        <ul class="kp-list">
+          <li><span class="kp-ic">🔍</span><span><strong>Server-Side Diff 是現代首選</strong>：透過 K8s API dry-run 計算 diff，自然處理 API server 預設值注入，大幅減少需要設定的 ignoreDifferences。搭配 IncludeMutationWebhook=true 可連 Istio 等 admission webhook 注入也一起考量。</span></li>
+          <li><span class="kp-ic">📍</span><span><strong>jsonPointers 的 escape 規則</strong>：annotation / label key 中的 <code>/</code> 必須 escape 為 <code>~1</code>，<code>~</code> 必須 escape 為 <code>~0</code>。例如：<code>deployment.kubernetes.io/revision</code> → <code>/metadata/annotations/deployment.kubernetes.io~1revision</code>。</span></li>
+          <li><span class="kp-ic">🔧</span><span><strong>jqPathExpressions 的優勢</strong>：可按名稱（<code>select(.name == "...")</code>）、前綴（<code>startswith("...")</code>）、pattern（<code>test("regex")</code>）過濾陣列元素，解決 jsonPointers 只能按索引指定的限制。最適合忽略 Istio sidecar、特定 annotation 等場景。</span></li>
+          <li><span class="kp-ic">🌍</span><span><strong>系統層級 ignoreDifferences 減少重複</strong>：在 argocd-cm 的 <code>resource.customizations.ignoreDifferences.{group}_{kind}</code> 設定全域規則（如忽略所有 MutatingWebhookConfiguration 的 caBundle），避免在每個 Application 重複設定。</span></li>
+          <li><span class="kp-ic">⚡</span><span><strong>ignoreResourceUpdates 是效能優化</strong>：與 ignoreDifferences（影響 diff 判定）不同，ignoreResourceUpdates 讓特定欄位更新不觸發 Reconcile，減少 application-controller 的無謂計算負擔。</span></li>
+          <li><span class="kp-ic">🛠️</span><span><strong>診斷流程</strong>：遇到 OutOfSync → <code>argocd app diff</code> 找出具體差異欄位 → 決定是否加 ignoreDifferences → 驗證是否還需要 RespectIgnoreDifferences=true → 考慮移至系統層級設定。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <nav class="ch-nav">
+      <a href="ch06-sync-policy.html" class="nav-btn nav-prev">
+        <div><div class="nav-sub">上一章 / PREV</div><div>← Ch.06 Sync 策略精細控制</div></div>
+      </a>
+      <a href="#" class="nav-btn nav-next">
+        <div><div class="nav-sub">下一章 / NEXT</div><div>Ch.08 Resource Hooks：PreSync / Sync / PostSync →</div></div>
+      </a>
+    </nav>
+  </main>
+</div>
+
+<footer>Argo CD 完整教學手冊 · <strong>Vol 2 Ch.07</strong> · 基於 Argo CD <strong>v3.4</strong> · 2026-05-08</footer>
+
+<script>
+(function(){
+  'use strict';
+  const KEY='jhsun-theme';
+  const IC={light:'☀',dark:'☾',system:'◐'};
+  const LB={light:'Light',dark:'Dark',system:'System'};
+  function gs(){try{return localStorage.getItem(KEY);}catch(_){return null;}}
+  function ss(v){try{v==='system'||v==null?localStorage.removeItem(KEY):localStorage.setItem(KEY,v);}catch(_){}}
+  function sp(){return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  function ef(m){return m==='system'?sp():m;}
+  function apply(m){
+    const e=ef(m);
+    document.documentElement.dataset.theme=e;
+    document.documentElement.dataset.themeMode=m;
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{
+      b.dataset.themeMode=m;
+      b.setAttribute('aria-label','Theme: '+LB[m]);
+      b.title='Theme: '+LB[m];
+      if(!b.dataset.themeToggleStyled)b.innerHTML='<span>'+IC[m]+'</span><span>'+LB[m]+'</span>';
+    });
+    dispatchEvent(new CustomEvent('jhsun:theme-changed',{detail:{theme:e,mode:m}}));
+  }
+  function cyc(c){return c==='light'?'dark':c==='dark'?'system':'light';}
+  function cur(){return gs()||'system';}
+  function init(){
+    apply(cur());
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{b.addEventListener('click',()=>{const n=cyc(cur());ss(n);apply(n);});});
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(cur()==='system')apply('system');});
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+  window.JHsunTheme={get:cur,set:m=>{ss(m);apply(m);},toggle:()=>{const n=cyc(cur());ss(n);apply(n);}};
+})();
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('.copy-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const pre=btn.closest('.code-wrap').querySelector('pre');
+      navigator.clipboard.writeText(pre.innerText).then(()=>{btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},2000);});
+    });
+  });
+  const hds=document.querySelectorAll('.sec h2,.sec h3');
+  const lks=document.querySelectorAll('.toc-list a');
+  const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){lks.forEach(l=>l.classList.remove('active'));const id=e.target.id||e.target.closest('[id]')?.id;if(id){const a=document.querySelector('.toc-list a[href="#'+id+'"]');if(a)a.classList.add('active');}}});},{rootMargin:'-60px 0px -70% 0px'});
+  hds.forEach(h=>{if(h.id)obs.observe(h);});
+});
+</script>
+</body>
+</html>

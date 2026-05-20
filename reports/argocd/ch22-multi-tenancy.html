@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.22 Multi-Tenancy 設計模式 — Argo CD 完整教學手冊</title>
+<style>
+:root {
+  --tk-hue:200;--tk-chroma:0.11;
+  --color-success:#16a34a;--color-success-soft:#dcfce7;
+  --color-warning:#d97706;--color-warning-soft:#fef3c7;
+  --color-danger:#dc2626;--color-danger-soft:#fee2e2;
+  --color-info:#0891b2;--color-info-soft:#cffafe;
+  --color-neutral-accent:#7c3aed;
+  --color-primary:oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:oklch(0.96 calc(var(--tk-chroma)*.25) var(--tk-hue));
+  --color-primary-text:oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas:oklch(0.985 0.004 60);--bg-surface:oklch(0.995 0.003 60);
+  --bg-muted:oklch(0.96 0.005 60);--bg-code:oklch(0.975 0.006 60);
+  --border-soft:oklch(0.92 0.006 60);--border-mid:oklch(0.85 0.008 60);
+  --text-primary:oklch(0.22 0.008 60);--text-secondary:oklch(0.42 0.008 60);--text-muted:oklch(0.58 0.008 60);
+  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --font-sans:"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif;
+  --font-serif:"Playfair Display","Source Serif 4","Noto Serif TC",Georgia,serif;
+  --font-body:"Source Serif 4","Noto Serif TC",Georgia,serif;
+  --text-xs:12px;--text-sm:14px;--text-base:16px;--text-md:18px;--text-lg:20px;--text-xl:24px;--text-2xl:32px;--text-3xl:44px;
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-7:48px;--space-8:64px;--space-9:96px;
+  --radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:20px;
+  --shadow-sm:0 1px 3px oklch(0.20 0.01 60/0.07);--shadow-md:0 4px 14px oklch(0.20 0.01 60/0.10);
+}
+:root[data-theme="dark"]{
+  --color-success:#4ade80;--color-success-soft:oklch(0.28 0.08 145);
+  --color-warning:#fbbf24;--color-warning-soft:oklch(0.30 0.10 70);
+  --color-danger:#f87171;--color-danger-soft:oklch(0.30 0.10 27);
+  --color-info:#22d3ee;--color-info-soft:oklch(0.30 0.08 200);
+  --color-neutral-accent:#a78bfa;
+  --color-primary:oklch(0.72 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-hover:oklch(0.80 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-soft:oklch(0.28 calc(var(--tk-chroma)*.6) var(--tk-hue));
+  --color-primary-text:oklch(0.85 calc(var(--tk-chroma)*.6) var(--tk-hue));
+  --bg-canvas:oklch(0.14 0.008 50);--bg-surface:oklch(0.18 0.009 50);
+  --bg-muted:oklch(0.21 0.010 50);--bg-code:oklch(0.16 0.009 50);
+  --border-soft:oklch(0.26 0.010 50);--border-mid:oklch(0.34 0.012 50);
+  --text-primary:oklch(0.93 0.005 60);--text-secondary:oklch(0.74 0.006 60);--text-muted:oklch(0.56 0.007 60);
+  --shadow-sm:0 1px 3px oklch(0.04 0 0/.50);--shadow-md:0 4px 14px oklch(0.04 0 0/.60);
+}
+html{color-scheme:light dark;}html[data-theme="light"]{color-scheme:light;}html[data-theme="dark"]{color-scheme:dark;}
+body{background:var(--bg-canvas);color:var(--text-primary);font-family:var(--font-sans);font-size:var(--text-base);line-height:1.7;margin:0;padding:0;transition:background .25s,color .25s;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+.topbar{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:10px var(--space-6);background:var(--bg-surface);border-bottom:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.tb-left{display:flex;align-items:center;gap:var(--space-3);}
+.tb-logo{width:30px;height:30px;border-radius:var(--radius-md);background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:13px;font-weight:800;}
+.tb-trail{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.tb-trail .sep{color:var(--border-mid);}.tb-trail .cur{color:var(--color-primary);font-weight:600;}
+.tb-right{display:flex;align-items:center;gap:var(--space-2);}
+.pill{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);border:1px solid;}
+.pill-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.pill-ver{background:var(--color-info-soft);color:var(--color-info);border-color:var(--color-info);}
+[data-theme-toggle]{cursor:pointer;border:1px solid var(--border-mid);background:var(--bg-muted);color:var(--text-secondary);border-radius:var(--radius-md);padding:6px var(--space-3);font-family:var(--font-sans);font-size:var(--text-sm);display:flex;align-items:center;gap:6px;transition:all .2s;}
+[data-theme-toggle]:hover{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.page{display:flex;min-height:100vh;}
+.toc-sidebar{width:230px;flex-shrink:0;position:sticky;top:49px;height:calc(100vh - 49px);overflow-y:auto;padding:var(--space-5) var(--space-3);border-right:1px solid var(--border-soft);background:var(--bg-surface);}
+.toc-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-3);}
+.toc-list{list-style:none;}
+.toc-list li{margin-bottom:2px;}
+.toc-list a{display:block;padding:4px var(--space-2);font-size:var(--text-sm);color:var(--text-secondary);text-decoration:none;border-radius:var(--radius-sm);border-left:2px solid transparent;transition:all .15s;line-height:1.4;}
+.toc-list a:hover,.toc-list a.active{color:var(--color-primary);background:var(--color-primary-soft);border-left-color:var(--color-primary);font-weight:600;}
+.toc-h3{padding-left:var(--space-4)!important;font-size:var(--text-xs)!important;}
+.toc-lbl{display:block;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:var(--space-3) var(--space-2) var(--space-1);margin-top:var(--space-2);}
+.content{flex:1;min-width:0;padding:var(--space-8) var(--space-7) var(--space-9);max-width:900px;}
+.ch-header{margin-bottom:var(--space-8);padding-bottom:var(--space-6);border-bottom:1px solid var(--border-soft);}
+.ch-meta{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-4);flex-wrap:wrap;}
+.m-badge{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);}
+.m-ch{background:var(--color-primary);color:#fff;}
+.m-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border:1px solid var(--color-primary);}
+.m-time{background:var(--bg-muted);color:var(--text-muted);border:1px solid var(--border-soft);}
+.ch-header h1{font-family:var(--font-serif);font-size:clamp(var(--text-2xl),4vw,var(--text-3xl));font-weight:700;color:var(--text-primary);line-height:1.2;margin-bottom:var(--space-4);}
+.ch-header h1 em{font-style:normal;color:var(--color-primary);}
+.ch-lead{font-size:var(--text-md);color:var(--text-secondary);line-height:1.7;max-width:700px;font-family:var(--font-body);}
+.prereq{margin-top:var(--space-5);display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--bg-muted);border-radius:var(--radius-md);border:1px solid var(--border-soft);}
+.prereq .pico{font-size:var(--text-lg);flex-shrink:0;margin-top:1px;}
+.prereq p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;}
+.prereq strong{color:var(--text-primary);}
+.obj-box{background:var(--color-primary-soft);border:1px solid var(--color-primary);border-radius:var(--radius-lg);padding:var(--space-5);margin-bottom:var(--space-7);}
+.obj-box h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--color-primary-text);font-weight:700;margin-bottom:var(--space-3);}
+.obj-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-2);}
+.obj-list li{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-sm);color:var(--color-primary-text);line-height:1.5;}
+.obj-list li::before{content:"✓";font-weight:700;color:var(--color-primary);flex-shrink:0;margin-top:1px;}
+.sec{margin-bottom:var(--space-9);scroll-margin-top:80px;}
+.sec h2{font-family:var(--font-serif);font-size:var(--text-2xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-4);padding-bottom:var(--space-3);border-bottom:2px solid var(--border-soft);display:flex;align-items:center;gap:var(--space-3);}
+.sn{font-family:var(--font-mono);font-size:var(--text-sm);background:var(--color-primary);color:#fff;padding:2px 8px;border-radius:var(--radius-sm);font-weight:700;white-space:nowrap;flex-shrink:0;}
+.sec h3{font-family:var(--font-sans);font-size:var(--text-lg);font-weight:700;color:var(--text-primary);margin:var(--space-6) 0 var(--space-3);}
+.sec h4{font-family:var(--font-sans);font-size:var(--text-base);font-weight:700;color:var(--text-primary);margin:var(--space-5) 0 var(--space-2);}
+p{font-family:var(--font-body);font-size:var(--text-base);color:var(--text-secondary);line-height:1.8;margin-bottom:var(--space-4);}
+strong{color:var(--text-primary);}em{color:var(--color-primary);font-style:normal;}
+.cal{display:flex;gap:var(--space-3);padding:var(--space-4) var(--space-5);border-radius:var(--radius-lg);margin:var(--space-5) 0;border-left:4px solid;}
+.ci{background:var(--color-info-soft);border-color:var(--color-info);}
+.cw{background:var(--color-warning-soft);border-color:var(--color-warning);}
+.ct{background:var(--color-success-soft);border-color:var(--color-success);}
+.cd{background:var(--color-primary-soft);border-color:var(--color-primary);}
+.cal .ic{font-size:var(--text-lg);flex-shrink:0;margin-top:2px;}
+.cal h4{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-1);font-family:var(--font-sans);}
+.cal p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.65;margin:0;font-family:var(--font-sans);}
+.code-wrap{margin:var(--space-4) 0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.code-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px var(--space-4);background:var(--bg-muted);border-bottom:1px solid var(--border-soft);}
+.code-lang{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;}
+.copy-btn{cursor:pointer;font-family:var(--font-mono);font-size:11px;padding:3px 10px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--border-mid);color:var(--text-muted);transition:all .2s;}
+.copy-btn:hover{background:var(--color-primary-soft);color:var(--color-primary);border-color:var(--color-primary);}
+.copy-btn.copied{background:var(--color-success-soft);color:var(--color-success);border-color:var(--color-success);}
+pre{margin:0;padding:var(--space-5);background:var(--bg-code);overflow-x:auto;font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.65;color:var(--text-primary);}
+code{font-family:var(--font-mono);font-size:.92em;background:var(--bg-code);padding:1px 5px;border-radius:var(--radius-sm);color:var(--color-primary-text);border:1px solid var(--border-soft);}
+pre code{background:none;padding:0;border:none;color:inherit;font-size:inherit;}
+.yk{color:var(--color-info);}.yv{color:var(--color-success);}.yc{color:var(--text-muted);font-style:italic;}
+.yn{color:var(--color-warning);}.yh{color:var(--color-neutral-accent);font-weight:700;}
+.tw{overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);margin:var(--space-5) 0;}
+table{width:100%;border-collapse:collapse;font-size:var(--text-sm);}
+thead th{background:var(--bg-muted);padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.07em;border-bottom:2px solid var(--border-mid);text-align:left;white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--border-soft);transition:background .12s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--bg-muted);}
+td{padding:var(--space-3) var(--space-4);vertical-align:top;line-height:1.6;font-family:var(--font-sans);}
+td:first-child{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--color-primary-text);background:var(--color-primary-soft);white-space:nowrap;font-weight:600;}
+.tc{font-size:var(--text-xs);color:var(--text-muted);}
+/* tenancy strategy cards */
+.strat-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);margin:var(--space-5) 0;}
+.strat{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.strat-head{padding:var(--space-3) var(--space-4);font-family:var(--font-sans);font-size:var(--text-sm);font-weight:700;border-bottom:1px solid var(--border-soft);}
+.strat-body{padding:var(--space-4);}
+.strat-section{margin-bottom:var(--space-3);}
+.strat-section:last-child{margin-bottom:0;}
+.strat-label{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:var(--space-1);}
+.strat-content{font-size:var(--text-xs);color:var(--text-secondary);line-height:1.55;font-family:var(--font-sans);}
+.strat-content ul{margin:0;padding-left:var(--space-4);}
+.strat-content li{margin-bottom:2px;}
+/* boundary cards */
+.boundary-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:var(--space-3);margin:var(--space-5) 0;}
+.bd{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-4);box-shadow:var(--shadow-sm);position:relative;overflow:hidden;}
+.bd::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--bdc);}
+.bd-icon{font-size:24px;margin-bottom:var(--space-2);}
+.bd-name{font-family:var(--font-mono);font-size:var(--text-xs);font-weight:700;color:var(--bdc);margin-bottom:var(--space-2);}
+.bd-desc{font-size:11px;color:var(--text-secondary);line-height:1.55;font-family:var(--font-sans);}
+/* kp */
+.kp{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);margin:var(--space-7) 0;box-shadow:var(--shadow-sm);}
+.kp h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-4);margin-top:0;}
+.kp-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-3);}
+.kp-list li{display:flex;align-items:flex-start;gap:var(--space-3);font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.kp-ic{font-size:var(--text-md);flex-shrink:0;margin-top:1px;}
+.vol-complete{background:linear-gradient(135deg,var(--color-success-soft) 0%,var(--color-primary-soft) 100%);border:1px solid var(--color-success);border-radius:var(--radius-lg);padding:var(--space-6);margin:var(--space-7) 0;text-align:center;box-shadow:var(--shadow-md);}
+.vol-complete h3{font-family:var(--font-serif);font-size:var(--text-xl);color:var(--text-primary);font-weight:700;margin-bottom:var(--space-2);}
+.vol-complete p{font-size:var(--text-sm);color:var(--text-secondary);margin:0;}
+.vol-complete .check-icon{font-size:40px;margin-bottom:var(--space-3);}
+.ch-nav{display:flex;justify-content:space-between;margin-top:var(--space-9);padding-top:var(--space-6);border-top:1px solid var(--border-soft);}
+.nav-btn{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);text-decoration:none;font-size:var(--text-sm);font-weight:600;transition:all .2s;box-shadow:var(--shadow-md);}
+.nav-prev{background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-mid);}.nav-prev:hover{background:var(--bg-muted);transform:translateX(-2px);}
+.nav-next{background:var(--color-primary);color:#fff;}.nav-next:hover{background:var(--color-primary-hover);transform:translateX(2px);}
+.nav-sub{font-size:11px;opacity:.75;font-family:var(--font-mono);}
+footer{border-top:1px solid var(--border-soft);padding:var(--space-5) var(--space-8);font-family:var(--font-mono);font-size:11px;color:var(--text-muted);text-align:center;}
+footer strong{color:var(--color-primary);}
+@media(max-width:900px){.toc-sidebar{display:none;}.content{padding:var(--space-6) var(--space-4) var(--space-8);}.strat-grid{grid-template-columns:1fr;}.boundary-grid{grid-template-columns:1fr 1fr;}}
+@media(max-width:640px){.topbar{padding:8px var(--space-4);}.tb-trail{display:none;}.boundary-grid{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="tb-left">
+    <div class="tb-logo">A</div>
+    <nav class="tb-trail">
+      <span>Argo CD 完整教學手冊</span><span class="sep">›</span>
+      <span>Vol 4 身份驗證、授權與多租戶</span><span class="sep">›</span>
+      <span class="cur">Ch.22 Multi-Tenancy</span>
+    </nav>
+  </div>
+  <div class="tb-right">
+    <span class="pill pill-vol">Vol 4 · Ch.22</span>
+    <span class="pill pill-ver">v3.4</span>
+    <button data-theme-toggle></button>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="toc-sidebar">
+    <div class="toc-title">本章目錄</div>
+    <ul class="toc-list">
+      <li><a href="#obj">學習目標</a></li>
+      <span class="toc-lbl">第一節</span>
+      <li><a href="#s1">多租戶概念與目標</a></li>
+      <li><a href="#s1a" class="toc-h3">租戶定義</a></li>
+      <li><a href="#s1b" class="toc-h3">隔離維度</a></li>
+      <span class="toc-lbl">第二節</span>
+      <li><a href="#s2">三大策略對比</a></li>
+      <li><a href="#s2a" class="toc-h3">Single Instance</a></li>
+      <li><a href="#s2b" class="toc-h3">Multi Instance</a></li>
+      <li><a href="#s2c" class="toc-h3">Hybrid</a></li>
+      <span class="toc-lbl">第三節</span>
+      <li><a href="#s3">AppProject 多租戶基石</a></li>
+      <span class="toc-lbl">第四節</span>
+      <li><a href="#s4">Apps in Any Namespace</a></li>
+      <li><a href="#s4a" class="toc-h3">啟用設定</a></li>
+      <li><a href="#s4b" class="toc-h3">命名衝突防護</a></li>
+      <span class="toc-lbl">第五節</span>
+      <li><a href="#s5">ApplicationSet 多租戶</a></li>
+      <span class="toc-lbl">第六節</span>
+      <li><a href="#s6">租戶自治模式（namespace-install）</a></li>
+      <span class="toc-lbl">第七節</span>
+      <li><a href="#s7">完整實作：4 個團隊</a></li>
+      <span class="toc-lbl">第八節</span>
+      <li><a href="#s8">選型決策</a></li>
+      <span class="toc-lbl">總結</span>
+      <li><a href="#sum">重點回顧</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <header class="ch-header">
+      <div class="ch-meta">
+        <span class="m-badge m-ch">Chapter 22</span>
+        <span class="m-badge m-vol">Vol 4 — 身份驗證、授權與多租戶</span>
+        <span class="m-badge m-time">⏱ 預計閱讀時間 45 分鐘</span>
+      </div>
+      <h1>Multi-Tenancy<br><em>設計模式</em></h1>
+      <p class="ch-lead">Vol 4 最後一章。當組織擁有 5+ 個團隊與數百個 App，「單實例 + RBAC」與「每團隊一個 Argo CD」哪個對？本章從多租戶概念出發，比較三大策略，深入 AppProject 隔離機制、Apps in Any Namespace 自治模式（v2.5+）、ApplicationSet 多租戶 generators，並提供完整 4 團隊實作範例與選型決策矩陣。</p>
+      <div class="prereq">
+        <span class="pico">📋</span>
+        <p><strong>前置：</strong>已完成 Vol 4 前兩章（SSO + RBAC）。理解 AppProject 結構（Ch.11）、namespace-install 模式（Ch.12）、cluster credentials（Ch.16）。</p>
+      </div>
+    </header>
+
+    <div class="obj-box" id="obj">
+      <h3>🎯 學習目標</h3>
+      <ul class="obj-list">
+        <li>定義 Argo CD 多租戶的核心概念：tenant 邊界、隔離維度（Application 可見性 / 部署目的地 / 資源類型 / Sync 時段）</li>
+        <li>比較三大多租戶策略：Single Instance + RBAC、Multi Instance、Hybrid（platform + 租戶 instance）</li>
+        <li>掌握 AppProject 完整隔離設定（sourceRepos / destinations / clusterResourceWhitelist / namespaceResourceBlacklist / syncWindows）</li>
+        <li>啟用 v2.5+ Apps in Any Namespace 功能，讓租戶在自己的 namespace 管理 Application（聲明式 GitOps）</li>
+        <li>使用 ApplicationSet 的 List / Cluster / Git generators 實現自動化租戶部署</li>
+        <li>用 namespace-install 為極隔離需求租戶建立完全獨立的 Argo CD 實例</li>
+        <li>能依組織規模（5 / 30 / 100+ 團隊）、隔離需求、自治需求選擇正確策略</li>
+      </ul>
+    </div>
+
+    <!-- S1 多租戶概念 -->
+    <section class="sec" id="s1">
+      <h2><span class="sn">1</span>多租戶概念與目標</h2>
+
+      <h3 id="s1a">1.1 什麼是 Argo CD 中的「租戶」？</h3>
+      <p>多租戶（Multi-Tenancy）是讓多個獨立團隊（tenant）安全共用同一個 Argo CD 平台的設計。一個典型的「租戶」具備以下特徵：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>面向</th><th>租戶擁有</th><th>租戶不能存取</th></tr></thead>
+          <tbody>
+            <tr><td>Git Repos</td><td>自己 team 的 Git 儲存庫</td><td>其他 team 的 repo</td></tr>
+            <tr><td>K8s Namespaces</td><td>自己擁有的 namespace（如 <code>team-a-*</code>）</td><td>kube-system 與其他 team 的 namespace</td></tr>
+            <tr><td>K8s Clusters</td><td>所屬環境的 cluster（如 dev/staging）</td><td>其他環境（如 prod，需審核）</td></tr>
+            <tr><td>K8s 資源類型</td><td>Deployment、Service、ConfigMap 等應用層</td><td>ClusterRole、CRD、Namespace（平台層）</td></tr>
+            <tr><td>Argo CD UI 視野</td><td>只看到自己的 Application</td><td>其他 team 的 App 不可見</td></tr>
+            <tr><td>Sync 時段</td><td>自定義部署時段（如 prod 限工時外）</td><td>跨越組織政策禁止時段</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="s1b">1.2 隔離的四大維度</h3>
+
+      <div class="boundary-grid">
+        <div class="bd" style="--bdc:var(--color-primary)">
+          <div class="bd-icon">👁️</div>
+          <div class="bd-name">可見性</div>
+          <div class="bd-desc">UI / API 中只看得到自己的 Application、Project、Cluster、Repo</div>
+        </div>
+        <div class="bd" style="--bdc:var(--color-info)">
+          <div class="bd-icon">📦</div>
+          <div class="bd-name">部署範圍</div>
+          <div class="bd-desc">能 sync 到哪些 namespace / cluster；能用哪些 Git repos</div>
+        </div>
+        <div class="bd" style="--bdc:var(--color-success)">
+          <div class="bd-icon">🛡️</div>
+          <div class="bd-name">資源類型</div>
+          <div class="bd-desc">能管理哪些 K8s kind（namespace-scoped allow，cluster-scoped 限定）</div>
+        </div>
+        <div class="bd" style="--bdc:var(--color-warning)">
+          <div class="bd-icon">⏰</div>
+          <div class="bd-name">Sync 時段</div>
+          <div class="bd-desc">什麼時間可以 / 不可以 sync（如 prod 維護時段、freeze period）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- S2 三大策略 -->
+    <section class="sec" id="s2">
+      <h2><span class="sn">2</span>三大多租戶策略對比</h2>
+
+      <div class="strat-grid">
+        <div class="strat">
+          <div class="strat-head" style="background:var(--color-primary-soft);color:var(--color-primary-text)">A. Single Instance + RBAC</div>
+          <div class="strat-body">
+            <div class="strat-section">
+              <div class="strat-label">架構</div>
+              <div class="strat-content">一個 Argo CD 服務所有 team。透過 AppProject + RBAC + namespace 隔離</div>
+            </div>
+            <div class="strat-section">
+              <div class="strat-label">優點</div>
+              <div class="strat-content">
+                <ul>
+                  <li>運維成本最低</li>
+                  <li>統一升級 / 設定</li>
+                  <li>跨 team 視野容易</li>
+                  <li>資源使用最佳</li>
+                </ul>
+              </div>
+            </div>
+            <div class="strat-section">
+              <div class="strat-label">缺點</div>
+              <div class="strat-content">
+                <ul>
+                  <li>單點故障：壞了所有 team 都受影響</li>
+                  <li>嘈雜鄰居：大 App 拖累所有人</li>
+                  <li>RBAC 隨團隊數複雜化</li>
+                  <li>無法各 team 獨立升級</li>
+                </ul>
+              </div>
+            </div>
+            <div class="strat-section">
+              <div class="strat-label">適合</div>
+              <div class="strat-content">2-30 個 team、信任度高、單一組織</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="strat">
+          <div class="strat-head" style="background:var(--color-success-soft);color:var(--color-success)">B. Multi Instance（每 team 一個）</div>
+          <div class="strat-body">
+            <div class="strat-section">
+              <div class="strat-label">架構</div>
+              <div class="strat-content">每個 team 自己的 Argo CD（不同 namespace 或 cluster）</div>
+            </div>
+            <div class="strat-section">
+              <div class="strat-label">優點</div>
+              <div class="strat-content">
+                <ul>
+                  <li>真實隔離（不只 policy）</li>
+                  <li>各 team 獨立升級</li>
+                  <li>故障局部影響</li>
+                  <li>不需要跨 team RBAC</li>
+                </ul>
+              </div>
+            </div>
+            <div class="strat-section">
+              <div class="strat-label">缺點</div>
+              <div class="strat-content">
+                <ul>
+                  <li>運維成本 N 倍</li>
+                  <li>無集中視野</li>
+                  <li>SSO / cluster credentials 重複設定</li>
+                  <li>資源使用較高</li>
+                </ul>
+              </div>
+            </div>
+            <div class="strat-section">
+              <div class="strat-label">適合</div>
+              <div class="strat-content">監管嚴格、競爭關係 team、SaaS 平台、超大規模 (100+ team)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h3 id="s2c">2.3 策略 C：Hybrid（推薦中大型組織）</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Architecture — Hybrid 拓撲</span><button class="copy-btn">Copy</button></div>
+        <pre><code>┌──────────────────────────────────────────────────────────────────┐
+│  Layer 1: Platform Argo CD（管理員 instance）                    │
+│  ──────────────────────────────────────                          │
+│  • 由平台團隊運維                                                │
+│  • 部署各租戶的 Argo CD instance（self-management）              │
+│  • 部署 platform 元件：cert-manager、ingress、monitoring         │
+│  • 部署各 tenant 的 namespace + RoleBinding                      │
+└────────┬─────────────────────────────────────────────────────────┘
+         │ 部署 + 管理
+         ▼
+┌────────────────┬────────────────┬────────────────┬───────────────┐
+│ Tenant Argo CD │ Tenant Argo CD │ Tenant Argo CD │ ...           │
+│  Team Alpha    │  Team Beta     │  Team Gamma    │               │
+│ (in alpha-     │ (in beta-      │ (in gamma-     │               │
+│  argocd ns)    │  argocd ns)    │  argocd ns)    │               │
+│  namespace-    │  namespace-    │  namespace-    │               │
+│  install.yaml  │  install.yaml  │  install.yaml  │               │
+└────────────────┴────────────────┴────────────────┴───────────────┘
+         │                │                │
+         ▼                ▼                ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  Tenant 各自的 K8s Namespaces（alpha-*、beta-*、gamma-*）         │
+└──────────────────────────────────────────────────────────────────┘</code></pre>
+      </div>
+
+      <p>Hybrid 模式結合兩者優點：① 平台團隊用 platform Argo CD 管理基礎設施與各 tenant 的 Argo CD instance（GitOps 部署）；② 各 tenant 在自己的 instance 上自治；③ 故障隔離（platform 故障不影響 tenant 已運行的 sync）。<strong>大型組織首選</strong>。</p>
+    </section>
+
+    <!-- S3 AppProject -->
+    <section class="sec" id="s3">
+      <h2><span class="sn">3</span>AppProject：Single Instance 多租戶基石</h2>
+
+      <p>選擇 Single Instance 策略時，AppProject 是隔離的核心。一個完整的 tenant AppProject 必須涵蓋四大限制：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — 完整 tenant AppProject 範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: AppProject</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">team-alpha</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+  <span class="yk">finalizers:</span>
+    - <span class="yv">resources-finalizer.argocd.argoproj.io</span>     <span class="yc"># 防止意外刪除</span>
+<span class="yk">spec:</span>
+  <span class="yk">description:</span> <span class="yv">Team Alpha applications</span>
+
+  <span class="yc"># ─── 1. Source Repos：限制 Git 來源 ─────────────────────</span>
+  <span class="yk">sourceRepos:</span>
+    - <span class="yv">'https://github.com/myorg/team-alpha-*'</span>   <span class="yc"># 自己的 repo</span>
+    - <span class="yv">'https://github.com/myorg/shared-charts'</span>   <span class="yc"># 公司共享 chart</span>
+    <span class="yc"># 不允許 - '*'（會破壞租戶隔離）</span>
+
+  <span class="yc"># ─── 2. Destinations：限制部署目的地 ─────────────────────</span>
+  <span class="yk">destinations:</span>
+    <span class="yc"># 本叢集，限定 namespace 前綴</span>
+    - <span class="yk">namespace:</span> <span class="yv">'alpha-*'</span>
+      <span class="yk">server:</span> <span class="yv">https://kubernetes.default.svc</span>
+    <span class="yc"># Production cluster，限定特定 namespace</span>
+    - <span class="yk">namespace:</span> <span class="yv">'alpha-prod'</span>
+      <span class="yk">server:</span> <span class="yv">https://prod.k8s.example.com</span>
+    <span class="yc"># 限定 destination 中 Application 物件可在哪個 namespace</span>
+    <span class="yc"># （用於 Apps in Any Namespace 功能，見第 4 節）</span>
+  <span class="yk">sourceNamespaces:</span>
+    - <span class="yv">alpha-argocd</span>      <span class="yc"># 只接受來自 alpha-argocd ns 的 Application</span>
+
+  <span class="yc"># ─── 3. Cluster Resources：限制 cluster-scoped 資源 ─────</span>
+  <span class="yc"># 預設 deny all，只允許白名單</span>
+  <span class="yk">clusterResourceWhitelist:</span>
+    <span class="yc"># 不允許 ClusterRole、ClusterRoleBinding、CRD、Namespace（給 platform 管）</span>
+    <span class="yc"># （空 list = 全 deny）</span>
+
+  <span class="yc"># 黑名單：明確禁止特定 namespace-scoped 資源</span>
+  <span class="yk">namespaceResourceBlacklist:</span>
+    - <span class="yk">group:</span> <span class="yv">''</span>
+      <span class="yk">kind:</span> <span class="yv">ResourceQuota</span>      <span class="yc"># 由 platform 設定</span>
+    - <span class="yk">group:</span> <span class="yv">''</span>
+      <span class="yk">kind:</span> <span class="yv">LimitRange</span>
+    - <span class="yk">group:</span> <span class="yv">'networking.k8s.io'</span>
+      <span class="yk">kind:</span> <span class="yv">NetworkPolicy</span>      <span class="yc"># 由 platform 設定</span>
+
+  <span class="yc"># ─── 4. Sync Windows：限制 sync 時段 ──────────────────────</span>
+  <span class="yk">syncWindows:</span>
+    <span class="yc"># 平日上班時間禁止 sync prod（避免人為失誤）</span>
+    - <span class="yk">kind:</span> <span class="yv">deny</span>
+      <span class="yk">schedule:</span> <span class="yv">'0 9 * * 1-5'</span>      <span class="yc"># 週一至週五 09:00</span>
+      <span class="yk">duration:</span> <span class="yv">9h</span>                 <span class="yc"># 持續 9 小時（到 18:00）</span>
+      <span class="yk">applications:</span>
+        - <span class="yv">'*-prod'</span>
+      <span class="yk">manualSync:</span> <span class="yv">false</span>          <span class="yc"># 連手動 sync 都禁止</span>
+      <span class="yk">timeZone:</span> <span class="yv">Asia/Taipei</span>
+
+  <span class="yc"># ─── 5. Project-level Roles（見 Ch.21）─────────────────</span>
+  <span class="yk">roles:</span>
+    - <span class="yk">name:</span> <span class="yv">admin</span>
+      <span class="yk">policies:</span>
+        - <span class="yv">p, proj:team-alpha:admin, applications, *, team-alpha/*, allow</span>
+      <span class="yk">groups:</span>
+        - <span class="yv">team-alpha-leads</span>
+
+    - <span class="yk">name:</span> <span class="yv">deployer</span>
+      <span class="yk">policies:</span>
+        - <span class="yv">p, proj:team-alpha:deployer, applications, get,    team-alpha/*, allow</span>
+        - <span class="yv">p, proj:team-alpha:deployer, applications, sync,   team-alpha/*, allow</span>
+        - <span class="yv">p, proj:team-alpha:deployer, applications, action/*, team-alpha/*, allow</span>
+      <span class="yk">groups:</span>
+        - <span class="yv">team-alpha-developers</span>
+
+  <span class="yc"># ─── 6. Orphaned Resources：通知未管理資源 ──────────────</span>
+  <span class="yk">orphanedResources:</span>
+    <span class="yk">warn:</span> <span class="yv">true</span>          <span class="yc"># UI 顯示警告但不刪除</span>
+    <span class="yk">ignore:</span>
+      - <span class="yk">kind:</span> <span class="yv">Secret</span>
+        <span class="yk">name:</span> <span class="yv">'default-token-*'</span>      <span class="yc"># 系統自動建立的 token</span></code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>關鍵安全陷阱：sourceRepos: ['*']</h4>
+          <p>許多教學範例為了簡化，把 sourceRepos 設為 <code>'*'</code>——這完全破壞 multi-tenancy！tenant 可以指定<strong>任何 Git repo</strong>（包含 platform 的 secret repo），規避所有限制。<strong>絕對不要在生產環境使用 <code>sourceRepos: ['*']</code></strong>，永遠列出明確的 repo 模式。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S4 Apps in Any Namespace -->
+    <section class="sec" id="s4">
+      <h2><span class="sn">4</span>Apps in Any Namespace（v2.5+，租戶自治關鍵）</h2>
+
+      <p>傳統 Argo CD 中，所有 Application 物件必須在 <code>argocd</code> namespace。這意味著 tenant 想新增 App 必須有 argocd ns 的 write 權限——而那相當於 super-admin。<strong>v2.5+ 引入 Apps in Any Namespace</strong>：tenant 可以在自己擁有的 namespace 中建立 Application 物件，實現真正的 declarative 自治：</p>
+
+      <h3 id="s4a">4.1 啟用設定</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — 啟用 Apps in Any Namespace</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## ── Step 1：在 argocd-cmd-params-cm 設定 namespace 模式 ────</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-cmd-params-cm</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yc"># 允許 controller 與 server watch 哪些 namespace 的 Application</span>
+  <span class="yc"># 支援 glob 模式</span>
+  <span class="yk">application.namespaces:</span> <span class="yv">"argocd,*-argocd"</span>
+  <span class="yc"># 範例匹配：argocd, alpha-argocd, beta-argocd, gamma-argocd</span>
+  <span class="yc"># 不匹配：alpha, kube-system, default</span>
+
+<span class="yc">## ── Step 2：在 AppProject 中限定 sourceNamespaces ──────────</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: AppProject</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">team-alpha</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">spec:</span>
+  <span class="yk">sourceNamespaces:</span>
+    - <span class="yv">alpha-argocd</span>      <span class="yc"># 只接受來自 alpha-argocd ns 的 Application</span>
+  <span class="yc"># 其他 spec 同前</span>
+
+<span class="yc">## ── Step 3：在 tenant 自己的 namespace 建立 Application ────</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: Application</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app</span>
+  <span class="yk">namespace:</span> <span class="yv">alpha-argocd</span>      <span class="yc"># tenant 擁有的 namespace</span>
+<span class="yk">spec:</span>
+  <span class="yk">project:</span> <span class="yv">team-alpha</span>            <span class="yc"># 必須對應 sourceNamespaces 設定</span>
+  <span class="yk">source:</span>
+    <span class="yk">repoURL:</span> <span class="yv">https://github.com/myorg/team-alpha-app1</span>
+    <span class="yk">path:</span> <span class="yv">k8s</span>
+  <span class="yk">destination:</span>
+    <span class="yk">server:</span> <span class="yv">https://kubernetes.default.svc</span>
+    <span class="yk">namespace:</span> <span class="yv">alpha-prod</span>
+
+<span class="yc">## ── Step 4：UI 中的顯示 ─────────────────────────────────────</span>
+<span class="yc"># Application 在 UI 顯示為「alpha-argocd/my-app」格式</span>
+<span class="yc"># 與 argocd ns 的 App 區分（避免命名衝突）</span></code></pre>
+      </div>
+
+      <h3 id="s4b">4.2 命名衝突防護</h3>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>v2.5+ 命名規則：&lt;namespace&gt;/&lt;app-name&gt;</h4>
+          <p>同一個 cluster 內，alpha-argocd 與 beta-argocd 中可以同時有名為 <code>my-app</code> 的 Application（K8s 層級唯一）。Argo CD 內部用 <code>&lt;namespace&gt;/&lt;app-name&gt;</code> 區分，避免命名衝突。<strong>但 argocd ns 中的 App 仍只用 <code>my-app</code></strong>（向後相容）。</p>
+        </div>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — RBAC 對 Apps in Any Namespace 的設定</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">data:</span>
+  <span class="yk">policy.csv:</span> |
+    <span class="yc"># 對 Apps in Any Namespace，object 格式為 &lt;app-namespace&gt;/&lt;app-name&gt;</span>
+    <span class="yc"># 注意：不是 project 名稱，是 K8s namespace 名稱！</span>
+
+    <span class="yc"># Allow team-alpha 操作 alpha-argocd ns 中的 App</span>
+    p, role:team-alpha-deployer, applications, *, alpha-argocd/*, allow
+
+    <span class="yc"># 對 argocd ns 中的 App（傳統模式）</span>
+    p, role:team-alpha-deployer, applications, *, team-alpha/*, allow
+
+    <span class="yc"># 二者並存：兼容傳統 + 新模式</span></code></pre>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>App-of-Apps + Apps in Any Namespace = 完美自治</h4>
+          <p>tenant 在自己的 namespace 建立一個 root Application（指向 tenant 自己的 GitOps repo），root Application 透過 <code>directory.recurse</code> 讀取 tenant 自己 repo 中的所有 child Application。tenant 增加新 App = git push（無需 platform 介入）。<strong>真正的 declarative GitOps 自治</strong>。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S5 ApplicationSet -->
+    <section class="sec" id="s5">
+      <h2><span class="sn">5</span>ApplicationSet 多租戶 Generators</h2>
+
+      <p>ApplicationSet（深入細節見 Vol 5）讓 platform team 自動為 tenant 產生 Application，無需手動逐個建立。多租戶場景常用三種 generator：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — 三種 ApplicationSet 多租戶範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## ────────────────────────────────────────────────────────</span>
+<span class="yc">## 範例 1：List generator（手動列表）</span>
+<span class="yc">## 為 4 個 tenant 自動建立 monitoring stack</span>
+<span class="yc">## ────────────────────────────────────────────────────────</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: ApplicationSet</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">tenant-monitoring</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">spec:</span>
+  <span class="yk">generators:</span>
+    - <span class="yk">list:</span>
+        <span class="yk">elements:</span>
+          - <span class="yk">tenant:</span> <span class="yv">alpha</span>
+            <span class="yk">project:</span> <span class="yv">team-alpha</span>
+          - <span class="yk">tenant:</span> <span class="yv">beta</span>
+            <span class="yk">project:</span> <span class="yv">team-beta</span>
+          - <span class="yk">tenant:</span> <span class="yv">gamma</span>
+            <span class="yk">project:</span> <span class="yv">team-gamma</span>
+          - <span class="yk">tenant:</span> <span class="yv">delta</span>
+            <span class="yk">project:</span> <span class="yv">team-delta</span>
+  <span class="yk">template:</span>
+    <span class="yk">metadata:</span>
+      <span class="yk">name:</span> <span class="yv">'monitoring-{{tenant}}'</span>
+    <span class="yk">spec:</span>
+      <span class="yk">project:</span> <span class="yv">'{{project}}'</span>
+      <span class="yk">source:</span>
+        <span class="yk">repoURL:</span> <span class="yv">https://github.com/myorg/platform-monitoring.git</span>
+        <span class="yk">path:</span> <span class="yv">'tenants/{{tenant}}'</span>
+      <span class="yk">destination:</span>
+        <span class="yk">server:</span> <span class="yv">https://kubernetes.default.svc</span>
+        <span class="yk">namespace:</span> <span class="yv">'{{tenant}}-monitoring'</span>
+
+<span class="yh">---</span>
+<span class="yc">## ────────────────────────────────────────────────────────</span>
+<span class="yc">## 範例 2：Cluster generator（依 cluster 自動 fan-out）</span>
+<span class="yc">## ────────────────────────────────────────────────────────</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: ApplicationSet</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">platform-cert-manager</span>
+<span class="yk">spec:</span>
+  <span class="yk">generators:</span>
+    - <span class="yk">clusters:</span>
+        <span class="yk">selector:</span>
+          <span class="yk">matchLabels:</span>
+            <span class="yk">platform-managed:</span> <span class="yv">"true"</span>      <span class="yc"># 對應 cluster Secret label</span>
+  <span class="yk">template:</span>
+    <span class="yk">metadata:</span>
+      <span class="yk">name:</span> <span class="yv">'cert-manager-{{name}}'</span>      <span class="yc"># cluster name</span>
+    <span class="yk">spec:</span>
+      <span class="yk">project:</span> <span class="yv">platform</span>
+      <span class="yk">source:</span>
+        <span class="yk">repoURL:</span> <span class="yv">https://charts.jetstack.io</span>
+        <span class="yk">chart:</span> <span class="yv">cert-manager</span>
+        <span class="yk">targetRevision:</span> <span class="yv">v1.14.0</span>
+      <span class="yk">destination:</span>
+        <span class="yk">server:</span> <span class="yv">'{{server}}'</span>           <span class="yc"># 從 cluster Secret</span>
+        <span class="yk">namespace:</span> <span class="yv">cert-manager</span>
+
+<span class="yh">---</span>
+<span class="yc">## ────────────────────────────────────────────────────────</span>
+<span class="yc">## 範例 3：Git generator（從 Git directory 自動產生）</span>
+<span class="yc">## tenant 在自己 repo 建立目錄即自動部署</span>
+<span class="yc">## ────────────────────────────────────────────────────────</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: ApplicationSet</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">team-alpha-apps</span>
+<span class="yk">spec:</span>
+  <span class="yk">generators:</span>
+    - <span class="yk">git:</span>
+        <span class="yk">repoURL:</span> <span class="yv">https://github.com/myorg/team-alpha-apps</span>
+        <span class="yk">revision:</span> <span class="yv">main</span>
+        <span class="yk">directories:</span>
+          - <span class="yk">path:</span> <span class="yv">'apps/*'</span>          <span class="yc"># 每個子目錄產生一個 App</span>
+  <span class="yk">template:</span>
+    <span class="yk">metadata:</span>
+      <span class="yk">name:</span> <span class="yv">'alpha-{{path.basename}}'</span>
+    <span class="yk">spec:</span>
+      <span class="yk">project:</span> <span class="yv">team-alpha</span>
+      <span class="yk">source:</span>
+        <span class="yk">repoURL:</span> <span class="yv">https://github.com/myorg/team-alpha-apps</span>
+        <span class="yk">path:</span> <span class="yv">'{{path}}'</span>
+      <span class="yk">destination:</span>
+        <span class="yk">server:</span> <span class="yv">https://kubernetes.default.svc</span>
+        <span class="yk">namespace:</span> <span class="yv">'alpha-{{path.basename}}'</span></code></pre>
+      </div>
+    </section>
+
+    <!-- S6 namespace-install -->
+    <section class="sec" id="s6">
+      <h2><span class="sn">6</span>租戶完全自治：namespace-install + Hybrid</h2>
+
+      <p>對需要極致隔離的租戶（如金融部門、合規嚴格 team），可以為其部署獨立的 namespace-install Argo CD instance。tenant 在自己的 namespace 完全擁有 Argo CD：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Hybrid：platform 部署 tenant Argo CD</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## platform Argo CD 用 ApplicationSet 自動為每個 tenant</span>
+<span class="yc">## 部署一個獨立的 namespace-install Argo CD instance</span>
+
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: ApplicationSet</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">tenant-argocd-instances</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>      <span class="yc"># platform argocd ns</span>
+<span class="yk">spec:</span>
+  <span class="yk">generators:</span>
+    - <span class="yk">list:</span>
+        <span class="yk">elements:</span>
+          - <span class="yk">tenant:</span> <span class="yv">alpha</span>
+          - <span class="yk">tenant:</span> <span class="yv">beta</span>
+          - <span class="yk">tenant:</span> <span class="yv">gamma</span>
+  <span class="yk">template:</span>
+    <span class="yk">metadata:</span>
+      <span class="yk">name:</span> <span class="yv">'argocd-{{tenant}}'</span>
+    <span class="yk">spec:</span>
+      <span class="yk">project:</span> <span class="yv">platform</span>
+      <span class="yk">source:</span>
+        <span class="yk">repoURL:</span> <span class="yv">https://argoproj.github.io/argo-helm</span>
+        <span class="yk">chart:</span> <span class="yv">argo-cd</span>
+        <span class="yk">targetRevision:</span> <span class="yv">7.6.12</span>
+        <span class="yk">helm:</span>
+          <span class="yk">releaseName:</span> <span class="yv">'argocd-{{tenant}}'</span>
+          <span class="yk">valuesObject:</span>
+            <span class="yk">global:</span>
+              <span class="yk">domain:</span> <span class="yv">'argocd-{{tenant}}.example.com'</span>
+            <span class="yk">configs:</span>
+              <span class="yk">cm:</span>
+                <span class="yk">application.namespaces:</span> <span class="yv">'{{tenant}}-*'</span>
+              <span class="yk">params:</span>
+                <span class="yc"># 用 namespace-install 模式</span>
+                <span class="yk">application.namespaces:</span> <span class="yv">'{{tenant}}-*'</span>
+            <span class="yk">crds:</span>
+              <span class="yk">install:</span> <span class="yv">false</span>      <span class="yc"># CRD 由 platform 統一安裝</span>
+            <span class="yk">controller:</span>
+              <span class="yk">resources:</span>
+                <span class="yk">requests:</span> {<span class="yk">cpu:</span> <span class="yv">"500m"</span>, <span class="yk">memory:</span> <span class="yv">"1Gi"</span>}
+            <span class="yk">server:</span>
+              <span class="yk">replicas:</span> <span class="yn">2</span>
+              <span class="yk">ingress:</span>
+                <span class="yk">enabled:</span> <span class="yv">true</span>
+      <span class="yk">destination:</span>
+        <span class="yk">server:</span> <span class="yv">https://kubernetes.default.svc</span>
+        <span class="yk">namespace:</span> <span class="yv">'{{tenant}}-argocd'</span>
+      <span class="yk">syncPolicy:</span>
+        <span class="yk">automated:</span> {<span class="yk">prune:</span> <span class="yv">true</span>, <span class="yk">selfHeal:</span> <span class="yv">true</span>}
+        <span class="yk">syncOptions:</span> [<span class="yv">CreateNamespace=true</span>]
+
+<span class="yc">## 效果：</span>
+<span class="yc"># platform Argo CD 為每個 tenant 部署一個獨立的 namespace-scoped Argo CD</span>
+<span class="yc"># tenant Argo CD 只能管理 {{tenant}}-* namespace（namespace-install 限制）</span>
+<span class="yc"># 各 tenant 各自獨立升級、設定、SSO</span>
+<span class="yc"># 故障局部影響</span></code></pre>
+      </div>
+    </section>
+
+    <!-- S7 完整實作 -->
+    <section class="sec" id="s7">
+      <h2><span class="sn">7</span>完整實作：4 個團隊的 Single Instance 多租戶</h2>
+
+      <p>整合本章所有概念，以下是中型組織（4 個產品 team + platform team）的完整 Single Instance 多租戶配置：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — 完整多租戶實作（platform-managed）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## ────────────────────────────────────────────────────────</span>
+<span class="yc">## 1) Platform AppProject（管理員，部署 platform 元件）</span>
+<span class="yc">## ────────────────────────────────────────────────────────</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: AppProject</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">platform</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">spec:</span>
+  <span class="yk">description:</span> <span class="yv">Platform infrastructure</span>
+  <span class="yk">sourceRepos:</span>
+    - <span class="yv">'https://github.com/myorg/platform-*'</span>
+    - <span class="yv">'https://argoproj.github.io/argo-helm'</span>     <span class="yc"># 為了 self-management</span>
+    - <span class="yv">'https://charts.jetstack.io'</span>               <span class="yc"># cert-manager</span>
+  <span class="yk">destinations:</span>
+    - <span class="yk">namespace:</span> <span class="yv">'*'</span>
+      <span class="yk">server:</span> <span class="yv">'*'</span>           <span class="yc"># platform 可部署到任何地方</span>
+  <span class="yk">clusterResourceWhitelist:</span>
+    - <span class="yk">group:</span> <span class="yv">'*'</span>
+      <span class="yk">kind:</span> <span class="yv">'*'</span>            <span class="yc"># 允許所有 cluster 資源</span>
+  <span class="yk">roles:</span>
+    - <span class="yk">name:</span> <span class="yv">admin</span>
+      <span class="yk">policies:</span>
+        - <span class="yv">p, proj:platform:admin, applications, *, platform/*, allow</span>
+      <span class="yk">groups:</span>
+        - <span class="yv">platform-team-leads</span>
+
+<span class="yh">---</span>
+<span class="yc">## ────────────────────────────────────────────────────────</span>
+<span class="yc">## 2) Tenant Template AppProject（範本，由 platform 維護）</span>
+<span class="yc">## 4 個 tenant project（team-alpha / team-beta / team-gamma / team-delta）</span>
+<span class="yc">## ────────────────────────────────────────────────────────</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: AppProject</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">team-alpha</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">spec:</span>
+  <span class="yk">sourceRepos:</span>
+    - <span class="yv">'https://github.com/myorg/team-alpha-*'</span>
+    - <span class="yv">'https://github.com/myorg/shared-charts'</span>
+  <span class="yk">destinations:</span>
+    - <span class="yk">namespace:</span> <span class="yv">'alpha-*'</span>
+      <span class="yk">server:</span> <span class="yv">'*'</span>
+  <span class="yk">sourceNamespaces:</span>
+    - <span class="yv">alpha-argocd</span>      <span class="yc"># Apps in Any Namespace 隔離</span>
+  <span class="yk">clusterResourceWhitelist:</span> []     <span class="yc"># 不允許 cluster-scoped</span>
+  <span class="yk">namespaceResourceBlacklist:</span>
+    - <span class="yk">group:</span> <span class="yv">''</span>
+      <span class="yk">kind:</span> <span class="yv">ResourceQuota</span>
+    - <span class="yk">group:</span> <span class="yv">'networking.k8s.io'</span>
+      <span class="yk">kind:</span> <span class="yv">NetworkPolicy</span>
+  <span class="yk">roles:</span>
+    - <span class="yk">name:</span> <span class="yv">admin</span>
+      <span class="yk">policies:</span>
+        - <span class="yv">p, proj:team-alpha:admin, applications, *, alpha-argocd/*, allow</span>
+      <span class="yk">groups:</span>
+        - <span class="yv">team-alpha-leads</span>
+    - <span class="yk">name:</span> <span class="yv">deployer</span>
+      <span class="yk">policies:</span>
+        - <span class="yv">p, proj:team-alpha:deployer, applications, get,    alpha-argocd/*, allow</span>
+        - <span class="yv">p, proj:team-alpha:deployer, applications, sync,   alpha-argocd/*, allow</span>
+      <span class="yk">groups:</span>
+        - <span class="yv">team-alpha-developers</span>
+
+<span class="yh">---</span>
+<span class="yc">## ────────────────────────────────────────────────────────</span>
+<span class="yc">## 3) Tenant Namespace + RoleBinding（由 platform 透過 GitOps 管理）</span>
+<span class="yc">## 自動為 alpha-argocd ns 設定 tenant 可寫入 Application 的權限</span>
+<span class="yc">## ────────────────────────────────────────────────────────</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: Namespace</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">alpha-argocd</span>
+  <span class="yk">labels:</span>
+    <span class="yk">tenant:</span> <span class="yv">alpha</span>
+    <span class="yc"># Pod Security restricted</span>
+    <span class="yk">pod-security.kubernetes.io/enforce:</span> <span class="yv">restricted</span>
+<span class="yh">---</span>
+<span class="yh">apiVersion: rbac.authorization.k8s.io/v1</span>
+<span class="yh">kind: RoleBinding</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">alpha-tenant-argocd-write</span>
+  <span class="yk">namespace:</span> <span class="yv">alpha-argocd</span>
+<span class="yk">roleRef:</span>
+  <span class="yk">apiGroup:</span> <span class="yv">rbac.authorization.k8s.io</span>
+  <span class="yk">kind:</span> <span class="yv">ClusterRole</span>
+  <span class="yk">name:</span> <span class="yv">edit</span>           <span class="yc"># K8s 內建 edit role</span>
+<span class="yk">subjects:</span>
+  - <span class="yk">kind:</span> <span class="yv">Group</span>
+    <span class="yk">apiGroup:</span> <span class="yv">rbac.authorization.k8s.io</span>
+    <span class="yk">name:</span> <span class="yv">team-alpha-leads</span>
+  - <span class="yk">kind:</span> <span class="yv">Group</span>
+    <span class="yk">apiGroup:</span> <span class="yv">rbac.authorization.k8s.io</span>
+    <span class="yk">name:</span> <span class="yv">team-alpha-developers</span>
+
+<span class="yh">---</span>
+<span class="yc">## ────────────────────────────────────────────────────────</span>
+<span class="yc">## 4) Global RBAC（argocd-rbac-cm）</span>
+<span class="yc">## ────────────────────────────────────────────────────────</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-rbac-cm</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yk">policy.default:</span> <span class="yv">''</span>
+  <span class="yk">scopes:</span> <span class="yv">'[groups,email]'</span>
+  <span class="yk">policy.csv:</span> |
+    <span class="yc"># 所有人可看到 platform / app projects（透明性）</span>
+    p, role:org-readonly, projects, get, *, allow
+    p, role:org-readonly, applications, get, */*, allow
+
+    g, "okta-all-employees", role:org-readonly</code></pre>
+      </div>
+    </section>
+
+    <!-- S8 選型 -->
+    <section class="sec" id="s8">
+      <h2><span class="sn">8</span>選型決策矩陣</h2>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>場景</th><th>策略</th><th>關鍵設定</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>小團隊（1-3 team）<br>5-50 App</td>
+              <td><strong>Single Instance + AppProject + RBAC</strong></td>
+              <td>所有 Application 在 argocd ns；簡單 Project 隔離</td>
+            </tr>
+            <tr>
+              <td>中型組織（4-30 team）<br>100-1000 App</td>
+              <td><strong>Single Instance + Apps in Any Namespace + ApplicationSet</strong></td>
+              <td>tenant 自治在 alpha-argocd ns；platform 用 ApplicationSet 自動產生 base Apps</td>
+            </tr>
+            <tr>
+              <td>大型組織（30+ team）<br>含監管嚴格部門</td>
+              <td><strong>Hybrid：platform Argo CD + 監管部門獨立 instance</strong></td>
+              <td>大部分用 Single + Apps in Any Namespace；金融/合規部門用 namespace-install</td>
+            </tr>
+            <tr>
+              <td>SaaS 平台（為客戶提供 Argo CD）<br>競爭關係 tenant</td>
+              <td><strong>Multi Instance（每客戶一個）</strong></td>
+              <td>每客戶獨立 namespace-install + 獨立 cluster credentials</td>
+            </tr>
+            <tr>
+              <td>超大規模（100+ team / 50+ cluster）</td>
+              <td><strong>Per-Cluster Argo CD（見 Ch.12）+ ArgoCD Agent</strong></td>
+              <td>每 cluster 一個 Argo CD + 中央 control plane 統一視野</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>選型核心問題清單</h4>
+          <p>① <strong>監管限制</strong>：tenant 是否要求完全獨立 instance？<br>② <strong>故障容忍度</strong>：一個 tenant 影響其他 tenant 是否可接受？<br>③ <strong>升級節奏</strong>：tenant 是否需要獨立決定升級時機？<br>④ <strong>RBAC 複雜度</strong>：是否願意維護跨 tenant 的 policy？<br>⑤ <strong>運維能力</strong>：能否負擔多 instance 的管理成本？<br>前三題若有一題回答「是」，考慮 Multi Instance 或 Hybrid。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Summary -->
+    <section class="sec" id="sum">
+      <h2><span class="sn">✓</span>本章重點回顧</h2>
+      <div class="kp">
+        <h3>📌 Key Takeaways</h3>
+        <ul class="kp-list">
+          <li><span class="kp-ic">🏢</span><span><strong>多租戶 = 隔離 + 自治</strong>：tenant 應在四大維度被隔離（可見性、部署範圍、資源類型、Sync 時段）。Single Instance 用 RBAC 實現「邏輯隔離」；Multi Instance 用獨立 instance 實現「物理隔離」。</span></li>
+          <li><span class="kp-ic">⚖️</span><span><strong>三大策略各有適用場景</strong>：① Single Instance（運維簡單但故障域大，2-30 team）；② Multi Instance（強隔離但 N 倍成本，監管嚴格 / SaaS 多客戶）；③ <strong>Hybrid 是中大型組織首選</strong>（platform + tenant instance）。</span></li>
+          <li><span class="kp-ic">🛡️</span><span><strong>AppProject 是 Single Instance 隔離核心</strong>：四大限制必設——sourceRepos（明確列舉，<strong>絕不用 *</strong>）、destinations（限定 namespace + cluster）、clusterResourceWhitelist（預設空 = 全 deny）、namespaceResourceBlacklist（禁 ResourceQuota / NetworkPolicy 等 platform 資源）。再加 syncWindows + Project Roles。</span></li>
+          <li><span class="kp-ic">📂</span><span><strong>Apps in Any Namespace 是真正自治的關鍵</strong>（v2.5+）：在 argocd-cmd-params-cm 設定 application.namespaces；AppProject 配 sourceNamespaces；tenant 在自己 ns 建立 Application = git push 即部署，無需 argocd ns 寫入權限。對應 RBAC 的 object 是 <code>&lt;app-namespace&gt;/&lt;app-name&gt;</code>。</span></li>
+          <li><span class="kp-ic">🔁</span><span><strong>ApplicationSet 三大 generator 對應多租戶</strong>：① List：手動為固定 tenant 列表產生 App；② Cluster：依 cluster Secret label 自動 fan-out；③ Git：tenant 在自己 repo 建目錄即自動產 App。<strong>大幅減少 platform team 手動工作量</strong>。</span></li>
+          <li><span class="kp-ic">🏗️</span><span><strong>Hybrid 模式下的 platform 角色</strong>：platform Argo CD 透過 ApplicationSet 自動為每個 tenant 部署 namespace-install Argo CD instance + 建立 namespace + RoleBinding + cluster credentials。tenant 完全自治於自己的 instance，platform 只負責 bootstrap。</span></li>
+          <li><span class="kp-ic">📋</span><span><strong>選型決策五問</strong>：監管限制？故障容忍度？升級節奏？RBAC 複雜度？運維能力？前三題若有「是」考慮 Multi/Hybrid。中型組織建議：Single Instance + Apps in Any Namespace 起步，部分監管嚴格 team 改用 Hybrid namespace-install。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Vol 4 完成橫幅 -->
+    <div class="vol-complete">
+      <div class="check-icon">🎉</div>
+      <h3>Vol 4 — 身份驗證、授權與多租戶 完成！</h3>
+      <p>恭喜完成 Vol 4 全部三章（Ch.20–Ch.22）。你已掌握 SSO 整合（OIDC / Dex / SAML / 多 IdP）、進階 RBAC 與 Casbin 規則、企業級多租戶設計模式。Vol 5 將深入 ApplicationSet 與 Source Hydrator——大規模、宣告式、自動化的 GitOps 進階模式。</p>
+    </div>
+
+    <nav class="ch-nav">
+      <a href="ch21-advanced-rbac.html" class="nav-btn nav-prev">
+        <div><div class="nav-sub">上一章 / PREV</div><div>← Ch.21 進階 RBAC 與 Casbin 規則</div></div>
+      </a>
+      <a href="#" class="nav-btn nav-next">
+        <div><div class="nav-sub">下一卷 / NEXT VOL</div><div>Vol 5 Ch.23 ApplicationSet 概念與 Generators →</div></div>
+      </a>
+    </nav>
+  </main>
+</div>
+
+<footer>Argo CD 完整教學手冊 · <strong>Vol 4 Ch.22</strong> · 基於 Argo CD <strong>v3.4</strong> · 2026-05-09</footer>
+
+<script>
+(function(){
+  'use strict';
+  const KEY='jhsun-theme';
+  const IC={light:'☀',dark:'☾',system:'◐'};
+  const LB={light:'Light',dark:'Dark',system:'System'};
+  function gs(){try{return localStorage.getItem(KEY);}catch(_){return null;}}
+  function ss(v){try{v==='system'||v==null?localStorage.removeItem(KEY):localStorage.setItem(KEY,v);}catch(_){}}
+  function sp(){return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  function ef(m){return m==='system'?sp():m;}
+  function apply(m){
+    const e=ef(m);
+    document.documentElement.dataset.theme=e;
+    document.documentElement.dataset.themeMode=m;
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{
+      b.dataset.themeMode=m;
+      b.setAttribute('aria-label','Theme: '+LB[m]);
+      b.title='Theme: '+LB[m];
+      if(!b.dataset.themeToggleStyled)b.innerHTML='<span>'+IC[m]+'</span><span>'+LB[m]+'</span>';
+    });
+    dispatchEvent(new CustomEvent('jhsun:theme-changed',{detail:{theme:e,mode:m}}));
+  }
+  function cyc(c){return c==='light'?'dark':c==='dark'?'system':'light';}
+  function cur(){return gs()||'system';}
+  function init(){
+    apply(cur());
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{b.addEventListener('click',()=>{const n=cyc(cur());ss(n);apply(n);});});
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(cur()==='system')apply('system');});
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+  window.JHsunTheme={get:cur,set:m=>{ss(m);apply(m);},toggle:()=>{const n=cyc(cur());ss(n);apply(n);}};
+})();
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('.copy-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const pre=btn.closest('.code-wrap').querySelector('pre');
+      navigator.clipboard.writeText(pre.innerText).then(()=>{btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},2000);});
+    });
+  });
+  const hds=document.querySelectorAll('.sec h2,.sec h3');
+  const lks=document.querySelectorAll('.toc-list a');
+  const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){lks.forEach(l=>l.classList.remove('active'));const id=e.target.id||e.target.closest('[id]')?.id;if(id){const a=document.querySelector('.toc-list a[href="#'+id+'"]');if(a)a.classList.add('active');}}});},{rootMargin:'-60px 0px -70% 0px'});
+  hds.forEach(h=>{if(h.id)obs.observe(h);});
+});
+</script>
+</body>
+</html>

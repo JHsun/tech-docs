@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.29 argocd-notifications：訂閱事件、模板、多通道整合 — Argo CD 完整教學手冊</title>
+<style>
+:root{--tk-hue:200;--tk-chroma:0.11;--color-success:#16a34a;--color-success-soft:#dcfce7;--color-warning:#d97706;--color-warning-soft:#fef3c7;--color-danger:#dc2626;--color-danger-soft:#fee2e2;--color-info:#0891b2;--color-info-soft:#cffafe;--color-neutral-accent:#7c3aed;--color-primary:oklch(0.55 var(--tk-chroma) var(--tk-hue));--color-primary-hover:oklch(0.48 var(--tk-chroma) var(--tk-hue));--color-primary-soft:oklch(0.96 calc(var(--tk-chroma)*.25) var(--tk-hue));--color-primary-text:oklch(0.40 var(--tk-chroma) var(--tk-hue));--bg-canvas:oklch(0.985 0.004 60);--bg-surface:oklch(0.995 0.003 60);--bg-muted:oklch(0.96 0.005 60);--bg-code:oklch(0.975 0.006 60);--border-soft:oklch(0.92 0.006 60);--border-mid:oklch(0.85 0.008 60);--text-primary:oklch(0.22 0.008 60);--text-secondary:oklch(0.42 0.008 60);--text-muted:oklch(0.58 0.008 60);--font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;--font-sans:"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif;--font-serif:"Playfair Display","Source Serif 4","Noto Serif TC",Georgia,serif;--font-body:"Source Serif 4","Noto Serif TC",Georgia,serif;--text-xs:12px;--text-sm:14px;--text-base:16px;--text-md:18px;--text-lg:20px;--text-xl:24px;--text-2xl:32px;--text-3xl:44px;--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-7:48px;--space-8:64px;--space-9:96px;--radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:20px;--shadow-sm:0 1px 3px oklch(0.20 0.01 60/0.07);--shadow-md:0 4px 14px oklch(0.20 0.01 60/0.10);}
+:root[data-theme="dark"]{--color-success:#4ade80;--color-success-soft:oklch(0.28 0.08 145);--color-warning:#fbbf24;--color-warning-soft:oklch(0.30 0.10 70);--color-danger:#f87171;--color-danger-soft:oklch(0.30 0.10 27);--color-info:#22d3ee;--color-info-soft:oklch(0.30 0.08 200);--color-neutral-accent:#a78bfa;--color-primary:oklch(0.72 calc(var(--tk-chroma)*.95) var(--tk-hue));--color-primary-hover:oklch(0.80 calc(var(--tk-chroma)*.95) var(--tk-hue));--color-primary-soft:oklch(0.28 calc(var(--tk-chroma)*.6) var(--tk-hue));--color-primary-text:oklch(0.85 calc(var(--tk-chroma)*.6) var(--tk-hue));--bg-canvas:oklch(0.14 0.008 50);--bg-surface:oklch(0.18 0.009 50);--bg-muted:oklch(0.21 0.010 50);--bg-code:oklch(0.16 0.009 50);--border-soft:oklch(0.26 0.010 50);--border-mid:oklch(0.34 0.012 50);--text-primary:oklch(0.93 0.005 60);--text-secondary:oklch(0.74 0.006 60);--text-muted:oklch(0.56 0.007 60);--shadow-sm:0 1px 3px oklch(0.04 0 0/.50);--shadow-md:0 4px 14px oklch(0.04 0 0/.60);}
+html{color-scheme:light dark;}html[data-theme="light"]{color-scheme:light;}html[data-theme="dark"]{color-scheme:dark;}
+body{background:var(--bg-canvas);color:var(--text-primary);font-family:var(--font-sans);font-size:var(--text-base);line-height:1.7;margin:0;padding:0;transition:background .25s,color .25s;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+.topbar{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:10px var(--space-6);background:var(--bg-surface);border-bottom:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.tb-left{display:flex;align-items:center;gap:var(--space-3);}
+.tb-logo{width:30px;height:30px;border-radius:var(--radius-md);background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:13px;font-weight:800;}
+.tb-trail{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.tb-trail .sep{color:var(--border-mid);}.tb-trail .cur{color:var(--color-primary);font-weight:600;}
+.tb-right{display:flex;align-items:center;gap:var(--space-2);}
+.pill{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);border:1px solid;}
+.pill-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.pill-ver{background:var(--color-info-soft);color:var(--color-info);border-color:var(--color-info);}
+[data-theme-toggle]{cursor:pointer;border:1px solid var(--border-mid);background:var(--bg-muted);color:var(--text-secondary);border-radius:var(--radius-md);padding:6px var(--space-3);font-family:var(--font-sans);font-size:var(--text-sm);display:flex;align-items:center;gap:6px;transition:all .2s;}
+[data-theme-toggle]:hover{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.page{display:flex;min-height:100vh;}
+.toc-sidebar{width:230px;flex-shrink:0;position:sticky;top:49px;height:calc(100vh - 49px);overflow-y:auto;padding:var(--space-5) var(--space-3);border-right:1px solid var(--border-soft);background:var(--bg-surface);}
+.toc-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-3);}
+.toc-list{list-style:none;}
+.toc-list li{margin-bottom:2px;}
+.toc-list a{display:block;padding:4px var(--space-2);font-size:var(--text-sm);color:var(--text-secondary);text-decoration:none;border-radius:var(--radius-sm);border-left:2px solid transparent;transition:all .15s;line-height:1.4;}
+.toc-list a:hover,.toc-list a.active{color:var(--color-primary);background:var(--color-primary-soft);border-left-color:var(--color-primary);font-weight:600;}
+.toc-h3{padding-left:var(--space-4)!important;font-size:var(--text-xs)!important;}
+.toc-lbl{display:block;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:var(--space-3) var(--space-2) var(--space-1);margin-top:var(--space-2);}
+.content{flex:1;min-width:0;padding:var(--space-8) var(--space-7) var(--space-9);max-width:900px;}
+.ch-header{margin-bottom:var(--space-8);padding-bottom:var(--space-6);border-bottom:1px solid var(--border-soft);}
+.ch-meta{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-4);flex-wrap:wrap;}
+.m-badge{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);}
+.m-ch{background:var(--color-primary);color:#fff;}
+.m-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border:1px solid var(--color-primary);}
+.m-time{background:var(--bg-muted);color:var(--text-muted);border:1px solid var(--border-soft);}
+.ch-header h1{font-family:var(--font-serif);font-size:clamp(var(--text-2xl),4vw,var(--text-3xl));font-weight:700;color:var(--text-primary);line-height:1.2;margin-bottom:var(--space-4);}
+.ch-header h1 em{font-style:normal;color:var(--color-primary);}
+.ch-lead{font-size:var(--text-md);color:var(--text-secondary);line-height:1.7;max-width:700px;font-family:var(--font-body);}
+.prereq{margin-top:var(--space-5);display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--bg-muted);border-radius:var(--radius-md);border:1px solid var(--border-soft);}
+.prereq .pico{font-size:var(--text-lg);flex-shrink:0;margin-top:1px;}
+.prereq p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;}
+.prereq strong{color:var(--text-primary);}
+.obj-box{background:var(--color-primary-soft);border:1px solid var(--color-primary);border-radius:var(--radius-lg);padding:var(--space-5);margin-bottom:var(--space-7);}
+.obj-box h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--color-primary-text);font-weight:700;margin-bottom:var(--space-3);}
+.obj-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-2);}
+.obj-list li{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-sm);color:var(--color-primary-text);line-height:1.5;}
+.obj-list li::before{content:"\2713";font-weight:700;color:var(--color-primary);flex-shrink:0;margin-top:1px;}
+.sec{margin-bottom:var(--space-9);scroll-margin-top:80px;}
+.sec h2{font-family:var(--font-serif);font-size:var(--text-2xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-4);padding-bottom:var(--space-3);border-bottom:2px solid var(--border-soft);display:flex;align-items:center;gap:var(--space-3);}
+.sn{font-family:var(--font-mono);font-size:var(--text-sm);background:var(--color-primary);color:#fff;padding:2px 8px;border-radius:var(--radius-sm);font-weight:700;white-space:nowrap;flex-shrink:0;}
+.sec h3{font-family:var(--font-sans);font-size:var(--text-lg);font-weight:700;color:var(--text-primary);margin:var(--space-6) 0 var(--space-3);}
+.sec h4{font-family:var(--font-sans);font-size:var(--text-base);font-weight:700;color:var(--text-primary);margin:var(--space-5) 0 var(--space-2);}
+p{font-family:var(--font-body);font-size:var(--text-base);color:var(--text-secondary);line-height:1.8;margin-bottom:var(--space-4);}
+strong{color:var(--text-primary);}em{color:var(--color-primary);font-style:normal;}
+.cal{display:flex;gap:var(--space-3);padding:var(--space-4) var(--space-5);border-radius:var(--radius-lg);margin:var(--space-5) 0;border-left:4px solid;}
+.ci{background:var(--color-info-soft);border-color:var(--color-info);}
+.cw{background:var(--color-warning-soft);border-color:var(--color-warning);}
+.ct{background:var(--color-success-soft);border-color:var(--color-success);}
+.cd{background:var(--color-primary-soft);border-color:var(--color-primary);}
+.cal .ic{font-size:var(--text-lg);flex-shrink:0;margin-top:2px;}
+.cal h4{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-1);font-family:var(--font-sans);}
+.cal p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.65;margin:0;font-family:var(--font-sans);}
+.code-wrap{margin:var(--space-4) 0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.code-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px var(--space-4);background:var(--bg-muted);border-bottom:1px solid var(--border-soft);}
+.code-lang{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;}
+.copy-btn{cursor:pointer;font-family:var(--font-mono);font-size:11px;padding:3px 10px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--border-mid);color:var(--text-muted);transition:all .2s;}
+.copy-btn:hover{background:var(--color-primary-soft);color:var(--color-primary);border-color:var(--color-primary);}
+.copy-btn.copied{background:var(--color-success-soft);color:var(--color-success);border-color:var(--color-success);}
+pre{margin:0;padding:var(--space-5);background:var(--bg-code);overflow-x:auto;font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.65;color:var(--text-primary);}
+code{font-family:var(--font-mono);font-size:.92em;background:var(--bg-code);padding:1px 5px;border-radius:var(--radius-sm);color:var(--color-primary-text);border:1px solid var(--border-soft);}
+pre code{background:none;padding:0;border:none;color:inherit;font-size:inherit;}
+.yk{color:var(--color-info);}.yv{color:var(--color-success);}.yc{color:var(--text-muted);font-style:italic;}
+.yn{color:var(--color-warning);}.yh{color:var(--color-neutral-accent);font-weight:700;}
+.tw{overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);margin:var(--space-5) 0;}
+table{width:100%;border-collapse:collapse;font-size:var(--text-sm);}
+thead th{background:var(--bg-muted);padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.07em;border-bottom:2px solid var(--border-mid);text-align:left;white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--border-soft);transition:background .12s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--bg-muted);}
+td{padding:var(--space-3) var(--space-4);vertical-align:top;line-height:1.6;font-family:var(--font-sans);}
+td:first-child{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--color-primary-text);background:var(--color-primary-soft);white-space:nowrap;font-weight:600;}
+.concept-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);margin:var(--space-5) 0;}
+.concept{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.concept-head{padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:var(--text-sm);font-weight:700;border-bottom:1px solid var(--border-soft);}
+.concept-body{padding:var(--space-4);font-size:11px;color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.concept-body .formula{font-family:var(--font-mono);font-size:11px;background:var(--bg-muted);padding:6px 10px;border-radius:var(--radius-sm);margin:var(--space-2) 0;display:block;color:var(--text-primary);}
+.lifecycle{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-5);margin:var(--space-5) 0;box-shadow:var(--shadow-sm);}
+.lc-step{display:flex;gap:var(--space-3);margin-bottom:var(--space-3);align-items:flex-start;}
+.lc-num{font-family:var(--font-mono);font-size:11px;font-weight:700;background:var(--color-primary);color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.lc-content{flex:1;font-size:var(--text-xs);color:var(--text-secondary);font-family:var(--font-sans);line-height:1.6;}
+.lc-content strong{color:var(--text-primary);}
+.lc-content code{background:var(--bg-muted);padding:1px 6px;border-radius:var(--radius-sm);font-size:11px;}
+.kp{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);margin:var(--space-7) 0;box-shadow:var(--shadow-sm);}
+.kp h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-4);margin-top:0;}
+.kp-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-3);}
+.kp-list li{display:flex;align-items:flex-start;gap:var(--space-3);font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.kp-ic{font-size:var(--text-md);flex-shrink:0;margin-top:1px;}
+.ch-nav{display:flex;justify-content:space-between;margin-top:var(--space-9);padding-top:var(--space-6);border-top:1px solid var(--border-soft);}
+.nav-btn{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);text-decoration:none;font-size:var(--text-sm);font-weight:600;transition:all .2s;box-shadow:var(--shadow-md);}
+.nav-prev{background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-mid);}.nav-prev:hover{background:var(--bg-muted);transform:translateX(-2px);}
+.nav-next{background:var(--color-primary);color:#fff;}.nav-next:hover{background:var(--color-primary-hover);transform:translateX(2px);}
+.nav-sub{font-size:11px;opacity:.75;font-family:var(--font-mono);}
+footer{border-top:1px solid var(--border-soft);padding:var(--space-5) var(--space-8);font-family:var(--font-mono);font-size:11px;color:var(--text-muted);text-align:center;}
+footer strong{color:var(--color-primary);}
+@media(max-width:900px){.toc-sidebar{display:none;}.content{padding:var(--space-6) var(--space-4) var(--space-8);}.concept-grid{grid-template-columns:1fr;}}
+@media(max-width:640px){.topbar{padding:8px var(--space-4);}.tb-trail{display:none;}}
+</style>
+</head><body>
+<header class="topbar">
+  <div class="tb-left">
+    <div class="tb-logo">A</div>
+    <nav class="tb-trail">
+      <span>Argo CD 完整教學手冊</span><span class="sep">›</span>
+      <span>Vol 6 可觀測性、通知與 CI/CD 整合</span><span class="sep">›</span>
+      <span class="cur">Ch.29 argocd-notifications</span>
+    </nav>
+  </div>
+  <div class="tb-right">
+    <span class="pill pill-vol">Vol 6 · Ch.29</span>
+    <span class="pill pill-ver">v3.4</span>
+    <button data-theme-toggle></button>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="toc-sidebar">
+    <div class="toc-title">本章目錄</div>
+    <ul class="toc-list">
+      <li><a href="#obj">學習目標</a></li>
+      <span class="toc-lbl">第一節</span>
+      <li><a href="#s1">notifications vs alerting</a></li>
+      <span class="toc-lbl">第二節</span>
+      <li><a href="#s2">架構與核心概念</a></li>
+      <li><a href="#s2a" class="toc-h3">四大角色</a></li>
+      <li><a href="#s2b" class="toc-h3">事件流程</a></li>
+      <span class="toc-lbl">第三節</span>
+      <li><a href="#s3">安裝與啟用</a></li>
+      <li><a href="#s3a" class="toc-h3">notifications-catalog</a></li>
+      <li><a href="#s3b" class="toc-h3">Slack 完整設定</a></li>
+      <span class="toc-lbl">第四節</span>
+      <li><a href="#s4">Triggers 撰寫</a></li>
+      <li><a href="#s4a" class="toc-h3">expr-lang 條件</a></li>
+      <li><a href="#s4b" class="toc-h3">oncePer 防重複</a></li>
+      <li><a href="#s4c" class="toc-h3">官方 catalog 列表</a></li>
+      <span class="toc-lbl">第五節</span>
+      <li><a href="#s5">Templates 撰寫</a></li>
+      <li><a href="#s5a" class="toc-h3">基本 + Slack 進階</a></li>
+      <li><a href="#s5b" class="toc-h3">groupingKey 聚合 thread</a></li>
+      <span class="toc-lbl">第六節</span>
+      <li><a href="#s6">Subscription 三層</a></li>
+      <li><a href="#s6a" class="toc-h3">App-level annotation</a></li>
+      <li><a href="#s6b" class="toc-h3">Project-level</a></li>
+      <li><a href="#s6c" class="toc-h3">Global subscriptions</a></li>
+      <span class="toc-lbl">第七節</span>
+      <li><a href="#s7">多通道：Teams / Email / Webhook</a></li>
+      <span class="toc-lbl">第八節</span>
+      <li><a href="#s8">除錯與最佳實踐</a></li>
+      <span class="toc-lbl">總結</span>
+      <li><a href="#sum">重點回顧</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <header class="ch-header">
+      <div class="ch-meta">
+        <span class="m-badge m-ch">Chapter 29</span>
+        <span class="m-badge m-vol">Vol 6 — 可觀測性、通知與 CI/CD 整合</span>
+        <span class="m-badge m-time">⏱ 預計閱讀時間 40 分鐘</span>
+      </div>
+      <h1>argocd-notifications<br><em>訂閱事件、模板、多通道整合</em></h1>
+      <p class="ch-lead">Ch.28 提到「用 Prometheus alerts 取代 Argo CD notifications 做 alerting」——所以 argocd-notifications 用來做什麼？<strong>事件通知</strong>：deployment succeeded、new image deployed、PR preview ready，這些<strong>正面通知</strong>類訊息進 Slack / Teams。本章完整講解 trigger / template / service / subscription 四大角色、官方 notifications-catalog、Slack 進階（attachments、thread grouping）、Teams / Email / Webhook 多通道整合、namespace-level 與 project-level 訂閱、常見除錯場景。</p>
+      <div class="prereq">
+        <span class="pico">📋</span>
+        <p><strong>前置：</strong>已完成 Vol 1-5 與 Ch.28。理解 Argo CD Application 的 sync / health phase。Slack workspace admin 權限（建立 Slack App）。對 Go template 語法（與 Helm 同）有基本概念。</p>
+      </div>
+    </header>
+
+    <div class="obj-box" id="obj">
+      <h3>🎯 學習目標</h3>
+      <ul class="obj-list">
+        <li>理解 argocd-notifications 與 Prometheus alerting 的職責分工（事件通知 vs SLO alerting）</li>
+        <li>掌握四大角色：Service（傳送通道）、Trigger（觸發條件）、Template（訊息內容）、Subscription（訂閱關係）</li>
+        <li>安裝官方 notifications-catalog（預設 8 個 trigger + template），快速啟動</li>
+        <li>完整設定 Slack 整合：建立 Slack App、取得 OAuth Token、設定 argocd-notifications-cm + argocd-notifications-secret</li>
+        <li>用 expr-lang 撰寫自訂 trigger（如「production app 第一次部署到新 cluster」）</li>
+        <li>用 oncePer 避免重複通知（同一個 app revision 只通知一次）</li>
+        <li>撰寫 Slack template：attachments、color、fields、groupingKey 聚合 thread、notifyBroadcast</li>
+        <li>使用三層 subscription：app annotation（最細）、project annotation（per-team）、global subscriptions（all apps）</li>
+        <li>整合 Teams（webhook URL）、Email（SMTP / Gmail）、Custom Webhook（PagerDuty、Webex 等）</li>
+        <li>除錯失敗的通知：log inspection、metric monitoring、kubectl annotate 手動測試</li>
+      </ul>
+    </div>
+
+    <section class="sec" id="s1">
+      <h2><span class="sn">1</span>argocd-notifications vs Prometheus alerting</h2>
+
+      <p>許多人混淆兩者用途，這是 Argo CD 觀測架構的關鍵分工：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>用途</th><th>argocd-notifications</th><th>Prometheus alerts</th></tr></thead>
+          <tbody>
+            <tr><td>觸發機制</td><td>事件驅動（Application status 變化即觸發）</td><td>條件持續達標（<code>for: 5m</code>）才觸發</td></tr>
+            <tr><td>適合場景</td><td>單一事件通知：「成功部署」「新 image」「PR preview ready」</td><td>持續性問題：「sync 失敗率高」「reconcile 慢」「SLO 用完」</td></tr>
+            <tr><td>正/負面訊息</td><td>主要正面（informational）</td><td>主要負面（alerting）</td></tr>
+            <tr><td>抖動敏感度</td><td>容易 noisy（網路抖動造成多次觸發）</td><td>抖動不會觸發（必須持續達標）</td></tr>
+            <tr><td>典型通道</td><td>Slack 一般 channel / Teams general</td><td>Slack #alerts / PagerDuty / Opsgenie</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>實務分工建議</h4>
+          <p>① <strong>argocd-notifications</strong> 用於：deployment succeeded → 通知 dev team；new image deployed → 通知 PM；PR preview ready → 留言到 PR；security CRD warning → 通知 platform。② <strong>Prometheus alerts</strong> 用於：5xx 錯誤率 / sync failure rate / SLO budget / controller down 等 SRE 警報。<strong>兩者並存才完整</strong>。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s2">
+      <h2><span class="sn">2</span>架構與核心概念</h2>
+
+      <h3 id="s2a">2.1 四大角色</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>角色</th><th>用途</th><th>設定位置</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Service</strong></td><td>通知通道（Slack / Email / Webhook）</td><td>argocd-notifications-cm 的 <code>service.&lt;name&gt;</code></td></tr>
+            <tr><td><strong>Trigger</strong></td><td>觸發條件（用 expr-lang 寫條件）</td><td>argocd-notifications-cm 的 <code>trigger.&lt;name&gt;</code></td></tr>
+            <tr><td><strong>Template</strong></td><td>訊息內容（用 Go template）</td><td>argocd-notifications-cm 的 <code>template.&lt;name&gt;</code></td></tr>
+            <tr><td><strong>Subscription</strong></td><td>訂閱：誰要 trigger 在哪個 service 收到什麼 template</td><td>Application annotation / Project annotation / Global</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="s2b">2.2 事件流程</h3>
+
+      <div class="lifecycle">
+        <div class="lc-step"><div class="lc-num">1</div><div class="lc-content"><strong>application-controller</strong> 完成 reconcile，更新 Application status（如 sync.status: Succeeded）</div></div>
+        <div class="lc-step"><div class="lc-num">2</div><div class="lc-content"><strong>notifications-controller</strong> 監聽 Application 變化，對每個 Application 套用所有 trigger</div></div>
+        <div class="lc-step"><div class="lc-num">3</div><div class="lc-content">trigger 的 <code>when</code> 條件求值（如 <code>app.status.sync.status == 'Succeeded'</code>）→ 若為 true 且 oncePer 通過 → 標記為「該發通知」</div></div>
+        <div class="lc-step"><div class="lc-num">4</div><div class="lc-content">檢查 Application 的 annotation 看哪些 service 訂閱了此 trigger，例如 <code>notifications.argoproj.io/subscribe.on-deployed.slack: my-channel</code></div></div>
+        <div class="lc-step"><div class="lc-num">5</div><div class="lc-content"><strong>渲染 template</strong>：trigger 的 <code>send</code> 列出 template 名稱，notifications-controller 用 Go template 渲染 message</div></div>
+        <div class="lc-step"><div class="lc-num">6</div><div class="lc-content"><strong>送到 Service</strong>：呼叫對應 service 的 API（如 Slack <code>chat.postMessage</code>），帶 token + channel + message</div></div>
+        <div class="lc-step"><div class="lc-num">7</div><div class="lc-content"><strong>記錄 metrics</strong>：argocd-notifications-controller-metrics:9001 記錄 delivery success / failure 計數</div></div>
+      </div>
+    </section>
+
+    <section class="sec" id="s3">
+      <h2><span class="sn">3</span>安裝與啟用</h2>
+
+      <h3 id="s3a">3.1 安裝 notifications-catalog（預設 trigger + template）</h3>
+
+      <p>Argo CD v2.x 起，notifications-controller 已整合進 argocd 主元件（不再需要 argocd-notifications 子專案）。但<strong>預設 trigger 與 template 需要單獨安裝</strong>，從官方 catalog 取得：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — 安裝 notifications-catalog</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment"># 安裝官方 catalog（提供 8 個常用 trigger + template）</span>
+$ kubectl apply -n argocd --server-side --force-conflicts \
+    -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/notifications_catalog/install.yaml
+
+<span class="sh-comment"># 驗證 ConfigMap 內容</span>
+$ kubectl get cm argocd-notifications-cm -n argocd -o yaml | head -50
+
+<span class="sh-comment"># 包含的預設 triggers：</span>
+<span class="sh-comment"># - on-created                建立時</span>
+<span class="sh-comment"># - on-deleted                刪除時</span>
+<span class="sh-comment"># - on-deployed               成功部署</span>
+<span class="sh-comment"># - on-health-degraded        健康狀態變差</span>
+<span class="sh-comment"># - on-sync-failed            sync 失敗</span>
+<span class="sh-comment"># - on-sync-running           sync 進行中</span>
+<span class="sh-comment"># - on-sync-status-unknown    sync 狀態未知</span>
+<span class="sh-comment"># - on-sync-succeeded         sync 成功（與 deployed 不同）</span>
+
+<span class="sh-comment"># 對應的 templates：</span>
+<span class="sh-comment"># - app-created</span>
+<span class="sh-comment"># - app-deleted</span>
+<span class="sh-comment"># - app-deployed</span>
+<span class="sh-comment"># - app-health-degraded</span>
+<span class="sh-comment"># - app-sync-failed</span>
+<span class="sh-comment"># ... 與 trigger 對應</span></code></pre>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>on-deployed vs on-sync-succeeded 的細微差別</h4>
+          <p>① <strong>on-sync-succeeded</strong>：sync 完成（Argo CD 把 manifest apply 到 cluster）；② <strong>on-deployed</strong>：sync 成功<strong>且</strong> health 變 Healthy。實務上 on-deployed 更有意義——「真的好了」而不只是「apply 完了」。生產通知建議用 on-deployed。</p>
+        </div>
+      </div>
+
+      <h3 id="s3b">3.2 Slack 完整設定</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash + YAML — Slack 5 步驟完整設定</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## Step 1：在 Slack 建立 App</span>
+<span class="sh-comment"># 前往 https://api.slack.com/apps → Create New App → From scratch</span>
+<span class="sh-comment"># App Name: Argo CD Notifications</span>
+<span class="sh-comment"># Workspace: 選 your workspace</span>
+
+<span class="sh-comment">## Step 2：設定 OAuth Scopes</span>
+<span class="sh-comment"># OAuth & Permissions → Scopes → Bot Token Scopes 加入：</span>
+<span class="sh-comment">#   - chat:write                # 發送訊息</span>
+<span class="sh-comment">#   - chat:write.public         # 發送到未加入的 channel</span>
+<span class="sh-comment">#   - chat:write.customize      # 自訂 username / icon</span>
+
+<span class="sh-comment">## Step 3：安裝 App 到 workspace 取得 Token</span>
+<span class="sh-comment"># OAuth & Permissions → Install to Workspace → Allow</span>
+<span class="sh-comment"># 複製 Bot User OAuth Token：xoxb-XXXXXXXXX</span>
+
+<span class="sh-comment">## Step 4：將 App 加到 Slack channel</span>
+<span class="sh-comment"># 在 Slack channel 輸入 /invite @Argo CD Notifications</span>
+
+<span class="sh-comment">## Step 5：設定 argocd-notifications-secret + argocd-notifications-cm</span>
+<span class="sh-comment">## ───────────────────────────────────────────────</span>
+$ kubectl create secret generic argocd-notifications-secret \
+    --from-literal=slack-token=xoxb-XXXXXXXXX \
+    -n argocd --dry-run=client -o yaml | kubectl apply -f -
+
+$ kubectl patch cm argocd-notifications-cm -n argocd --type merge -p '
+data:
+  service.slack: |
+    token: $slack-token
+    username: argocd-bot
+    icon: ":rocket:"
+'</code></pre>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — 訂閱 + 測試</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## 為單一 Application 訂閱 on-deployed</span>
+$ kubectl patch app my-app -n argocd --type merge -p '
+metadata:
+  annotations:
+    notifications.argoproj.io/subscribe.on-deployed.slack: deployments
+'
+
+<span class="sh-comment">## 觸發 sync → 部署完成後 Slack #deployments channel 收到通知</span>
+$ argocd app sync my-app
+
+<span class="sh-comment">## 看 controller log 確認</span>
+$ kubectl logs -n argocd deploy/argocd-notifications-controller -f --tail=20</code></pre>
+      </div>
+    </section>
+    <section class="sec" id="s4">
+      <h2><span class="sn">4</span>Triggers 撰寫</h2>
+
+      <h3 id="s4a">4.1 expr-lang 條件語法</h3>
+
+      <p>Trigger 的 <code>when</code> 條件用 <a href="https://expr-lang.org">expr-lang</a> 寫（不是 Go template），這是專為「布林條件」設計的小語言：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — 自訂 Trigger 範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-notifications-cm</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yc"># 1) 基本：sync 成功</span>
+  <span class="yk">trigger.on-sync-succeeded:</span> |
+    - when: app.status.operationState.phase in ['Succeeded']
+      send: [app-sync-succeeded]
+
+  <span class="yc"># 2) 進階：production app 第一次部署到新 cluster</span>
+  <span class="yk">trigger.on-first-deploy-to-prod:</span> |
+    - when: |
+        app.metadata.labels.tier == 'production' &amp;&amp;
+        app.status.sync.status == 'Synced' &amp;&amp;
+        app.status.health.status == 'Healthy' &amp;&amp;
+        app.status.operationState.operation.sync != nil &amp;&amp;
+        app.status.history != nil &amp;&amp;
+        len(app.status.history) == 1
+      send: [first-deploy-celebration]
+
+  <span class="yc"># 3) 條件式：image tag 變更（CI/CD 整合）</span>
+  <span class="yk">trigger.on-new-image:</span> |
+    - when: |
+        app.status.sync.revision != app.status.history[0].revision &amp;&amp;
+        app.status.sync.status == 'Synced' &amp;&amp;
+        app.status.health.status == 'Healthy'
+      send: [new-image-deployed]
+      <span class="yc"># oncePer：同一個 revision 只通知一次</span>
+      oncePer: app.status.sync.revision
+
+  <span class="yc"># 4) 多條件：health degraded 且不是 progressing</span>
+  <span class="yk">trigger.on-health-degraded:</span> |
+    - when: |
+        app.status.health.status == 'Degraded' &amp;&amp;
+        app.status.sync.status != 'OutOfSync'
+      send: [app-health-degraded]
+      <span class="yc"># 5 分鐘內只通知一次（避免狀態抖動）</span>
+      oncePer: app.status.health.status
+
+  <span class="yc"># 5) 字串包含：commit message 含 [breaking]</span>
+  <span class="yk">trigger.on-breaking-change:</span> |
+    - when: |
+        app.status.operationState.operation.sync.revision != '' &amp;&amp;
+        'breaking' in (app.status.operationState.operation.initiatedBy.username ?? '')
+      send: [breaking-change-alert]</code></pre>
+      </div>
+
+      <h3 id="s4b">4.2 oncePer 防重複通知（最重要！）</h3>
+
+      <p><code>oncePer</code> 是 expr-lang 表達式——對<strong>相同的 oncePer 值</strong>只通知一次。實務上是避免 noisy 通知的關鍵：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>oncePer 表達式</th><th>意義</th><th>適用場景</th></tr></thead>
+          <tbody>
+            <tr><td><code>app.status.sync.revision</code></td><td>同一個 commit revision 只通知一次</td><td>on-deployed（避免 selfHeal 反覆觸發）</td></tr>
+            <tr><td><code>app.status.health.status</code></td><td>health status 不變則不重複通知</td><td>on-health-degraded（避免 Degraded 持續觸發）</td></tr>
+            <tr><td><code>app.status.operationState.startedAt</code></td><td>同一次 sync operation 只通知一次</td><td>on-sync-running（避免每次 reconcile 都通知）</td></tr>
+            <tr><td>不設定</td><td>每次條件達標都通知（容易 spam）</td><td>不建議用於生產</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="s4c">4.3 官方 catalog 預設 trigger 完整列表</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>Trigger</th><th>觸發時機</th><th>建議用途</th></tr></thead>
+          <tbody>
+            <tr><td>on-created</td><td>Application 物件建立</td><td>新 App 通知 platform team</td></tr>
+            <tr><td>on-deleted</td><td>Application 刪除</td><td>稽核 / 安全</td></tr>
+            <tr><td>on-sync-running</td><td>sync 開始</td><td>長時間 sync 才有用（一般略過）</td></tr>
+            <tr><td>on-sync-succeeded</td><td>sync 成功（manifest 已 apply）</td><td>CI 觸發後續測試</td></tr>
+            <tr><td>on-sync-failed</td><td>sync 失敗</td><td>通知 dev / DevOps（容易 noisy）</td></tr>
+            <tr><td>on-sync-status-unknown</td><td>sync 狀態變未知</td><td>用 oncePer，否則 noisy</td></tr>
+            <tr><td>on-health-degraded</td><td>health 變差</td><td>通知 on-call（用 oncePer + Prometheus 雙保險）</td></tr>
+            <tr><td>on-deployed</td><td>sync 成功<strong>且</strong> Healthy</td><td><strong>最常用</strong>——真實部署成功</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="sec" id="s5">
+      <h2><span class="sn">5</span>Templates 撰寫</h2>
+
+      <h3 id="s5a">5.1 基本 message 與 Slack 進階</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Template 基本與進階範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">data:</span>
+  <span class="yc"># 1) 最簡單：純文字 message</span>
+  <span class="yk">template.app-sync-succeeded:</span> |
+    message: |
+      ✅ Application {{.app.metadata.name}} synced at {{.app.status.operationState.finishedAt}}.
+      Revision: {{.app.status.sync.revision}}
+      View: {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
+
+  <span class="yc"># 2) Slack 進階：用 attachments 提供豐富格式</span>
+  <span class="yk">template.app-deployed:</span> |
+    message: |
+      🚀 Application {{.app.metadata.name}} successfully deployed!
+    slack:
+      attachments: |
+        [{
+          "title": "{{.app.metadata.name}}",
+          "title_link": "{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+          "color": "#18be52",
+          "fields": [
+            {
+              "title": "Sync Status",
+              "value": "{{.app.status.sync.status}}",
+              "short": true
+            },
+            {
+              "title": "Health Status",
+              "value": "{{.app.status.health.status}}",
+              "short": true
+            },
+            {
+              "title": "Repository",
+              "value": "{{.app.spec.source.repoURL}}",
+              "short": false
+            },
+            {
+              "title": "Revision",
+              "value": "{{.app.status.sync.revision | slice 0 7}}",
+              "short": true
+            },
+            {
+              "title": "Environment",
+              "value": "{{index .app.metadata.labels \"env\"}}",
+              "short": true
+            }
+          ]
+        }]
+
+  <span class="yc"># 3) 失敗通知（紅色 color）</span>
+  <span class="yk">template.app-sync-failed:</span> |
+    message: |
+      ❌ Application {{.app.metadata.name}} sync failed.
+      Reason: {{.app.status.operationState.message}}
+    slack:
+      attachments: |
+        [{
+          "title": "{{.app.metadata.name}}",
+          "color": "#E96D76",
+          "fields": [
+            {
+              "title": "Error",
+              "value": "{{.app.status.operationState.message}}",
+              "short": false
+            }
+          ]
+        }]</code></pre>
+      </div>
+
+      <h3 id="s5b">5.2 groupingKey 聚合 Slack thread（大規模部署必設）</h3>
+
+      <p>當 GitOps push 同時觸發 30 個 Application sync，預設會在 channel 連發 30 條訊息——使用者體驗極差。<code>groupingKey</code> 把<strong>相同 key 的訊息聚合到同一個 thread</strong>：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — groupingKey 聚合範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">template.app-deployed:</span> |
+  message: |
+    🚀 Application {{.app.metadata.name}} deployed
+  slack:
+    attachments: |
+      [{
+        "title": "{{.app.metadata.name}}",
+        "color": "#18be52",
+        "fields": [
+          {"title": "Revision", "value": "{{.app.status.sync.revision | slice 0 7}}"}
+        ]
+      }]
+    <span class="yc"># 用 git commit hash 聚合 thread</span>
+    <span class="yc"># 同一次 commit 觸發的多個 Application 部署訊息聚合到同一個 thread</span>
+    <span class="yk">groupingKey:</span> <span class="yv">"{{.app.status.sync.revision}}"</span>
+    <span class="yc"># 是否同時發 channel 訊息（除了 thread reply）</span>
+    <span class="yk">notifyBroadcast:</span> <span class="yv">false</span>
+
+<span class="yc"># 效果：</span>
+<span class="yc">#   #deployments channel:</span>
+<span class="yc">#     🚀 app-1 deployed</span>
+<span class="yc">#       └ 🚀 app-2 deployed (thread reply)</span>
+<span class="yc">#       └ 🚀 app-3 deployed (thread reply)</span>
+<span class="yc">#       └ ... 27 more in thread</span>
+<span class="yc"># 大幅減少 channel 雜訊</span></code></pre>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>常用 groupingKey 策略</h4>
+          <p>① <code>{{.app.status.sync.revision}}</code>：同 commit 部署聚合（最常用）；② <code>{{index .app.metadata.labels "release"}}</code>：同 release 聚合（適合 release train）；③ <code>{{.app.spec.project}}</code>：同 project 聚合（per-team channel 已分流，再聚合更乾淨）。<strong>不設 groupingKey 會在大規模部署造成 alert fatigue</strong>。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s6">
+      <h2><span class="sn">6</span>Subscription 三層</h2>
+
+      <p>三層 subscription，從細到粗：</p>
+
+      <h3 id="s6a">6.1 Application-level annotation（最細）</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Application annotation 訂閱</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: Application</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+  <span class="yk">annotations:</span>
+    <span class="yc"># 格式：notifications.argoproj.io/subscribe.&lt;trigger&gt;.&lt;service&gt;: &lt;recipient&gt;</span>
+    <span class="yc"># 多個 recipient 用 ; 分隔</span>
+    <span class="yk">notifications.argoproj.io/subscribe.on-deployed.slack:</span> <span class="yv">deployments;engineering</span>
+    <span class="yk">notifications.argoproj.io/subscribe.on-sync-failed.slack:</span> <span class="yv">urgent-alerts</span>
+    <span class="yk">notifications.argoproj.io/subscribe.on-sync-failed.email:</span> <span class="yv">oncall@example.com</span>
+    <span class="yk">notifications.argoproj.io/subscribe.on-health-degraded.slack:</span> <span class="yv">health-alerts</span></code></pre>
+      </div>
+
+      <h3 id="s6b">6.2 Project-level annotation（per-team）</h3>
+
+      <p>在 AppProject 設定 annotation，所有屬於該 project 的 Application 自動繼承：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Project annotation 訂閱</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: AppProject</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">team-alpha</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+  <span class="yk">annotations:</span>
+    <span class="yc"># 所有 team-alpha 的 Application 都會把 on-deployed 送到 alpha-deployments channel</span>
+    <span class="yk">notifications.argoproj.io/subscribe.on-deployed.slack:</span> <span class="yv">alpha-deployments</span>
+    <span class="yk">notifications.argoproj.io/subscribe.on-sync-failed.slack:</span> <span class="yv">alpha-alerts</span>
+<span class="yk">spec:</span>
+  <span class="yk">description:</span> <span class="yv">Team Alpha applications</span>
+  <span class="yc"># ... 其他 spec</span></code></pre>
+      </div>
+
+      <h3 id="s6c">6.3 Global subscriptions（all apps）</h3>
+
+      <p>在 argocd-notifications-cm 設定 <code>subscriptions</code> 欄位，可用 selector 過濾：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Global subscriptions</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">data:</span>
+  <span class="yk">subscriptions:</span> |
+    <span class="yc"># 所有 app 的 sync-status-unknown 都送到 monitoring channel</span>
+    - recipients:
+        - slack:monitoring
+        - email:platform-team@example.com
+      triggers:
+        - on-sync-status-unknown
+
+    <span class="yc"># 只 label tier=critical 的 app 的 health-degraded 送到 on-call</span>
+    - recipients:
+        - slack:oncall
+      selector: tier=critical
+      triggers:
+        - on-health-degraded
+
+    <span class="yc"># 所有 production 環境的 sync-failed 送到 webhook（PagerDuty）</span>
+    - recipients:
+        - webhook:pagerduty
+      selector: env=production
+      triggers:
+        - on-sync-failed</code></pre>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>三層 subscription 是「並集」</h4>
+          <p>App annotation + Project annotation + Global subscription 三層的訂閱<strong>都會生效</strong>——同一個 trigger 可能同時送到 app-level 的 channel + project-level 的 channel + global 的 webhook。實務建議：① <strong>global</strong> 設組織級訊息（如所有 sync-failure 進 #all-deployments）；② <strong>project</strong> 設 team 訊息；③ <strong>app annotation</strong> 只用於特殊例外。</p>
+        </div>
+      </div>
+    </section>
+    <section class="sec" id="s7">
+      <h2><span class="sn">7</span>多通道：Teams / Email / Webhook</h2>
+
+      <h3>7.1 Microsoft Teams（Webhook）</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Microsoft Teams 整合</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## Step 1：在 Teams channel 加入 "Incoming Webhook" connector</span>
+<span class="yc">## Teams channel → ... → Connectors → Incoming Webhook → Configure</span>
+<span class="yc">## 取得 Webhook URL：https://outlook.office.com/webhook/...</span>
+
+<span class="yc">## Step 2：argocd-notifications-secret 儲存 URL</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: Secret</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-notifications-secret</span>
+<span class="yk">stringData:</span>
+  <span class="yk">teams-webhook:</span> <span class="yv">https://outlook.office.com/webhook/...</span>
+
+<span class="yc">## Step 3：argocd-notifications-cm 設定 service.teams</span>
+<span class="yk">data:</span>
+  <span class="yk">service.teams:</span> |
+    recipientUrls:
+      argocd-team: $teams-webhook        <span class="yc"># key 是 recipient 名稱</span>
+      platform-team: $teams-webhook-platform
+
+  <span class="yc"># Teams template（用 MessageCard schema）</span>
+  <span class="yk">template.app-deployed-teams:</span> |
+    teams:
+      title: "🚀 Application Deployed"
+      themeColor: "0078D7"
+      facts: |
+        [
+          {"name": "Application", "value": "{{.app.metadata.name}}"},
+          {"name": "Revision", "value": "{{.app.status.sync.revision | slice 0 7}}"},
+          {"name": "Environment", "value": "{{index .app.metadata.labels \"env\"}}"}
+        ]
+
+<span class="yc">## Step 4：訂閱（app annotation 中 service 寫 teams）</span>
+<span class="yc"># notifications.argoproj.io/subscribe.on-deployed.teams: argocd-team</span></code></pre>
+      </div>
+
+      <h3>7.2 Email（SMTP / Gmail）</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Email SMTP 設定</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## Secret</span>
+<span class="yk">stringData:</span>
+  <span class="yk">email-username:</span> <span class="yv">noreply@example.com</span>
+  <span class="yk">email-password:</span> <span class="yv">app-specific-password</span>      <span class="yc"># Gmail 需用 App Password</span>
+
+<span class="yc">## ConfigMap</span>
+<span class="yk">data:</span>
+  <span class="yk">service.email.gmail:</span> |
+    username: $email-username
+    password: $email-password
+    host: smtp.gmail.com
+    port: 465
+    from: $email-username
+
+  <span class="yc"># 多個 email service（用於不同寄件人）</span>
+  <span class="yk">service.email.alerts:</span> |
+    username: $email-username
+    password: $email-password
+    host: smtp.gmail.com
+    port: 465
+    from: argocd-alerts@example.com
+
+  <span class="yk">template.app-sync-failed-email:</span> |
+    email:
+      subject: "🚨 [{{.app.spec.project}}] Sync failed for {{.app.metadata.name}}"
+    message: |
+      Application {{.app.metadata.name}} failed to sync.
+
+      Error: {{.app.status.operationState.message}}
+
+      View: {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
+
+<span class="yc">## 訂閱：notifications.argoproj.io/subscribe.on-sync-failed.email: oncall@example.com</span>
+<span class="yc">## 或指定 service 名稱：subscribe.on-sync-failed.alerts: oncall@example.com</span></code></pre>
+      </div>
+
+      <h3>7.3 Custom Webhook（PagerDuty / OpsGenie / 自製整合）</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Custom Webhook（PagerDuty 範例）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">data:</span>
+  <span class="yk">service.webhook.pagerduty:</span> |
+    url: https://events.pagerduty.com/v2/enqueue
+    headers:
+      - name: Content-Type
+        value: application/json
+
+  <span class="yk">template.pagerduty-trigger:</span> |
+    webhook:
+      pagerduty:
+        method: POST
+        body: |
+          {
+            "routing_key": "{{.context.pagerduty_routing_key}}",
+            "event_action": "trigger",
+            "dedup_key": "{{.app.metadata.name}}",
+            "payload": {
+              "summary": "ArgoCD app {{.app.metadata.name}} failed",
+              "severity": "error",
+              "source": "argocd",
+              "custom_details": {
+                "app": "{{.app.metadata.name}}",
+                "error": "{{.app.status.operationState.message}}"
+              }
+            }
+          }
+
+<span class="yc">## 訂閱：subscribe.on-sync-failed.webhook: pagerduty</span></code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>PagerDuty / Opsgenie 用 Prometheus alerts 而非 notifications</h4>
+          <p>雖然 notifications 支援 PagerDuty webhook，但<strong>正確做法仍是 Prometheus alerts → Alertmanager → PagerDuty</strong>。原因：① Prometheus alerts 有 inhibition、grouping、silence；② 抖動不會觸發 page；③ Alertmanager 是 industry standard。<strong>notifications 適合 informational 訊息</strong>（Slack / Teams / Email），不適合 paging。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s8">
+      <h2><span class="sn">8</span>除錯與最佳實踐</h2>
+
+      <h3>常用除錯指令</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — Notifications 除錯</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## 1. 看 controller log（最重要的除錯起點）</span>
+$ kubectl logs -n argocd deploy/argocd-notifications-controller -f --tail=100
+
+<span class="sh-comment">## 2. 看 metrics（成功 / 失敗統計）</span>
+$ kubectl port-forward -n argocd \
+    svc/argocd-notifications-controller-metrics 9001:9001
+$ curl http://localhost:9001/metrics | grep -E 'notification|trigger'
+
+<span class="sh-comment">## 3. 手動觸發測試（patch app 加 annotation）</span>
+$ kubectl patch app my-app -n argocd --type json -p='[{
+    "op": "replace",
+    "path": "/metadata/annotations/notifications.argoproj.io~1subscribe.on-deployed.slack",
+    "value": "test-channel"
+}]'
+$ argocd app sync my-app
+
+<span class="sh-comment">## 4. 用 argocd-notifications CLI 測試（v3.x 內建）</span>
+$ argocd admin notifications template notify app-deployed my-app \
+    --recipient slack:test-channel
+<span class="sh-comment"># 直接渲染 template 並送到 Slack，不需要實際觸發</span>
+
+<span class="sh-comment">## 5. 驗證 trigger 的 when 條件</span>
+$ argocd admin notifications trigger run on-deployed my-app
+<span class="sh-comment"># 輸出：條件求值 true/false，幫助除錯 expr-lang</span>
+
+<span class="sh-comment">## 6. 看完整 ConfigMap 內容</span>
+$ kubectl get cm argocd-notifications-cm -n argocd -o yaml | less</code></pre>
+      </div>
+
+      <h3>常見問題排查</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>症狀</th><th>可能原因</th><th>解法</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>完全沒收到通知</td>
+              <td>① service 未設定；② Slack App 未加入 channel；③ token 過期；④ trigger 條件不滿足</td>
+              <td>看 controller log；用 <code>argocd admin notifications trigger run</code> 測試條件</td>
+            </tr>
+            <tr>
+              <td>通知重複出現</td>
+              <td>未設定 oncePer，每次 reconcile 條件達標都觸發</td>
+              <td>加 <code>oncePer: app.status.sync.revision</code></td>
+            </tr>
+            <tr>
+              <td>Slack 顯示 "not_in_channel"</td>
+              <td>Slack App 未被邀請到 channel</td>
+              <td>在 Slack channel 輸入 <code>/invite @Argo CD Notifications</code></td>
+            </tr>
+            <tr>
+              <td>Template 渲染失敗</td>
+              <td>Go template 語法錯，常見：用 <code>{{.app.metadata.labels.team-name}}</code>（hyphen 不能用 dot）</td>
+              <td>改用 <code>{{index .app.metadata.labels "team-name"}}</code></td>
+            </tr>
+            <tr>
+              <td>大量訊息淹沒 channel</td>
+              <td>沒設 groupingKey + oncePer</td>
+              <td>template 加 groupingKey；trigger 加 oncePer</td>
+            </tr>
+            <tr>
+              <td>Email 寄送失敗</td>
+              <td>Gmail 不接受一般 password（需 App Password）</td>
+              <td>在 Google Account → Security 建立 App Password</td>
+            </tr>
+            <tr>
+              <td>Webhook 401/403</td>
+              <td>token / signature 錯誤</td>
+              <td>檢查 Secret reference 是否正確（$ 開頭）</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>運維最佳實踐</h3>
+
+      <div class="cal ct">
+        <span class="ic">✅</span>
+        <div>
+          <h4>argocd-notifications 上線 Checklist</h4>
+          <p>① <strong>從 catalog 安裝預設 trigger/template</strong>（不要從零寫）；② <strong>用 on-deployed 而非 on-sync-succeeded</strong>（真實部署完成）；③ <strong>所有 trigger 必設 oncePer</strong>；④ <strong>大規模部署用 groupingKey</strong>聚合 thread；⑤ <strong>三層 subscription 分工</strong>：global 組織訊息、project per-team、app 例外；⑥ <strong>Slack App 用 dedicated bot</strong>（不要用個人 user token）；⑦ <strong>監控 controller metrics</strong>（notification_delivered_total / notification_dropped_total）；⑧ <strong>分流 channel</strong>：deployments / alerts / health 不同 channel，避免單 channel 過載；⑨ <strong>不用於 paging</strong>（PagerDuty 等用 Prometheus + Alertmanager）；⑩ <strong>定期 review 訂閱</strong>，移除離職人員的 email 與不再使用的 channel。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="sum">
+      <h2><span class="sn">✓</span>本章重點回顧</h2>
+      <div class="kp">
+        <h3>📌 Key Takeaways</h3>
+        <ul class="kp-list">
+          <li><span class="kp-ic">🔔</span><span><strong>argocd-notifications vs Prometheus alerts 是分工</strong>：notifications 用於<strong>事件通知</strong>（deployment succeeded、new image、PR ready），Prometheus 用於<strong>持續性 alerting</strong>（sync failure rate、SLO budget）。兩者並存才完整。<strong>不要用 notifications 做 paging</strong>（用 Prometheus + Alertmanager + PagerDuty）。</span></li>
+          <li><span class="kp-ic">🎭</span><span><strong>四大角色</strong>：Service（通道）+ Trigger（條件）+ Template（內容）+ Subscription（訂閱）。Service 與 Trigger / Template 都在 argocd-notifications-cm 設定；Subscription 在 Application / AppProject annotation 或全域 subscriptions 欄位。</span></li>
+          <li><span class="kp-ic">📦</span><span><strong>先安裝官方 notifications-catalog</strong>（8 個預設 trigger + 對應 template，5 分鐘啟動）：on-created / on-deleted / on-sync-running / on-sync-succeeded / on-sync-failed / on-sync-status-unknown / on-health-degraded / on-deployed。<strong>on-deployed 最常用</strong>（sync 成功且 Healthy），on-sync-succeeded 只是 apply 完未必健康。</span></li>
+          <li><span class="kp-ic">💬</span><span><strong>Slack 5 步驟設定</strong>：① 建立 Slack App；② 設定 chat:write / chat:write.public scopes；③ Install to Workspace 取得 Bot Token；④ <code>/invite @Argo CD Notifications</code> 加 App 到 channel；⑤ 設定 secret（token）+ cm（service.slack）。<strong>常見錯誤</strong>："not_in_channel"——忘了第 4 步。</span></li>
+          <li><span class="kp-ic">🧮</span><span><strong>Trigger 用 expr-lang，Template 用 Go template</strong>：兩種不同語言！① expr-lang 是布林條件（<code>app.status.sync.status == 'Synced'</code>）；② Go template 是字串渲染（<code>{{.app.metadata.name}}</code>）。<strong>oncePer 是 expr-lang</strong>（如 <code>oncePer: app.status.sync.revision</code>）——同樣的 oncePer 值只通知一次，避免 spam。</span></li>
+          <li><span class="kp-ic">🧵</span><span><strong>groupingKey 是大規模部署必設</strong>：GitOps 一次 push 觸發 30 個 app sync，沒 groupingKey 會在 Slack channel 連發 30 條訊息；有 groupingKey 後聚合到同一個 thread（用 <code>{{.app.status.sync.revision}}</code> 聚合同 commit）。<strong>同時設 notifyBroadcast: false</strong> 避免 thread reply 也廣播到 channel。</span></li>
+          <li><span class="kp-ic">📋</span><span><strong>三層 subscription 是並集</strong>：① App annotation（最細，只此 app）；② Project annotation（per-team 預設）；③ Global subscriptions（all apps，可用 selector 過濾）。<strong>實務建議</strong>：global 設組織級訊息、project 設 team 訊息、app annotation 只用於特殊例外。</span></li>
+          <li><span class="kp-ic">🔌</span><span><strong>多通道整合</strong>：Slack（最常用）、Teams（webhook + MessageCard）、Email（SMTP / Gmail App Password）、Custom Webhook（PagerDuty / OpsGenie / 自製）。<strong>Gmail 必用 App Password</strong>（一般密碼會被拒絕）。在 secret 用 <code>$name</code> 引用，cm 中用 <code>$name</code>。</span></li>
+          <li><span class="kp-ic">🔍</span><span><strong>除錯利器：argocd admin notifications</strong>：<code>trigger run on-deployed my-app</code> 看條件求值；<code>template notify app-deployed my-app --recipient slack:test</code> 直接送測試訊息；controller log 看 delivery failure；metrics endpoint :9001 看成功/失敗統計。Template 含 hyphen key（如 <code>team-name</code> label）必用 <code>{{index .x.y "z"}}</code>。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <nav class="ch-nav">
+      <a href="ch28-observability-monitoring.html" class="nav-btn nav-prev">
+        <div><div class="nav-sub">上一章 / PREV</div><div>← Ch.28 可觀測性與監控基礎</div></div>
+      </a>
+      <a href="#" class="nav-btn nav-next">
+        <div><div class="nav-sub">下一章 / NEXT</div><div>Ch.30 Argo Image Updater →</div></div>
+      </a>
+    </nav>
+  </main>
+</div>
+
+<footer>Argo CD 完整教學手冊 · <strong>Vol 6 Ch.29</strong> · 基於 Argo CD <strong>v3.4</strong> · 2026-05-09</footer>
+
+<script>
+(function(){
+  'use strict';
+  const KEY='jhsun-theme';
+  const IC={light:'☀',dark:'☾',system:'◐'};
+  const LB={light:'Light',dark:'Dark',system:'System'};
+  function gs(){try{return localStorage.getItem(KEY);}catch(_){return null;}}
+  function ss(v){try{v==='system'||v==null?localStorage.removeItem(KEY):localStorage.setItem(KEY,v);}catch(_){}}
+  function sp(){return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  function ef(m){return m==='system'?sp():m;}
+  function apply(m){
+    const e=ef(m);
+    document.documentElement.dataset.theme=e;
+    document.documentElement.dataset.themeMode=m;
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{
+      b.dataset.themeMode=m;
+      b.setAttribute('aria-label','Theme: '+LB[m]);
+      b.title='Theme: '+LB[m];
+      if(!b.dataset.themeToggleStyled)b.innerHTML='<span>'+IC[m]+'</span><span>'+LB[m]+'</span>';
+    });
+    dispatchEvent(new CustomEvent('jhsun:theme-changed',{detail:{theme:e,mode:m}}));
+  }
+  function cyc(c){return c==='light'?'dark':c==='dark'?'system':'light';}
+  function cur(){return gs()||'system';}
+  function init(){
+    apply(cur());
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{b.addEventListener('click',()=>{const n=cyc(cur());ss(n);apply(n);});});
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(cur()==='system')apply('system');});
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+  window.JHsunTheme={get:cur,set:m=>{ss(m);apply(m);},toggle:()=>{const n=cyc(cur());ss(n);apply(n);}};
+})();
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('.copy-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const pre=btn.closest('.code-wrap').querySelector('pre');
+      navigator.clipboard.writeText(pre.innerText).then(()=>{btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},2000);});
+    });
+  });
+  const hds=document.querySelectorAll('.sec h2,.sec h3');
+  const lks=document.querySelectorAll('.toc-list a');
+  const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){lks.forEach(l=>l.classList.remove('active'));const id=e.target.id||e.target.closest('[id]')?.id;if(id){const a=document.querySelector('.toc-list a[href="#'+id+'"]');if(a)a.classList.add('active');}}});},{rootMargin:'-60px 0px -70% 0px'});
+  hds.forEach(h=>{if(h.id)obs.observe(h);});
+});
+</script>
+</body>
+</html>

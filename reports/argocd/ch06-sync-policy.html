@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.06 Sync 策略精細控制 — Argo CD 完整教學手冊</title>
+<style>
+:root {
+  --tk-hue:200;--tk-chroma:0.11;
+  --color-success:#16a34a;--color-success-soft:#dcfce7;
+  --color-warning:#d97706;--color-warning-soft:#fef3c7;
+  --color-danger:#dc2626;--color-danger-soft:#fee2e2;
+  --color-info:#0891b2;--color-info-soft:#cffafe;
+  --color-neutral-accent:#7c3aed;
+  --color-primary:oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:oklch(0.96 calc(var(--tk-chroma)*.25) var(--tk-hue));
+  --color-primary-text:oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas:oklch(0.985 0.004 60);--bg-surface:oklch(0.995 0.003 60);
+  --bg-muted:oklch(0.96 0.005 60);--bg-code:oklch(0.975 0.006 60);
+  --border-soft:oklch(0.92 0.006 60);--border-mid:oklch(0.85 0.008 60);
+  --text-primary:oklch(0.22 0.008 60);--text-secondary:oklch(0.42 0.008 60);--text-muted:oklch(0.58 0.008 60);
+  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --font-sans:"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif;
+  --font-serif:"Playfair Display","Source Serif 4","Noto Serif TC",Georgia,serif;
+  --font-body:"Source Serif 4","Noto Serif TC",Georgia,serif;
+  --text-xs:12px;--text-sm:14px;--text-base:16px;--text-md:18px;--text-lg:20px;--text-xl:24px;--text-2xl:32px;--text-3xl:44px;
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-7:48px;--space-8:64px;--space-9:96px;
+  --radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:20px;
+  --shadow-sm:0 1px 3px oklch(0.20 0.01 60/0.07);--shadow-md:0 4px 14px oklch(0.20 0.01 60/0.10);
+}
+:root[data-theme="dark"]{
+  --color-success:#4ade80;--color-success-soft:oklch(0.28 0.08 145);
+  --color-warning:#fbbf24;--color-warning-soft:oklch(0.30 0.10 70);
+  --color-danger:#f87171;--color-danger-soft:oklch(0.30 0.10 27);
+  --color-info:#22d3ee;--color-info-soft:oklch(0.30 0.08 200);
+  --color-neutral-accent:#a78bfa;
+  --color-primary:oklch(0.72 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-hover:oklch(0.80 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-soft:oklch(0.28 calc(var(--tk-chroma)*.6) var(--tk-hue));
+  --color-primary-text:oklch(0.85 calc(var(--tk-chroma)*.6) var(--tk-hue));
+  --bg-canvas:oklch(0.14 0.008 50);--bg-surface:oklch(0.18 0.009 50);
+  --bg-muted:oklch(0.21 0.010 50);--bg-code:oklch(0.16 0.009 50);
+  --border-soft:oklch(0.26 0.010 50);--border-mid:oklch(0.34 0.012 50);
+  --text-primary:oklch(0.93 0.005 60);--text-secondary:oklch(0.74 0.006 60);--text-muted:oklch(0.56 0.007 60);
+  --shadow-sm:0 1px 3px oklch(0.04 0 0/.50);--shadow-md:0 4px 14px oklch(0.04 0 0/.60);
+}
+html{color-scheme:light dark;}html[data-theme="light"]{color-scheme:light;}html[data-theme="dark"]{color-scheme:dark;}
+body{background:var(--bg-canvas);color:var(--text-primary);font-family:var(--font-sans);font-size:var(--text-base);line-height:1.7;margin:0;padding:0;transition:background .25s,color .25s;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+.topbar{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:10px var(--space-6);background:var(--bg-surface);border-bottom:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.tb-left{display:flex;align-items:center;gap:var(--space-3);}
+.tb-logo{width:30px;height:30px;border-radius:var(--radius-md);background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:13px;font-weight:800;}
+.tb-trail{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.tb-trail .sep{color:var(--border-mid);}.tb-trail .cur{color:var(--color-primary);font-weight:600;}
+.tb-right{display:flex;align-items:center;gap:var(--space-2);}
+.pill{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);border:1px solid;}
+.pill-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.pill-ver{background:var(--color-info-soft);color:var(--color-info);border-color:var(--color-info);}
+[data-theme-toggle]{cursor:pointer;border:1px solid var(--border-mid);background:var(--bg-muted);color:var(--text-secondary);border-radius:var(--radius-md);padding:6px var(--space-3);font-family:var(--font-sans);font-size:var(--text-sm);display:flex;align-items:center;gap:6px;transition:all .2s;}
+[data-theme-toggle]:hover{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.page{display:flex;min-height:100vh;}
+.toc-sidebar{width:230px;flex-shrink:0;position:sticky;top:49px;height:calc(100vh - 49px);overflow-y:auto;padding:var(--space-5) var(--space-3);border-right:1px solid var(--border-soft);background:var(--bg-surface);}
+.toc-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-3);}
+.toc-list{list-style:none;}
+.toc-list li{margin-bottom:2px;}
+.toc-list a{display:block;padding:4px var(--space-2);font-size:var(--text-sm);color:var(--text-secondary);text-decoration:none;border-radius:var(--radius-sm);border-left:2px solid transparent;transition:all .15s;line-height:1.4;}
+.toc-list a:hover,.toc-list a.active{color:var(--color-primary);background:var(--color-primary-soft);border-left-color:var(--color-primary);font-weight:600;}
+.toc-h3{padding-left:var(--space-4)!important;font-size:var(--text-xs)!important;}
+.toc-lbl{display:block;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:var(--space-3) var(--space-2) var(--space-1);margin-top:var(--space-2);}
+.content{flex:1;min-width:0;padding:var(--space-8) var(--space-7) var(--space-9);max-width:900px;}
+.ch-header{margin-bottom:var(--space-8);padding-bottom:var(--space-6);border-bottom:1px solid var(--border-soft);}
+.ch-meta{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-4);flex-wrap:wrap;}
+.m-badge{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);}
+.m-ch{background:var(--color-primary);color:#fff;}
+.m-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border:1px solid var(--color-primary);}
+.m-time{background:var(--bg-muted);color:var(--text-muted);border:1px solid var(--border-soft);}
+.ch-header h1{font-family:var(--font-serif);font-size:clamp(var(--text-2xl),4vw,var(--text-3xl));font-weight:700;color:var(--text-primary);line-height:1.2;margin-bottom:var(--space-4);}
+.ch-header h1 em{font-style:normal;color:var(--color-primary);}
+.ch-lead{font-size:var(--text-md);color:var(--text-secondary);line-height:1.7;max-width:700px;font-family:var(--font-body);}
+.prereq{margin-top:var(--space-5);display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--bg-muted);border-radius:var(--radius-md);border:1px solid var(--border-soft);}
+.prereq .pico{font-size:var(--text-lg);flex-shrink:0;margin-top:1px;}
+.prereq p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;}
+.prereq strong{color:var(--text-primary);}
+.obj-box{background:var(--color-primary-soft);border:1px solid var(--color-primary);border-radius:var(--radius-lg);padding:var(--space-5);margin-bottom:var(--space-7);}
+.obj-box h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--color-primary-text);font-weight:700;margin-bottom:var(--space-3);}
+.obj-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-2);}
+.obj-list li{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-sm);color:var(--color-primary-text);line-height:1.5;}
+.obj-list li::before{content:"✓";font-weight:700;color:var(--color-primary);flex-shrink:0;margin-top:1px;}
+.sec{margin-bottom:var(--space-9);scroll-margin-top:80px;}
+.sec h2{font-family:var(--font-serif);font-size:var(--text-2xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-4);padding-bottom:var(--space-3);border-bottom:2px solid var(--border-soft);display:flex;align-items:center;gap:var(--space-3);}
+.sn{font-family:var(--font-mono);font-size:var(--text-sm);background:var(--color-primary);color:#fff;padding:2px 8px;border-radius:var(--radius-sm);font-weight:700;white-space:nowrap;flex-shrink:0;}
+.sec h3{font-family:var(--font-sans);font-size:var(--text-lg);font-weight:700;color:var(--text-primary);margin:var(--space-6) 0 var(--space-3);}
+.sec h4{font-family:var(--font-sans);font-size:var(--text-base);font-weight:700;color:var(--text-primary);margin:var(--space-5) 0 var(--space-2);}
+p{font-family:var(--font-body);font-size:var(--text-base);color:var(--text-secondary);line-height:1.8;margin-bottom:var(--space-4);}
+strong{color:var(--text-primary);}em{color:var(--color-primary);font-style:normal;}
+.cal{display:flex;gap:var(--space-3);padding:var(--space-4) var(--space-5);border-radius:var(--radius-lg);margin:var(--space-5) 0;border-left:4px solid;}
+.ci{background:var(--color-info-soft);border-color:var(--color-info);}
+.cw{background:var(--color-warning-soft);border-color:var(--color-warning);}
+.ct{background:var(--color-success-soft);border-color:var(--color-success);}
+.cd{background:var(--color-primary-soft);border-color:var(--color-primary);}
+.cal .ic{font-size:var(--text-lg);flex-shrink:0;margin-top:2px;}
+.cal h4{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-1);font-family:var(--font-sans);}
+.cal p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.65;margin:0;font-family:var(--font-sans);}
+.code-wrap{margin:var(--space-4) 0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.code-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px var(--space-4);background:var(--bg-muted);border-bottom:1px solid var(--border-soft);}
+.code-lang{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;}
+.copy-btn{cursor:pointer;font-family:var(--font-mono);font-size:11px;padding:3px 10px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--border-mid);color:var(--text-muted);transition:all .2s;}
+.copy-btn:hover{background:var(--color-primary-soft);color:var(--color-primary);border-color:var(--color-primary);}
+.copy-btn.copied{background:var(--color-success-soft);color:var(--color-success);border-color:var(--color-success);}
+pre{margin:0;padding:var(--space-5);background:var(--bg-code);overflow-x:auto;font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.65;color:var(--text-primary);}
+code{font-family:var(--font-mono);font-size:.92em;background:var(--bg-code);padding:1px 5px;border-radius:var(--radius-sm);color:var(--color-primary-text);border:1px solid var(--border-soft);}
+pre code{background:none;padding:0;border:none;color:inherit;font-size:inherit;}
+.yk{color:var(--color-info);}.yv{color:var(--color-success);}.yc{color:var(--text-muted);font-style:italic;}
+.yn{color:var(--color-warning);}.yh{color:var(--color-neutral-accent);font-weight:700;}
+.sh-comment{color:var(--text-muted);font-style:italic;}.sh-prompt{color:var(--color-success);}
+.tw{overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);margin:var(--space-5) 0;}
+table{width:100%;border-collapse:collapse;font-size:var(--text-sm);}
+thead th{background:var(--bg-muted);padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.07em;border-bottom:2px solid var(--border-mid);text-align:left;white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--border-soft);transition:background .12s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--bg-muted);}
+td{padding:var(--space-3) var(--space-4);vertical-align:top;line-height:1.6;font-family:var(--font-sans);}
+td:first-child{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--color-primary-text);background:var(--color-primary-soft);white-space:nowrap;font-weight:600;}
+.tc{font-size:var(--text-xs);color:var(--text-muted);}
+/* sync option cards */
+.opt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:var(--space-4);margin:var(--space-5) 0;}
+.opt-card{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-4);box-shadow:var(--shadow-sm);position:relative;overflow:hidden;transition:box-shadow .2s,transform .2s;}
+.opt-card:hover{box-shadow:var(--shadow-md);transform:translateY(-2px);}
+.opt-card::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--oc);}
+.oc-name{font-family:var(--font-mono);font-size:var(--text-xs);font-weight:700;color:var(--oc);margin-bottom:var(--space-2);}
+.oc-title{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-2);}
+.oc-desc{font-size:var(--text-xs);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.oc-level{display:inline-block;font-family:var(--font-mono);font-size:10px;padding:1px 6px;border-radius:var(--radius-sm);border:1px solid;margin-top:var(--space-2);}
+/* window timeline */
+.window-viz{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-5);margin:var(--space-5) 0;box-shadow:var(--shadow-sm);}
+.window-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:var(--space-4);}
+.timeline-bar{display:flex;height:32px;border-radius:var(--radius-md);overflow:hidden;margin-bottom:var(--space-3);border:1px solid var(--border-soft);}
+.tb-seg{display:flex;align-items:center;justify-content:center;font-size:10px;font-family:var(--font-mono);font-weight:700;}
+.tb-allow{background:var(--color-success-soft);color:var(--color-success);}
+.tb-deny{background:var(--color-danger-soft);color:var(--color-danger);}
+.tb-neutral{background:var(--bg-muted);color:var(--text-muted);}
+.window-legend{display:flex;gap:var(--space-4);margin-top:var(--space-3);}
+.wl-item{display:flex;align-items:center;gap:var(--space-2);font-size:var(--text-xs);font-family:var(--font-sans);color:var(--text-secondary);}
+.wl-dot{width:12px;height:12px;border-radius:var(--radius-sm);}
+/* apply method comparison */
+.apply-compare{display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--space-3);margin:var(--space-5) 0;}
+.ac-card{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-4);box-shadow:var(--shadow-sm);}
+.ac-title{font-family:var(--font-mono);font-size:var(--text-xs);font-weight:700;color:var(--ac-c);margin-bottom:var(--space-2);}
+.ac-desc{font-size:var(--text-xs);color:var(--text-secondary);line-height:1.55;font-family:var(--font-sans);}
+.ac-pros,.ac-cons{font-size:11px;font-family:var(--font-sans);margin-top:var(--space-2);color:var(--text-muted);}
+/* kp */
+.kp{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);margin:var(--space-7) 0;box-shadow:var(--shadow-sm);}
+.kp h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-4);margin-top:0;}
+.kp-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-3);}
+.kp-list li{display:flex;align-items:flex-start;gap:var(--space-3);font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.kp-ic{font-size:var(--text-md);flex-shrink:0;margin-top:1px;}
+.ch-nav{display:flex;justify-content:space-between;margin-top:var(--space-9);padding-top:var(--space-6);border-top:1px solid var(--border-soft);}
+.nav-btn{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);text-decoration:none;font-size:var(--text-sm);font-weight:600;transition:all .2s;box-shadow:var(--shadow-md);}
+.nav-prev{background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-mid);}.nav-prev:hover{background:var(--bg-muted);transform:translateX(-2px);}
+.nav-next{background:var(--color-primary);color:#fff;}.nav-next:hover{background:var(--color-primary-hover);transform:translateX(2px);}
+.nav-sub{font-size:11px;opacity:.75;font-family:var(--font-mono);}
+footer{border-top:1px solid var(--border-soft);padding:var(--space-5) var(--space-8);font-family:var(--font-mono);font-size:11px;color:var(--text-muted);text-align:center;}
+footer strong{color:var(--color-primary);}
+@media(max-width:900px){.toc-sidebar{display:none;}.content{padding:var(--space-6) var(--space-4) var(--space-8);}.opt-grid{grid-template-columns:1fr;}.apply-compare{grid-template-columns:1fr;}}
+@media(max-width:640px){.topbar{padding:8px var(--space-4);}.tb-trail{display:none;}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="tb-left">
+    <div class="tb-logo">A</div>
+    <nav class="tb-trail">
+      <span>Argo CD 完整教學手冊</span><span class="sep">›</span>
+      <span>Vol 2 應用程式管理</span><span class="sep">›</span>
+      <span class="cur">Ch.06 Sync 策略精細控制</span>
+    </nav>
+  </div>
+  <div class="tb-right">
+    <span class="pill pill-vol">Vol 2 · Ch.06</span>
+    <span class="pill pill-ver">v3.4</span>
+    <button data-theme-toggle></button>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="toc-sidebar">
+    <div class="toc-title">本章目錄</div>
+    <ul class="toc-list">
+      <li><a href="#obj">學習目標</a></li>
+      <span class="toc-lbl">第一節</span>
+      <li><a href="#s1">Automated Sync 深度說明</a></li>
+      <li><a href="#s1a" class="toc-h3">prune / selfHeal / allowEmpty</a></li>
+      <li><a href="#s1b" class="toc-h3">enabled 旗標（v3.x）</a></li>
+      <li><a href="#s1c" class="toc-h3">重試退避策略</a></li>
+      <span class="toc-lbl">第二節</span>
+      <li><a href="#s2">Sync Options 完整參考</a></li>
+      <li><a href="#s2a" class="toc-h3">Apply 行為類</a></li>
+      <li><a href="#s2b" class="toc-h3">Prune 行為類</a></li>
+      <li><a href="#s2c" class="toc-h3">Namespace 管理類</a></li>
+      <li><a href="#s2d" class="toc-h3">安全防護類</a></li>
+      <li><a href="#s2e" class="toc-h3">資源層級 annotation</a></li>
+      <span class="toc-lbl">第三節</span>
+      <li><a href="#s3">Apply 方法：kubectl apply vs SSA vs Replace</a></li>
+      <span class="toc-lbl">第四節</span>
+      <li><a href="#s4">Compare Options</a></li>
+      <li><a href="#s4a" class="toc-h3">ignoreDifferences 全欄位</a></li>
+      <li><a href="#s4b" class="toc-h3">RespectIgnoreDifferences</a></li>
+      <span class="toc-lbl">第五節</span>
+      <li><a href="#s5">Sync Windows</a></li>
+      <li><a href="#s5a" class="toc-h3">allow vs deny 運作邏輯</a></li>
+      <li><a href="#s5b" class="toc-h3">完整 AppProject 設定</a></li>
+      <span class="toc-lbl">第六節</span>
+      <li><a href="#s6">Skip Application Reconcile</a></li>
+      <span class="toc-lbl">第七節</span>
+      <li><a href="#s7">生產環境最佳 syncPolicy</a></li>
+      <span class="toc-lbl">總結</span>
+      <li><a href="#sum">重點回顧</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <header class="ch-header">
+      <div class="ch-meta">
+        <span class="m-badge m-ch">Chapter 06</span>
+        <span class="m-badge m-vol">Vol 2 — 應用程式管理</span>
+        <span class="m-badge m-time">⏱ 預計閱讀時間 40 分鐘</span>
+      </div>
+      <h1>Sync 策略精細控制：<br><em>Automated Sync、Sync Options、Sync Windows</em></h1>
+      <p class="ch-lead">Ch.02 建立了 syncPolicy 的基礎認識。本章深入所有 Sync 控制機制：Automated Sync 的全部選項（含 v3.x 新增的 enabled 旗標）、完整的 syncOptions 參考、三種 apply 方法的比較、ignoreDifferences 全欄位說明，以及 Sync Windows 時間窗口設計。</p>
+      <div class="prereq">
+        <span class="pico">📋</span>
+        <p><strong>前置：</strong>已閱讀 Ch.02（Application CRD 與 Sync Status 基礎）。本章為進階深入，建議已有 Application 部署實作經驗。</p>
+      </div>
+    </header>
+
+    <div class="obj-box" id="obj">
+      <h3>🎯 學習目標</h3>
+      <ul class="obj-list">
+        <li>掌握 Automated Sync 的 prune / selfHeal / allowEmpty / enabled 四個旗標的精確行為</li>
+        <li>熟悉 retry backoff 的指數退避計算公式，避免無限重試風暴</li>
+        <li>能從完整的 syncOptions 清單中，為不同場景選擇適當的選項組合</li>
+        <li>理解 kubectl apply / Server-Side Apply / Replace 三種 apply 方法的本質差異與適用場景</li>
+        <li>精通 ignoreDifferences 的三種 path 類型（jsonPointers / jqPathExpressions / managedFieldsManagers）</li>
+        <li>設計符合組織需求的 Sync Windows（allow + deny 組合），並理解 deny 優先的運作邏輯</li>
+        <li>能組合出生產環境推薦的完整 syncPolicy 配置</li>
+      </ul>
+    </div>
+
+    <!-- S1 Automated Sync -->
+    <section class="sec" id="s1">
+      <h2><span class="sn">1</span>Automated Sync 深度說明</h2>
+      <p>Automated Sync 讓 Argo CD 自動偵測並套用 Git 變更，是 GitOps 自動化的核心。但它不是一個「全或無」的開關——每個子選項都有重要的行為差異，必須謹慎設計。</p>
+
+      <h3 id="s1a">1.1 prune / selfHeal / allowEmpty 精確行為</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>旗標</th><th>預設</th><th>行為說明</th><th>安全注意</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>prune</td>
+              <td>false</td>
+              <td>Git 中刪除的資源，是否自動從叢集中刪除。false 時，刪除的資源會變成 OutOfSync 但不會被刪除，需手動 sync（並勾選 prune）才能清除。</td>
+              <td class="tc">生產環境建議謹慎啟用。搭配 <code>PruneLast=true</code> 與 <code>PrunePropagationPolicy=foreground</code> 更安全</td>
+            </tr>
+            <tr>
+              <td>selfHeal</td>
+              <td>false</td>
+              <td>叢集狀態偏離 Git（drift）時，5 秒後自動 sync 修復。啟用後，任何直接對叢集的手動修改都會被還原。</td>
+              <td class="tc">啟用後無法手動 rollback（rollback 按鈕灰色）；除非先暫停 selfHeal 或改用 git revert</td>
+            </tr>
+            <tr>
+              <td>allowEmpty</td>
+              <td>false</td>
+              <td>允許 source 為零個資源時仍執行 sync。預設 false 是安全護欄：若 Git repo 意外清空，不會刪除叢集中所有資源。</td>
+              <td class="tc">幾乎不應設為 true。只有確實需要「空的 Application」的特殊情境才考慮</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — automated sync 四個旗標完整說明</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">syncPolicy:</span>
+  <span class="yk">automated:</span>
+    <span class="yc"># 安全護欄順序：建議先開 selfHeal，確認穩定後再開 prune</span>
+    <span class="yk">prune:</span> <span class="yv">true</span>      <span class="yc"># Git 刪除的資源自動從叢集刪除（謹慎！）</span>
+    <span class="yk">selfHeal:</span> <span class="yv">true</span>   <span class="yc"># drift 5 秒後自動修復</span>
+    <span class="yk">allowEmpty:</span> <span class="yv">false</span> <span class="yc"># 不允許空資源（安全護欄，通常保持 false）</span>
+
+    <span class="yc"># v3.x 新增：明確啟用/停用 automated sync 而不移除整個 automated 區塊</span>
+    <span class="yc"># enabled: true  # 省略（或 null）等同 true</span>
+    <span class="yc"># enabled: false # 停用 automated sync，但保留 prune/selfHeal 設定</span></code></pre>
+      </div>
+
+      <h3 id="s1b">1.2 automated.enabled 旗標（v3.x）</h3>
+      <p>v3.x 新增 <code>automated.enabled</code> 旗標，解決了一個長期痛點：以前若要臨時停用 automated sync，必須刪除整個 <code>automated:</code> 區塊，再次啟用時要重新設定 prune / selfHeal 等選項。現在只需切換 <code>enabled: false/true</code>：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — enabled 旗標的用途</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## 場景：臨時凍結 automated sync（例如緊急維護期間）</span>
+<span class="yk">syncPolicy:</span>
+  <span class="yk">automated:</span>
+    <span class="yk">enabled:</span> <span class="yv">false</span>    <span class="yc"># 停用 automated sync</span>
+    <span class="yk">prune:</span> <span class="yv">true</span>      <span class="yc"># 設定保留，恢復時不需重新設定</span>
+    <span class="yk">selfHeal:</span> <span class="yv">true</span>   <span class="yc"># 同上</span>
+
+<span class="yc">## 注意事項：</span>
+<span class="yc"># - enabled 省略或設為 null，等同於 true（向後相容）</span>
+<span class="yc"># - enabled: false 時，prune/selfHeal/allowEmpty 的值被保留但不生效</span>
+<span class="yc"># - ApplicationSet 管理的 App：直接修改 App 的 automated 欄位無效</span>
+<span class="yc">#   需透過 ApplicationSet 的 Controlling Resource Modification 機制</span></code></pre>
+      </div>
+
+      <h3 id="s1c">1.3 retry 指數退避策略</h3>
+      <p>當 sync 失敗時，retry 機制避免立即重試（會加重問題），改用指數退避（exponential backoff）逐漸拉長等待時間：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — retry 完整設定與計算說明</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">syncPolicy:</span>
+  <span class="yk">retry:</span>
+    <span class="yk">limit:</span> <span class="yn">5</span>        <span class="yc"># 最多重試 5 次（-1 = 無限次，慎用）</span>
+    <span class="yk">backoff:</span>
+      <span class="yk">duration:</span> <span class="yv">5s</span>  <span class="yc"># 初始等待時間（第一次重試前等 5 秒）</span>
+      <span class="yk">factor:</span> <span class="yn">2</span>    <span class="yc"># 每次重試後，等待時間乘以此係數</span>
+      <span class="yk">maxDuration:</span> <span class="yv">3m</span>  <span class="yc"># 等待時間上限（不超過 3 分鐘）</span>
+
+<span class="yc">## 退避計算範例（factor=2, duration=5s, maxDuration=3m）</span>
+<span class="yc"># 失敗 1 → 等 5s → 重試</span>
+<span class="yc"># 失敗 2 → 等 10s → 重試</span>
+<span class="yc"># 失敗 3 → 等 20s → 重試</span>
+<span class="yc"># 失敗 4 → 等 40s → 重試</span>
+<span class="yc"># 失敗 5 → 等 80s → 重試（未超過 3m 上限）</span>
+<span class="yc"># 超過 limit（5次）→ 停止重試，標記 SyncFailed</span>
+
+<span class="yc">## 重要行為：</span>
+<span class="yc"># - 同一 commit SHA 的 sync 失敗後，不會自動重試（需 git push 新 commit 或手動觸發）</span>
+<span class="yc"># - retry 只適用於暫時性失敗（如 CRD race condition），不適用於配置錯誤</span></code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>重要行為：相同 commit SHA 不自動重試</h4>
+          <p>Argo CD 不會對「同一 commit SHA + 相同參數」的失敗 sync 自動重試。這防止了無限重試風暴，但也意味著：若 sync 因為 CRD 尚未就緒而失敗，等 CRD 就緒後並不會自動觸發新的 sync——需要有新的 Git commit 或手動觸發 sync。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S2 Sync Options -->
+    <section class="sec" id="s2">
+      <h2><span class="sn">2</span>Sync Options 完整參考</h2>
+      <p>Sync Options 設定在 <code>spec.syncPolicy.syncOptions</code>（Application 層級），或以 annotation <code>argocd.argoproj.io/sync-options</code> 設定在個別資源上。資源層級的設定會覆蓋 Application 層級的同名設定。</p>
+
+      <h3 id="s2a">2.1 Apply 行為類</h3>
+      <div class="opt-grid">
+        <div class="opt-card" style="--oc:var(--color-primary)">
+          <div class="oc-name">ServerSideApply=true</div>
+          <div class="oc-title">Server-Side Apply</div>
+          <div class="oc-desc">使用 <code>kubectl apply --server-side</code>。Kubernetes API server 負責 merge 邏輯與欄位所有權追蹤。大型 CRD（&gt;262KB）必須使用；多工具共同管理同一資源時建議使用。</div>
+          <span class="oc-level" style="background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary)">App / 資源 兩層</span>
+        </div>
+        <div class="opt-card" style="--oc:var(--color-info)">
+          <div class="oc-name">ApplyOutOfSyncOnly=true</div>
+          <div class="oc-title">只 Apply OutOfSync 資源</div>
+          <div class="oc-desc">跳過所有 Synced 的資源，只 apply 實際 OutOfSync 的資源。對有數千個資源的大型 Application 可大幅降低 API server 負載與 sync 時間。Sync Hooks 仍會執行（與 Selective Sync 的差異）。</div>
+          <span class="oc-level" style="background:var(--color-info-soft);color:var(--color-info);border-color:var(--color-info)">App 層級</span>
+        </div>
+        <div class="opt-card" style="--oc:var(--color-warning)">
+          <div class="oc-name">Replace=true</div>
+          <div class="oc-title">強制 Replace（刪除重建）</div>
+          <div class="oc-desc">使用 <code>kubectl replace</code> 取代 apply：先刪除資源再重建。適合某些不支援 patch 的資源類型（如 Kubernetes admission webhook），但會造成短暫服務中斷。謹慎使用。</div>
+          <span class="oc-level" style="background:var(--color-warning-soft);color:var(--color-warning);border-color:var(--color-warning)">App / 資源 兩層</span>
+        </div>
+        <div class="opt-card" style="--oc:var(--text-muted)">
+          <div class="oc-name">Validate=false</div>
+          <div class="oc-title">跳過 Schema 驗證</div>
+          <div class="oc-desc">等同 <code>kubectl apply --validate=false</code>。用於使用 <code>RawExtension</code> 的資源（如 ServiceCatalog），這類資源的 schema 無法被 kubectl 正確驗證。</div>
+          <span class="oc-level" style="background:var(--bg-muted);color:var(--text-muted);border-color:var(--border-mid)">App / 資源 兩層</span>
+        </div>
+        <div class="opt-card" style="--oc:var(--text-muted)">
+          <div class="oc-name">SkipDryRunOnMissingResource=true</div>
+          <div class="oc-title">跳過缺失資源的 Dry Run</div>
+          <div class="oc-desc">CRD 與其 CR 在同一個 Application 時，Argo CD 在 CRD 尚未安裝的情況下會 dry-run 失敗。此選項跳過 dry-run，讓 CRD 先安裝後 CR 再建立。搭配 Sync Waves 效果更好。</div>
+          <span class="oc-level" style="background:var(--bg-muted);color:var(--text-muted);border-color:var(--border-mid)">App / 資源 兩層</span>
+        </div>
+        <div class="opt-card" style="--oc:var(--color-neutral-accent)">
+          <div class="oc-name">RespectIgnoreDifferences=true</div>
+          <div class="oc-title">Sync 時也尊重 ignoreDifferences</div>
+          <div class="oc-desc">預設情況下，ignoreDifferences 只影響 diff 計算（不影響 sync 操作）。設定此選項後，sync 時也不會覆蓋 ignoreDifferences 中定義的欄位，讓 HPA 管理的 replicas 在 sync 後不被還原。</div>
+          <span class="oc-level" style="background:oklch(0.96 0.03 280);color:var(--color-neutral-accent);border-color:var(--color-neutral-accent)">App 層級</span>
+        </div>
+      </div>
+
+      <h3 id="s2b">2.2 Prune 行為類</h3>
+      <div class="opt-grid">
+        <div class="opt-card" style="--oc:var(--color-danger)">
+          <div class="oc-name">PruneLast=true</div>
+          <div class="oc-title">最後才執行 Prune</div>
+          <div class="oc-desc">資源的刪除（prune）在所有資源 apply 完成且 healthy 後才執行，作為 sync 的最後一個隱式 wave。避免「先刪除 ConfigMap，導致依賴它的 Deployment 在新 ConfigMap 建立前 crash」的情境。</div>
+          <span class="oc-level" style="background:var(--color-danger-soft);color:var(--color-danger);border-color:var(--color-danger)">App / 資源 兩層</span>
+        </div>
+        <div class="opt-card" style="--oc:var(--color-danger)">
+          <div class="oc-name">Prune=false</div>
+          <div class="oc-title">保護特定資源不被刪除</div>
+          <div class="oc-desc">在資源 annotation 上設定，防止該資源被 prune。常用於 PVC、Namespace 等需要手動管理生命週期的資源。即使 Application 層級啟用了 prune，加此 annotation 的資源也不會被刪除。</div>
+          <span class="oc-level" style="background:var(--color-danger-soft);color:var(--color-danger);border-color:var(--color-danger)">資源層級 annotation</span>
+        </div>
+        <div class="opt-card" style="--oc:var(--color-warning)">
+          <div class="oc-name">Prune=confirm</div>
+          <div class="oc-title">刪除前需人工確認</div>
+          <div class="oc-desc">資源即將被 prune 時，sync 操作暫停並在 UI 顯示「Confirm Pruning」按鈕，需人工確認後才繼續刪除。適用於 Namespace、PersistentVolume 等高風險資源。</div>
+          <span class="oc-level" style="background:var(--color-warning-soft);color:var(--color-warning);border-color:var(--color-warning)">App / 資源 兩層</span>
+        </div>
+        <div class="opt-card" style="--oc:var(--text-muted)">
+          <div class="oc-name">PrunePropagationPolicy=foreground</div>
+          <div class="oc-title">刪除級聯策略</div>
+          <div class="oc-desc"><strong>foreground</strong>（預設）：等待所有子資源刪除後才刪除父資源；<strong>background</strong>：立即刪除父資源，子資源非同步刪除；<strong>orphan</strong>：只刪除父資源，子資源保留（成為孤立資源）。</div>
+          <span class="oc-level" style="background:var(--bg-muted);color:var(--text-muted);border-color:var(--border-mid)">App 層級</span>
+        </div>
+      </div>
+
+      <h3 id="s2c">2.3 Namespace 管理類</h3>
+      <div class="opt-grid">
+        <div class="opt-card" style="--oc:var(--color-success)">
+          <div class="oc-name">CreateNamespace=true</div>
+          <div class="oc-title">自動建立目標 Namespace</div>
+          <div class="oc-desc">若目標 namespace 不存在，自動建立。啟用後 namespace 由 Argo CD 管理（含 cascade delete 可能性）。搭配 <code>managedNamespaceMetadata</code> 可為自動建立的 namespace 加上 labels / annotations。</div>
+          <span class="oc-level" style="background:var(--color-success-soft);color:var(--color-success);border-color:var(--color-success)">App 層級</span>
+        </div>
+        <div class="opt-card" style="--oc:var(--color-warning)">
+          <div class="oc-name">Delete=confirm</div>
+          <div class="oc-title">刪除 Application 前需確認</div>
+          <div class="oc-desc">刪除 Application 時需人工確認（在 UI 點擊或加入 <code>argocd.argoproj.io/deletion-approved</code> annotation）。適合生產環境防止意外刪除整個 Application 及其所有資源。</div>
+          <span class="oc-level" style="background:var(--color-warning-soft);color:var(--color-warning);border-color:var(--color-warning)">App / 資源 兩層</span>
+        </div>
+      </div>
+
+      <h3 id="s2d">2.4 安全防護類</h3>
+      <div class="opt-grid">
+        <div class="opt-card" style="--oc:var(--color-danger)">
+          <div class="oc-name">FailOnSharedResource=true</div>
+          <div class="oc-title">共用資源時 Sync 失敗</div>
+          <div class="oc-desc">當發現一個 Kubernetes 資源被多個 Application 追蹤時，sync 失敗（預設情況是繼續執行，可能造成多個 App 互相覆蓋同一資源）。用於嚴格防止多個 App 管理同一資源的衝突。</div>
+          <span class="oc-level" style="background:var(--color-danger-soft);color:var(--color-danger);border-color:var(--color-danger)">App 層級</span>
+        </div>
+      </div>
+
+      <h3 id="s2e">2.5 資源層級 annotation 用法</h3>
+      <p>部分 Sync Options 可以在個別資源的 annotation 上設定，覆蓋 Application 層級的設定。多個 option 用逗號分隔：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — 資源層級 annotation 範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## 範例一：PVC 保護不被 prune，且刪除前需確認</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: PersistentVolumeClaim</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">database-pvc</span>
+  <span class="yk">annotations:</span>
+    <span class="yc"># 多個 option 用逗號分隔（去除空白）</span>
+    <span class="yk">argocd.argoproj.io/sync-options:</span> <span class="yv">Prune=false,Delete=confirm</span>
+
+<span class="sh-comment">---</span>
+<span class="sh-comment">## 範例二：大型 CRD 跳過 validation</span>
+<span class="yh">apiVersion: apiextensions.k8s.io/v1</span>
+<span class="yh">kind: CustomResourceDefinition</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">largecrds.example.com</span>
+  <span class="yk">annotations:</span>
+    <span class="yk">argocd.argoproj.io/sync-options:</span> <span class="yv">ServerSideApply=true,SkipDryRunOnMissingResource=true</span>
+
+<span class="sh-comment">---</span>
+<span class="sh-comment">## 範例三：Namespace 保留（即使 App 被刪除）</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: Namespace</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-important-namespace</span>
+  <span class="yk">annotations:</span>
+    <span class="yk">argocd.argoproj.io/sync-options:</span> <span class="yv">Prune=false</span></code></pre>
+      </div>
+    </section>
+
+    <!-- S3 Apply Methods -->
+    <section class="sec" id="s3">
+      <h2><span class="sn">3</span>Apply 方法：kubectl apply vs Server-Side Apply vs Replace</h2>
+      <p>Argo CD 支援三種 apply 方法，選擇正確的方法對於避免欄位衝突和確保資源正確套用至關重要：</p>
+
+      <div class="apply-compare">
+        <div class="ac-card" style="--ac-c:var(--color-primary)">
+          <div class="ac-title">kubectl apply（預設）</div>
+          <div class="ac-desc">Client-Side Apply。將 <code>last-applied-configuration</code> annotation 存在資源上，下次 apply 時與之比較。簡單可靠，但有 annotation 大小限制（256KB），大型 CRD 會失敗。</div>
+          <div class="ac-pros" style="color:var(--color-success)">✓ 簡單、廣泛支援<br>✓ 無需額外設定</div>
+          <div class="ac-cons" style="color:var(--color-danger)">✗ 256KB annotation 限制<br>✗ 多工具共管時欄位覆蓋問題</div>
+        </div>
+        <div class="ac-card" style="--ac-c:var(--color-info)">
+          <div class="ac-title">Server-Side Apply（SSA）</div>
+          <div class="ac-desc">由 Kubernetes API server 執行 merge 邏輯，以 <code>managedFields</code> 追蹤欄位所有權。無大小限制，多工具共管時各自追蹤自己的欄位，不互相覆蓋。</div>
+          <div class="ac-pros" style="color:var(--color-success)">✓ 無大小限制<br>✓ 欄位所有權追蹤，多工具共存<br>✓ 更精確的 conflict detection</div>
+          <div class="ac-cons" style="color:var(--color-danger)">✗ 初次啟用可能出現所有權衝突<br>✗ 需搭配 --force-conflicts 處理遷移</div>
+        </div>
+        <div class="ac-card" style="--ac-c:var(--color-warning)">
+          <div class="ac-title">Replace（替換）</div>
+          <div class="ac-desc">先刪除資源再重建（<code>kubectl replace</code>）。適用於不支援 patch 的特殊資源（如某些 admission webhooks）。會造成短暫不可用，謹慎在生產環境使用。</div>
+          <div class="ac-pros" style="color:var(--color-success)">✓ 確保完全替換，無遺留欄位</div>
+          <div class="ac-cons" style="color:var(--color-danger)">✗ 刪除再重建，有短暫中斷<br>✗ 只在特殊情況使用</div>
+        </div>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>生產環境推薦：ServerSideApply</h4>
+          <p>新部署的 Argo CD Application 建議直接使用 <code>ServerSideApply=true</code>。對於已有 Application 的遷移，先加上 <code>--force-conflicts</code> 進行一次強制 sync 以轉移欄位所有權，之後就能穩定使用 SSA。這也是官方安裝文件建議使用 <code>--server-side --force-conflicts</code> 的原因。</p>
+        </div>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — managedNamespaceMetadata（CreateNamespace 配合使用）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">syncPolicy:</span>
+  <span class="yk">syncOptions:</span>
+    - <span class="yv">CreateNamespace=true</span>
+  <span class="yc"># 為自動建立的 Namespace 加上 labels / annotations</span>
+  <span class="yk">managedNamespaceMetadata:</span>
+    <span class="yk">labels:</span>
+      <span class="yk">team:</span> <span class="yv">backend</span>
+      <span class="yk">environment:</span> <span class="yv">production</span>
+      <span class="yk">pod-security.kubernetes.io/enforce:</span> <span class="yv">baseline</span>
+    <span class="yk">annotations:</span>
+      <span class="yk">contact:</span> <span class="yv">backend-team@example.com</span>
+      <span class="yk">cost-center:</span> <span class="yv">"CC-1234"</span></code></pre>
+      </div>
+    </section>
+
+    <!-- S4 Compare Options / ignoreDifferences -->
+    <section class="sec" id="s4">
+      <h2><span class="sn">4</span>Compare Options 與 ignoreDifferences</h2>
+      <p><code>ignoreDifferences</code> 讓 Argo CD 在計算 diff 時忽略特定欄位，防止動態管理的欄位（如 HPA 調整的 replicas）不斷觸發 OutOfSync。</p>
+
+      <h3 id="s4a">4.1 ignoreDifferences 三種 path 類型</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — ignoreDifferences 完整三種類型</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">ignoreDifferences:</span>
+
+  <span class="yc">## 類型一：jsonPointers（RFC 6901 JSON Pointer 語法）</span>
+  <span class="yc">## 最常用，語法簡單直觀</span>
+  - <span class="yk">group:</span> <span class="yv">apps</span>
+    <span class="yk">kind:</span> <span class="yv">Deployment</span>
+    <span class="yk">jsonPointers:</span>
+      - <span class="yv">/spec/replicas</span>           <span class="yc"># HPA 管理 replicas</span>
+      - <span class="yv">/metadata/resourceVersion</span> <span class="yc"># 系統自動更新欄位</span>
+
+  <span class="yc">## 類型二：jqPathExpressions（jq 查詢語法，更強大）</span>
+  <span class="yc">## 支援條件過濾、陣列操作</span>
+  - <span class="yk">group:</span> <span class="yv">apps</span>
+    <span class="yk">kind:</span> <span class="yv">Deployment</span>
+    <span class="yk">jqPathExpressions:</span>
+      <span class="yc"># 忽略所有 container 的 image（admission webhook 可能注入 digest）</span>
+      - <span class="yv">.spec.template.spec.containers[]?.image</span>
+      <span class="yc"># 忽略特定 annotation</span>
+      - <span class="yv">.metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"]</span>
+
+  <span class="yc">## 類型三：managedFieldsManagers（Server-Side Apply 欄位所有權）</span>
+  <span class="yc">## 忽略由特定 manager 管理的欄位</span>
+  - <span class="yk">group:</span> <span class="yv">apps</span>
+    <span class="yk">kind:</span> <span class="yv">Deployment</span>
+    <span class="yk">managedFieldsManagers:</span>
+      - <span class="yv">kube-controller-manager</span>  <span class="yc"># 忽略 controller manager 管理的欄位</span>
+      - <span class="yv">helm</span>                      <span class="yc"># 忽略 helm 管理的欄位</span>
+
+  <span class="yc">## glob 通配：適用所有 group / kind</span>
+  - <span class="yk">group:</span> <span class="yv">"*"</span>
+    <span class="yk">kind:</span> <span class="yv">"*"</span>
+    <span class="yk">jsonPointers:</span>
+      - <span class="yv">/metadata/generation</span>  <span class="yc"># 對所有資源忽略 generation</span>
+
+  <span class="yc">## 指定特定資源名稱（非通配，精確匹配）</span>
+  - <span class="yk">group:</span> <span class="yv">apps</span>
+    <span class="yk">kind:</span> <span class="yv">Deployment</span>
+    <span class="yk">name:</span> <span class="yv">my-specific-deployment</span>  <span class="yc"># 只對這個 Deployment 生效</span>
+    <span class="yk">namespace:</span> <span class="yv">production</span>
+    <span class="yk">jsonPointers:</span>
+      - <span class="yv">/spec/replicas</span></code></pre>
+      </div>
+
+      <h3 id="s4b">4.2 RespectIgnoreDifferences：讓 Sync 也尊重忽略設定</h3>
+      <p>預設情況，<code>ignoreDifferences</code> 只影響 diff 計算（決定 Sync Status），但 sync 操作仍然會 apply 完整的 manifest（可能覆蓋被忽略的欄位）。</p>
+      <p>設定 <code>RespectIgnoreDifferences=true</code> 後，sync 時也不會觸碰 <code>ignoreDifferences</code> 中定義的欄位，讓 HPA 設定的 replicas 在 sync 後不被還原：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — RespectIgnoreDifferences 完整範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">spec:</span>
+  <span class="yk">syncPolicy:</span>
+    <span class="yk">syncOptions:</span>
+      <span class="yc"># 讓 sync 也尊重 ignoreDifferences（防止 HPA replicas 被覆蓋）</span>
+      - <span class="yv">RespectIgnoreDifferences=true</span>
+      - <span class="yv">ServerSideApply=true</span>  <span class="yc"># 搭配 SSA 效果最佳</span>
+
+  <span class="yk">ignoreDifferences:</span>
+    - <span class="yk">group:</span> <span class="yv">apps</span>
+      <span class="yk">kind:</span> <span class="yv">Deployment</span>
+      <span class="yk">jsonPointers:</span>
+        - <span class="yv">/spec/replicas</span>
+        <span class="yc"># Argo CD sync 時不會 apply replicas 欄位</span>
+        <span class="yc"># HPA 設定的值不被覆蓋</span></code></pre>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>全域 ignoreDifferences（系統層級）</h4>
+          <p>除了在 Application spec 中設定 ignoreDifferences，還可以在 <code>argocd-cm</code> 中設定 <code>resource.customizations.ignoreDifferences</code>，對特定 group/kind 的所有 Application 全域生效。例如：對所有 Deployment 都忽略 replicas 差異，無需在每個 Application 重複設定。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S5 Sync Windows -->
+    <section class="sec" id="s5">
+      <h2><span class="sn">5</span>Sync Windows：時間窗口控制</h2>
+      <p>Sync Windows 是在 <strong>AppProject</strong> 中定義的部署時間窗口，控制 Application 的 sync 是否被允許。這是跨越 Application 層面的時間管理機制，讓 SRE / DevOps 可以設定「維護窗口」與「變更凍結期」。</p>
+
+      <h3 id="s5a">5.1 allow vs deny 的運作邏輯</h3>
+      <div class="window-viz">
+        <div class="window-title">📊 Sync Window 評估邏輯</div>
+        <p style="font-size:var(--text-sm);color:var(--text-secondary);font-family:var(--font-sans);margin-bottom:var(--space-4);">以下展示「只允許每天凌晨 02:00–06:00 部署（allow window），且週五 18:00–隔天 08:00 凍結（deny window）」的時間軸：</p>
+        <div class="timeline-bar">
+          <div class="tb-seg tb-deny" style="flex:2">🚫 Fri 18:00–Sat</div>
+          <div class="tb-seg tb-allow" style="flex:1">✅ Sat 02:00–06:00</div>
+          <div class="tb-seg tb-deny" style="flex:1">🚫 Sat 06:00–Mon</div>
+          <div class="tb-seg tb-allow" style="flex:1">✅ Mon 02:00–06:00</div>
+          <div class="tb-seg tb-deny" style="flex:2">🚫 Mon 06:00–</div>
+        </div>
+        <div class="window-legend">
+          <div class="wl-item"><span class="wl-dot" style="background:var(--color-success-soft);border:1px solid var(--color-success)"></span>Allow window 有效 → 可 sync（但 deny 優先）</div>
+          <div class="wl-item"><span class="wl-dot" style="background:var(--color-danger-soft);border:1px solid var(--color-danger)"></span>Deny window 有效 → 禁止 sync（優先級最高）</div>
+          <div class="wl-item"><span class="wl-dot" style="background:var(--bg-muted);border:1px solid var(--border-mid)"></span>無 allow window 匹配 → 禁止 sync（有 allow window 定義時）</div>
+        </div>
+      </div>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>情境</th><th>是否有 allow window</th><th>是否在 deny window</th><th>結果</th></tr></thead>
+          <tbody>
+            <tr><td>情境 A</td><td>無（未設定）</td><td>否</td><td class="tc">✅ 允許（完全開放）</td></tr>
+            <tr><td>情境 B</td><td>無</td><td>是</td><td class="tc">🚫 禁止（deny window 生效）</td></tr>
+            <tr><td>情境 C</td><td>有，但不在窗口內</td><td>否</td><td class="tc">🚫 禁止（有 allow window = 窗口外禁止）</td></tr>
+            <tr><td>情境 D</td><td>有，在窗口內</td><td>否</td><td class="tc">✅ 允許</td></tr>
+            <tr><td>情境 E</td><td>有，在窗口內</td><td>是</td><td class="tc">🚫 禁止（deny 優先）</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>關鍵規則：deny 永遠優先</h4>
+          <p>即使在 allow window 有效的時段，若同時有 deny window 匹配該 Application，deny 永遠優先。這讓「週期性維護窗口 + 臨時變更凍結」的組合設計非常靈活。</p>
+        </div>
+      </div>
+
+      <h3 id="s5b">5.2 AppProject 完整 Sync Windows 設定</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — AppProject syncWindows 完整範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: AppProject</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">production</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">spec:</span>
+  <span class="yk">syncWindows:</span>
+
+    <span class="yc">## Allow window 1：每天凌晨 02:00–06:00（維護窗口）</span>
+    - <span class="yk">kind:</span> <span class="yv">allow</span>
+      <span class="yk">schedule:</span> <span class="yv">'0 2 * * *'</span>       <span class="yc"># cron: 每天 02:00 開始</span>
+      <span class="yk">duration:</span> <span class="yv">4h</span>              <span class="yc"># 持續 4 小時（02:00–06:00）</span>
+      <span class="yk">applications:</span>
+        - <span class="yv">'*'</span>                    <span class="yc"># 所有 Application（支援 glob）</span>
+      <span class="yk">manualSync:</span> <span class="yv">true</span>          <span class="yc"># allow window 外仍允許手動 sync（緊急修復）</span>
+      <span class="yk">timeZone:</span> <span class="yv">"Asia/Taipei"</span>  <span class="yc"># 時區（ArgoCD v2.7+，建議明確指定）</span>
+
+    <span class="yc">## Allow window 2：每週三 14:00–16:00（額外的 patch 窗口）</span>
+    - <span class="yk">kind:</span> <span class="yv">allow</span>
+      <span class="yk">schedule:</span> <span class="yv">'0 14 * * 3'</span>     <span class="yc"># 週三（0=Sun, 1=Mon, ..., 3=Wed）</span>
+      <span class="yk">duration:</span> <span class="yv">2h</span>
+      <span class="yk">namespaces:</span>
+        - <span class="yv">production</span>           <span class="yc"># 只針對 production namespace 的 App</span>
+      <span class="yk">manualSync:</span> <span class="yv">true</span>
+      <span class="yk">timeZone:</span> <span class="yv">"Asia/Taipei"</span>
+
+    <span class="yc">## Deny window：週五 18:00 到週一 09:00（週末變更凍結）</span>
+    <span class="yc">## 注意：無法用單一 window 表達跨天，需要兩個 window</span>
+    - <span class="yk">kind:</span> <span class="yv">deny</span>
+      <span class="yk">schedule:</span> <span class="yv">'0 18 * * 5'</span>     <span class="yc"># 週五 18:00</span>
+      <span class="yk">duration:</span> <span class="yv">63h</span>             <span class="yc"># 63 小時 = 到週一 09:00</span>
+      <span class="yk">applications:</span>
+        - <span class="yv">'prod-*'</span>              <span class="yc"># 只針對 prod- 開頭的 Application</span>
+      <span class="yk">manualSync:</span> <span class="yv">false</span>         <span class="yc"># 連手動 sync 也禁止（嚴格凍結）</span>
+      <span class="yk">timeZone:</span> <span class="yv">"Asia/Taipei"</span>
+
+    <span class="yc">## Deny window：季末財務結帳期凍結（finance 相關 App）</span>
+    - <span class="yk">kind:</span> <span class="yv">deny</span>
+      <span class="yk">schedule:</span> <span class="yv">'0 0 25 3,6,9,12 *'</span> <span class="yc"># 每季最後一個月 25 號</span>
+      <span class="yk">duration:</span> <span class="yv">168h</span>           <span class="yc"># 7 天</span>
+      <span class="yk">applications:</span>
+        - <span class="yv">'finance-*'</span>
+        - <span class="yv">'billing-*'</span>
+      <span class="yk">manualSync:</span> <span class="yv">true</span>          <span class="yc"># 財務人員可手動緊急修復</span>
+      <span class="yk">timeZone:</span> <span class="yv">"Asia/Taipei"</span></code></pre>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — Sync Windows CLI 管理</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment"># 查看 project 的所有 Sync Windows 及當前狀態</span>
+<span class="sh-prompt">$</span> argocd proj windows list production
+<span class="sh-comment"># ID  STATUS    KIND   SCHEDULE      DURATION  APPLICATIONS  MANUALSYNC</span>
+<span class="sh-comment"># 0   Active    allow  0 2 * * *    4h        *             Enabled</span>
+<span class="sh-comment"># 1   Inactive  allow  0 14 * * 3  2h        *             Enabled</span>
+<span class="sh-comment"># 2   Inactive  deny   0 18 * * 5  63h       prod-*        Disabled</span>
+
+<span class="sh-comment"># 查看特定 App 目前是否可 sync</span>
+<span class="sh-prompt">$</span> argocd app get prod-backend
+<span class="sh-comment"># 若被 window 封鎖會顯示 SyncWindow: Sync Denied</span>
+
+<span class="sh-comment"># 緊急時臨時啟用特定 window 的手動 sync</span>
+<span class="sh-prompt">$</span> argocd proj windows enable-manual-sync production 2  <span class="sh-comment"># window ID 2</span>
+
+<span class="sh-comment"># 用 CLI 新增 deny window</span>
+<span class="sh-prompt">$</span> argocd proj windows add production \
+  --kind deny \
+  --schedule "0 20 * * 5" \
+  --duration 48h \
+  --applications "prod-*" \
+  --timezone "Asia/Taipei"</code></pre>
+      </div>
+    </section>
+
+    <!-- S6 Skip Reconcile -->
+    <section class="sec" id="s6">
+      <h2><span class="sn">6</span>Skip Application Reconcile</h2>
+      <p>有時需要暫時停止 Argo CD 對特定 Application 的調和（例如進行手動操作或除錯），可以在 Application 上加入 annotation：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash / YAML — 暫停與恢復 Application Reconcile</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## 方式一：kubectl patch 加入 annotation（暫停調和）</span>
+<span class="sh-prompt">$</span> kubectl patch application my-app -n argocd \
+  --type=merge \
+  -p '{"metadata":{"annotations":{"argocd.argoproj.io/skip-reconcile":"true"}}}'
+
+<span class="sh-comment">## 方式二：在 Application YAML 中設定</span>
+<span class="yk">metadata:</span>
+  <span class="yk">annotations:</span>
+    <span class="yc"># 加入此 annotation 後，Argo CD 停止對此 Application 的 Reconcile</span>
+    <span class="yk">argocd.argoproj.io/skip-reconcile:</span> <span class="yv">"true"</span>
+
+<span class="sh-comment">## 恢復：移除 annotation</span>
+<span class="sh-prompt">$</span> kubectl annotate application my-app -n argocd \
+  argocd.argoproj.io/skip-reconcile-
+<span class="sh-comment"># （annotation name 後加 - 表示刪除）</span>
+
+<span class="sh-comment">## v3.4 新增：Cluster 層級暫停</span>
+<span class="sh-comment">## 對整個叢集的所有 Application 暫停 Reconcile</span>
+<span class="sh-prompt">$</span> kubectl annotate secret -n argocd \
+  "cluster-https://prod-cluster.example.com" \
+  argocd.argoproj.io/skip-reconcile="true"</code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>skip-reconcile 的影響</h4>
+          <p>加入 <code>skip-reconcile: "true"</code> 後，Argo CD 完全停止計算 Sync Status 與 Health Status，Application 在 UI 中的狀態不再更新。這是一個暫時性操作，完成後務必移除 annotation，否則 Application 將永遠不會被調和。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S7 Best Practice -->
+    <section class="sec" id="s7">
+      <h2><span class="sn">7</span>生產環境最佳 syncPolicy 配置</h2>
+      <p>整合本章所有知識，以下是針對不同環境的推薦 syncPolicy 配置：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — 生產環境推薦 syncPolicy（完整版）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">spec:</span>
+  <span class="yk">syncPolicy:</span>
+    <span class="yk">automated:</span>
+      <span class="yk">prune:</span> <span class="yv">true</span>
+      <span class="yk">selfHeal:</span> <span class="yv">true</span>
+      <span class="yk">allowEmpty:</span> <span class="yv">false</span>     <span class="yc"># 保持預設，防止意外清空</span>
+    <span class="yk">syncOptions:</span>
+      - <span class="yv">ServerSideApply=true</span>          <span class="yc"># 推薦：無大小限制，欄位所有權管理</span>
+      - <span class="yv">CreateNamespace=true</span>          <span class="yc"># 自動建立 namespace</span>
+      - <span class="yv">ApplyOutOfSyncOnly=true</span>       <span class="yc"># 效能：只 apply 有差異的資源</span>
+      - <span class="yv">PruneLast=true</span>                <span class="yc"># 安全：最後才刪除，避免服務中斷</span>
+      - <span class="yv">PrunePropagationPolicy=foreground</span>  <span class="yc"># 等待子資源刪除</span>
+      - <span class="yv">RespectIgnoreDifferences=true</span> <span class="yc"># sync 時也尊重 ignoreDifferences</span>
+    <span class="yk">retry:</span>
+      <span class="yk">limit:</span> <span class="yn">3</span>                         <span class="yc"># 有限次數，防止無限重試</span>
+      <span class="yk">backoff:</span>
+        <span class="yk">duration:</span> <span class="yv">10s</span>
+        <span class="yk">factor:</span> <span class="yn">2</span>
+        <span class="yk">maxDuration:</span> <span class="yv">3m</span>
+    <span class="yk">managedNamespaceMetadata:</span>
+      <span class="yk">labels:</span>
+        <span class="yk">managed-by:</span> <span class="yv">argocd</span>
+        <span class="yk">environment:</span> <span class="yv">production</span>
+
+  <span class="yc">## 為 HPA 管理的資源設定 ignoreDifferences</span>
+  <span class="yk">ignoreDifferences:</span>
+    - <span class="yk">group:</span> <span class="yv">apps</span>
+      <span class="yk">kind:</span> <span class="yv">Deployment</span>
+      <span class="yk">jsonPointers:</span>
+        - <span class="yv">/spec/replicas</span>
+
+<span class="yc">## 針對需要保護的資源（在資源 YAML 中加入）</span>
+<span class="yc"># metadata:</span>
+<span class="yc">#   annotations:</span>
+<span class="yc">#     argocd.argoproj.io/sync-options: Prune=false  # PVC、Namespace 等</span></code></pre>
+      </div>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>環境</th><th>automated</th><th>prune</th><th>selfHeal</th><th>重點 syncOptions</th></tr></thead>
+          <tbody>
+            <tr><td>開發（dev）</td><td>✅ 啟用</td><td>✅ true</td><td>✅ true</td><td>CreateNamespace，快速迭代</td></tr>
+            <tr><td>測試（staging）</td><td>✅ 啟用</td><td>✅ true</td><td>✅ true</td><td>ServerSideApply, PruneLast</td></tr>
+            <tr><td>生產（production）</td><td>✅ 啟用（配合 Sync Windows）</td><td>✅ true</td><td>✅ true</td><td>ServerSideApply, PruneLast, PrunePropagationPolicy=foreground, ApplyOutOfSyncOnly</td></tr>
+            <tr><td>關鍵系統（critical）</td><td>✅ 啟用（narrow Sync Windows）</td><td>⚠️ 謹慎（Prune=confirm）</td><td>✅ true</td><td>所有保護選項 + Delete=confirm + Prune=confirm</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Summary -->
+    <section class="sec" id="sum">
+      <h2><span class="sn">✓</span>本章重點回顧</h2>
+      <div class="kp">
+        <h3>📌 Key Takeaways</h3>
+        <ul class="kp-list">
+          <li><span class="kp-ic">🔄</span><span><strong>Automated Sync 三個旗標</strong>：prune（刪除 Git 移除的資源）、selfHeal（修復 drift，5 秒後重試）、allowEmpty（允許零資源，保持 false）。v3.x 新增 enabled 旗標，可臨時停用 automated 而不清除設定。</span></li>
+          <li><span class="kp-ic">⚙️</span><span><strong>關鍵 Sync Options 組合</strong>：生產環境推薦 ServerSideApply + ApplyOutOfSyncOnly + PruneLast + PrunePropagationPolicy=foreground + RespectIgnoreDifferences。這個組合兼顧效能、安全與正確性。</span></li>
+          <li><span class="kp-ic">🔒</span><span><strong>資源保護 annotation</strong>：在 PVC、Namespace 等重要資源上加 <code>argocd.argoproj.io/sync-options: Prune=false</code>，防止被 prune 誤刪。對高風險資源加 <code>Prune=confirm</code> 要求人工確認。</span></li>
+          <li><span class="kp-ic">📊</span><span><strong>ignoreDifferences 三種類型</strong>：jsonPointers（RFC 6901）、jqPathExpressions（jq 語法）、managedFieldsManagers（SSA 欄位所有權）。搭配 RespectIgnoreDifferences=true 可讓 sync 也不覆蓋被忽略的欄位。</span></li>
+          <li><span class="kp-ic">🪟</span><span><strong>Sync Windows 的 deny 優先規則</strong>：deny window 永遠優先；有 allow window 定義時，窗口外禁止 sync；manualSync: true 可讓窗口外仍允許手動 sync。時區必須明確指定（timeZone 欄位）。</span></li>
+          <li><span class="kp-ic">⏸️</span><span><strong>Skip Reconcile annotation</strong>：<code>argocd.argoproj.io/skip-reconcile: "true"</code> 讓 Argo CD 完全停止調和特定 Application，用於緊急維護。v3.4 起支援 Cluster 層級暫停。記得完成後移除 annotation。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <nav class="ch-nav">
+      <a href="ch05-manifest-tools.html" class="nav-btn nav-prev">
+        <div><div class="nav-sub">上一章 / PREV</div><div>← Ch.05 Manifest 來源工具</div></div>
+      </a>
+      <a href="#" class="nav-btn nav-next">
+        <div><div class="nav-sub">下一章 / NEXT</div><div>Ch.07 Diff 策略與 Diff 客製化 →</div></div>
+      </a>
+    </nav>
+  </main>
+</div>
+
+<footer>Argo CD 完整教學手冊 · <strong>Vol 2 Ch.06</strong> · 基於 Argo CD <strong>v3.4</strong> · 2026-05-08</footer>
+
+<script>
+(function(){
+  'use strict';
+  const KEY='jhsun-theme';
+  const IC={light:'☀',dark:'☾',system:'◐'};
+  const LB={light:'Light',dark:'Dark',system:'System'};
+  function gs(){try{return localStorage.getItem(KEY);}catch(_){return null;}}
+  function ss(v){try{v==='system'||v==null?localStorage.removeItem(KEY):localStorage.setItem(KEY,v);}catch(_){}}
+  function sp(){return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  function ef(m){return m==='system'?sp():m;}
+  function apply(m){
+    const e=ef(m);
+    document.documentElement.dataset.theme=e;
+    document.documentElement.dataset.themeMode=m;
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{
+      b.dataset.themeMode=m;
+      b.setAttribute('aria-label','Theme: '+LB[m]);
+      b.title='Theme: '+LB[m];
+      if(!b.dataset.themeToggleStyled)b.innerHTML='<span>'+IC[m]+'</span><span>'+LB[m]+'</span>';
+    });
+    dispatchEvent(new CustomEvent('jhsun:theme-changed',{detail:{theme:e,mode:m}}));
+  }
+  function cyc(c){return c==='light'?'dark':c==='dark'?'system':'light';}
+  function cur(){return gs()||'system';}
+  function init(){
+    apply(cur());
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{b.addEventListener('click',()=>{const n=cyc(cur());ss(n);apply(n);});});
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(cur()==='system')apply('system');});
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+  window.JHsunTheme={get:cur,set:m=>{ss(m);apply(m);},toggle:()=>{const n=cyc(cur());ss(n);apply(n);}};
+})();
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('.copy-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const pre=btn.closest('.code-wrap').querySelector('pre');
+      navigator.clipboard.writeText(pre.innerText).then(()=>{btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},2000);});
+    });
+  });
+  const hds=document.querySelectorAll('.sec h2,.sec h3');
+  const lks=document.querySelectorAll('.toc-list a');
+  const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){lks.forEach(l=>l.classList.remove('active'));const id=e.target.id||e.target.closest('[id]')?.id;if(id){const a=document.querySelector('.toc-list a[href="#'+id+'"]');if(a)a.classList.add('active');}}});},{rootMargin:'-60px 0px -70% 0px'});
+  hds.forEach(h=>{if(h.id)obs.observe(h);});
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.30 Argo CD Image Updater：自動偵測新 image 並寫回 Git — Argo CD 完整教學手冊</title>
+<style>
+:root{--tk-hue:200;--tk-chroma:0.11;--color-success:#16a34a;--color-success-soft:#dcfce7;--color-warning:#d97706;--color-warning-soft:#fef3c7;--color-danger:#dc2626;--color-danger-soft:#fee2e2;--color-info:#0891b2;--color-info-soft:#cffafe;--color-neutral-accent:#7c3aed;--color-primary:oklch(0.55 var(--tk-chroma) var(--tk-hue));--color-primary-hover:oklch(0.48 var(--tk-chroma) var(--tk-hue));--color-primary-soft:oklch(0.96 calc(var(--tk-chroma)*.25) var(--tk-hue));--color-primary-text:oklch(0.40 var(--tk-chroma) var(--tk-hue));--bg-canvas:oklch(0.985 0.004 60);--bg-surface:oklch(0.995 0.003 60);--bg-muted:oklch(0.96 0.005 60);--bg-code:oklch(0.975 0.006 60);--border-soft:oklch(0.92 0.006 60);--border-mid:oklch(0.85 0.008 60);--text-primary:oklch(0.22 0.008 60);--text-secondary:oklch(0.42 0.008 60);--text-muted:oklch(0.58 0.008 60);--font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;--font-sans:"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif;--font-serif:"Playfair Display","Source Serif 4","Noto Serif TC",Georgia,serif;--font-body:"Source Serif 4","Noto Serif TC",Georgia,serif;--text-xs:12px;--text-sm:14px;--text-base:16px;--text-md:18px;--text-lg:20px;--text-xl:24px;--text-2xl:32px;--text-3xl:44px;--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-7:48px;--space-8:64px;--space-9:96px;--radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:20px;--shadow-sm:0 1px 3px oklch(0.20 0.01 60/0.07);--shadow-md:0 4px 14px oklch(0.20 0.01 60/0.10);}
+:root[data-theme="dark"]{--color-success:#4ade80;--color-success-soft:oklch(0.28 0.08 145);--color-warning:#fbbf24;--color-warning-soft:oklch(0.30 0.10 70);--color-danger:#f87171;--color-danger-soft:oklch(0.30 0.10 27);--color-info:#22d3ee;--color-info-soft:oklch(0.30 0.08 200);--color-neutral-accent:#a78bfa;--color-primary:oklch(0.72 calc(var(--tk-chroma)*.95) var(--tk-hue));--color-primary-hover:oklch(0.80 calc(var(--tk-chroma)*.95) var(--tk-hue));--color-primary-soft:oklch(0.28 calc(var(--tk-chroma)*.6) var(--tk-hue));--color-primary-text:oklch(0.85 calc(var(--tk-chroma)*.6) var(--tk-hue));--bg-canvas:oklch(0.14 0.008 50);--bg-surface:oklch(0.18 0.009 50);--bg-muted:oklch(0.21 0.010 50);--bg-code:oklch(0.16 0.009 50);--border-soft:oklch(0.26 0.010 50);--border-mid:oklch(0.34 0.012 50);--text-primary:oklch(0.93 0.005 60);--text-secondary:oklch(0.74 0.006 60);--text-muted:oklch(0.56 0.007 60);--shadow-sm:0 1px 3px oklch(0.04 0 0/.50);--shadow-md:0 4px 14px oklch(0.04 0 0/.60);}
+html{color-scheme:light dark;}html[data-theme="light"]{color-scheme:light;}html[data-theme="dark"]{color-scheme:dark;}
+body{background:var(--bg-canvas);color:var(--text-primary);font-family:var(--font-sans);font-size:var(--text-base);line-height:1.7;margin:0;padding:0;transition:background .25s,color .25s;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+.topbar{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:10px var(--space-6);background:var(--bg-surface);border-bottom:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.tb-left{display:flex;align-items:center;gap:var(--space-3);}
+.tb-logo{width:30px;height:30px;border-radius:var(--radius-md);background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:13px;font-weight:800;}
+.tb-trail{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.tb-trail .sep{color:var(--border-mid);}.tb-trail .cur{color:var(--color-primary);font-weight:600;}
+.tb-right{display:flex;align-items:center;gap:var(--space-2);}
+.pill{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);border:1px solid;}
+.pill-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.pill-ver{background:var(--color-info-soft);color:var(--color-info);border-color:var(--color-info);}
+[data-theme-toggle]{cursor:pointer;border:1px solid var(--border-mid);background:var(--bg-muted);color:var(--text-secondary);border-radius:var(--radius-md);padding:6px var(--space-3);font-family:var(--font-sans);font-size:var(--text-sm);display:flex;align-items:center;gap:6px;transition:all .2s;}
+[data-theme-toggle]:hover{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.page{display:flex;min-height:100vh;}
+.toc-sidebar{width:230px;flex-shrink:0;position:sticky;top:49px;height:calc(100vh - 49px);overflow-y:auto;padding:var(--space-5) var(--space-3);border-right:1px solid var(--border-soft);background:var(--bg-surface);}
+.toc-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-3);}
+.toc-list{list-style:none;}
+.toc-list li{margin-bottom:2px;}
+.toc-list a{display:block;padding:4px var(--space-2);font-size:var(--text-sm);color:var(--text-secondary);text-decoration:none;border-radius:var(--radius-sm);border-left:2px solid transparent;transition:all .15s;line-height:1.4;}
+.toc-list a:hover,.toc-list a.active{color:var(--color-primary);background:var(--color-primary-soft);border-left-color:var(--color-primary);font-weight:600;}
+.toc-h3{padding-left:var(--space-4)!important;font-size:var(--text-xs)!important;}
+.toc-lbl{display:block;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:var(--space-3) var(--space-2) var(--space-1);margin-top:var(--space-2);}
+.content{flex:1;min-width:0;padding:var(--space-8) var(--space-7) var(--space-9);max-width:900px;}
+.ch-header{margin-bottom:var(--space-8);padding-bottom:var(--space-6);border-bottom:1px solid var(--border-soft);}
+.ch-meta{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-4);flex-wrap:wrap;}
+.m-badge{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);}
+.m-ch{background:var(--color-primary);color:#fff;}
+.m-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border:1px solid var(--color-primary);}
+.m-time{background:var(--bg-muted);color:var(--text-muted);border:1px solid var(--border-soft);}
+.ch-header h1{font-family:var(--font-serif);font-size:clamp(var(--text-2xl),4vw,var(--text-3xl));font-weight:700;color:var(--text-primary);line-height:1.2;margin-bottom:var(--space-4);}
+.ch-header h1 em{font-style:normal;color:var(--color-primary);}
+.ch-lead{font-size:var(--text-md);color:var(--text-secondary);line-height:1.7;max-width:700px;font-family:var(--font-body);}
+.prereq{margin-top:var(--space-5);display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--bg-muted);border-radius:var(--radius-md);border:1px solid var(--border-soft);}
+.prereq .pico{font-size:var(--text-lg);flex-shrink:0;margin-top:1px;}
+.prereq p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;}
+.prereq strong{color:var(--text-primary);}
+.obj-box{background:var(--color-primary-soft);border:1px solid var(--color-primary);border-radius:var(--radius-lg);padding:var(--space-5);margin-bottom:var(--space-7);}
+.obj-box h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--color-primary-text);font-weight:700;margin-bottom:var(--space-3);}
+.obj-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-2);}
+.obj-list li{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-sm);color:var(--color-primary-text);line-height:1.5;}
+.obj-list li::before{content:"\2713";font-weight:700;color:var(--color-primary);flex-shrink:0;margin-top:1px;}
+.sec{margin-bottom:var(--space-9);scroll-margin-top:80px;}
+.sec h2{font-family:var(--font-serif);font-size:var(--text-2xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-4);padding-bottom:var(--space-3);border-bottom:2px solid var(--border-soft);display:flex;align-items:center;gap:var(--space-3);}
+.sn{font-family:var(--font-mono);font-size:var(--text-sm);background:var(--color-primary);color:#fff;padding:2px 8px;border-radius:var(--radius-sm);font-weight:700;white-space:nowrap;flex-shrink:0;}
+.sec h3{font-family:var(--font-sans);font-size:var(--text-lg);font-weight:700;color:var(--text-primary);margin:var(--space-6) 0 var(--space-3);}
+.sec h4{font-family:var(--font-sans);font-size:var(--text-base);font-weight:700;color:var(--text-primary);margin:var(--space-5) 0 var(--space-2);}
+p{font-family:var(--font-body);font-size:var(--text-base);color:var(--text-secondary);line-height:1.8;margin-bottom:var(--space-4);}
+strong{color:var(--text-primary);}em{color:var(--color-primary);font-style:normal;}
+.cal{display:flex;gap:var(--space-3);padding:var(--space-4) var(--space-5);border-radius:var(--radius-lg);margin:var(--space-5) 0;border-left:4px solid;}
+.ci{background:var(--color-info-soft);border-color:var(--color-info);}
+.cw{background:var(--color-warning-soft);border-color:var(--color-warning);}
+.ct{background:var(--color-success-soft);border-color:var(--color-success);}
+.cd{background:var(--color-primary-soft);border-color:var(--color-primary);}
+.cal .ic{font-size:var(--text-lg);flex-shrink:0;margin-top:2px;}
+.cal h4{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-1);font-family:var(--font-sans);}
+.cal p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.65;margin:0;font-family:var(--font-sans);}
+.code-wrap{margin:var(--space-4) 0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.code-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px var(--space-4);background:var(--bg-muted);border-bottom:1px solid var(--border-soft);}
+.code-lang{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;}
+.copy-btn{cursor:pointer;font-family:var(--font-mono);font-size:11px;padding:3px 10px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--border-mid);color:var(--text-muted);transition:all .2s;}
+.copy-btn:hover{background:var(--color-primary-soft);color:var(--color-primary);border-color:var(--color-primary);}
+.copy-btn.copied{background:var(--color-success-soft);color:var(--color-success);border-color:var(--color-success);}
+pre{margin:0;padding:var(--space-5);background:var(--bg-code);overflow-x:auto;font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.65;color:var(--text-primary);}
+code{font-family:var(--font-mono);font-size:.92em;background:var(--bg-code);padding:1px 5px;border-radius:var(--radius-sm);color:var(--color-primary-text);border:1px solid var(--border-soft);}
+pre code{background:none;padding:0;border:none;color:inherit;font-size:inherit;}
+.yk{color:var(--color-info);}.yv{color:var(--color-success);}.yc{color:var(--text-muted);font-style:italic;}
+.yn{color:var(--color-warning);}.yh{color:var(--color-neutral-accent);font-weight:700;}
+.tw{overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);margin:var(--space-5) 0;}
+table{width:100%;border-collapse:collapse;font-size:var(--text-sm);}
+thead th{background:var(--bg-muted);padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.07em;border-bottom:2px solid var(--border-mid);text-align:left;white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--border-soft);transition:background .12s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--bg-muted);}
+td{padding:var(--space-3) var(--space-4);vertical-align:top;line-height:1.6;font-family:var(--font-sans);}
+td:first-child{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--color-primary-text);background:var(--color-primary-soft);white-space:nowrap;font-weight:600;}
+.concept-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);margin:var(--space-5) 0;}
+.concept{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.concept-head{padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:var(--text-sm);font-weight:700;border-bottom:1px solid var(--border-soft);}
+.concept-body{padding:var(--space-4);font-size:11px;color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.concept-body .formula{font-family:var(--font-mono);font-size:11px;background:var(--bg-muted);padding:6px 10px;border-radius:var(--radius-sm);margin:var(--space-2) 0;display:block;color:var(--text-primary);}
+.lifecycle{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-5);margin:var(--space-5) 0;box-shadow:var(--shadow-sm);}
+.lc-step{display:flex;gap:var(--space-3);margin-bottom:var(--space-3);align-items:flex-start;}
+.lc-num{font-family:var(--font-mono);font-size:11px;font-weight:700;background:var(--color-primary);color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.lc-content{flex:1;font-size:var(--text-xs);color:var(--text-secondary);font-family:var(--font-sans);line-height:1.6;}
+.lc-content strong{color:var(--text-primary);}
+.lc-content code{background:var(--bg-muted);padding:1px 6px;border-radius:var(--radius-sm);font-size:11px;}
+.kp{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);margin:var(--space-7) 0;box-shadow:var(--shadow-sm);}
+.kp h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-4);margin-top:0;}
+.kp-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-3);}
+.kp-list li{display:flex;align-items:flex-start;gap:var(--space-3);font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.kp-ic{font-size:var(--text-md);flex-shrink:0;margin-top:1px;}
+.ch-nav{display:flex;justify-content:space-between;margin-top:var(--space-9);padding-top:var(--space-6);border-top:1px solid var(--border-soft);}
+.nav-btn{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);text-decoration:none;font-size:var(--text-sm);font-weight:600;transition:all .2s;box-shadow:var(--shadow-md);}
+.nav-prev{background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-mid);}.nav-prev:hover{background:var(--bg-muted);transform:translateX(-2px);}
+.nav-next{background:var(--color-primary);color:#fff;}.nav-next:hover{background:var(--color-primary-hover);transform:translateX(2px);}
+.nav-sub{font-size:11px;opacity:.75;font-family:var(--font-mono);}
+footer{border-top:1px solid var(--border-soft);padding:var(--space-5) var(--space-8);font-family:var(--font-mono);font-size:11px;color:var(--text-muted);text-align:center;}
+footer strong{color:var(--color-primary);}
+@media(max-width:900px){.toc-sidebar{display:none;}.content{padding:var(--space-6) var(--space-4) var(--space-8);}.concept-grid{grid-template-columns:1fr;}}
+@media(max-width:640px){.topbar{padding:8px var(--space-4);}.tb-trail{display:none;}}
+</style>
+</head><body>
+<header class="topbar">
+  <div class="tb-left">
+    <div class="tb-logo">A</div>
+    <nav class="tb-trail">
+      <span>Argo CD 完整教學手冊</span><span class="sep">›</span>
+      <span>Vol 6 可觀測性、通知與 CI/CD 整合</span><span class="sep">›</span>
+      <span class="cur">Ch.30 Argo CD Image Updater</span>
+    </nav>
+  </div>
+  <div class="tb-right">
+    <span class="pill pill-vol">Vol 6 · Ch.30</span>
+    <span class="pill pill-ver">v3.4</span>
+    <button data-theme-toggle></button>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="toc-sidebar">
+    <div class="toc-title">本章目錄</div>
+    <ul class="toc-list">
+      <li><a href="#obj">學習目標</a></li>
+      <span class="toc-lbl">第一節</span>
+      <li><a href="#s1">為什麼需要 Image Updater</a></li>
+      <li><a href="#s1a" class="toc-h3">CI 推 image 後誰更新 manifest？</a></li>
+      <li><a href="#s1b" class="toc-h3">限制</a></li>
+      <span class="toc-lbl">第二節</span>
+      <li><a href="#s2">安裝與架構</a></li>
+      <li><a href="#s2a" class="toc-h3">獨立 controller</a></li>
+      <li><a href="#s2b" class="toc-h3">部署方式</a></li>
+      <span class="toc-lbl">第三節</span>
+      <li><a href="#s3">核心 annotations</a></li>
+      <li><a href="#s3a" class="toc-h3">image-list 與 alias</a></li>
+      <li><a href="#s3b" class="toc-h3">update strategies 五種</a></li>
+      <li><a href="#s3c" class="toc-h3">allow-tags / ignore-tags</a></li>
+      <span class="toc-lbl">第四節</span>
+      <li><a href="#s4">write-back：argocd vs git</a></li>
+      <li><a href="#s4a" class="toc-h3">兩種模式對比</a></li>
+      <li><a href="#s4b" class="toc-h3">git write-back 完整</a></li>
+      <span class="toc-lbl">第五節</span>
+      <li><a href="#s5">Helm 整合</a></li>
+      <span class="toc-lbl">第六節</span>
+      <li><a href="#s6">Kustomize 整合</a></li>
+      <span class="toc-lbl">第七節</span>
+      <li><a href="#s7">Registry 認證</a></li>
+      <span class="toc-lbl">第八節</span>
+      <li><a href="#s8">與 ApplicationSet 整合</a></li>
+      <span class="toc-lbl">第九節</span>
+      <li><a href="#s9">故障排查與最佳實踐</a></li>
+      <span class="toc-lbl">總結</span>
+      <li><a href="#sum">重點回顧</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <header class="ch-header">
+      <div class="ch-meta">
+        <span class="m-badge m-ch">Chapter 30</span>
+        <span class="m-badge m-vol">Vol 6 — 可觀測性、通知與 CI/CD 整合</span>
+        <span class="m-badge m-time">⏱ 預計閱讀時間 45 分鐘</span>
+      </div>
+      <h1>Argo CD Image Updater<br><em>自動偵測新 image 並寫回 Git</em></h1>
+      <p class="ch-lead">CI 把新版 image 推到 registry 後——誰來更新 Application 的 image tag？Image Updater 是 argoproj-labs 的獨立 controller，週期性掃描 registry，偵測新 tag（依 semver / newest-build / alphabetical / digest 策略），自動更新 Application 的 image 參數，或更好地：直接 commit 推回 Git 維持 GitOps single source of truth。本章涵蓋兩種 write-back 模式、五種 update strategies、Helm vs Kustomize 整合、registry 認證、與 ApplicationSet 配合（ignoreApplicationDifferences）、實務最佳實踐。</p>
+      <div class="prereq">
+        <span class="pico">📋</span>
+        <p><strong>前置：</strong>已完成 Vol 1-5 與 Ch.26（ignoreApplicationDifferences）。理解 Helm parameters 與 Kustomize image transformer（Ch.05）。理解 SemVer 版本規則。對 container registry（Docker Hub / GHCR / ECR / GCR）有基本概念。</p>
+      </div>
+    </header>
+
+    <div class="obj-box" id="obj">
+      <h3>🎯 學習目標</h3>
+      <ul class="obj-list">
+        <li>理解 Image Updater 解決的核心問題：將「image tag 變更」從 CI 解耦，讓 image 更新成為獨立流程</li>
+        <li>了解 Image Updater 的<strong>關鍵限制</strong>：只支援 Helm / Kustomize（不支援 plain YAML / Jsonnet）</li>
+        <li>安裝獨立的 argocd-image-updater controller（與 Argo CD 主元件分離）</li>
+        <li>掌握核心 annotations：image-list（含 alias）、write-back-method、update-strategy、allow-tags、ignore-tags、helm.image-name/tag</li>
+        <li>區分兩種 write-back：① <code>argocd</code>（imperative，直接改 Application spec）vs ② <code>git</code>（declarative，commit 回 Git，推薦生產用）</li>
+        <li>理解 git write-back 的預設機制：寫到 <code>.argocd-source-&lt;appName&gt;.yaml</code>（Argo CD 自動識別此特殊檔案）</li>
+        <li>掌握 5 種 update strategies：<strong>semver</strong>（預設）、<strong>newest-build</strong>（舊名 latest）、<strong>alphabetical</strong>（舊名 name）、<strong>digest</strong>、自訂正則</li>
+        <li>實作 Helm 整合（image-name + image-tag parameter）與 Kustomize 整合（kustomization write-back-target）</li>
+        <li>處理 Docker Hub rate limit、private registry 認證（GHCR / ECR / GCR）</li>
+        <li>與 ApplicationSet 整合：用 Ch.26 學的 ignoreApplicationDifferences 讓 Image Updater 的修改不被 controller 覆蓋</li>
+      </ul>
+    </div>
+
+    <section class="sec" id="s1">
+      <h2><span class="sn">1</span>為什麼需要 Image Updater</h2>
+
+      <h3 id="s1a">1.1 CI 推 image 後誰更新 manifest？</h3>
+
+      <p>傳統 CI/CD 流程：</p>
+
+      <div class="lifecycle">
+        <div class="lc-step"><div class="lc-num">1</div><div class="lc-content">Dev push code 到 main branch</div></div>
+        <div class="lc-step"><div class="lc-num">2</div><div class="lc-content">CI 跑測試 → build image → push 到 registry（tag: <code>v1.2.3</code>）</div></div>
+        <div class="lc-step"><div class="lc-num">3</div><div class="lc-content"><strong>?</strong> 誰把 Application / Helm values 中的 image tag 從 v1.2.2 更新為 v1.2.3？</div></div>
+        <div class="lc-step"><div class="lc-num">4</div><div class="lc-content">Argo CD sync 部署新版本</div></div>
+      </div>
+
+      <p>第 3 步通常有三種解法：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>方案</th><th>做法</th><th>缺點</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>A. CI 中直接 commit Git</strong></td>
+              <td>CI build image 後再 commit 到 GitOps repo 更新 tag</td>
+              <td>CI 需 Git 寫權限；CI 失敗會留下半完成狀態；多個 CI 同時 push 衝突</td>
+            </tr>
+            <tr>
+              <td><strong>B. 手動更新</strong></td>
+              <td>Dev push code 後手動修改 GitOps repo</td>
+              <td>容易忘記；無自動化 CD；延遲</td>
+            </tr>
+            <tr>
+              <td><strong>C. Image Updater</strong></td>
+              <td>獨立 controller 掃描 registry，自動更新</td>
+              <td>多一個 controller 要維護；CI ↔ CD 解耦但<strong>偵測有延遲</strong>（預設 2 分鐘）</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>Image Updater 的核心價值</h4>
+          <p>① <strong>CI / CD 完全解耦</strong>：CI 只需 push image，不需碰 Git；② <strong>單一更新邏輯</strong>：所有 Application 用相同策略（semver、newest-build）；③ <strong>GitOps 純粹</strong>：image 變更也是 Git commit，保有完整 audit；④ <strong>適合多 cluster / 多環境</strong>：不需要為每個環境寫 CI 規則。</p>
+        </div>
+      </div>
+
+      <h3 id="s1b">1.2 重要限制</h3>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>Image Updater 只支援 Helm 與 Kustomize</h4>
+          <p><strong>不支援</strong>：① plain YAML（用 directory source 的 Application）；② Jsonnet；③ Config Management Plugins。原因：Image Updater 依賴 Argo CD 對這兩個工具的<strong>parameter override 機制</strong>。如果你的 Application 用 plain YAML，要嘛改寫成 Kustomize，要嘛用其他方案（如 Flux 的 image-automation）。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s2">
+      <h2><span class="sn">2</span>安裝與架構</h2>
+
+      <h3 id="s2a">2.1 獨立的 controller</h3>
+
+      <p>Image Updater 是 <strong>argoproj-labs</strong> 的子專案（不在 Argo CD 主 repo），需獨立部署：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Image Updater 架構</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## 架構簡圖：</span>
+<span class="yc">##</span>
+<span class="yc">##   ┌─────────────────────┐       ┌──────────────────────┐</span>
+<span class="yc">##   │  Container Registry │       │  argocd-image-updater│</span>
+<span class="yc">##   │  (Docker Hub / GHCR │ ◄──── │  (independent pod    │</span>
+<span class="yc">##   │   / ECR / GCR ...)  │ poll  │   in argocd ns)      │</span>
+<span class="yc">##   └─────────────────────┘       └──────────┬───────────┘</span>
+<span class="yc">##                                            │</span>
+<span class="yc">##                       Two write-back paths:</span>
+<span class="yc">##                                            │</span>
+<span class="yc">##                       ┌────────────────────┴─────────────────┐</span>
+<span class="yc">##                       │                                      │</span>
+<span class="yc">##                       ▼ argocd method                git method ▼</span>
+<span class="yc">##              ┌──────────────────┐              ┌──────────────────┐</span>
+<span class="yc">##              │ Argo CD API      │              │ Git repository   │</span>
+<span class="yc">##              │ (update App spec │              │ (commit          │</span>
+<span class="yc">##              │  via patch)      │              │  .argocd-source- │</span>
+<span class="yc">##              └──────────────────┘              │  &lt;app&gt;.yaml or   │</span>
+<span class="yc">##                                                │  kustomization)  │</span>
+<span class="yc">##                                                └──────────────────┘</span></code></pre>
+      </div>
+
+      <h3 id="s2b">2.2 部署方式</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — 兩種安裝方法</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## 方法 A：官方 manifest 直接 apply</span>
+$ kubectl apply -n argocd \
+    -f https://raw.githubusercontent.com/argoproj-labs/argocd-image-updater/stable/manifests/install.yaml
+
+<span class="sh-comment">## 方法 B：Helm chart（推薦，易管理）</span>
+$ helm repo add argo https://argoproj.github.io/argo-helm
+$ helm upgrade --install argocd-image-updater argo/argocd-image-updater \
+    -n argocd \
+    --set config.argocd.serverAddress=argocd-server.argocd.svc \
+    --set config.argocd.insecure=true \
+    --set config.gitCommitUser=argocd-image-updater \
+    --set config.gitCommitMail=image-updater@example.com
+
+<span class="sh-comment">## 方法 C：透過 Argo CD 自己部署 Image Updater（推薦的 GitOps 方式）</span>
+<span class="sh-comment">## 把 image-updater 的 Helm chart 包裝成一個 Application，由 platform Argo CD 管</span>
+
+<span class="sh-comment">## 驗證部署</span>
+$ kubectl get deploy -n argocd argocd-image-updater
+$ kubectl logs -n argocd deploy/argocd-image-updater -f --tail=50</code></pre>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>Image Updater 需連線到 Argo CD API</h4>
+          <p>透過 <code>config.argocd.serverAddress</code> 設定 Argo CD API endpoint。預設用 in-cluster service（<code>argocd-server.argocd.svc</code>）。也支援透過 K8s API（不需 argocd-server，直接讀寫 Application CR）——用 <code>config.applicationsAPIKind: kubernetes</code> 啟用此模式（生產推薦）。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s3">
+      <h2><span class="sn">3</span>核心 Annotations</h2>
+
+      <p>Image Updater 全靠 Application metadata.annotations 設定。最重要的是 <code>image-list</code>：</p>
+
+      <h3 id="s3a">3.1 image-list 與 alias</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — image-list 完整語法</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">metadata:</span>
+  <span class="yk">annotations:</span>
+    <span class="yc"># 1) 最簡單：單一 image，無 alias</span>
+    <span class="yk">argocd-image-updater.argoproj.io/image-list:</span> <span class="yv">myregistry.io/myapp</span>
+
+    <span class="yc"># 2) 含 alias（推薦）——讓後續 annotation 可引用</span>
+    <span class="yk">argocd-image-updater.argoproj.io/image-list:</span> <span class="yv">myapp=myregistry.io/myapp</span>
+
+    <span class="yc"># 3) 多 image</span>
+    <span class="yk">argocd-image-updater.argoproj.io/image-list:</span> |
+      frontend=myregistry.io/frontend,
+      backend=myregistry.io/backend,
+      worker=myregistry.io/worker
+
+    <span class="yc"># 4) 限定版本範圍（semver constraint）</span>
+    <span class="yk">argocd-image-updater.argoproj.io/image-list:</span> <span class="yv">myapp=myregistry.io/myapp:~1.2</span>
+    <span class="yc"># ~1.2  → 只更新 1.2.x（不會跳到 1.3）</span>
+    <span class="yc"># ^1.2  → 只更新 1.x（不會跳到 2.0）</span>
+    <span class="yc"># &gt;1.0  → 只取 1.0 之後的版本</span>
+
+  <span class="yc"># 引用 alias 在後續 annotation：</span>
+  <span class="yk">argocd-image-updater.argoproj.io/myapp.update-strategy:</span> <span class="yv">semver</span>
+  <span class="yk">argocd-image-updater.argoproj.io/myapp.allow-tags:</span> <span class="yv">'regexp:^v[0-9]+\.[0-9]+\.[0-9]+$'</span></code></pre>
+      </div>
+
+      <h3 id="s3b">3.2 五種 Update Strategies</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>Strategy</th><th>邏輯</th><th>適合</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>semver</strong>（預設）</td>
+              <td>按 SemVer 規則找最新版本（依 constraint）</td>
+              <td>生產推薦——release 嚴格 SemVer 的應用</td>
+            </tr>
+            <tr>
+              <td><strong>newest-build</strong>（舊名 latest）</td>
+              <td>按 image push 時間找最新（不管 tag 名）</td>
+              <td>dev / staging 環境——追隨最新 build</td>
+            </tr>
+            <tr>
+              <td><strong>alphabetical</strong>（舊名 name）</td>
+              <td>按 tag 字母順序排序，取最後</td>
+              <td>有特殊命名規則（如 <code>20260105-153</code>）的 tag</td>
+            </tr>
+            <tr>
+              <td><strong>digest</strong></td>
+              <td>追蹤特定 tag（如 <code>latest</code>），偵測 digest 變化</td>
+              <td>使用 <code>latest</code> 或 <code>main</code> 但仍要 GitOps 留痕</td>
+            </tr>
+            <tr>
+              <td>(預先 v0.10) <strong>自訂正則</strong></td>
+              <td>用 <code>allow-tags: regexp:^xxx</code> 過濾後再套用上述</td>
+              <td>複雜命名（PR-{n}、release-{date} 等）</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — update-strategy 範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">annotations:</span>
+  <span class="yc"># 多個 image 各用不同策略</span>
+  <span class="yk">argocd-image-updater.argoproj.io/image-list:</span> |
+    api=myregistry.io/api,
+    web=myregistry.io/web,
+    sidecar=docker.io/library/redis
+
+  <span class="yc"># api：嚴格 SemVer（適合穩定的 backend service）</span>
+  <span class="yk">argocd-image-updater.argoproj.io/api.update-strategy:</span> <span class="yv">semver</span>
+
+  <span class="yc"># web：用 newest-build 追最新（dev 環境）</span>
+  <span class="yk">argocd-image-updater.argoproj.io/web.update-strategy:</span> <span class="yv">newest-build</span>
+
+  <span class="yc"># sidecar：固定 tag 追 digest 變化（如 redis:7-alpine 的 patch）</span>
+  <span class="yk">argocd-image-updater.argoproj.io/sidecar.update-strategy:</span> <span class="yv">digest</span></code></pre>
+      </div>
+
+      <h3 id="s3c">3.3 allow-tags / ignore-tags</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — tag 過濾</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">annotations:</span>
+  <span class="yk">argocd-image-updater.argoproj.io/image-list:</span> <span class="yv">myapp=myregistry.io/myapp</span>
+
+  <span class="yc"># allow-tags：只接受符合正則的 tag</span>
+  <span class="yk">argocd-image-updater.argoproj.io/myapp.allow-tags:</span> <span class="yv">'regexp:^v[0-9]+\.[0-9]+\.[0-9]+$'</span>
+  <span class="yc"># 例如 v1.2.3 通過；v1.2.3-rc1 / latest 被擋</span>
+
+  <span class="yc"># ignore-tags：明確排除特定 tag</span>
+  <span class="yk">argocd-image-updater.argoproj.io/myapp.ignore-tags:</span> <span class="yv">"latest, develop, *-rc*, *-beta*"</span>
+
+  <span class="yc"># platforms：限定特定平台（多架構 image）</span>
+  <span class="yk">argocd-image-updater.argoproj.io/myapp.platforms:</span> <span class="yv">"linux/amd64,linux/arm64"</span>
+
+  <span class="yc"># pull-secret：private registry 認證（見第 7 節）</span>
+  <span class="yk">argocd-image-updater.argoproj.io/myapp.pull-secret:</span> <span class="yv">pullsecret:argocd/myregistry-creds</span></code></pre>
+      </div>
+    </section>
+    <section class="sec" id="s4">
+      <h2><span class="sn">4</span>Write-back：argocd vs git</h2>
+
+      <h3 id="s4a">4.1 兩種模式對比</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>面向</th><th>argocd 方法（imperative）</th><th>git 方法（declarative）</th></tr></thead>
+          <tbody>
+            <tr><td>更新位置</td><td>Application spec（K8s API）</td><td>Git repo</td></tr>
+            <tr><td>Git 留痕</td><td>❌ 沒有 commit</td><td>✅ 完整 commit history</td></tr>
+            <tr><td>需要 Git 寫權限</td><td>❌ 不需</td><td>✅ 需 dedicated bot credentials</td></tr>
+            <tr><td>App-of-Apps 相容</td><td>❌ 衝突（Git 中的 Application spec 覆蓋）</td><td>✅ 完全相容</td></tr>
+            <tr><td>適合</td><td>實驗 / PoC / 不用 GitOps 管 Application 的場景</td><td><strong>生產環境主流</strong>，符合 GitOps 哲學</td></tr>
+            <tr><td>Argo CD 衝突風險</td><td>需要 ignoreApplicationDifferences（Ch.26）</td><td>無——image 變更也是 Git commit</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>生產環境永遠用 git write-back</h4>
+          <p>argocd write-back 違反 GitOps 原則——Application spec 由 controller 直接修改，Git 中的 manifest 與實際 cluster 狀態<strong>不一致</strong>。下次有人從 Git 重建環境，image 就退回舊版本。<strong>git write-back 是唯一符合 GitOps 哲學的選擇</strong>。</p>
+        </div>
+      </div>
+
+      <h3 id="s4b">4.2 git write-back 完整設定</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — git write-back 完整 annotations</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: Application</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+  <span class="yk">annotations:</span>
+    <span class="yc"># 必要：image list</span>
+    <span class="yk">argocd-image-updater.argoproj.io/image-list:</span> <span class="yv">myapp=myregistry.io/myapp</span>
+
+    <span class="yc"># 必要：啟用 git write-back</span>
+    <span class="yk">argocd-image-updater.argoproj.io/write-back-method:</span> <span class="yv">git</span>
+
+    <span class="yc"># 可選：明確指定 branch（若 spec.source.targetRevision 不是 branch）</span>
+    <span class="yk">argocd-image-updater.argoproj.io/git-branch:</span> <span class="yv">main</span>
+
+    <span class="yc"># 可選：自訂 commit user / email</span>
+    <span class="yk">argocd-image-updater.argoproj.io/git-commit-user:</span> <span class="yv">argocd-image-updater</span>
+    <span class="yk">argocd-image-updater.argoproj.io/git-commit-email:</span> <span class="yv">image-updater@example.com</span>
+
+    <span class="yc"># 可選：自訂 commit message template（Go template）</span>
+    <span class="yk">argocd-image-updater.argoproj.io/git-commit-message:</span> |
+      chore: update {{range .Updated}}{{.Name}}={{.NewTag}} {{end}}
+
+      Signed-off-by: ArgoCD Image Updater &lt;image-updater@example.com&gt;
+      Updated by argocd-image-updater for {{.AppName}}
+
+    <span class="yc"># 可選：write-back-target（見下方）</span>
+<span class="yk">spec:</span>
+  <span class="yk">source:</span>
+    <span class="yk">repoURL:</span> <span class="yv">https://github.com/myorg/gitops.git</span>
+    <span class="yk">path:</span> <span class="yv">apps/my-app</span>
+    <span class="yc"># targetRevision 必須是 branch（不要 HEAD / tag / commit sha）</span>
+    <span class="yk">targetRevision:</span> <span class="yv">main</span></code></pre>
+      </div>
+
+      <h3>4.3 預設行為：寫到 .argocd-source-&lt;appName&gt;.yaml</h3>
+
+      <p>預設情況下，git write-back <strong>不會直接修改你的 values.yaml 或 kustomization.yaml</strong>。它建立 / 更新一個特殊檔案 <code>.argocd-source-&lt;appName&gt;.yaml</code> 在 Application 的 source path：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — 自動產生的 .argocd-source-my-app.yaml</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc"># Argo CD 會自動讀取此特殊檔案，作為 source override</span>
+<span class="yc"># 不需要在 Application spec 中明確引用</span>
+<span class="yk">helm:</span>
+  <span class="yk">parameters:</span>
+    - <span class="yk">name:</span> <span class="yv">image.name</span>
+      <span class="yk">value:</span> <span class="yv">myregistry.io/myapp</span>
+      <span class="yk">forceString:</span> <span class="yv">true</span>
+    - <span class="yk">name:</span> <span class="yv">image.tag</span>
+      <span class="yk">value:</span> <span class="yv">v1.2.3</span>
+      <span class="yk">forceString:</span> <span class="yv">true</span></code></pre>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>為什麼用 .argocd-source-&lt;app&gt;.yaml 而不直接改 values.yaml？</h4>
+          <p>① <strong>避免 merge conflict</strong>：Image Updater 與人類 commit 改不同檔案，不衝突；② <strong>清晰分離</strong>：人類 commit 改 chart / values；機器 commit 改 image tag；③ <strong>容易稽核</strong>：所有 image-updater 的 commit 都只改 .argocd-source-* 檔案。<strong>缺點</strong>：Helm template / kustomize build 本地執行時看不到 image 變更（必須透過 Argo CD reconcile）。</p>
+        </div>
+      </div>
+
+      <h3>4.4 write-back-target：直接改 values 或 kustomization</h3>
+
+      <p>若希望直接改 values.yaml 或 kustomization.yaml（讓 helm/kustomize 本地執行也能看到變更），用 <code>write-back-target</code>：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — write-back-target 三種選擇</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">annotations:</span>
+  <span class="yc"># 預設（不設定）：寫到 .argocd-source-&lt;appName&gt;.yaml</span>
+
+  <span class="yc"># 選項 1：寫到指定的 helm values 檔案</span>
+  <span class="yk">argocd-image-updater.argoproj.io/write-back-target:</span> <span class="yv">"helmvalues:./values-prod.yaml"</span>
+
+  <span class="yc"># 選項 2：寫到 kustomization（如同 kustomize edit set image）</span>
+  <span class="yk">argocd-image-updater.argoproj.io/write-back-target:</span> <span class="yv">kustomization</span>
+
+  <span class="yc"># 選項 3：指定 kustomization 的路徑（相對於 source path）</span>
+  <span class="yk">argocd-image-updater.argoproj.io/write-back-target:</span> <span class="yv">"kustomization:../../base"</span>
+
+  <span class="yc"># 選項 4：絕對路徑（從 repo root 開始，必須以 / 開頭）</span>
+  <span class="yk">argocd-image-updater.argoproj.io/write-back-target:</span> <span class="yv">"kustomization:/config/overlays/bar"</span></code></pre>
+      </div>
+    </section>
+
+    <section class="sec" id="s5">
+      <h2><span class="sn">5</span>Helm 整合</h2>
+
+      <p>Helm chart 用 parameter override 機制。Image Updater 預設更新 <code>image.name</code> 與 <code>image.tag</code> 兩個 parameter，但實際 chart 可能用不同的 parameter 名（如 <code>image.repository</code>）：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Helm 整合完整範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: Application</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-helm-app</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+  <span class="yk">annotations:</span>
+    <span class="yk">argocd-image-updater.argoproj.io/image-list:</span> <span class="yv">myapp=myregistry.io/myapp</span>
+    <span class="yk">argocd-image-updater.argoproj.io/write-back-method:</span> <span class="yv">git</span>
+
+    <span class="yc"># 指定 Helm parameter 名稱（如果 chart 用 image.repository 而非 image.name）</span>
+    <span class="yk">argocd-image-updater.argoproj.io/myapp.helm.image-name:</span> <span class="yv">image.repository</span>
+    <span class="yk">argocd-image-updater.argoproj.io/myapp.helm.image-tag:</span> <span class="yv">image.tag</span>
+
+    <span class="yc"># 進階：nested key（如 frontend.image.tag）</span>
+    <span class="yc"># argocd-image-updater.argoproj.io/frontend.helm.image-name: frontend.image.repository</span>
+    <span class="yc"># argocd-image-updater.argoproj.io/frontend.helm.image-tag: frontend.image.tag</span>
+
+    <span class="yc"># 更新策略：semver 1.x</span>
+    <span class="yk">argocd-image-updater.argoproj.io/myapp.update-strategy:</span> <span class="yv">semver</span>
+    <span class="yk">argocd-image-updater.argoproj.io/image-list:</span> <span class="yv">myapp=myregistry.io/myapp:^1.0</span>
+
+    <span class="yc"># 排除 RC / beta tag</span>
+    <span class="yk">argocd-image-updater.argoproj.io/myapp.allow-tags:</span> <span class="yv">'regexp:^v?[0-9]+\.[0-9]+\.[0-9]+$'</span>
+<span class="yk">spec:</span>
+  <span class="yk">source:</span>
+    <span class="yk">repoURL:</span> <span class="yv">https://github.com/myorg/charts.git</span>
+    <span class="yk">path:</span> <span class="yv">my-app</span>
+    <span class="yk">targetRevision:</span> <span class="yv">main</span>
+    <span class="yk">helm:</span>
+      <span class="yk">valueFiles:</span>
+        - <span class="yv">values-prod.yaml</span>
+  <span class="yk">destination:</span>
+    <span class="yk">server:</span> <span class="yv">https://kubernetes.default.svc</span>
+    <span class="yk">namespace:</span> <span class="yv">production</span></code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>Multi-image Helm chart 的 alias 限制</h4>
+          <p>多個 image 都用 image-name / image-tag 結尾的 annotation，但<strong>不同 alias 必須對應到 chart 中不同的 parameter 路徑</strong>。例如 chart 有 <code>frontend.image.tag</code> 與 <code>backend.image.tag</code>，必須各自 annotation。<strong>常見錯誤</strong>：複製 annotation 但忘了改 helm path，造成多個 alias 都更新到同一個 parameter。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s6">
+      <h2><span class="sn">6</span>Kustomize 整合</h2>
+
+      <p>Kustomize 用 <code>images</code> field（kustomization.yaml 中的 image transformer）。Image Updater 直接更新該 field：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Kustomize 整合完整範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: Application</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-kustomize-app</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+  <span class="yk">annotations:</span>
+    <span class="yk">argocd-image-updater.argoproj.io/image-list:</span> <span class="yv">myapp=myregistry.io/myapp</span>
+    <span class="yk">argocd-image-updater.argoproj.io/write-back-method:</span> <span class="yv">git</span>
+
+    <span class="yc"># 用 kustomization write-back-target（直接改 kustomization.yaml）</span>
+    <span class="yk">argocd-image-updater.argoproj.io/write-back-target:</span> <span class="yv">kustomization</span>
+
+    <span class="yc"># 或指定其他位置的 kustomization（如改 base 而非 overlay）</span>
+    <span class="yc"># argocd-image-updater.argoproj.io/write-back-target: "kustomization:../../base"</span>
+
+    <span class="yk">argocd-image-updater.argoproj.io/myapp.update-strategy:</span> <span class="yv">semver</span>
+<span class="yk">spec:</span>
+  <span class="yk">source:</span>
+    <span class="yk">repoURL:</span> <span class="yv">https://github.com/myorg/k8s-config.git</span>
+    <span class="yk">path:</span> <span class="yv">overlays/production</span>
+    <span class="yk">targetRevision:</span> <span class="yv">main</span>
+  <span class="yk">destination:</span>
+    <span class="yk">server:</span> <span class="yv">https://kubernetes.default.svc</span>
+    <span class="yk">namespace:</span> <span class="yv">production</span>
+
+<span class="yc">## kustomization.yaml 在 overlays/production/ 變化為：</span>
+<span class="yc">## apiVersion: kustomize.config.k8s.io/v1beta1</span>
+<span class="yc">## kind: Kustomization</span>
+<span class="yc">## resources:</span>
+<span class="yc">##   - ../../base</span>
+<span class="yc">## images:</span>
+<span class="yc">##   - name: myregistry.io/myapp</span>
+<span class="yc">##     newTag: v1.2.3      # &lt;- image-updater 自動更新此行</span></code></pre>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>Kustomize image override 技巧</h4>
+          <p>Kustomize 允許用一個 image 名稱「override」另一個。例如 base 用 <code>quay.io/argoproj/argocd</code>，overlay 可以 override 為 <code>ghcr.io/argoproj/argocd</code>（不同 registry）。Image Updater 用 <code>manifestTargets.kustomize.name</code> 指定要 override 的<strong>原始名稱</strong>。對於切換 registry 場景非常有用。</p>
+        </div>
+      </div>
+    </section>
+    <section class="sec" id="s7">
+      <h2><span class="sn">7</span>Registry 認證</h2>
+
+      <h3>7.1 Docker Hub rate limit 問題</h3>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>Docker Hub 匿名帳號自 2020 年起有 pull limit</h4>
+          <p>未認證 IP 每 6 小時 100 次 image pull。Image Updater 預設未認證——大量 Application 都用 Docker Hub image 時容易被擋。<strong>必設認證</strong>（即使是免費 Docker Hub 帳號也有 200 次/6h）。</p>
+        </div>
+      </div>
+
+      <h3>7.2 在 ConfigMap 註冊 registry 認證</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — argocd-image-updater-config 含多 registry</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-image-updater-config</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yk">registries.conf:</span> |
+    registries:
+      <span class="yc"># 1) Docker Hub（用認證避免 rate limit）</span>
+      - name: Docker Hub
+        api_url: https://registry-1.docker.io
+        prefix: docker.io
+        ping: yes
+        credentials: pullsecret:argocd/dockerhub-secret
+        default: true       <span class="yc"># 預設 registry（image-list 沒 prefix 時）</span>
+
+      <span class="yc"># 2) GitHub Container Registry (GHCR)</span>
+      - name: GitHub Container Registry
+        api_url: https://ghcr.io
+        prefix: ghcr.io
+        ping: yes
+        credentials: pullsecret:argocd/ghcr-secret
+        credsexpire: 12h
+
+      <span class="yc"># 3) AWS ECR（用 ecr-login helper 自動 refresh token）</span>
+      - name: AWS ECR
+        api_url: https://ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com
+        prefix: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com
+        ping: yes
+        credentials: ext:/scripts/ecr-login.sh    <span class="yc"># 外部腳本動態取得 token</span>
+        credsexpire: 10h
+
+      <span class="yc"># 4) Google Container Registry (GCR)</span>
+      - name: Google Container Registry
+        api_url: https://gcr.io
+        prefix: gcr.io
+        ping: yes
+        credentials: pullsecret:argocd/gcr-secret
+        credsexpire: 1h
+
+<span class="yh">---</span>
+<span class="yc">## Docker Hub Secret 範例</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: Secret</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">dockerhub-secret</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">type:</span> <span class="yv">kubernetes.io/dockerconfigjson</span>
+<span class="yk">data:</span>
+  <span class="yc"># base64(echo -n "username:password" | base64)</span>
+  <span class="yc"># 或用 kubectl create secret docker-registry 產生</span>
+  <span class="yk">.dockerconfigjson:</span> <span class="yv">eyJhdXRocyI6...</span></code></pre>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — 建立各種 registry Secret</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## Docker Hub</span>
+$ kubectl create secret docker-registry dockerhub-secret \
+    --docker-server=https://index.docker.io/v1/ \
+    --docker-username=myuser \
+    --docker-password=mypassword \
+    -n argocd
+
+<span class="sh-comment">## GHCR（GitHub PAT 需 read:packages scope）</span>
+$ kubectl create secret docker-registry ghcr-secret \
+    --docker-server=ghcr.io \
+    --docker-username=github-username \
+    --docker-password=ghp_xxxxxxxxxxxxxxxxxxxx \
+    -n argocd
+
+<span class="sh-comment">## GCR（用 service account JSON）</span>
+$ kubectl create secret docker-registry gcr-secret \
+    --docker-server=gcr.io \
+    --docker-username=_json_key \
+    --docker-password="$(cat sa-key.json)" \
+    -n argocd</code></pre>
+      </div>
+
+      <h3>7.3 Git push 認證（write-back 必需）</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Git write-back 認證</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## Image Updater 用獨立的 Git credentials（不重用 Argo CD 的 repository Secret）</span>
+<span class="yc">## 因為通常需要 write 權限（與 pull-only 不同）</span>
+
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: Secret</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">git-creds</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">type:</span> <span class="yv">Opaque</span>
+<span class="yk">stringData:</span>
+  <span class="yc"># 方法 A：HTTPS（推薦 dedicated bot account）</span>
+  <span class="yk">username:</span> <span class="yv">argocd-image-updater</span>
+  <span class="yk">password:</span> <span class="yv">ghp_xxxxxxxxxxxxxxxxxxxx</span>
+
+  <span class="yc"># 方法 B：SSH（用 deploy key）</span>
+  <span class="yc"># sshPrivateKey: |</span>
+  <span class="yc">#   -----BEGIN OPENSSH PRIVATE KEY-----</span>
+  <span class="yc">#   ...</span>
+
+<span class="yh">---</span>
+<span class="yc">## 在 Application annotation 引用</span>
+<span class="yk">metadata:</span>
+  <span class="yk">annotations:</span>
+    <span class="yk">argocd-image-updater.argoproj.io/write-back-method:</span> <span class="yv">git:secret:argocd/git-creds</span>
+    <span class="yc"># 格式：git:secret:&lt;namespace&gt;/&lt;secret-name&gt;</span></code></pre>
+      </div>
+    </section>
+
+    <section class="sec" id="s8">
+      <h2><span class="sn">8</span>與 ApplicationSet 整合</h2>
+
+      <p>當 Application 由 ApplicationSet 產生時，<strong>controller 會把 Application spec 覆蓋回 template 定義的內容</strong>——Image Updater 的修改會被覆蓋。解法：用 Ch.26 學的 <code>ignoreApplicationDifferences</code>：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — ApplicationSet + Image Updater</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: ApplicationSet</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">microservices</span>
+<span class="yk">spec:</span>
+  <span class="yk">goTemplate:</span> <span class="yv">true</span>
+
+  <span class="yc"># 關鍵：讓 Image Updater 的修改不被 controller 覆蓋</span>
+  <span class="yk">ignoreApplicationDifferences:</span>
+    - <span class="yk">jsonPointers:</span>
+        <span class="yc"># argocd write-back：忽略 spec.source.helm.parameters</span>
+        - <span class="yv">/spec/source/helm/parameters</span>
+        <span class="yc"># git write-back：忽略 .argocd-source-*.yaml 已自動處理（不需此設定）</span>
+        <span class="yc"># 但若用 write-back-target=kustomization，可能需要</span>
+
+  <span class="yk">generators:</span>
+    - <span class="yk">list:</span>
+        <span class="yk">elements:</span>
+          - <span class="yk">name:</span> <span class="yv">api</span>
+            <span class="yk">image:</span> <span class="yv">myregistry.io/api</span>
+          - <span class="yk">name:</span> <span class="yv">web</span>
+            <span class="yk">image:</span> <span class="yv">myregistry.io/web</span>
+
+  <span class="yk">template:</span>
+    <span class="yk">metadata:</span>
+      <span class="yk">name:</span> <span class="yv">'{{.name}}-prod'</span>
+      <span class="yk">annotations:</span>
+        <span class="yc"># Image Updater annotation 也可以在 template 中</span>
+        <span class="yk">argocd-image-updater.argoproj.io/image-list:</span> <span class="yv">'{{.name}}={{.image}}'</span>
+        <span class="yk">argocd-image-updater.argoproj.io/write-back-method:</span> <span class="yv">git</span>
+        <span class="yk">argocd-image-updater.argoproj.io/{{.name}}.update-strategy:</span> <span class="yv">semver</span>
+    <span class="yk">spec:</span>
+      <span class="yk">project:</span> <span class="yv">default</span>
+      <span class="yk">source:</span>
+        <span class="yk">repoURL:</span> <span class="yv">https://github.com/myorg/charts.git</span>
+        <span class="yk">path:</span> <span class="yv">'{{.name}}'</span>
+        <span class="yk">targetRevision:</span> <span class="yv">main</span>
+      <span class="yk">destination:</span>
+        <span class="yk">server:</span> <span class="yv">https://kubernetes.default.svc</span>
+        <span class="yk">namespace:</span> <span class="yv">production</span>
+
+  <span class="yc"># 推薦：用 create-update 避免 generator 故障時刪除 production Application</span>
+  <span class="yk">syncPolicy:</span>
+    <span class="yk">applicationsSync:</span> <span class="yv">create-update</span></code></pre>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>git write-back + ApplicationSet 是最佳組合</h4>
+          <p>git write-back 把 image 變更寫到 Git 中的 <code>.argocd-source-&lt;app&gt;.yaml</code>——這不是 Application spec 的一部分，<strong>不會與 ApplicationSet template 衝突</strong>。所以 git write-back 模式下，<strong>通常不需要 ignoreApplicationDifferences</strong>。這是 git write-back 比 argocd write-back 更適合大規模 GitOps 的另一個原因。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s9">
+      <h2><span class="sn">9</span>故障排查與最佳實踐</h2>
+
+      <h3>常用除錯指令</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — Image Updater 除錯</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## 1. 看 controller log（最重要）</span>
+$ kubectl logs -n argocd deploy/argocd-image-updater -f --tail=100
+
+<span class="sh-comment">## 2. 看 metrics（v0.10+）</span>
+$ kubectl port-forward -n argocd \
+    svc/argocd-image-updater-metrics 8081:8081
+$ curl http://localhost:8081/metrics | grep -E 'argocd_image_updater'
+
+<span class="sh-comment">## 3. 手動觸發 reconcile（不等下次 polling）</span>
+$ kubectl rollout restart deploy/argocd-image-updater -n argocd
+
+<span class="sh-comment">## 4. dry-run 測試（不實際修改）</span>
+$ kubectl exec -n argocd deploy/argocd-image-updater -- \
+    /usr/local/bin/argocd-image-updater test \
+    myregistry.io/myapp --semver-constraint ^1.0
+<span class="sh-comment"># 輸出：找到的 latest tag 與是否會更新</span>
+
+<span class="sh-comment">## 5. 看 Application 上 image-updater 的 annotation 結果</span>
+$ kubectl get app my-app -n argocd -o jsonpath=<span class="yv">'{.metadata.annotations}'</span> | jq</code></pre>
+      </div>
+
+      <h3>常見問題</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>症狀</th><th>可能原因</th><th>解法</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>沒偵測到新 image</td>
+              <td>① registry 認證錯；② allow-tags 過嚴；③ tag 不符 semver；④ rate limit</td>
+              <td>看 log；用 <code>image-updater test</code>；檢查認證</td>
+            </tr>
+            <tr>
+              <td>偵測到但沒更新 Application</td>
+              <td>① write-back 方法錯；② Git push 失敗（權限/conflict）；③ Helm parameter 名稱錯</td>
+              <td>看 log 找 error；確認 git creds；確認 helm.image-name 對應到 chart 實際 parameter</td>
+            </tr>
+            <tr>
+              <td>更新後立刻被覆蓋回去</td>
+              <td>由 ApplicationSet 產生但未設 ignoreApplicationDifferences</td>
+              <td>加 ignoreApplicationDifferences 或改用 git write-back</td>
+            </tr>
+            <tr>
+              <td>Git push 衝突</td>
+              <td>多個 image-updater 實例同時 push；或人類同時改 .argocd-source-*.yaml</td>
+              <td>確保 image-updater 單副本；不要手動改 .argocd-source-* 檔案</td>
+            </tr>
+            <tr>
+              <td>Helm template 看不到 image 變更</td>
+              <td>git write-back 寫到 .argocd-source-*.yaml（預設）；本地 helm template 不讀此檔</td>
+              <td>用 write-back-target=helmvalues:./values.yaml 直接寫 values.yaml</td>
+            </tr>
+            <tr>
+              <td>Docker Hub rate limit 錯誤</td>
+              <td>匿名 pull 達到 100/6h 限制</td>
+              <td>必設 Docker Hub 認證（即使免費帳號也有 200/6h）</td>
+            </tr>
+            <tr>
+              <td>image-list 含底線 / 連字符</td>
+              <td>K8s annotation key 不允許特殊字元</td>
+              <td>image 名中的 <code>/</code> 在 annotation key 中要寫成 <code>_</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>最佳實踐</h3>
+
+      <div class="cal ct">
+        <span class="ic">✅</span>
+        <div>
+          <h4>Image Updater 生產 Checklist</h4>
+          <p>① <strong>永遠用 git write-back</strong>（符合 GitOps，不需 ignoreApplicationDifferences）；② <strong>用 dedicated bot account</strong>（不要用個人 PAT）；③ <strong>所有 Application 都用 alias</strong>（image-list: myapp=registry/image）；④ <strong>明確的 update-strategy</strong>（prod 用 semver，dev 用 newest-build）；⑤ <strong>allow-tags 限制 release pattern</strong>（避免 rc/beta tag 意外進 prod）；⑥ <strong>必設 Docker Hub / GHCR 認證</strong>避免 rate limit；⑦ <strong>單副本 deployment</strong>（避免 git push race）；⑧ <strong>監控 controller log</strong>並 alert 在持續 error；⑨ <strong>git-commit-message template 包含 dry source ref</strong>方便追溯；⑩ <strong>定期 review .argocd-source-*.yaml</strong> 移除已刪除 Application 的孤兒檔案。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="sum">
+      <h2><span class="sn">✓</span>本章重點回顧</h2>
+      <div class="kp">
+        <h3>📌 Key Takeaways</h3>
+        <ul class="kp-list">
+          <li><span class="kp-ic">🔄</span><span><strong>Image Updater 解決 CI 推 image 後誰更新 manifest 的問題</strong>：獨立 controller 週期性掃描 registry，自動更新 Application image。<strong>CI / CD 完全解耦</strong>，CI 只需 push image，更新邏輯集中。<strong>關鍵限制：只支援 Helm 與 Kustomize</strong>（不支援 plain YAML / Jsonnet）。</span></li>
+          <li><span class="kp-ic">📦</span><span><strong>核心 annotations 三必設</strong>：① <code>image-list</code>（含 alias：<code>myapp=registry/image</code>）；② <code>write-back-method</code>（git/argocd）；③ <code>&lt;alias&gt;.update-strategy</code>（5 種策略）。所有後續 annotation 都用 alias 引用，<strong>沒設 alias 後續引用會非常麻煩</strong>。</span></li>
+          <li><span class="kp-ic">🎯</span><span><strong>5 種 update strategies</strong>：① <strong>semver</strong>（預設，按 SemVer constraint）；② <strong>newest-build</strong>（舊名 latest，按 push 時間）；③ <strong>alphabetical</strong>（舊名 name，字母順序）；④ <strong>digest</strong>（追蹤特定 tag 的 digest 變化）；⑤ 配 <code>allow-tags: regexp:...</code> 自訂過濾。<strong>prod 用 semver，dev 用 newest-build</strong>。</span></li>
+          <li><span class="kp-ic">📝</span><span><strong>git write-back 是生產唯一選擇</strong>：argocd write-back 違反 GitOps（直接改 Application spec，與 Git 不一致）。git write-back 預設寫到 <code>.argocd-source-&lt;appName&gt;.yaml</code>——Argo CD 自動識別此特殊檔案。<strong>不會與人類 commit 的 values.yaml 衝突</strong>，且與 ApplicationSet 完全相容。</span></li>
+          <li><span class="kp-ic">🎚️</span><span><strong>write-back-target 控制寫入位置</strong>：① 不設（預設）：<code>.argocd-source-*.yaml</code>；② <code>helmvalues:./values.yaml</code>：直接改 values 檔；③ <code>kustomization</code> 或 <code>kustomization:../../base</code>：改 kustomization.yaml 的 images field。<strong>選 helmvalues / kustomization 的好處</strong>：本地 helm template 也能看到變更（適合不完全用 Argo CD 的環境）。</span></li>
+          <li><span class="kp-ic">🐳</span><span><strong>Helm 整合用 helm.image-name + helm.image-tag</strong>：預設更新 <code>image.name</code> + <code>image.tag</code>，多數 chart 用不同 path（如 <code>image.repository</code>），<strong>必須明確設定</strong>。Multi-image chart 每個 alias 各自 annotation，<strong>常見錯誤：複製 annotation 忘改 path</strong> 造成多 alias 寫到同一 parameter。</span></li>
+          <li><span class="kp-ic">🧱</span><span><strong>Kustomize 整合用 write-back-target=kustomization</strong>：直接更新 kustomization.yaml 的 images field（如同 <code>kustomize edit set image</code>）。可指定其他位置的 kustomization（如改 base 而非 overlay）。<strong>支援跨 registry override</strong>（base 用 quay.io，overlay override 為 ghcr.io）。</span></li>
+          <li><span class="kp-ic">🔑</span><span><strong>Docker Hub rate limit 是常見坑</strong>：匿名 100/6h，認證後 200/6h。<strong>必設認證</strong>。Registry 認證在 <code>argocd-image-updater-config</code> ConfigMap 統一管理，支援 prefix 自動 match registry（docker.io / ghcr.io / ECR / GCR）。ECR 用 <code>credentials: ext:/scripts/ecr-login.sh</code> 動態 refresh token。</span></li>
+          <li><span class="kp-ic">🔁</span><span><strong>ApplicationSet 整合首選 git write-back</strong>：因為 git write-back 寫到 <code>.argocd-source-*.yaml</code>（非 Application spec），<strong>不需要 ignoreApplicationDifferences</strong>。若用 argocd write-back 或 write-back-target=kustomization，需在 ApplicationSet spec 加 ignoreApplicationDifferences 讓 controller 忽略對應欄位。</span></li>
+          <li><span class="kp-ic">🛠️</span><span><strong>除錯三利器</strong>：① 看 controller log（findall errors）；② <code>argocd-image-updater test</code> CLI（在 pod 內測試 image 偵測）；③ port-forward metrics endpoint（:8081/metrics）。常見錯誤：alias 拼錯、helm.image-name 對應不上 chart、Git push 衝突（多副本）、Docker Hub rate limit。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <nav class="ch-nav">
+      <a href="ch29-argocd-notifications.html" class="nav-btn nav-prev">
+        <div><div class="nav-sub">上一章 / PREV</div><div>← Ch.29 argocd-notifications</div></div>
+      </a>
+      <a href="#" class="nav-btn nav-next">
+        <div><div class="nav-sub">下一章 / NEXT</div><div>Ch.31 與 CI/CD 整合 →</div></div>
+      </a>
+    </nav>
+  </main>
+</div>
+
+<footer>Argo CD 完整教學手冊 · <strong>Vol 6 Ch.30</strong> · 基於 Argo CD <strong>v3.4</strong> · 2026-05-09</footer>
+
+<script>
+(function(){
+  'use strict';
+  const KEY='jhsun-theme';
+  const IC={light:'☀',dark:'☾',system:'◐'};
+  const LB={light:'Light',dark:'Dark',system:'System'};
+  function gs(){try{return localStorage.getItem(KEY);}catch(_){return null;}}
+  function ss(v){try{v==='system'||v==null?localStorage.removeItem(KEY):localStorage.setItem(KEY,v);}catch(_){}}
+  function sp(){return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  function ef(m){return m==='system'?sp():m;}
+  function apply(m){
+    const e=ef(m);
+    document.documentElement.dataset.theme=e;
+    document.documentElement.dataset.themeMode=m;
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{
+      b.dataset.themeMode=m;
+      b.setAttribute('aria-label','Theme: '+LB[m]);
+      b.title='Theme: '+LB[m];
+      if(!b.dataset.themeToggleStyled)b.innerHTML='<span>'+IC[m]+'</span><span>'+LB[m]+'</span>';
+    });
+    dispatchEvent(new CustomEvent('jhsun:theme-changed',{detail:{theme:e,mode:m}}));
+  }
+  function cyc(c){return c==='light'?'dark':c==='dark'?'system':'light';}
+  function cur(){return gs()||'system';}
+  function init(){
+    apply(cur());
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{b.addEventListener('click',()=>{const n=cyc(cur());ss(n);apply(n);});});
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(cur()==='system')apply('system');});
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+  window.JHsunTheme={get:cur,set:m=>{ss(m);apply(m);},toggle:()=>{const n=cyc(cur());ss(n);apply(n);}};
+})();
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('.copy-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const pre=btn.closest('.code-wrap').querySelector('pre');
+      navigator.clipboard.writeText(pre.innerText).then(()=>{btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},2000);});
+    });
+  });
+  const hds=document.querySelectorAll('.sec h2,.sec h3');
+  const lks=document.querySelectorAll('.toc-list a');
+  const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){lks.forEach(l=>l.classList.remove('active'));const id=e.target.id||e.target.closest('[id]')?.id;if(id){const a=document.querySelector('.toc-list a[href="#'+id+'"]');if(a)a.classList.add('active');}}});},{rootMargin:'-60px 0px -70% 0px'});
+  hds.forEach(h=>{if(h.id)obs.observe(h);});
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.13 高可用部署：HA 架構、Sharding、Redis HA — Argo CD 完整教學手冊</title>
+<style>
+:root {
+  --tk-hue:200;--tk-chroma:0.11;
+  --color-success:#16a34a;--color-success-soft:#dcfce7;
+  --color-warning:#d97706;--color-warning-soft:#fef3c7;
+  --color-danger:#dc2626;--color-danger-soft:#fee2e2;
+  --color-info:#0891b2;--color-info-soft:#cffafe;
+  --color-neutral-accent:#7c3aed;
+  --color-primary:oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:oklch(0.96 calc(var(--tk-chroma)*.25) var(--tk-hue));
+  --color-primary-text:oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas:oklch(0.985 0.004 60);--bg-surface:oklch(0.995 0.003 60);
+  --bg-muted:oklch(0.96 0.005 60);--bg-code:oklch(0.975 0.006 60);
+  --border-soft:oklch(0.92 0.006 60);--border-mid:oklch(0.85 0.008 60);
+  --text-primary:oklch(0.22 0.008 60);--text-secondary:oklch(0.42 0.008 60);--text-muted:oklch(0.58 0.008 60);
+  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --font-sans:"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif;
+  --font-serif:"Playfair Display","Source Serif 4","Noto Serif TC",Georgia,serif;
+  --font-body:"Source Serif 4","Noto Serif TC",Georgia,serif;
+  --text-xs:12px;--text-sm:14px;--text-base:16px;--text-md:18px;--text-lg:20px;--text-xl:24px;--text-2xl:32px;--text-3xl:44px;
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-7:48px;--space-8:64px;--space-9:96px;
+  --radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:20px;
+  --shadow-sm:0 1px 3px oklch(0.20 0.01 60/0.07);--shadow-md:0 4px 14px oklch(0.20 0.01 60/0.10);
+}
+:root[data-theme="dark"]{
+  --color-success:#4ade80;--color-success-soft:oklch(0.28 0.08 145);
+  --color-warning:#fbbf24;--color-warning-soft:oklch(0.30 0.10 70);
+  --color-danger:#f87171;--color-danger-soft:oklch(0.30 0.10 27);
+  --color-info:#22d3ee;--color-info-soft:oklch(0.30 0.08 200);
+  --color-neutral-accent:#a78bfa;
+  --color-primary:oklch(0.72 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-hover:oklch(0.80 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-soft:oklch(0.28 calc(var(--tk-chroma)*.6) var(--tk-hue));
+  --color-primary-text:oklch(0.85 calc(var(--tk-chroma)*.6) var(--tk-hue));
+  --bg-canvas:oklch(0.14 0.008 50);--bg-surface:oklch(0.18 0.009 50);
+  --bg-muted:oklch(0.21 0.010 50);--bg-code:oklch(0.16 0.009 50);
+  --border-soft:oklch(0.26 0.010 50);--border-mid:oklch(0.34 0.012 50);
+  --text-primary:oklch(0.93 0.005 60);--text-secondary:oklch(0.74 0.006 60);--text-muted:oklch(0.56 0.007 60);
+  --shadow-sm:0 1px 3px oklch(0.04 0 0/.50);--shadow-md:0 4px 14px oklch(0.04 0 0/.60);
+}
+html{color-scheme:light dark;}html[data-theme="light"]{color-scheme:light;}html[data-theme="dark"]{color-scheme:dark;}
+body{background:var(--bg-canvas);color:var(--text-primary);font-family:var(--font-sans);font-size:var(--text-base);line-height:1.7;margin:0;padding:0;transition:background .25s,color .25s;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+.topbar{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:10px var(--space-6);background:var(--bg-surface);border-bottom:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.tb-left{display:flex;align-items:center;gap:var(--space-3);}
+.tb-logo{width:30px;height:30px;border-radius:var(--radius-md);background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:13px;font-weight:800;}
+.tb-trail{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.tb-trail .sep{color:var(--border-mid);}.tb-trail .cur{color:var(--color-primary);font-weight:600;}
+.tb-right{display:flex;align-items:center;gap:var(--space-2);}
+.pill{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);border:1px solid;}
+.pill-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.pill-ver{background:var(--color-info-soft);color:var(--color-info);border-color:var(--color-info);}
+[data-theme-toggle]{cursor:pointer;border:1px solid var(--border-mid);background:var(--bg-muted);color:var(--text-secondary);border-radius:var(--radius-md);padding:6px var(--space-3);font-family:var(--font-sans);font-size:var(--text-sm);display:flex;align-items:center;gap:6px;transition:all .2s;}
+[data-theme-toggle]:hover{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.page{display:flex;min-height:100vh;}
+.toc-sidebar{width:230px;flex-shrink:0;position:sticky;top:49px;height:calc(100vh - 49px);overflow-y:auto;padding:var(--space-5) var(--space-3);border-right:1px solid var(--border-soft);background:var(--bg-surface);}
+.toc-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-3);}
+.toc-list{list-style:none;}
+.toc-list li{margin-bottom:2px;}
+.toc-list a{display:block;padding:4px var(--space-2);font-size:var(--text-sm);color:var(--text-secondary);text-decoration:none;border-radius:var(--radius-sm);border-left:2px solid transparent;transition:all .15s;line-height:1.4;}
+.toc-list a:hover,.toc-list a.active{color:var(--color-primary);background:var(--color-primary-soft);border-left-color:var(--color-primary);font-weight:600;}
+.toc-h3{padding-left:var(--space-4)!important;font-size:var(--text-xs)!important;}
+.toc-lbl{display:block;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:var(--space-3) var(--space-2) var(--space-1);margin-top:var(--space-2);}
+.content{flex:1;min-width:0;padding:var(--space-8) var(--space-7) var(--space-9);max-width:900px;}
+.ch-header{margin-bottom:var(--space-8);padding-bottom:var(--space-6);border-bottom:1px solid var(--border-soft);}
+.ch-meta{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-4);flex-wrap:wrap;}
+.m-badge{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);}
+.m-ch{background:var(--color-primary);color:#fff;}
+.m-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border:1px solid var(--color-primary);}
+.m-time{background:var(--bg-muted);color:var(--text-muted);border:1px solid var(--border-soft);}
+.ch-header h1{font-family:var(--font-serif);font-size:clamp(var(--text-2xl),4vw,var(--text-3xl));font-weight:700;color:var(--text-primary);line-height:1.2;margin-bottom:var(--space-4);}
+.ch-header h1 em{font-style:normal;color:var(--color-primary);}
+.ch-lead{font-size:var(--text-md);color:var(--text-secondary);line-height:1.7;max-width:700px;font-family:var(--font-body);}
+.prereq{margin-top:var(--space-5);display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--bg-muted);border-radius:var(--radius-md);border:1px solid var(--border-soft);}
+.prereq .pico{font-size:var(--text-lg);flex-shrink:0;margin-top:1px;}
+.prereq p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;}
+.prereq strong{color:var(--text-primary);}
+.obj-box{background:var(--color-primary-soft);border:1px solid var(--color-primary);border-radius:var(--radius-lg);padding:var(--space-5);margin-bottom:var(--space-7);}
+.obj-box h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--color-primary-text);font-weight:700;margin-bottom:var(--space-3);}
+.obj-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-2);}
+.obj-list li{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-sm);color:var(--color-primary-text);line-height:1.5;}
+.obj-list li::before{content:"✓";font-weight:700;color:var(--color-primary);flex-shrink:0;margin-top:1px;}
+.sec{margin-bottom:var(--space-9);scroll-margin-top:80px;}
+.sec h2{font-family:var(--font-serif);font-size:var(--text-2xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-4);padding-bottom:var(--space-3);border-bottom:2px solid var(--border-soft);display:flex;align-items:center;gap:var(--space-3);}
+.sn{font-family:var(--font-mono);font-size:var(--text-sm);background:var(--color-primary);color:#fff;padding:2px 8px;border-radius:var(--radius-sm);font-weight:700;white-space:nowrap;flex-shrink:0;}
+.sec h3{font-family:var(--font-sans);font-size:var(--text-lg);font-weight:700;color:var(--text-primary);margin:var(--space-6) 0 var(--space-3);}
+.sec h4{font-family:var(--font-sans);font-size:var(--text-base);font-weight:700;color:var(--text-primary);margin:var(--space-5) 0 var(--space-2);}
+p{font-family:var(--font-body);font-size:var(--text-base);color:var(--text-secondary);line-height:1.8;margin-bottom:var(--space-4);}
+strong{color:var(--text-primary);}em{color:var(--color-primary);font-style:normal;}
+.cal{display:flex;gap:var(--space-3);padding:var(--space-4) var(--space-5);border-radius:var(--radius-lg);margin:var(--space-5) 0;border-left:4px solid;}
+.ci{background:var(--color-info-soft);border-color:var(--color-info);}
+.cw{background:var(--color-warning-soft);border-color:var(--color-warning);}
+.ct{background:var(--color-success-soft);border-color:var(--color-success);}
+.cd{background:var(--color-primary-soft);border-color:var(--color-primary);}
+.cal .ic{font-size:var(--text-lg);flex-shrink:0;margin-top:2px;}
+.cal h4{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-1);font-family:var(--font-sans);}
+.cal p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.65;margin:0;font-family:var(--font-sans);}
+.code-wrap{margin:var(--space-4) 0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.code-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px var(--space-4);background:var(--bg-muted);border-bottom:1px solid var(--border-soft);}
+.code-lang{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;}
+.copy-btn{cursor:pointer;font-family:var(--font-mono);font-size:11px;padding:3px 10px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--border-mid);color:var(--text-muted);transition:all .2s;}
+.copy-btn:hover{background:var(--color-primary-soft);color:var(--color-primary);border-color:var(--color-primary);}
+.copy-btn.copied{background:var(--color-success-soft);color:var(--color-success);border-color:var(--color-success);}
+pre{margin:0;padding:var(--space-5);background:var(--bg-code);overflow-x:auto;font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.65;color:var(--text-primary);}
+code{font-family:var(--font-mono);font-size:.92em;background:var(--bg-code);padding:1px 5px;border-radius:var(--radius-sm);color:var(--color-primary-text);border:1px solid var(--border-soft);}
+pre code{background:none;padding:0;border:none;color:inherit;font-size:inherit;}
+.yk{color:var(--color-info);}.yv{color:var(--color-success);}.yc{color:var(--text-muted);font-style:italic;}
+.yn{color:var(--color-warning);}.yh{color:var(--color-neutral-accent);font-weight:700;}
+.tw{overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);margin:var(--space-5) 0;}
+table{width:100%;border-collapse:collapse;font-size:var(--text-sm);}
+thead th{background:var(--bg-muted);padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.07em;border-bottom:2px solid var(--border-mid);text-align:left;white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--border-soft);transition:background .12s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--bg-muted);}
+td{padding:var(--space-3) var(--space-4);vertical-align:top;line-height:1.6;font-family:var(--font-sans);}
+td:first-child{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--color-primary-text);background:var(--color-primary-soft);white-space:nowrap;font-weight:600;}
+.tc{font-size:var(--text-xs);color:var(--text-muted);}
+/* component HA scaling matrix */
+.scale-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:var(--space-4);margin:var(--space-5) 0;}
+.sg{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-5);box-shadow:var(--shadow-sm);position:relative;overflow:hidden;}
+.sg::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--sgc);}
+.sg-name{font-family:var(--font-mono);font-size:var(--text-xs);font-weight:700;color:var(--sgc);margin-bottom:var(--space-2);}
+.sg-strategy{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-2);}
+.sg-recipe{font-size:11px;color:var(--text-muted);font-family:var(--font-mono);background:var(--bg-muted);padding:4px 8px;border-radius:var(--radius-sm);margin-bottom:var(--space-3);display:inline-block;}
+.sg-notes{font-size:var(--text-xs);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+/* sharding algorithm comparison */
+.alg-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--space-3);margin:var(--space-5) 0;}
+.alg{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.alg-head{padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:var(--text-xs);font-weight:700;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid var(--border-soft);}
+.alg-body{padding:var(--space-4);}
+.alg-tag{font-family:var(--font-mono);font-size:10px;padding:1px 6px;border-radius:var(--radius-sm);border:1px solid;display:inline-block;margin-bottom:var(--space-2);}
+.alg-row{display:flex;gap:var(--space-2);margin-bottom:var(--space-2);font-size:var(--text-xs);font-family:var(--font-sans);}
+.alg-label{color:var(--text-muted);flex-shrink:0;width:55px;}
+.alg-val{color:var(--text-secondary);flex:1;line-height:1.5;}
+/* redis ha visual */
+.redis-ha{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-5);margin:var(--space-5) 0;box-shadow:var(--shadow-sm);}
+.rha-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:var(--space-4);text-align:center;}
+.rha-tier{display:flex;justify-content:center;gap:var(--space-3);margin-bottom:var(--space-3);flex-wrap:wrap;}
+.rha-node{background:var(--bg-muted);border:1px solid var(--border-mid);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);text-align:center;min-width:130px;}
+.rha-role{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em;}
+.rha-name{font-family:var(--font-mono);font-size:var(--text-xs);font-weight:700;color:var(--text-primary);}
+.rha-master{background:var(--color-success-soft);border-color:var(--color-success);}
+.rha-master .rha-name{color:var(--color-success);}
+.rha-replica{background:var(--color-info-soft);border-color:var(--color-info);}
+.rha-replica .rha-name{color:var(--color-info);}
+.rha-arrow{display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-md);font-weight:700;}
+/* kp */
+.kp{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);margin:var(--space-7) 0;box-shadow:var(--shadow-sm);}
+.kp h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-4);margin-top:0;}
+.kp-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-3);}
+.kp-list li{display:flex;align-items:flex-start;gap:var(--space-3);font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.kp-ic{font-size:var(--text-md);flex-shrink:0;margin-top:1px;}
+.ch-nav{display:flex;justify-content:space-between;margin-top:var(--space-9);padding-top:var(--space-6);border-top:1px solid var(--border-soft);}
+.nav-btn{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);text-decoration:none;font-size:var(--text-sm);font-weight:600;transition:all .2s;box-shadow:var(--shadow-md);}
+.nav-prev{background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-mid);}.nav-prev:hover{background:var(--bg-muted);transform:translateX(-2px);}
+.nav-next{background:var(--color-primary);color:#fff;}.nav-next:hover{background:var(--color-primary-hover);transform:translateX(2px);}
+.nav-sub{font-size:11px;opacity:.75;font-family:var(--font-mono);}
+footer{border-top:1px solid var(--border-soft);padding:var(--space-5) var(--space-8);font-family:var(--font-mono);font-size:11px;color:var(--text-muted);text-align:center;}
+footer strong{color:var(--color-primary);}
+@media(max-width:900px){.toc-sidebar{display:none;}.content{padding:var(--space-6) var(--space-4) var(--space-8);}.scale-grid{grid-template-columns:1fr;}.alg-grid{grid-template-columns:1fr;}}
+@media(max-width:640px){.topbar{padding:8px var(--space-4);}.tb-trail{display:none;}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="tb-left">
+    <div class="tb-logo">A</div>
+    <nav class="tb-trail">
+      <span>Argo CD 完整教學手冊</span><span class="sep">›</span>
+      <span>Vol 3 Operator 運維</span><span class="sep">›</span>
+      <span class="cur">Ch.13 高可用部署</span>
+    </nav>
+  </div>
+  <div class="tb-right">
+    <span class="pill pill-vol">Vol 3 · Ch.13</span>
+    <span class="pill pill-ver">v3.4</span>
+    <button data-theme-toggle></button>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="toc-sidebar">
+    <div class="toc-title">本章目錄</div>
+    <ul class="toc-list">
+      <li><a href="#obj">學習目標</a></li>
+      <span class="toc-lbl">第一節</span>
+      <li><a href="#s1">HA 設計原則</a></li>
+      <li><a href="#s1a" class="toc-h3">五大元件 HA 矩陣</a></li>
+      <li><a href="#s1b" class="toc-h3">PodAntiAffinity 與 PDB</a></li>
+      <span class="toc-lbl">第二節</span>
+      <li><a href="#s2">argocd-server HA</a></li>
+      <span class="toc-lbl">第三節</span>
+      <li><a href="#s3">argocd-repo-server HA</a></li>
+      <li><a href="#s3a" class="toc-h3">parallelism 與並發控制</a></li>
+      <li><a href="#s3b" class="toc-h3">Mono-repo 效能調優</a></li>
+      <span class="toc-lbl">第四節</span>
+      <li><a href="#s4">application-controller Sharding</a></li>
+      <li><a href="#s4a" class="toc-h3">三種 Sharding 演算法</a></li>
+      <li><a href="#s4b" class="toc-h3">Dynamic Cluster Distribution</a></li>
+      <li><a href="#s4c" class="toc-h3">手動 shard 指派</a></li>
+      <span class="toc-lbl">第五節</span>
+      <li><a href="#s5">argocd-redis HA</a></li>
+      <li><a href="#s5a" class="toc-h3">Sentinel 架構</a></li>
+      <li><a href="#s5b" class="toc-h3">HAProxy 用戶端負載平衡</a></li>
+      <span class="toc-lbl">第六節</span>
+      <li><a href="#s6">Dex / ApplicationSet HA</a></li>
+      <span class="toc-lbl">第七節</span>
+      <li><a href="#s7">完整 HA 配置 Helm values</a></li>
+      <span class="toc-lbl">第八節</span>
+      <li><a href="#s8">HA 故障演練</a></li>
+      <span class="toc-lbl">總結</span>
+      <li><a href="#sum">重點回顧</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <header class="ch-header">
+      <div class="ch-meta">
+        <span class="m-badge m-ch">Chapter 13</span>
+        <span class="m-badge m-vol">Vol 3 — Operator 運維手冊</span>
+        <span class="m-badge m-time">⏱ 預計閱讀時間 45 分鐘</span>
+      </div>
+      <h1>高可用部署：<br><em>HA 架構、Sharding、Redis HA</em></h1>
+      <p class="ch-lead">每個 Argo CD 元件的 HA 策略各不相同——server 是 stateless 可水平擴展，application-controller 需要 Sharding，repo-server 受限於本地 Git clone，Redis 需要 Sentinel 才能高可用，Dex 卻只能用 in-memory 資料。本章逐個拆解，給出每個元件的精確 HA 配方。</p>
+      <div class="prereq">
+        <span class="pico">📋</span>
+        <p><strong>前置：</strong>已閱讀 Ch.03（五大元件架構）、Ch.12（安裝架構）。理解 StatefulSet、Deployment、PodAntiAffinity 的基本概念。</p>
+      </div>
+    </header>
+
+    <div class="obj-box" id="obj">
+      <h3>🎯 學習目標</h3>
+      <ul class="obj-list">
+        <li>掌握 Argo CD 五大元件各自的 HA 策略，建立完整的 HA 設計矩陣</li>
+        <li>理解 argocd-server、repo-server、ApplicationSet 是 stateless 的 Deployment，可水平擴展</li>
+        <li>精通 application-controller 的三種 Sharding 演算法（legacy / round-robin / consistent-hashing）</li>
+        <li>了解 Dynamic Cluster Distribution 的工作原理（v3.x alpha）：以 Deployment + heartbeat ConfigMap 取代 StatefulSet</li>
+        <li>掌握 argocd-redis HA：Sentinel + HAProxy 架構及其運作</li>
+        <li>理解 argocd-dex-server 的 in-memory 限制及應對策略</li>
+        <li>能撰寫完整生產等級的 HA Helm values，並執行 HA 故障演練</li>
+      </ul>
+    </div>
+
+    <!-- S1 HA 設計原則 -->
+    <section class="sec" id="s1">
+      <h2><span class="sn">1</span>HA 設計原則：五大元件不同對策</h2>
+      <p>Argo CD 是「largely stateless」（基本無狀態）：所有持久資料都存在 Kubernetes etcd 中，Redis 只是揮發性快取。但這並不代表所有元件都能簡單地水平擴展——<strong>每個元件的擴展策略受其架構特性限制</strong>。</p>
+
+      <h3 id="s1a">1.1 五大元件 HA 矩陣</h3>
+
+      <div class="scale-grid">
+        <div class="sg" style="--sgc:var(--color-primary)">
+          <div class="sg-name">argocd-server</div>
+          <div class="sg-strategy">水平擴展（stateless）</div>
+          <div class="sg-recipe">Deployment + 3+ replicas + HPA</div>
+          <div class="sg-notes">完全 stateless，所有狀態在 K8s 與 Redis。建議 3+ replicas 起步，搭配 HPA 依 CPU 自動擴展。最不容易出問題的元件。</div>
+        </div>
+        <div class="sg" style="--sgc:var(--color-info)">
+          <div class="sg-name">argocd-repo-server</div>
+          <div class="sg-strategy">水平擴展（受限於並發）</div>
+          <div class="sg-recipe">Deployment + 2-5 replicas + parallelism limit</div>
+          <div class="sg-notes">每個 replica 維護自己的 Git clone。某些 manifest 工具（Kustomize、CMP）需要修改本地檔案，限制單實例並發。多 replica 是橫向擴展，配合 parallelism limit 避免 OOM。</div>
+        </div>
+        <div class="sg" style="--sgc:var(--color-success)">
+          <div class="sg-name">application-controller</div>
+          <div class="sg-strategy">Sharding（每 shard 處理一組 cluster）</div>
+          <div class="sg-recipe">StatefulSet + replicas = shard 數量</div>
+          <div class="sg-notes">不是傳統水平擴展！每個 replica 是一個 shard，負責固定的 cluster 子集。增加 replica 不會分擔同一 cluster 的負載，而是分擔不同 cluster。&lt;30 cluster 不需要 sharding。</div>
+        </div>
+        <div class="sg" style="--sgc:var(--color-danger)">
+          <div class="sg-name">argocd-redis</div>
+          <div class="sg-strategy">Sentinel HA</div>
+          <div class="sg-recipe">StatefulSet 3 replicas + Sentinel + HAProxy</div>
+          <div class="sg-notes">Redis 本身是單 master，需要 Sentinel 監控並在 master 故障時自動 failover。HAProxy 為用戶端提供穩定的入口（無需用戶端感知 master 變化）。</div>
+        </div>
+        <div class="sg" style="--sgc:var(--color-warning)">
+          <div class="sg-name">argocd-dex-server</div>
+          <div class="sg-strategy">不能水平擴展（in-memory DB）</div>
+          <div class="sg-recipe">Deployment 1 replica（保留以等待重啟）</div>
+          <div class="sg-notes">使用 in-memory database 儲存 OIDC state。多 replica 會有資料不一致問題。維持單副本，依賴 Kubernetes 的 Pod 重啟機制提供恢復。或考慮直接用外部 OIDC provider 跳過 Dex。</div>
+        </div>
+        <div class="sg" style="--sgc:var(--color-neutral-accent)">
+          <div class="sg-name">applicationset-controller</div>
+          <div class="sg-strategy">Leader Election（單 active）</div>
+          <div class="sg-recipe">Deployment 2 replicas + leader election</div>
+          <div class="sg-notes">v2.7+ 支援 leader election，多 replica 但只有一個 active。Leader 故障時其他 replica 自動接管。配合 ARGOCD_APPLICATIONSET_CONTROLLER_LEADER_ELECTION_LEASE_DURATION 調整 failover 延遲。</div>
+        </div>
+        <div class="sg" style="--sgc:var(--text-muted)">
+          <div class="sg-name">notifications-controller</div>
+          <div class="sg-strategy">Leader Election（單 active）</div>
+          <div class="sg-recipe">Deployment 1-2 replicas + leader election</div>
+          <div class="sg-notes">與 applicationset-controller 類似，只有 leader 處理通知。多 replica 提供 failover 能力，不分擔負載。</div>
+        </div>
+      </div>
+
+      <h3 id="s1b">1.2 PodAntiAffinity 與 PodDisruptionBudget（PDB）</h3>
+      <p>HA 不只是多 replica——還需要確保 replica 不會在<strong>同一個 Node</strong>上（避免單 Node 故障同時影響所有副本），以及在 K8s 滾動升級時<strong>至少保留多少副本</strong>（PDB）。</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — PodAntiAffinity + PDB（Helm values 範例）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">global:</span>
+  <span class="yc"># 對所有 Argo CD pod 設定 PodAntiAffinity</span>
+  <span class="yk">affinity:</span>
+    <span class="yk">podAntiAffinity:</span>
+      <span class="yk">preferredDuringSchedulingIgnoredDuringExecution:</span>
+        - <span class="yk">weight:</span> <span class="yn">100</span>
+          <span class="yk">podAffinityTerm:</span>
+            <span class="yk">labelSelector:</span>
+              <span class="yk">matchLabels:</span>
+                <span class="yk">app.kubernetes.io/part-of:</span> <span class="yv">argocd</span>
+            <span class="yk">topologyKey:</span> <span class="yv">kubernetes.io/hostname</span>  <span class="yc"># 不同 Node</span>
+
+<span class="yk">server:</span>
+  <span class="yk">replicas:</span> <span class="yn">3</span>
+  <span class="yc"># PDB：滾動升級時至少保留 2 個 replica</span>
+  <span class="yk">pdb:</span>
+    <span class="yk">enabled:</span> <span class="yv">true</span>
+    <span class="yk">minAvailable:</span> <span class="yn">2</span>
+
+<span class="yk">repoServer:</span>
+  <span class="yk">replicas:</span> <span class="yn">3</span>
+  <span class="yk">pdb:</span>
+    <span class="yk">enabled:</span> <span class="yv">true</span>
+    <span class="yk">minAvailable:</span> <span class="yn">2</span></code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>HA 安裝至少需要 3 個不同的 Node</h4>
+          <p>官方 ha/install.yaml 中的 PodAntiAffinity 是 <code>requiredDuringScheduling</code>（強制）規則。這意味著 Redis HA（3 replica）需要 3 個不同 Node 才能全部排程成功。<strong>單 Node 叢集無法使用 HA 模式</strong>。Helm chart 預設改為 <code>preferred</code>（盡力而為），但仍建議至少 3 個 Node 以發揮 HA 效益。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S2 argocd-server -->
+    <section class="sec" id="s2">
+      <h2><span class="sn">2</span>argocd-server HA：水平擴展最簡單</h2>
+      <p>argocd-server 是 Argo CD 中最容易擴展的元件，因為它是純 stateless：所有 session 透過 JWT token 自帶（無 server-side session），Application 狀態從 K8s API 讀取。</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — argocd-server HA + HPA</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">server:</span>
+  <span class="yk">replicas:</span> <span class="yn">3</span>             <span class="yc"># 起步 3 replica（生產最低）</span>
+
+  <span class="yc"># HPA 自動擴展（根據 CPU 與 memory）</span>
+  <span class="yk">autoscaling:</span>
+    <span class="yk">enabled:</span> <span class="yv">true</span>
+    <span class="yk">minReplicas:</span> <span class="yn">3</span>
+    <span class="yk">maxReplicas:</span> <span class="yn">10</span>
+    <span class="yk">targetCPUUtilizationPercentage:</span> <span class="yn">70</span>
+    <span class="yk">targetMemoryUtilizationPercentage:</span> <span class="yn">75</span>
+
+  <span class="yk">resources:</span>
+    <span class="yk">requests:</span>
+      <span class="yk">cpu:</span> <span class="yv">"250m"</span>
+      <span class="yk">memory:</span> <span class="yv">"256Mi"</span>
+    <span class="yk">limits:</span>
+      <span class="yk">cpu:</span> <span class="yv">"1000m"</span>
+      <span class="yk">memory:</span> <span class="yv">"1Gi"</span>
+
+  <span class="yk">pdb:</span>
+    <span class="yk">enabled:</span> <span class="yv">true</span>
+    <span class="yk">minAvailable:</span> <span class="yn">2</span></code></pre>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>argocd-server 何時需要更多 replica？</h4>
+          <p>典型負載：100 個並發 UI 使用者 + CI 系統 API 呼叫。3 replica 通常足夠處理 500 個 Application 的環境。需要更多 replica 的訊號：UI 載入緩慢、API 請求延遲增加、CPU 持續超過 70%。可以透過 <code>argocd_redis_request_total</code> 與 <code>grpc_server_handled_total</code> metrics 觀察。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S3 repo-server -->
+    <section class="sec" id="s3">
+      <h2><span class="sn">3</span>argocd-repo-server HA：受限於本地 Git clone</h2>
+      <p>repo-server 的擴展不像 server 那樣直接。它的限制在於：<strong>每個 replica 維護自己本地的 Git repo clone</strong>，部分 manifest 工具（Kustomize、某些 plugin）執行時會修改 clone 中的檔案，因此單一 replica 內部的並發是受限的。</p>
+
+      <h3 id="s3a">3.1 parallelism 與並發控制</h3>
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — repo-server 並發調優</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">repoServer:</span>
+  <span class="yk">replicas:</span> <span class="yn">3</span>          <span class="yc"># 多 replica 分散負載</span>
+
+  <span class="yk">env:</span>
+    <span class="yc"># 限制單個 repo-server 同時處理的 manifest 生成數</span>
+    <span class="yc"># 公式參考：(memory_limit_MB - 200) / per_request_memory_MB</span>
+    - <span class="yk">name:</span> <span class="yv">PARALLELISM_LIMIT</span>
+      <span class="yk">value:</span> <span class="yv">"10"</span>
+
+    <span class="yc"># Mono-repo 跳過深度 git clone（顯著加快效能）</span>
+    - <span class="yk">name:</span> <span class="yv">ARGOCD_GIT_ATTEMPTS_COUNT</span>
+      <span class="yk">value:</span> <span class="yv">"3"</span>
+
+  <span class="yk">resources:</span>
+    <span class="yk">requests:</span>
+      <span class="yk">cpu:</span> <span class="yv">"500m"</span>
+      <span class="yk">memory:</span> <span class="yv">"512Mi"</span>
+    <span class="yk">limits:</span>
+      <span class="yk">cpu:</span> <span class="yv">"2000m"</span>
+      <span class="yk">memory:</span> <span class="yv">"2Gi"</span>      <span class="yc"># OOM 是 repo-server 最常見的問題</span>
+
+  <span class="yk">autoscaling:</span>
+    <span class="yk">enabled:</span> <span class="yv">true</span>
+    <span class="yk">minReplicas:</span> <span class="yn">2</span>
+    <span class="yk">maxReplicas:</span> <span class="yn">8</span>
+    <span class="yk">targetMemoryUtilizationPercentage:</span> <span class="yn">75</span></code></pre>
+      </div>
+
+      <h3 id="s3b">3.2 Mono-repo 效能調優</h3>
+      <p>當組織使用 mono-repo（一個 Git repo 包含 50+ Application）時，repo-server 的負擔特別大。以下是必須的調優：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>調優項目</th><th>設定方式</th><th>效果</th></tr></thead>
+          <tbody>
+            <tr><td>Helm 並行生成</td><td>v3.0+ 預設啟用</td><td>同 repo 多 Helm App 並行 template，無需特殊設定</td></tr>
+            <tr><td>標記 chart 允許並發</td><td>在 chart 目錄建立 <code>.argocd-allow-concurrency</code> 空檔案</td><td>repo-server 信任此 chart 不會修改本地檔案，允許並發處理</td></tr>
+            <tr><td>使用 fully-qualified Git refs</td><td><code>refs/heads/main</code> 取代 <code>main</code></td><td>大型 repo 的 ref 解析效能顯著提升</td></tr>
+            <tr><td>提高 repo-server timeout</td><td><code>controller.repo.server.timeout.seconds: "180"</code></td><td>避免 manifest 生成超時導致 sync 失敗</td></tr>
+            <tr><td>啟用 sidecar plugin（CMP）</td><td>使用 sidecar 而非舊式 plugin</td><td>每個 App 用 repo 的暫時複本處理，原生支援並發</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- S4 application-controller Sharding -->
+    <section class="sec" id="s4">
+      <h2><span class="sn">4</span>application-controller Sharding</h2>
+      <p>application-controller 是 Argo CD 中唯一<strong>不能簡單水平擴展</strong>的元件。它的擴展機制是 Sharding：每個 replica 負責一組固定的 cluster，總體上分擔 reconcile 的負擔。<strong>單 cluster（in-cluster only）的部署不需要 Sharding，1 replica 即可。</strong></p>
+
+      <h3 id="s4a">4.1 三種 Sharding 演算法比較</h3>
+
+      <div class="alg-grid">
+        <div class="alg">
+          <div class="alg-head" style="background:var(--color-warning-soft);color:var(--color-warning)">legacy（預設）</div>
+          <div class="alg-body">
+            <div class="alg-tag" style="background:var(--color-warning-soft);color:var(--color-warning);border-color:var(--color-warning)">穩定</div>
+            <div class="alg-row"><span class="alg-label">原理</span><span class="alg-val">基於 cluster UID hash 分配 shard</span></div>
+            <div class="alg-row"><span class="alg-label">優點</span><span class="alg-val">簡單、長期使用、行為可預測</span></div>
+            <div class="alg-row"><span class="alg-label">缺點</span><span class="alg-val">分配不均，某些 shard 可能 cluster 集中</span></div>
+            <div class="alg-row"><span class="alg-label">適用</span><span class="alg-val">少量 cluster（&lt;10）或不需均衡</span></div>
+          </div>
+        </div>
+        <div class="alg">
+          <div class="alg-head" style="background:var(--color-info-soft);color:var(--color-info)">round-robin</div>
+          <div class="alg-body">
+            <div class="alg-tag" style="background:oklch(0.96 0.05 50);color:var(--color-warning);border-color:var(--color-warning)">實驗</div>
+            <div class="alg-row"><span class="alg-label">原理</span><span class="alg-val">cluster 依序輪詢分配到 shard</span></div>
+            <div class="alg-row"><span class="alg-label">優點</span><span class="alg-val">完美均勻分布</span></div>
+            <div class="alg-row"><span class="alg-label">缺點</span><span class="alg-val">移除 rank-0 cluster 時觸發大規模 reshuffling</span></div>
+            <div class="alg-row"><span class="alg-label">適用</span><span class="alg-val">cluster 數量穩定的環境</span></div>
+          </div>
+        </div>
+        <div class="alg">
+          <div class="alg-head" style="background:var(--color-success-soft);color:var(--color-success)">consistent-hashing</div>
+          <div class="alg-body">
+            <div class="alg-tag" style="background:oklch(0.96 0.05 50);color:var(--color-warning);border-color:var(--color-warning)">實驗</div>
+            <div class="alg-row"><span class="alg-label">原理</span><span class="alg-val">一致性雜湊環，每個 shard 負責環上一段</span></div>
+            <div class="alg-row"><span class="alg-label">優點</span><span class="alg-val">新增/移除 cluster 只影響少量重新分配；分布合理</span></div>
+            <div class="alg-row"><span class="alg-label">缺點</span><span class="alg-val">分布不如 round-robin 完全均勻；alpha 階段</span></div>
+            <div class="alg-row"><span class="alg-label">適用</span><span class="alg-val">cluster 數量會變動的大型環境（推薦）</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Sharding 啟用設定</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## 方式一：argocd-cmd-params-cm（推薦）</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-cmd-params-cm</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yk">controller.sharding.algorithm:</span> <span class="yv">consistent-hashing</span>
+
+<span class="yc">## 方式二：StatefulSet env var（直接）</span>
+<span class="yk">spec:</span>
+  <span class="yk">replicas:</span> <span class="yn">3</span>           <span class="yc"># 必須與 ARGOCD_CONTROLLER_REPLICAS 一致</span>
+  <span class="yk">template:</span>
+    <span class="yk">spec:</span>
+      <span class="yk">containers:</span>
+        - <span class="yk">name:</span> <span class="yv">argocd-application-controller</span>
+          <span class="yk">env:</span>
+            - <span class="yk">name:</span> <span class="yv">ARGOCD_CONTROLLER_REPLICAS</span>
+              <span class="yk">value:</span> <span class="yv">"3"</span>
+            - <span class="yk">name:</span> <span class="yv">ARGOCD_CONTROLLER_SHARDING_ALGORITHM</span>
+              <span class="yk">value:</span> <span class="yv">consistent-hashing</span>
+
+<span class="yc">## 設定後，套用變更（StatefulSet 必須 rollout restart）</span>
+<span class="yc"># kubectl rollout restart -n argocd statefulset argocd-application-controller</span>
+
+<span class="yc">## 驗證 sharding 結果</span>
+<span class="yc"># argocd admin cluster stats</span>
+<span class="yc"># 輸出：每個 cluster 屬於哪個 shard，以及該 shard 的負載</span></code></pre>
+      </div>
+
+      <h3 id="s4b">4.2 Dynamic Cluster Distribution（v3.x alpha）</h3>
+      <p>傳統 Sharding 的痛點：增加 replica 數量需要修改 <code>ARGOCD_CONTROLLER_REPLICAS</code> env var，並重啟所有 controller pod，造成短暫的 sync 中斷。<strong>Dynamic Cluster Distribution</strong> 解決這個問題——將 application-controller 從 StatefulSet 改為 Deployment，使用 ConfigMap 心跳機制動態分配 shard。</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash + YAML — 啟用 Dynamic Cluster Distribution</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## Step 1：套用 Deployment overlay（取代 StatefulSet）</span>
+<span class="yc">$ kubectl apply -k https://github.com/argoproj/argo-cd/manifests/ha/base/controller-deployment/?ref=v3.4.0</span>
+
+<span class="yc">## Step 2：在 Deployment env 中啟用</span>
+<span class="yk">env:</span>
+  - <span class="yk">name:</span> <span class="yv">ARGOCD_ENABLE_DYNAMIC_CLUSTER_DISTRIBUTION</span>
+    <span class="yk">value:</span> <span class="yv">"true"</span>
+  <span class="yc"># Heartbeat 間隔（預設 10 秒）</span>
+  - <span class="yk">name:</span> <span class="yv">ARGOCD_CONTROLLER_HEARTBEAT_TIME</span>
+    <span class="yk">value:</span> <span class="yv">"10"</span>
+  <span class="yc"># 必須使用 consistent-hashing</span>
+  - <span class="yk">name:</span> <span class="yv">ARGOCD_CONTROLLER_SHARDING_ALGORITHM</span>
+    <span class="yk">value:</span> <span class="yv">"consistent-hashing"</span>
+
+<span class="yc">## Step 3：擴展 replica 不需要 restart</span>
+<span class="yc">$ kubectl scale deployment argocd-application-controller --replicas=5 -n argocd</span>
+<span class="yc"># Controller 自動偵測 replica 變化，重新分配 shard</span>
+
+<span class="yc">## 工作原理：</span>
+<span class="yc"># Controller 建立 argocd-app-controller-shard-cm ConfigMap</span>
+<span class="yc"># 每個 controller pod 在 readiness probe 中更新自己的 heartbeat</span>
+<span class="yc"># 若 3*HeartbeatDuration 沒更新 → readiness 變 unhealthy → 重新分配 shard</span></code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>v3.0.6 的 Dynamic Distribution 已知問題</h4>
+          <p>截至 v3.0.6，當 controller replica 從 3 縮減到 2 時，可能出現「部分 cluster 沒有任何 controller 處理」的 race condition（GitHub issue #24147）。建議在 production 中目前先使用 StatefulSet + 手動指定 ARGOCD_CONTROLLER_REPLICAS，等 Dynamic Distribution 從 alpha 進入 stable 後再採用。</p>
+        </div>
+      </div>
+
+      <h3 id="s4c">4.3 手動 shard 指派</h3>
+      <p>當需要將特定 cluster 強制分配到指定 shard（例如：把高負載的 prod cluster 與低負載的 dev cluster 分開到不同 controller），可以在 cluster Secret 上加入 <code>shard</code> 欄位：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — 手動 shard 指派</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: v1</span>
+<span class="yh">kind: Secret</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">cluster-prod-us-east</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+  <span class="yk">labels:</span>
+    <span class="yk">argocd.argoproj.io/secret-type:</span> <span class="yv">cluster</span>
+<span class="yk">stringData:</span>
+  <span class="yk">name:</span> <span class="yv">prod-us-east</span>
+  <span class="yk">server:</span> <span class="yv">https://prod-us-east.example.com</span>
+  <span class="yc"># 強制此 cluster 由 shard 0 處理</span>
+  <span class="yk">shard:</span> <span class="yv">"0"</span>
+  <span class="yk">config:</span> |
+    {
+      "bearerToken": "xxxxx",
+      "tlsClientConfig": {...}
+    }</code></pre>
+      </div>
+    </section>
+
+    <!-- S5 Redis HA -->
+    <section class="sec" id="s5">
+      <h2><span class="sn">5</span>argocd-redis HA：Sentinel + HAProxy</h2>
+      <p>Redis 本身是單 master 架構，要實現 HA 必須：① <strong>Sentinel</strong> 監控 master，並在故障時自動將 replica 提升為新 master；② <strong>HAProxy</strong> 為用戶端提供穩定入口（用戶端不需要感知 master 變化）。</p>
+
+      <h3 id="s5a">5.1 Sentinel 架構</h3>
+
+      <div class="redis-ha">
+        <div class="rha-title">📊 argocd-redis HA 架構（3 Redis + 3 Sentinel + 3 HAProxy）</div>
+        <div class="rha-tier">
+          <div class="rha-node rha-master">
+            <div class="rha-role">Redis Master</div>
+            <div class="rha-name">redis-ha-server-0</div>
+          </div>
+          <div class="rha-arrow">⇄</div>
+          <div class="rha-node rha-replica">
+            <div class="rha-role">Redis Replica</div>
+            <div class="rha-name">redis-ha-server-1</div>
+          </div>
+          <div class="rha-arrow">⇄</div>
+          <div class="rha-node rha-replica">
+            <div class="rha-role">Redis Replica</div>
+            <div class="rha-name">redis-ha-server-2</div>
+          </div>
+        </div>
+        <div style="text-align:center;color:var(--text-muted);font-size:11px;margin:var(--space-3) 0;font-family:var(--font-mono);">↑ 同 pod 內含 Sentinel sidecar，互相監控 ↑</div>
+        <div class="rha-tier">
+          <div class="rha-node" style="background:var(--color-primary-soft);border-color:var(--color-primary)">
+            <div class="rha-role">HAProxy</div>
+            <div class="rha-name" style="color:var(--color-primary-text)">haproxy-0</div>
+          </div>
+          <div class="rha-node" style="background:var(--color-primary-soft);border-color:var(--color-primary)">
+            <div class="rha-role">HAProxy</div>
+            <div class="rha-name" style="color:var(--color-primary-text)">haproxy-1</div>
+          </div>
+          <div class="rha-node" style="background:var(--color-primary-soft);border-color:var(--color-primary)">
+            <div class="rha-role">HAProxy</div>
+            <div class="rha-name" style="color:var(--color-primary-text)">haproxy-2</div>
+          </div>
+        </div>
+        <div style="text-align:center;color:var(--text-muted);font-size:11px;margin:var(--space-2) 0;font-family:var(--font-mono);">↑ 用戶端（controller / server / repo-server）連接 HAProxy，由 HAProxy 路由到當前 master ↑</div>
+      </div>
+
+      <h3 id="s5b">5.2 HAProxy 用戶端負載平衡</h3>
+      <p>所有 Argo CD 元件都不直接連接 Redis，而是透過 <code>argocd-redis-ha-haproxy</code> Service。HAProxy 透過查詢 Sentinel 取得當前 master，動態路由所有寫入到 master，所有讀取到 replica（或 master）。</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Helm values 啟用 Redis HA</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">redis-ha:</span>
+  <span class="yk">enabled:</span> <span class="yv">true</span>            <span class="yc"># 啟用 Redis HA（3 replica + Sentinel + HAProxy）</span>
+  <span class="yk">redis:</span>
+    <span class="yk">resources:</span>
+      <span class="yk">requests:</span>
+        <span class="yk">cpu:</span> <span class="yv">"100m"</span>
+        <span class="yk">memory:</span> <span class="yv">"128Mi"</span>
+  <span class="yk">haproxy:</span>
+    <span class="yk">enabled:</span> <span class="yv">true</span>
+    <span class="yk">replicas:</span> <span class="yn">3</span>
+    <span class="yk">resources:</span>
+      <span class="yk">requests:</span>
+        <span class="yk">cpu:</span> <span class="yv">"100m"</span>
+        <span class="yk">memory:</span> <span class="yv">"64Mi"</span>
+
+<span class="yc"># 同時停用單副本 Redis（避免衝突）</span>
+<span class="yk">redis:</span>
+  <span class="yk">enabled:</span> <span class="yv">false</span>           <span class="yc"># 重要！</span>
+
+<span class="yc"># 控制元件透過 sentinel 連線（部分元件需要設定）</span>
+<span class="yk">controller:</span>
+  <span class="yk">env:</span>
+    - <span class="yk">name:</span> <span class="yv">ARGOCD_APPLICATION_CONTROLLER_REDIS_USE_TLS</span>
+      <span class="yk">value:</span> <span class="yv">"false"</span></code></pre>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>argocd-redis 預設只支援 3 個 sentinel</h4>
+          <p>官方文件明確說明：<code>argocd-redis is pre-configured with the understanding of only three total redis servers/sentinels</code>。修改 redis-ha replica 數量需要對應修改 Argo CD 元件的 sentinel 連線設定，建議維持 3 replica 即可——這已足夠提供 quorum-based failover 能力。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S6 Dex / ApplicationSet -->
+    <section class="sec" id="s6">
+      <h2><span class="sn">6</span>argocd-dex-server / applicationset-controller HA</h2>
+
+      <h4>argocd-dex-server：無法水平擴展</h4>
+      <p>Dex 使用 in-memory database 儲存 OIDC state（OAuth2 callback URL、authorization code、refresh token 等）。多 replica 之間沒有同步機制，會造成「使用者在 replica 1 開始 OAuth 流程，回調卻被路由到 replica 2 而失敗」的問題。</p>
+      <p><strong>應對策略</strong>：</p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>策略</th><th>說明</th></tr></thead>
+          <tbody>
+            <tr><td>維持單副本</td><td>Dex 重啟很快（&lt; 5 秒），對使用者影響小。設定足夠的 readiness probe + restart policy</td></tr>
+            <tr><td>跳過 Dex（推薦）</td><td>若組織有 OIDC-compliant IdP（Okta / Auth0 / Azure AD），直接在 argocd-cm 設定外部 OIDC，繞過 Dex</td></tr>
+            <tr><td>使用 OAuth2 Proxy</td><td>用 oauth2-proxy 取代 Dex 處理 SSO，再以 header 或 token 認證至 Argo CD</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>applicationset-controller：Leader Election HA</h4>
+      <p>v2.7+ 起，applicationset-controller 支援 Kubernetes 的 leader election。多 replica 透過 Lease 物件選出 leader，只有 leader 處理 ApplicationSet 的 reconciliation。其他 replica 是 standby，leader 故障時自動接管。</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — applicationset-controller HA（leader election）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">applicationSet:</span>
+  <span class="yk">replicas:</span> <span class="yn">2</span>          <span class="yc"># 2 replica：1 leader + 1 standby</span>
+  <span class="yk">env:</span>
+    <span class="yc"># Leader election 設定（預設值通常足夠）</span>
+    - <span class="yk">name:</span> <span class="yv">ARGOCD_APPLICATIONSET_CONTROLLER_LEADER_ELECTION_LEASE_DURATION</span>
+      <span class="yk">value:</span> <span class="yv">"15s"</span>     <span class="yc"># Lease 持續時間</span>
+    - <span class="yk">name:</span> <span class="yv">ARGOCD_APPLICATIONSET_CONTROLLER_LEADER_ELECTION_RETRY_PERIOD</span>
+      <span class="yk">value:</span> <span class="yv">"5s"</span>      <span class="yc"># 重試間隔</span>
+    - <span class="yk">name:</span> <span class="yv">ARGOCD_APPLICATIONSET_CONTROLLER_LEADER_ELECTION_RENEW_DEADLINE</span>
+      <span class="yk">value:</span> <span class="yv">"10s"</span>     <span class="yc"># 續租截止</span>
+  <span class="yc"># Failover 時間 ≈ Lease - Renew = 15s - 10s = 5s 上下</span></code></pre>
+      </div>
+    </section>
+
+    <!-- S7 Helm values -->
+    <section class="sec" id="s7">
+      <h2><span class="sn">7</span>完整 HA 配置 Helm values</h2>
+      <p>整合本章所有設定，以下是生產等級 HA 部署的完整 Helm values：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — argocd-ha-values.yaml（生產完整版）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">global:</span>
+  <span class="yk">image:</span>
+    <span class="yk">tag:</span> <span class="yv">"v3.4.0"</span>
+  <span class="yk">domain:</span> <span class="yv">argocd.example.com</span>
+  <span class="yk">affinity:</span>
+    <span class="yk">podAntiAffinity:</span>
+      <span class="yk">preferredDuringSchedulingIgnoredDuringExecution:</span>
+        - <span class="yk">weight:</span> <span class="yn">100</span>
+          <span class="yk">podAffinityTerm:</span>
+            <span class="yk">labelSelector:</span>
+              <span class="yk">matchLabels:</span>
+                <span class="yk">app.kubernetes.io/part-of:</span> <span class="yv">argocd</span>
+            <span class="yk">topologyKey:</span> <span class="yv">kubernetes.io/hostname</span>
+
+<span class="yk">configs:</span>
+  <span class="yk">params:</span>
+    <span class="yk">controller.sharding.algorithm:</span> <span class="yv">consistent-hashing</span>
+    <span class="yk">controller.repo.server.timeout.seconds:</span> <span class="yv">"180"</span>
+    <span class="yk">reposerver.parallelism.limit:</span> <span class="yv">"10"</span>
+
+<span class="yk">server:</span>
+  <span class="yk">replicas:</span> <span class="yn">3</span>
+  <span class="yk">autoscaling:</span>
+    <span class="yk">enabled:</span> <span class="yv">true</span>
+    <span class="yk">minReplicas:</span> <span class="yn">3</span>
+    <span class="yk">maxReplicas:</span> <span class="yn">10</span>
+    <span class="yk">targetCPUUtilizationPercentage:</span> <span class="yn">70</span>
+  <span class="yk">resources:</span>
+    <span class="yk">requests:</span> {<span class="yk">cpu:</span> <span class="yv">"250m"</span>, <span class="yk">memory:</span> <span class="yv">"256Mi"</span>}
+    <span class="yk">limits:</span> {<span class="yk">cpu:</span> <span class="yv">"1000m"</span>, <span class="yk">memory:</span> <span class="yv">"1Gi"</span>}
+  <span class="yk">pdb:</span>
+    <span class="yk">enabled:</span> <span class="yv">true</span>
+    <span class="yk">minAvailable:</span> <span class="yn">2</span>
+
+<span class="yk">controller:</span>
+  <span class="yc"># StatefulSet sharding（穩定方式）</span>
+  <span class="yk">replicas:</span> <span class="yn">2</span>
+  <span class="yk">env:</span>
+    - <span class="yk">name:</span> <span class="yv">ARGOCD_CONTROLLER_REPLICAS</span>
+      <span class="yk">value:</span> <span class="yv">"2"</span>
+  <span class="yk">resources:</span>
+    <span class="yk">requests:</span> {<span class="yk">cpu:</span> <span class="yv">"500m"</span>, <span class="yk">memory:</span> <span class="yv">"1Gi"</span>}
+    <span class="yk">limits:</span> {<span class="yk">cpu:</span> <span class="yv">"2000m"</span>, <span class="yk">memory:</span> <span class="yv">"4Gi"</span>}
+
+<span class="yk">repoServer:</span>
+  <span class="yk">replicas:</span> <span class="yn">3</span>
+  <span class="yk">autoscaling:</span>
+    <span class="yk">enabled:</span> <span class="yv">true</span>
+    <span class="yk">minReplicas:</span> <span class="yn">3</span>
+    <span class="yk">maxReplicas:</span> <span class="yn">8</span>
+    <span class="yk">targetMemoryUtilizationPercentage:</span> <span class="yn">75</span>
+  <span class="yk">resources:</span>
+    <span class="yk">requests:</span> {<span class="yk">cpu:</span> <span class="yv">"500m"</span>, <span class="yk">memory:</span> <span class="yv">"512Mi"</span>}
+    <span class="yk">limits:</span> {<span class="yk">cpu:</span> <span class="yv">"2000m"</span>, <span class="yk">memory:</span> <span class="yv">"2Gi"</span>}
+  <span class="yk">pdb:</span>
+    <span class="yk">enabled:</span> <span class="yv">true</span>
+    <span class="yk">minAvailable:</span> <span class="yn">2</span>
+
+<span class="yk">applicationSet:</span>
+  <span class="yk">replicas:</span> <span class="yn">2</span>
+  <span class="yk">resources:</span>
+    <span class="yk">requests:</span> {<span class="yk">cpu:</span> <span class="yv">"100m"</span>, <span class="yk">memory:</span> <span class="yv">"128Mi"</span>}
+    <span class="yk">limits:</span> {<span class="yk">cpu:</span> <span class="yv">"500m"</span>, <span class="yk">memory:</span> <span class="yv">"512Mi"</span>}
+
+<span class="yk">notifications:</span>
+  <span class="yk">replicas:</span> <span class="yn">2</span>
+
+<span class="yk">dex:</span>
+  <span class="yk">replicas:</span> <span class="yn">1</span>           <span class="yc"># Dex 維持單副本</span>
+  <span class="yc"># 或 enabled: false 完全停用 Dex（使用外部 OIDC）</span>
+
+<span class="yk">redis-ha:</span>
+  <span class="yk">enabled:</span> <span class="yv">true</span>          <span class="yc"># 啟用 Redis HA</span>
+<span class="yk">redis:</span>
+  <span class="yk">enabled:</span> <span class="yv">false</span>         <span class="yc"># 停用單副本 Redis（必須）</span></code></pre>
+      </div>
+    </section>
+
+    <!-- S8 故障演練 -->
+    <section class="sec" id="s8">
+      <h2><span class="sn">8</span>HA 故障演練（Game Day）</h2>
+      <p>HA 配置必須<strong>定期演練驗證</strong>。以下是針對每個元件的故障演練腳本：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — HA 故障演練腳本</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## ── Test 1：argocd-server failover ─────────────────────</span>
+<span class="yc">## 預期：刪除 1 個 server replica，UI 仍可存取</span>
+
+<span class="yc">$ POD=$(kubectl get pods -n argocd -l app.kubernetes.io/name=argocd-server -o name | head -1)</span>
+<span class="yc">$ kubectl delete -n argocd $POD --wait=false</span>
+<span class="yc">$ curl -k https://argocd.example.com/api/version</span>
+<span class="yc"># 應立即得到回應（其他 replica 接手）</span>
+
+<span class="yc">## ── Test 2：Redis master failover ──────────────────────</span>
+<span class="yc">## 預期：殺死 Redis master，Sentinel 自動將 replica 提升為新 master</span>
+
+<span class="yc">$ MASTER_POD=$(kubectl exec -n argocd argocd-redis-ha-server-0 -c redis -- \</span>
+<span class="yc">    redis-cli -p 6379 info replication | grep "role:master")</span>
+
+<span class="yc">$ kubectl delete pod -n argocd argocd-redis-ha-server-0</span>
+<span class="yc"># 等 30 秒讓 Sentinel 完成選舉</span>
+<span class="yc">$ sleep 30</span>
+
+<span class="yc"># 驗證 Argo CD 仍可運作</span>
+<span class="yc">$ argocd app list</span>
+<span class="yc"># 應正常顯示 App 清單</span>
+
+<span class="yc">## ── Test 3：application-controller shard failover ───────</span>
+<span class="yc">## 預期：殺死 controller 0，其他 shard 暫時接管 cluster</span>
+<span class="yc">$ kubectl delete pod -n argocd argocd-application-controller-0</span>
+
+<span class="yc"># 觀察 sync 狀態（應持續運作，可能短暫延遲）</span>
+<span class="yc">$ argocd app get my-app -w</span>
+
+<span class="yc">## ── Test 4：repo-server pod 故障 ────────────────────────</span>
+<span class="yc">$ kubectl delete pods -n argocd -l app.kubernetes.io/name=argocd-repo-server</span>
+<span class="yc"># 由於有多個 replica，整體 manifest 生成不中斷</span>
+
+<span class="yc">## ── Test 5：完整 Node 故障模擬 ───────────────────────────</span>
+<span class="yc">## 將整個 Node cordon + drain，模擬 Node 故障</span>
+<span class="yc">$ NODE=$(kubectl get pods -n argocd -l app.kubernetes.io/name=argocd-server \</span>
+<span class="yc">    -o jsonpath='{.items[0].spec.nodeName}')</span>
+<span class="yc">$ kubectl cordon $NODE</span>
+<span class="yc">$ kubectl drain $NODE --ignore-daemonsets --delete-emptydir-data</span>
+<span class="yc"># 由於 PodAntiAffinity，其他 Node 應已有副本，UI 持續可用</span>
+
+<span class="yc">## ── 演練後驗證 ────────────────────────────────────────</span>
+<span class="yc">$ argocd app list                       # 列出所有 App，應正常</span>
+<span class="yc">$ kubectl get pods -n argocd            # 觀察 Pod 是否回到 Running</span>
+<span class="yc">$ argocd app sync test-app               # 嘗試手動 sync 一個 App</span></code></pre>
+      </div>
+    </section>
+
+    <!-- Summary -->
+    <section class="sec" id="sum">
+      <h2><span class="sn">✓</span>本章重點回顧</h2>
+      <div class="kp">
+        <h3>📌 Key Takeaways</h3>
+        <ul class="kp-list">
+          <li><span class="kp-ic">📊</span><span><strong>HA 不是「全部多副本」</strong>：不同元件有不同擴展機制——server / repo-server / ApplicationSet 是水平擴展；application-controller 是 Sharding；Redis 是 Sentinel HA；Dex 不能水平擴展（in-memory DB）。</span></li>
+          <li><span class="kp-ic">🌐</span><span><strong>argocd-server 最簡單</strong>：純 stateless，3+ replicas + HPA 即可。100 個並發使用者用 3 replica 通常足夠。觀察 CPU 與 grpc metrics 決定是否擴展。</span></li>
+          <li><span class="kp-ic">⚙️</span><span><strong>Sharding 不是同 cluster 分擔負載</strong>：Sharding 是讓不同 shard 處理不同 cluster。&lt;30 cluster 不需要 sharding（1 controller 即可）。consistent-hashing 是新增/移除 cluster 時最穩定的演算法（推薦）。</span></li>
+          <li><span class="kp-ic">🔴</span><span><strong>Redis HA = Sentinel + HAProxy</strong>：3 個 Redis（1 master + 2 replica）+ 同 pod 內的 Sentinel 互相監控 + HAProxy 為用戶端提供穩定入口。argocd-redis 預設只支援 3 個 sentinel，不要修改。</span></li>
+          <li><span class="kp-ic">🔑</span><span><strong>Dex 不能水平擴展，建議跳過</strong>：使用 in-memory DB，多 replica 會有 OAuth state 不一致。生產環境推薦：直接設定外部 OIDC provider（Okta / Auth0 / Azure AD），完全繞過 Dex。</span></li>
+          <li><span class="kp-ic">🧪</span><span><strong>HA 配置必須定期演練</strong>：每季執行一次 Game Day——刪除 server pod、殺死 Redis master、drain Node、模擬 controller failover。沒有演練過的 HA 不能算 HA。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <nav class="ch-nav">
+      <a href="ch12-installation-architecture.html" class="nav-btn nav-prev">
+        <div><div class="nav-sub">上一章 / PREV</div><div>← Ch.12 Argo CD 安裝架構與部署模式</div></div>
+      </a>
+      <a href="#" class="nav-btn nav-next">
+        <div><div class="nav-sub">下一章 / NEXT</div><div>Ch.14 安全強化：TLS、RBAC、Network Policies →</div></div>
+      </a>
+    </nav>
+  </main>
+</div>
+
+<footer>Argo CD 完整教學手冊 · <strong>Vol 3 Ch.13</strong> · 基於 Argo CD <strong>v3.4</strong> · 2026-05-09</footer>
+
+<script>
+(function(){
+  'use strict';
+  const KEY='jhsun-theme';
+  const IC={light:'☀',dark:'☾',system:'◐'};
+  const LB={light:'Light',dark:'Dark',system:'System'};
+  function gs(){try{return localStorage.getItem(KEY);}catch(_){return null;}}
+  function ss(v){try{v==='system'||v==null?localStorage.removeItem(KEY):localStorage.setItem(KEY,v);}catch(_){}}
+  function sp(){return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  function ef(m){return m==='system'?sp():m;}
+  function apply(m){
+    const e=ef(m);
+    document.documentElement.dataset.theme=e;
+    document.documentElement.dataset.themeMode=m;
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{
+      b.dataset.themeMode=m;
+      b.setAttribute('aria-label','Theme: '+LB[m]);
+      b.title='Theme: '+LB[m];
+      if(!b.dataset.themeToggleStyled)b.innerHTML='<span>'+IC[m]+'</span><span>'+LB[m]+'</span>';
+    });
+    dispatchEvent(new CustomEvent('jhsun:theme-changed',{detail:{theme:e,mode:m}}));
+  }
+  function cyc(c){return c==='light'?'dark':c==='dark'?'system':'light';}
+  function cur(){return gs()||'system';}
+  function init(){
+    apply(cur());
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{b.addEventListener('click',()=>{const n=cyc(cur());ss(n);apply(n);});});
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(cur()==='system')apply('system');});
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+  window.JHsunTheme={get:cur,set:m=>{ss(m);apply(m);},toggle:()=>{const n=cyc(cur());ss(n);apply(n);}};
+})();
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('.copy-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const pre=btn.closest('.code-wrap').querySelector('pre');
+      navigator.clipboard.writeText(pre.innerText).then(()=>{btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},2000);});
+    });
+  });
+  const hds=document.querySelectorAll('.sec h2,.sec h3');
+  const lks=document.querySelectorAll('.toc-list a');
+  const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){lks.forEach(l=>l.classList.remove('active'));const id=e.target.id||e.target.closest('[id]')?.id;if(id){const a=document.querySelector('.toc-list a[href="#'+id+'"]');if(a)a.classList.add('active');}}});},{rootMargin:'-60px 0px -70% 0px'});
+  hds.forEach(h=>{if(h.id)obs.observe(h);});
+});
+</script>
+</body>
+</html>

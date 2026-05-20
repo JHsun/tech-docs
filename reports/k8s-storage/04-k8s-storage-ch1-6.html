@@ -1,0 +1,1637 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>K8s CSI / PV / StorageClass 教學文件 Ch.1–6 · SRE Reliability Series</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@400;600&display=swap" rel="stylesheet">
+
+<!-- ── tokens.css (inlined) ── -->
+<style>
+:root {
+  --tk-hue:200; --tk-chroma:0.11;
+  --color-success:#16a34a; --color-success-soft:#dcfce7;
+  --color-warning:#d97706; --color-warning-soft:#fef3c7;
+  --color-danger:#dc2626;  --color-danger-soft:#fee2e2;
+  --color-info:#0891b2;    --color-info-soft:#cffafe;
+  --color-neutral-accent:#7c3aed;
+  --color-primary:      oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft: oklch(0.96 calc(var(--tk-chroma)*.25) var(--tk-hue));
+  --color-primary-text: oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas:  oklch(0.985 0.004 60); --bg-surface:oklch(0.995 0.003 60);
+  --bg-muted:   oklch(0.96  0.005 60); --bg-code:  oklch(0.975 0.006 60);
+  --border-soft:oklch(0.92  0.006 60); --border-mid:oklch(0.85  0.008 60);
+  --text-primary:  oklch(0.22 0.008 60);
+  --text-secondary:oklch(0.42 0.008 60);
+  --text-muted:    oklch(0.58 0.008 60);
+  --font-mono:      "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --font-sans:      "DM Sans","Noto Sans TC",system-ui,sans-serif;
+  --font-serif:     "Playfair Display","Source Serif 4","Noto Serif TC",Georgia,serif;
+  --font-serif-body:"Source Serif 4","Noto Serif TC",Georgia,serif;
+  --text-xs:12px;--text-sm:14px;--text-base:16px;--text-md:18px;
+  --text-lg:20px;--text-xl:24px;--text-2xl:32px;--text-3xl:44px;
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;
+  --space-5:24px;--space-6:32px;--space-7:48px;--space-8:64px;--space-9:96px;
+  --container-wide:1280px;
+  --radius-sm:4px;--radius-md:8px;--radius-lg:12px;
+  --shadow-sm:0 1px 2px oklch(0.20 0.01 60/0.06);
+  --shadow-md:0 4px 12px oklch(0.20 0.01 60/0.08);
+}
+:root[data-theme="dark"]{
+  --color-success:#4ade80;--color-success-soft:oklch(0.30 0.08 145);
+  --color-warning:#fbbf24;--color-warning-soft:oklch(0.32 0.10 70);
+  --color-danger:#f87171; --color-danger-soft:oklch(0.32 0.10 27);
+  --color-info:#22d3ee;   --color-info-soft:oklch(0.32 0.08 200);
+  --color-neutral-accent:#a78bfa;
+  --color-primary:      oklch(0.72 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-hover:oklch(0.80 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-soft: oklch(0.30 calc(var(--tk-chroma)*.6)  var(--tk-hue));
+  --color-primary-text: oklch(0.85 calc(var(--tk-chroma)*.6)  var(--tk-hue));
+  --bg-canvas: oklch(0.16 0.008 50);--bg-surface:oklch(0.20 0.009 50);
+  --bg-muted:  oklch(0.23 0.010 50);--bg-code:   oklch(0.18 0.009 50);
+  --border-soft:oklch(0.28 0.010 50);--border-mid:oklch(0.36 0.012 50);
+  --text-primary:  oklch(0.93 0.005 60);
+  --text-secondary:oklch(0.74 0.006 60);
+  --text-muted:    oklch(0.58 0.007 60);
+}
+html{color-scheme:light dark;}
+html[data-theme="light"]{color-scheme:light;}
+html[data-theme="dark"] {color-scheme:dark;}
+body{background:var(--bg-canvas);color:var(--text-primary);transition:background .25s,color .25s;}
+</style>
+
+<link rel="stylesheet" id="hljs-light" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-light.min.css">
+<link rel="stylesheet" id="hljs-dark"  href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css" disabled>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js" crossorigin="anonymous"></script>
+<script>
+window.addEventListener('error',function(e){console.error('[report]',e.message,e.filename,e.lineno);});
+window.addEventListener('unhandledrejection',function(e){console.error('[report:promise]',e.reason);});
+</script>
+
+<!-- ── Layout styles ── -->
+<style>
+*{box-sizing:border-box;}
+body{margin:0;font-family:var(--font-serif-body);font-size:var(--text-md);
+  line-height:1.75;-webkit-font-smoothing:antialiased;}
+
+/* topbar */
+.topbar{position:sticky;top:0;z-index:50;display:flex;align-items:center;
+  justify-content:space-between;padding:var(--space-3) var(--space-5);
+  background:var(--bg-canvas);border-bottom:1px solid var(--border-soft);
+  font-family:var(--font-sans);}
+.topbar__brand{display:flex;align-items:center;gap:var(--space-3);
+  font-size:var(--text-sm);letter-spacing:.08em;text-transform:uppercase;
+  color:var(--text-secondary);}
+.topbar__brand-mark{width:28px;height:28px;border-radius:var(--radius-sm);
+  background:var(--color-primary);display:grid;place-items:center;
+  color:#fff;font-family:var(--font-mono);font-weight:700;font-size:var(--text-sm);}
+[data-theme-toggle]{display:inline-flex;align-items:center;gap:var(--space-2);
+  padding:var(--space-2) var(--space-3);border:1px solid var(--border-mid);
+  border-radius:var(--radius-md);background:var(--bg-surface);
+  color:var(--text-primary);font-family:var(--font-sans);
+  font-size:var(--text-xs);cursor:pointer;transition:all .2s;}
+[data-theme-toggle]:hover{border-color:var(--color-primary);color:var(--color-primary);}
+[data-theme-toggle] .theme-icon{font-size:var(--text-md);line-height:1;}
+
+/* hero */
+.hero{max-width:var(--container-wide);margin:0 auto;
+  padding:var(--space-9) var(--space-5) var(--space-7);
+  position:relative;overflow:hidden;}
+.hero::before{content:"";position:absolute;top:-80px;right:-60px;
+  width:500px;height:500px;
+  background:radial-gradient(circle,var(--color-primary-soft) 0%,transparent 70%);
+  opacity:.55;z-index:0;pointer-events:none;}
+.hero__eyebrow{display:inline-flex;align-items:center;gap:var(--space-2);
+  font-family:var(--font-mono);font-size:var(--text-xs);
+  letter-spacing:.18em;text-transform:uppercase;color:var(--color-primary-text);
+  margin-bottom:var(--space-4);position:relative;z-index:1;}
+.hero__eyebrow::before{content:"";width:32px;height:1px;background:var(--color-primary);}
+.hero__title{font-family:var(--font-serif);font-weight:700;
+  font-size:clamp(36px,5.5vw,64px);line-height:1.05;letter-spacing:-.02em;
+  margin:0 0 var(--space-5);max-width:900px;position:relative;z-index:1;}
+.hero__title em{font-style:italic;color:var(--color-primary-text);font-weight:400;}
+.hero__subtitle{font-family:var(--font-serif-body);font-size:var(--text-lg);
+  color:var(--text-secondary);max-width:720px;margin:0 0 var(--space-6);
+  line-height:1.6;position:relative;z-index:1;}
+.hero__meta{display:flex;flex-wrap:wrap;gap:var(--space-5);
+  font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);
+  letter-spacing:.05em;text-transform:uppercase;
+  border-top:1px solid var(--border-soft);padding-top:var(--space-4);
+  position:relative;z-index:1;}
+.hero__meta strong{color:var(--text-primary);font-weight:500;}
+
+/* layout */
+.layout{max-width:var(--container-wide);margin:0 auto;
+  padding:0 var(--space-5) var(--space-9);
+  display:grid;grid-template-columns:260px 1fr;gap:var(--space-7);}
+@media(max-width:960px){.layout{grid-template-columns:1fr;}.toc{position:static!important;}}
+
+.toc{position:sticky;top:68px;align-self:start;font-family:var(--font-sans);
+  font-size:var(--text-sm);max-height:calc(100vh - 80px);overflow-y:auto;
+  padding-right:var(--space-3);}
+.toc__title{font-family:var(--font-mono);font-size:var(--text-xs);
+  letter-spacing:.18em;text-transform:uppercase;color:var(--text-muted);
+  margin-bottom:var(--space-4);padding-bottom:var(--space-2);
+  border-bottom:1px solid var(--border-soft);}
+.toc ol{list-style:none;padding:0;margin:0;counter-reset:ch;}
+.toc li{counter-increment:ch;margin-bottom:var(--space-2);}
+.toc a{display:flex;gap:var(--space-3);padding:var(--space-2) 0;
+  color:var(--text-secondary);text-decoration:none;
+  border-left:2px solid transparent;padding-left:var(--space-3);
+  margin-left:calc(-1*var(--space-3));transition:all .15s;line-height:1.4;}
+.toc a::before{content:counter(ch,decimal-leading-zero);
+  font-family:var(--font-mono);font-size:var(--text-xs);
+  color:var(--text-muted);flex-shrink:0;}
+.toc a:hover{color:var(--color-primary-text);border-left-color:var(--color-primary);}
+.toc__note{font-family:var(--font-mono);font-size:var(--text-xs);
+  color:var(--color-primary-text);background:var(--color-primary-soft);
+  border:1px solid var(--border-soft);border-radius:var(--radius-sm);
+  padding:var(--space-2) var(--space-3);margin-top:var(--space-4);line-height:1.6;}
+
+/* main */
+.main{max-width:820px;}
+.chapter{margin-bottom:var(--space-9);scroll-margin-top:var(--space-7);}
+.chapter__number{font-family:var(--font-mono);font-size:var(--text-xs);
+  letter-spacing:.2em;text-transform:uppercase;color:var(--color-primary-text);
+  margin-bottom:var(--space-3);display:flex;align-items:center;gap:var(--space-3);}
+.chapter__number::after{content:"";flex:1;height:1px;background:var(--border-soft);}
+.chapter__title{font-family:var(--font-serif);font-weight:700;font-size:var(--text-2xl);
+  line-height:1.2;letter-spacing:-.01em;margin:0 0 var(--space-5);}
+.chapter>p{margin:0 0 var(--space-4);}
+.chapter h3{font-family:var(--font-serif);font-size:var(--text-xl);font-weight:600;
+  margin:var(--space-7) 0 var(--space-3);position:relative;padding-left:var(--space-4);}
+.chapter h3::before{content:"";position:absolute;left:0;top:.6em;
+  width:8px;height:8px;background:var(--color-primary);border-radius:50%;}
+.chapter h4{font-family:var(--font-sans);font-size:var(--text-md);font-weight:700;
+  margin:var(--space-5) 0 var(--space-2);}
+
+strong{color:var(--text-primary);font-weight:600;}
+em{color:var(--text-secondary);}
+code{font-family:var(--font-mono);font-size:.85em;
+  background:var(--color-primary-soft);color:var(--color-primary-text);
+  padding:.1em .4em;border-radius:var(--radius-sm);border:1px solid var(--border-soft);}
+.main ul,.main ol{padding-left:var(--space-5);margin:0 0 var(--space-4);}
+.main li{margin-bottom:var(--space-2);}
+.main li::marker{color:var(--color-primary);}
+
+/* callouts */
+.callout{display:grid;grid-template-columns:auto 1fr;gap:var(--space-4);
+  padding:var(--space-4) var(--space-5);border-radius:var(--radius-md);
+  border-left:4px solid var(--color-info);background:var(--color-info-soft);
+  margin:var(--space-5) 0;font-family:var(--font-sans);font-size:var(--text-sm);line-height:1.65;}
+.callout--warning{border-left-color:var(--color-warning);background:var(--color-warning-soft);}
+.callout--danger {border-left-color:var(--color-danger); background:var(--color-danger-soft);}
+.callout--success{border-left-color:var(--color-success);background:var(--color-success-soft);}
+.callout__icon{font-family:var(--font-mono);font-weight:700;font-size:var(--text-md);
+  align-self:start;padding-top:2px;}
+.callout p:first-child{margin-top:0;}.callout p:last-child{margin-bottom:0;}
+
+/* code blocks */
+.codewrap{position:relative;margin:var(--space-5) 0;border-radius:var(--radius-md);
+  background:var(--bg-code);border:1px solid var(--border-soft);overflow:hidden;}
+.codewrap__head{display:flex;align-items:center;justify-content:space-between;
+  padding:var(--space-2) var(--space-4);background:var(--bg-muted);
+  border-bottom:1px solid var(--border-soft);font-family:var(--font-mono);
+  font-size:var(--text-xs);color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;}
+.codewrap__copy{background:transparent;border:1px solid var(--border-mid);
+  color:var(--text-secondary);padding:2px var(--space-2);border-radius:var(--radius-sm);
+  font-family:var(--font-mono);font-size:var(--text-xs);cursor:pointer;transition:all .15s;}
+.codewrap__copy:hover{border-color:var(--color-primary);color:var(--color-primary);}
+.codewrap__copy.copied{border-color:var(--color-success);color:var(--color-success);}
+.codewrap pre{margin:0;padding:var(--space-4);overflow-x:auto;
+  font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.65;
+  background:var(--bg-code)!important;}
+.codewrap pre code{background:transparent!important;border:none!important;
+  padding:0!important;color:inherit!important;font-size:inherit!important;}
+
+/* tables */
+.table-wrap{overflow-x:auto;margin:var(--space-5) 0;border-radius:var(--radius-md);
+  border:1px solid var(--border-soft);}
+table{width:100%;border-collapse:collapse;font-family:var(--font-sans);font-size:var(--text-sm);}
+th,td{text-align:left;padding:var(--space-3) var(--space-4);
+  border-bottom:1px solid var(--border-soft);vertical-align:top;}
+th{background:var(--bg-muted);font-weight:700;font-size:var(--text-xs);
+  letter-spacing:.08em;text-transform:uppercase;color:var(--text-secondary);}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:var(--bg-muted);}
+
+/* mermaid */
+.mermaid-wrap{margin:var(--space-5) 0;padding:var(--space-5);
+  background:var(--bg-surface);border:1px solid var(--border-soft);
+  border-radius:var(--radius-md);overflow-x:auto;text-align:center;min-height:60px;}
+.mermaid-wrap svg{max-width:100%;}
+
+/* access mode badges */
+.access-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+  gap:var(--space-3);margin:var(--space-5) 0;}
+.access-card{padding:var(--space-4);border-radius:var(--radius-md);
+  background:var(--bg-surface);border:1px solid var(--border-soft);font-family:var(--font-sans);}
+.access-card__badge{font-family:var(--font-mono);font-size:var(--text-xs);font-weight:700;
+  letter-spacing:.1em;padding:2px var(--space-2);border-radius:var(--radius-sm);
+  display:inline-block;margin-bottom:var(--space-2);}
+.access-card--rwo .access-card__badge{background:var(--color-info-soft);color:var(--color-info);}
+.access-card--rox .access-card__badge{background:var(--color-success-soft);color:var(--color-success);}
+.access-card--rwx .access-card__badge{background:var(--color-warning-soft);color:var(--color-warning);}
+.access-card--rwop .access-card__badge{background:var(--color-danger-soft);color:var(--color-danger);}
+.access-card__title{font-weight:700;font-size:var(--text-sm);
+  color:var(--text-primary);margin-bottom:var(--space-1);}
+.access-card__desc{font-size:var(--text-xs);color:var(--text-secondary);line-height:1.65;}
+
+/* lifecycle steps */
+.lifecycle{display:flex;flex-direction:column;gap:var(--space-3);margin:var(--space-5) 0;}
+.lifecycle-step{display:grid;grid-template-columns:36px 1fr;gap:var(--space-4);
+  padding:var(--space-4);border-radius:var(--radius-md);
+  background:var(--bg-surface);border:1px solid var(--border-soft);font-family:var(--font-sans);}
+.lifecycle-step__num{font-family:var(--font-mono);font-size:var(--text-lg);
+  font-weight:700;color:var(--color-primary-text);line-height:1;}
+.lifecycle-step__title{font-weight:700;font-size:var(--text-sm);
+  color:var(--text-primary);margin-bottom:var(--space-1);}
+.lifecycle-step__desc{font-size:var(--text-xs);color:var(--text-secondary);line-height:1.65;}
+
+/* sidecar table highlight */
+.sidecar-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+  gap:var(--space-3);margin:var(--space-5) 0;}
+.sidecar-card{padding:var(--space-4);border-radius:var(--radius-md);
+  background:var(--bg-surface);border:1px solid var(--border-soft);
+  border-top:3px solid var(--color-primary);font-family:var(--font-sans);}
+.sidecar-card__name{font-family:var(--font-mono);font-size:var(--text-xs);
+  font-weight:700;color:var(--color-primary-text);margin-bottom:var(--space-2);}
+.sidecar-card__role{font-weight:700;font-size:var(--text-sm);
+  color:var(--text-primary);margin-bottom:var(--space-2);}
+.sidecar-card__desc{font-size:var(--text-xs);color:var(--text-secondary);line-height:1.65;}
+
+/* version badge */
+.ver{display:inline-block;font-family:var(--font-mono);font-size:var(--text-xs);
+  padding:1px var(--space-2);border-radius:9999px;
+  background:var(--color-primary-soft);color:var(--color-primary-text);
+  border:1px solid var(--border-soft);vertical-align:middle;margin-left:4px;}
+.ver--ga{background:var(--color-success-soft);color:var(--color-success);}
+.ver--beta{background:var(--color-warning-soft);color:var(--color-warning);}
+.ver--alpha{background:var(--color-danger-soft);color:var(--color-danger);}
+
+/* footer */
+.footer{max-width:var(--container-wide);margin:0 auto;
+  padding:var(--space-7) var(--space-5);border-top:1px solid var(--border-soft);
+  font-family:var(--font-sans);font-size:var(--text-xs);
+  color:var(--text-muted);text-align:center;letter-spacing:.05em;}
+.footer__series{font-family:var(--font-mono);text-transform:uppercase;
+  letter-spacing:.2em;color:var(--color-primary-text);margin-bottom:var(--space-2);}
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="topbar__brand">
+    <div class="topbar__brand-mark">K8s</div>
+    <span>SRE Reliability Series · Vol. 04 · Ch. 1–6</span>
+  </div>
+  <button data-theme-toggle aria-label="Toggle theme"></button>
+</div>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="hero__eyebrow">Vol. 04 / Part 1 · SRE Field Manual</div>
+  <h1 class="hero__title">
+    Kubernetes 儲存深度指南<br>
+    <em>CSI / PV / StorageClass</em>
+  </h1>
+  <p class="hero__subtitle">
+    從儲存抽象概念、PV 生命週期、PVC Binding 機制、StorageClass 設計，
+    到 VolumeAttributesClass GA、CSI 架構與 Sidecar 全解——
+    兼顧概念理解與 YAML 實作，適合新進工程師到主管層級。
+    版本基準：Kubernetes 1.34 · CSI spec v1.12 · external-snapshotter v8.4
+  </p>
+  <div class="hero__meta">
+    <span><strong>Chapters</strong> · 1–6 of 12</span>
+    <span><strong>Read</strong> · ~55 min</span>
+    <span><strong>Updated</strong> · 2026-05</span>
+    <span><strong>Part 2</strong> · Ch.7–12 → 進階功能 / Rook / OpenEBS</span>
+  </div>
+</header>
+
+<!-- LAYOUT -->
+<div class="layout">
+  <nav class="toc" aria-label="Table of contents">
+    <div class="toc__title">本冊目錄（Ch.1–6）</div>
+    <ol>
+      <li><a href="#ch1">Kubernetes 儲存體系概覽</a></li>
+      <li><a href="#ch2">PersistentVolume 深度解析</a></li>
+      <li><a href="#ch3">PVC 與 Binding 機制</a></li>
+      <li><a href="#ch4">StorageClass 設計與實作</a></li>
+      <li><a href="#ch5">VolumeAttributesClass（v1.34 GA）</a></li>
+      <li><a href="#ch6">CSI 架構與 Sidecar 容器</a></li>
+    </ol>
+    <div class="toc__note">Ch.7–12 將於 Part 2 文件發布，涵蓋 Snapshot、Volume Expand、雲端 CSI、Rook-Ceph、OpenEBS 與故障診斷。</div>
+  </nav>
+
+  <main class="main">
+
+<!-- ================================================================ CH1 -->
+<section class="chapter" id="ch1">
+  <div class="chapter__number">Chapter 01</div>
+  <h2 class="chapter__title">Kubernetes 儲存體系概覽</h2>
+
+  <p>
+    容器天生是<strong>無狀態</strong>的：Pod 重啟後，寫入本機檔案系統的資料全數消失。
+    對資料庫、訊息佇列、日誌收集器這類有狀態工作負載（stateful workloads）而言，
+    這是致命限制。Kubernetes 透過 <strong>Persistent Volume 子系統</strong>解決這個問題——
+    把儲存資源的<em>供應</em>（由叢集管理員負責）與<em>消費</em>（由開發者負責）完全解耦。
+  </p>
+
+  <h3>1.1　四層儲存抽象</h3>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>資源</th><th>角色</th><th>由誰建立</th><th>版本狀態</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>PersistentVolume</code></td>
+        <td>代表一份實體儲存（NFS mount、EBS volume、Ceph RBD image…）</td>
+        <td>管理員（靜態）或 StorageClass（動態）</td>
+        <td><span class="ver ver--ga">GA</span></td>
+      </tr>
+      <tr>
+        <td><code>PersistentVolumeClaim</code></td>
+        <td>開發者「申請」儲存的方式，描述容量與 access mode 需求</td>
+        <td>開發者 / StatefulSet</td>
+        <td><span class="ver ver--ga">GA</span></td>
+      </tr>
+      <tr>
+        <td><code>StorageClass</code></td>
+        <td>定義動態 provisioning 的參數（provisioner、reclaim policy、parameters）</td>
+        <td>管理員</td>
+        <td><span class="ver ver--ga">GA</span></td>
+      </tr>
+      <tr>
+        <td><code>VolumeAttributesClass</code></td>
+        <td>定義 PV 的<em>可動態修改</em>屬性（IOPS、throughput）</td>
+        <td>管理員</td>
+        <td><span class="ver ver--ga">v1.34 GA</span></td>
+      </tr>
+    </tbody>
+  </table></div>
+
+  <h3>1.2　靜態 vs 動態 Provisioning</h3>
+
+  <div class="mermaid-wrap" data-src="flowchart LR
+    subgraph Static [靜態 Provisioning]
+      A1[管理員手動建立 PV] --> B1[PVC 綁定現有 PV]
+    end
+    subgraph Dynamic [動態 Provisioning]
+      A2[管理員建立 StorageClass] --> B2[開發者建立 PVC]
+      B2 --> C2[Provisioner 自動建立 PV]
+      C2 --> D2[PVC 自動綁定]
+    end"></div>
+
+  <p>
+    <strong>靜態 Provisioning</strong> 適合管理員已預先知道儲存規格的場景（例如：on-prem NFS、特定 LUN）。
+    <strong>動態 Provisioning</strong> 是雲端環境的主流，透過 StorageClass 讓 PVC 自動觸發底層儲存建立，
+    開發者無需瞭解底層細節。
+  </p>
+
+  <h3>1.3　In-tree Plugin 淘汰與 CSI 遷移</h3>
+
+  <p>
+    Kubernetes 早期把儲存驅動直接寫進核心（in-tree）。隨著雲廠商數量爆增，維護成本過高，
+    社群決定全面遷移至 <strong>CSI（Container Storage Interface）</strong>——一個獨立於核心的標準化介面。
+  </p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Plugin</th><th>遷移版本</th><th>狀態（2026/05）</th></tr></thead>
+    <tbody>
+      <tr><td>AWS EBS</td><td>v1.17 alpha → v1.23 GA</td><td>預設使用 CSI，in-tree 已移除</td></tr>
+      <tr><td>GCE PD</td><td>v1.17 alpha → v1.23 GA</td><td>預設使用 CSI，in-tree 已移除</td></tr>
+      <tr><td>Azure Disk</td><td>v1.19 alpha → v1.24 GA</td><td>預設使用 CSI，in-tree 已移除</td></tr>
+      <tr><td>portworxVolume</td><td>v1.31 預設開啟遷移</td><td>遷移進行中</td></tr>
+      <tr><td>NFS</td><td>無 in-tree 遷移（原本就是 out-of-tree）</td><td>直接用 nfs.csi.k8s.io</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>1.4　完整連結流程</h3>
+
+  <div class="mermaid-wrap" data-src="flowchart TD
+    Admin[管理員] -->|建立| SC[StorageClass]
+    Admin -->|或手動建立| PV[PersistentVolume]
+    Dev[開發者] -->|建立| PVC[PersistentVolumeClaim]
+    PVC -->|動態| SC
+    SC -->|觸發| Provisioner[CSI Provisioner]
+    Provisioner -->|建立| PV
+    PVC -->|Binding| PV
+    Pod[Pod] -->|掛載| PVC
+    PV -->|對應| Storage[實體儲存 EBS / NFS / RBD]"></div>
+
+  <div class="callout callout--success">
+    <span class="callout__icon">✓</span>
+    <div>
+      <p><strong>設計哲學</strong>：PV 是<em>叢集資源</em>（不屬於任何 namespace），PVC 是<em>namespace 資源</em>。這個隔離讓管理員可以統一管理底層儲存，同時讓各 namespace 的開發者自行申請使用，互不干擾。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ CH2 -->
+<section class="chapter" id="ch2">
+  <div class="chapter__number">Chapter 02</div>
+  <h2 class="chapter__title">PersistentVolume（PV）深度解析</h2>
+
+  <p>
+    PV 是叢集層級的儲存資源，生命週期獨立於任何使用它的 Pod。
+    理解 PV 的各個欄位與生命週期狀態，是正確設計持久化儲存的基礎。
+  </p>
+
+  <h3>2.1　PV 生命週期六階段</h3>
+
+  <div class="lifecycle">
+    <div class="lifecycle-step">
+      <div class="lifecycle-step__num">1</div>
+      <div>
+        <div class="lifecycle-step__title">Provisioning — 供應</div>
+        <div class="lifecycle-step__desc">靜態（管理員手動 <code>kubectl apply</code>）或動態（StorageClass + CSI Provisioner 自動建立）。</div>
+      </div>
+    </div>
+    <div class="lifecycle-step">
+      <div class="lifecycle-step__num">2</div>
+      <div>
+        <div class="lifecycle-step__title">Binding — 綁定</div>
+        <div class="lifecycle-step__desc">Control loop 找到符合條件的 PVC，將 PV 與 PVC 一對一綁定（<code>status.phase: Bound</code>）。動態 Provisioning 的 PV 必定綁定觸發它的 PVC。</div>
+      </div>
+    </div>
+    <div class="lifecycle-step">
+      <div class="lifecycle-step__num">3</div>
+      <div>
+        <div class="lifecycle-step__title">Using — 使用中</div>
+        <div class="lifecycle-step__desc">Pod 透過 PVC 掛載 PV，資料讀寫正常進行。kubelet 呼叫 CSI <code>NodeStageVolume</code> / <code>NodePublishVolume</code> 完成掛載。</div>
+      </div>
+    </div>
+    <div class="lifecycle-step">
+      <div class="lifecycle-step__num">4</div>
+      <div>
+        <div class="lifecycle-step__title">Releasing — 釋放中</div>
+        <div class="lifecycle-step__desc">PVC 被刪除後，PV 進入 <code>Released</code> 狀態。此時 PV 已不再綁定，但底層資料尚未清除。</div>
+      </div>
+    </div>
+    <div class="lifecycle-step">
+      <div class="lifecycle-step__num">5</div>
+      <div>
+        <div class="lifecycle-step__title">Reclaiming — 回收</div>
+        <div class="lifecycle-step__desc">依 <code>persistentVolumeReclaimPolicy</code> 決定後續：<code>Delete</code>（自動刪除底層儲存）或 <code>Retain</code>（保留資料，需人工清理）。</div>
+      </div>
+    </div>
+    <div class="lifecycle-step">
+      <div class="lifecycle-step__num">6</div>
+      <div>
+        <div class="lifecycle-step__title">Deleting — 刪除</div>
+        <div class="lifecycle-step__desc">Delete policy 時，CSI <code>DeleteVolume</code> 呼叫後底層資源釋放，PV 物件從 etcd 移除。Retain policy 時，PV 物件留存，需管理員手動刪除。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mermaid-wrap" data-src="flowchart LR
+    P[Provisioning] --> B[Bound]
+    B --> U[Using]
+    U --> R[Released]
+    R --> RC{ReclaimPolicy}
+    RC -->|Delete| D[Deleting]
+    RC -->|Retain| RET[手動清理]
+    RET --> AV[Available 重新使用]"></div>
+
+  <h3>2.2　Access Modes</h3>
+
+  <div class="access-grid">
+    <div class="access-card access-card--rwo">
+      <span class="access-card__badge">RWO</span>
+      <div class="access-card__title">ReadWriteOnce</div>
+      <div class="access-card__desc">只能被<em>單一節點</em>掛載為讀寫。最常見模式，EBS、Azure Disk 預設支援。</div>
+    </div>
+    <div class="access-card access-card--rox">
+      <span class="access-card__badge">ROX</span>
+      <div class="access-card__title">ReadOnlyMany</div>
+      <div class="access-card__desc">可被<em>多個節點</em>同時掛載，但僅限<em>唯讀</em>。適合靜態資源（config、image）共享。</div>
+    </div>
+    <div class="access-card access-card--rwx">
+      <span class="access-card__badge">RWX</span>
+      <div class="access-card__title">ReadWriteMany</div>
+      <div class="access-card__desc">可被多個節點同時掛載為讀寫。需要 NFS、CephFS、Azure Files 等支援；EBS 不支援。</div>
+    </div>
+    <div class="access-card access-card--rwop">
+      <span class="access-card__badge">RWOP</span>
+      <div class="access-card__title">ReadWriteOncePod</div>
+      <div class="access-card__desc">只能被<em>單一 Pod</em>掛載（比 RWO 更嚴格）。v1.29 Beta，確保跨節點也只有一個 Pod 能寫入。</div>
+    </div>
+  </div>
+
+  <h3>2.3　Reclaim Policy 比較</h3>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Policy</th><th>PVC 刪除後 PV 狀態</th><th>底層資料</th><th>適用場景</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>Delete</code>（預設）</td>
+        <td>PV 自動刪除</td>
+        <td>自動清除（EBS volume、GCE PD 等）</td>
+        <td>雲端動態 Provisioning，資料不需保留</td>
+      </tr>
+      <tr>
+        <td><code>Retain</code></td>
+        <td>PV 進入 <code>Released</code>，需手動清理</td>
+        <td><strong>保留</strong>，需管理員手動刪除或重新綁定</td>
+        <td>生產環境重要資料，避免意外刪除</td>
+      </tr>
+      <tr>
+        <td><code>Recycle</code></td>
+        <td colspan="3">⚠️ 已廢棄（deprecated），勿使用</td>
+      </tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout callout--warning">
+    <span class="callout__icon">⚠</span>
+    <div>
+      <p><strong>Retain 後的手動重新綁定</strong>：PV 進入 Released 後，即使容量與 access mode 完全相符，也不會自動重新綁定新 PVC，因為 <code>spec.claimRef</code> 仍殘留舊 PVC 的資訊。必須手動移除 <code>claimRef</code> 欄位後，PV 才會回到 Available。</p>
+    </div>
+  </div>
+
+  <h3>2.4　volumeMode：Filesystem vs Block</h3>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>volumeMode</th><th>掛載方式</th><th>適用場景</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>Filesystem</code>（預設）</td>
+        <td>格式化後掛載為目錄，容器透過標準 POSIX I/O 存取</td>
+        <td>一般應用程式、Web server、log 儲存</td>
+      </tr>
+      <tr>
+        <td><code>Block</code></td>
+        <td>原始 block device 直接掛載，不格式化</td>
+        <td>資料庫（自管 I/O buffer）、虛擬機磁碟、需要最低延遲的場景</td>
+      </tr>
+    </tbody>
+  </table></div>
+
+  <h3>2.5　lastPhaseTransitionTime <span class="ver ver--ga">v1.31 Stable</span></h3>
+
+  <p>
+    v1.31 Stable 後，PV 的 <code>.status</code> 包含 <code>lastPhaseTransitionTime</code>，
+    記錄 PV 最後一次切換 Phase 的時間戳。對監控和 audit 非常有用：
+  </p>
+
+  <div class="codewrap">
+    <div class="codewrap__head"><span>bash · 查看 PV Phase 切換時間</span>
+      <button class="codewrap__copy" onclick="copyCode(this)">Copy</button></div>
+<pre><code class="language-bash">kubectl get pv pv-postgres-data \
+  -o jsonpath='{.status.lastPhaseTransitionTime}'
+# 輸出範例：2026-05-16T14:32:00Z
+
+# 找出所有在過去 1 小時內 phase 改變的 PV（Released 可能是 PVC 意外刪除）
+kubectl get pv -o json | jq -r '
+  .items[] |
+  select(.status.lastPhaseTransitionTime > "2026-05-16T13:00:00Z") |
+  "\(.metadata.name) \(.status.phase) \(.status.lastPhaseTransitionTime)"
+'</code></pre>
+  </div>
+
+  <h3>2.6　靜態 Provisioning 完整範例（NFS）</h3>
+
+  <div class="codewrap">
+    <div class="codewrap__head"><span>pv-nfs-static.yaml · 靜態 PV 建立</span>
+      <button class="codewrap__copy" onclick="copyCode(this)">Copy</button></div>
+<pre><code class="language-yaml">apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-nfs-postgres
+  labels:
+    app: postgres
+    env: production
+spec:
+  capacity:
+    storage: 100Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs-retain           # 對應 PVC 的 storageClassName
+  mountOptions:
+    - hard
+    - nfsvers=4.1
+    - timeo=600
+  nfs:
+    path: /exports/postgres-data
+    server: nfs.internal.example.com
+  # v1.31+：Phase 切換時間由系統自動填入 status.lastPhaseTransitionTime</code></pre>
+  </div>
+
+  <h3>2.7　Local Volume 與 Node Affinity</h3>
+
+  <p>
+    Local volume 讓 PV 直接對應節點上的本機磁碟（SSD、NVMe），提供最低延遲。
+    但因為資料只在特定節點，<strong>必須設定 <code>nodeAffinity</code></strong>，否則 Pod 可能被調度到沒有該磁碟的節點。
+  </p>
+
+  <div class="codewrap">
+    <div class="codewrap__head"><span>pv-local.yaml · Local PV 含 nodeAffinity</span>
+      <button class="codewrap__copy" onclick="copyCode(this)">Copy</button></div>
+<pre><code class="language-yaml">apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-local-nvme-worker01
+spec:
+  capacity:
+    storage: 500Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: local-nvme        # 需搭配 WaitForFirstConsumer
+  local:
+    path: /mnt/nvme0n1                # 節點上的本機路徑
+  nodeAffinity:                       # 必填！限制只有這個節點可以使用
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - worker-01</code></pre>
+  </div>
+</section>
+
+<!-- ================================================================ CH3 -->
+<section class="chapter" id="ch3">
+  <div class="chapter__number">Chapter 03</div>
+  <h2 class="chapter__title">PersistentVolumeClaim（PVC）與 Binding 機制</h2>
+
+  <p>
+    PVC 是開發者與儲存系統之間的合約——開發者描述「我需要什麼」，
+    Kubernetes 負責找到或建立符合條件的 PV 來滿足。
+    理解 Binding 的四項條件和 <code>WaitForFirstConsumer</code> 機制，
+    能避免許多生產環境中 PVC 無法綁定的問題。
+  </p>
+
+  <h3>3.1　PVC Spec 全欄位解析</h3>
+
+  <div class="codewrap">
+    <div class="codewrap__head"><span>pvc-annotated.yaml · 完整欄位說明</span>
+      <button class="codewrap__copy" onclick="copyCode(this)">Copy</button></div>
+<pre><code class="language-yaml">apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: production
+spec:
+  # ── 存取模式（必須與 PV 相容）
+  accessModes:
+    - ReadWriteOnce
+
+  # ── 容量請求（PV 容量必須 >= 此值）
+  resources:
+    requests:
+      storage: 50Gi
+
+  # ── StorageClass 名稱（空字串 "" = 禁止動態 Provisioning）
+  storageClassName: fast-ssd
+
+  # ── volumeMode：Filesystem（預設）或 Block
+  volumeMode: Filesystem
+
+  # ── Selector：靜態 Provisioning 時用來篩選特定 PV
+  selector:
+    matchLabels:
+      env: production
+    matchExpressions:
+      - key: tier
+        operator: In
+        values: [gold, platinum]
+
+  # ── VolumeAttributesClass（v1.34 GA）：初始 QoS profile
+  volumeAttributesClassName: gold-iops
+
+  # ── DataSource：從 Snapshot 或另一個 PVC 建立（Clone）
+  dataSource:
+    name: postgres-snapshot-20260516
+    kind: VolumeSnapshot
+    apiGroup: snapshot.storage.k8s.io</code></pre>
+  </div>
+
+  <h3>3.2　Binding 四項條件</h3>
+
+  <p>PVC 要與 PV 綁定，必須同時滿足：</p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>條件</th><th>說明</th><th>常見誤區</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Capacity</strong></td>
+        <td>PV capacity &gt;= PVC 請求量</td>
+        <td>PV 100Gi 可綁 PVC 50Gi；PV 30Gi 不能綁 PVC 50Gi</td>
+      </tr>
+      <tr>
+        <td><strong>Access Modes</strong></td>
+        <td>PV 支援的 access modes 必須包含 PVC 要求的</td>
+        <td>PVC 要 RWX，但 PV 只有 RWO → 無法綁定</td>
+      </tr>
+      <tr>
+        <td><strong>StorageClass</strong></td>
+        <td>PV 與 PVC 的 <code>storageClassName</code> 必須完全相同</td>
+        <td>PVC 未設 storageClassName 會綁 default StorageClass（若啟用 admission plugin）</td>
+      </tr>
+      <tr>
+        <td><strong>Selector</strong></td>
+        <td>若 PVC 有 selector，PV 必須符合 label 條件</td>
+        <td>靜態 Provisioning 常見問題：PV label 忘記加</td>
+      </tr>
+    </tbody>
+  </table></div>
+
+  <h3>3.3　Binding 流程序列圖</h3>
+
+  <div class="mermaid-wrap" data-src="sequenceDiagram
+    participant Dev as Developer
+    participant API as kube-apiserver
+    participant CM as kube-controller-manager
+    participant Prov as CSI Provisioner
+    participant PV as PersistentVolume
+
+    Dev->>API: kubectl apply pvc.yaml
+    API->>CM: PVC created event
+    CM->>CM: Find matching PV
+    alt Static Provisioning
+      CM->>PV: Bind PV to PVC
+      CM->>API: Update PVC status Bound
+    else Dynamic Provisioning
+      CM->>Prov: Trigger CreateVolume via StorageClass
+      Prov->>PV: Create PV object
+      CM->>PV: Bind new PV to PVC
+      CM->>API: Update PVC status Bound
+    end
+    Dev->>API: kubectl apply pod.yaml
+    API->>CM: Pod scheduled to node
+    CM->>Prov: NodeStageVolume and NodePublishVolume
+    Prov->>Dev: Volume mounted at mountPath"></div>
+
+  <h3>3.4　WaitForFirstConsumer — 拓撲感知排程</h3>
+
+  <p>
+    預設的 <code>volumeBindingMode: Immediate</code> 會在 PVC 建立當下立刻找 PV（或觸發 Provisioning）。
+    對於 Local Volume 或跨 AZ 情境，這可能造成 Pod 被迫調度到「有 PV 但不適合」的節點。
+  </p>
+
+  <p>
+    <code>WaitForFirstConsumer</code> 讓 Binding（或動態 Provisioning）延遲到 Pod 被調度後才發生，
+    Scheduler 可以同時考慮 Pod 的 affinity、resource、topology 等約束，再選擇合適的節點和 PV。
+  </p>
+
+  <div class="codewrap">
+    <div class="codewrap__head"><span>sc-local-wait.yaml · WaitForFirstConsumer 範例</span>
+      <button class="codewrap__copy" onclick="copyCode(this)">Copy</button></div>
+<pre><code class="language-yaml">apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-nvme
+provisioner: kubernetes.io/no-provisioner   # Local volume 無動態 provisioner
+volumeBindingMode: WaitForFirstConsumer     # 等 Pod 排程後再綁定
+reclaimPolicy: Delete</code></pre>
+  </div>
+
+  <div class="callout">
+    <span class="callout__icon">!</span>
+    <div>
+      <p><strong>CSIStorageCapacity 整合</strong>：<code>WaitForFirstConsumer</code> 搭配 CSIStorageCapacity 物件，讓 Scheduler 在選節點時能感知各節點的可用儲存容量，避免把 Pod 調度到儲存空間不足的節點。需要 CSI driver 的 <code>external-provisioner</code> 啟用 <code>--enable-capacity</code> 旗標。</p>
+    </div>
+  </div>
+
+  <h3>3.5　StatefulSet volumeClaimTemplates</h3>
+
+  <p>
+    StatefulSet 的每個 replica 都需要獨立的持久化儲存，透過 <code>volumeClaimTemplates</code>
+    自動為每個 Pod 建立獨立 PVC（命名規則：<code>{template-name}-{pod-name}</code>）。
+  </p>
+
+  <div class="codewrap">
+    <div class="codewrap__head"><span>statefulset-postgres.yaml · volumeClaimTemplates</span>
+      <button class="codewrap__copy" onclick="copyCode(this)">Copy</button></div>
+<pre><code class="language-yaml">apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: production
+spec:
+  serviceName: postgres
+  replicas: 3
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: wal
+              mountPath: /var/lib/postgresql/wal
+  volumeClaimTemplates:
+    # PVC 命名：data-postgres-0, data-postgres-1, data-postgres-2
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: fast-ssd
+        resources:
+          requests:
+            storage: 50Gi
+    # 獨立 WAL volume，使用更高效能的 StorageClass
+    - metadata:
+        name: wal
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: ultra-ssd
+        resources:
+          requests:
+            storage: 20Gi</code></pre>
+  </div>
+
+  <div class="callout callout--success">
+    <span class="callout__icon">v1.32</span>
+    <div>
+      <p><strong>Orphaned PVC 自動清理（v1.32）</strong>：StatefulSet 縮減副本數時，之前遺留的 PVC（orphaned PVCs）現在可以自動刪除，不再需要手動清理。這個行為由 <code>persistentVolumeClaimRetentionPolicy</code> 欄位控制（<code>whenDeleted</code> / <code>whenScaled</code>）。</p>
+    </div>
+  </div>
+
+  <h3>3.6　PVC Protection Finalizer 與 Terminating 卡住</h3>
+
+  <p>
+    Kubernetes 在 PVC 上自動加入 <code>kubernetes.io/pvc-protection</code> finalizer，
+    防止正在被 Pod 使用的 PVC 被意外刪除。若刪除 PVC 後卡在 <code>Terminating</code>：
+  </p>
+
+  <div class="codewrap">
+    <div class="codewrap__head"><span>bash · PVC Terminating 排查與強制清理</span>
+      <button class="codewrap__copy" onclick="copyCode(this)">Copy</button></div>
+<pre><code class="language-bash"># 確認是否有 Pod 仍在使用該 PVC
+kubectl get pods -n production -o json | jq -r '
+  .items[] |
+  select(.spec.volumes[]?.persistentVolumeClaim.claimName == "postgres-data") |
+  .metadata.name'
+
+# 若 Pod 已刪除，但 PVC 仍 Terminating：手動移除 finalizer
+kubectl patch pvc postgres-data -n production \
+  -p '{"metadata":{"finalizers":[]}}' \
+  --type=merge
+
+# 注意：強制移除 finalizer 前請確認 Pod 已完全終止，
+# 否則可能造成資料損壞</code></pre>
+  </div>
+</section>
+
+<!-- ================================================================ CH4 -->
+<section class="chapter" id="ch4">
+  <div class="chapter__number">Chapter 04</div>
+  <h2 class="chapter__title">StorageClass 設計與實作</h2>
+
+  <p>
+    StorageClass 是動態 Provisioning 的核心配置物件，
+    定義了「用哪個 provisioner」、「用什麼參數」、「如何回收」。
+    設計良好的 StorageClass 體系，能讓整個叢集的儲存管理清晰且可維護。
+  </p>
+
+  <h3>4.1　核心欄位解析</h3>
+
+  <div class="codewrap">
+    <div class="codewrap__head"><span>storageclass-annotated.yaml · 完整欄位說明</span>
+      <button class="codewrap__copy" onclick="copyCode(this)">Copy</button></div>
+<pre><code class="language-yaml">apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fast-ssd
+  annotations:
+    # 設為 default StorageClass（整個叢集只建議一個）
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com           # CSI driver 名稱
+parameters:                            # 傳給 provisioner 的參數（各 driver 不同）
+  type: gp3
+  iops: "3000"
+  throughput: "125"
+  encrypted: "true"
+  kmsKeyId: arn:aws:kms:us-east-1:123:key/xxx
+reclaimPolicy: Delete                  # Delete（預設）或 Retain
+volumeBindingMode: WaitForFirstConsumer  # 或 Immediate
+allowVolumeExpansion: true             # 允許 PVC 擴容（需 CSI driver 支援）
+mountOptions:                          # 掛載時傳給 OS 的選項
+  - noatime
+  - nodiratime
+allowedTopologies:                     # 限制 PV 只能在特定拓撲建立
+  - matchLabelExpressions:
+      - key: topology.kubernetes.io/zone
+        values:
+          - us-east-1a
+          - us-east-1b</code></pre>
+  </div>
+
+  <h3>4.2　allowVolumeExpansion — PVC 線上擴容</h3>
+
+  <p>
+    設定 <code>allowVolumeExpansion: true</code> 後，可以直接 patch PVC 的 <code>spec.resources.requests.storage</code>
+    來觸發線上擴容，無需重建 PVC 或停機。
+  </p>
+
+  <div class="codewrap">
+    <div class="codewrap__head"><span>bash · PVC 線上擴容（50Gi → 100Gi）</span>
+      <button class="codewrap__copy" onclick="copyCode(this)">Copy</button></div>
+<pre><code class="language-bash"># 方法一：kubectl patch
+kubectl patch pvc postgres-data -n production \
+  -p '{"spec":{"resources":{"requests":{"storage":"100Gi"}}}}' \
+  --type=merge
+
+# 方法二：kubectl edit（互動式）
+kubectl edit pvc postgres-data -n production
+
+# 監控擴容進度
+kubectl get pvc postgres-data -n production -w
+# 先看到 FileSystemResizePending，待 Pod 掛載後自動完成 FileSystem resize
+
+# 確認擴容完成
+kubectl get pvc postgres-data -n production \
+  -o jsonpath='{.status.capacity.storage}'
+# 輸出：100Gi</code></pre>
+  </div>
+
+  <div class="callout callout--warning">
+    <span class="callout__icon">⚠</span>
+    <div>
+      <p><strong>只能擴大，不能縮小</strong>：PVC 的儲存請求只支援增加，不支援減少（無論底層 CSI driver 是否支援）。縮小需要建立新 PVC 並搬移資料。<br>
+      <strong>Filesystem resize</strong>：Block device 擴大後，Filesystem（ext4、xfs）的 resize 會在 Pod 重新掛載或 Pod 重啟時自動觸發（<code>NodeExpandVolume</code>），不需要手動操作。</p>
+    </div>
+  </div>
+
+  <h3>4.3　Default StorageClass 管理</h3>
+
+  <p>
+    叢集中<em>只建議設一個</em> default StorageClass。
+    若有多個 default，PVC 沒指定 <code>storageClassName</code> 時行為不確定。
+  </p>
+
+  <div class="codewrap">
+    <div class="codewrap__head"><span>bash · Default StorageClass 管理</span>
+      <button class="codewrap__copy" onclick="copyCode(this)">Copy</button></div>
+<pre><code class="language-bash"># 列出所有 StorageClass，確認哪個是 default
+kubectl get sc
+# NAME      PROVISIONER       RECLAIMPOLICY   BINDINGMODE      DEFAULT
+# gp2       ebs.csi.aws.com   Delete          WaitForFirst
+# gp3       ebs.csi.aws.com   Delete          WaitForFirst     true  ← default
+
+# 移除舊的 default 標記
+kubectl patch sc gp2 \
+  -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
+
+# 設定新的 default
+kubectl patch sc gp3 \
+  -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'</code></pre>
+  </div>
+
+  <h3>4.4　四大 Cloud Provisioner StorageClass 範例</h3>
+
+  <div class="codewrap">
+    <div class="codewrap__head"><span>sc-aws-gp3.yaml · AWS EBS gp3</span>
+      <button class="codewrap__copy" onclick="copyCode(this)">Copy</button></div>
+<pre><code class="language-yaml">apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: aws-gp3
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  iops: "3000"          # 基礎 IOPS（最高 16,000）
+  throughput: "125"     # MiB/s（最高 1,000）
+  encrypted: "true"
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true</code></pre>
+  </div>
+
+  <div class="codewrap">
+    <div class="codewrap__head"><span>sc-gcp-hyperdisk.yaml · GCP Hyperdisk Balanced</span>
+      <button class="codewrap__copy" onclick="copyCode(this)">Copy</button></div>
+<pre><code class="language-yaml">apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gcp-hyperdisk-balanced
+provisioner: pd.csi.storage.gke.io
+parameters:
+  type: hyperdisk-balanced
+  replication-type: none
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+# Hyperdisk 的 IOPS/throughput 透過 VolumeAttributesClass 動態調整（見第 5 章）</code></pre>
+  </div>
+
+  <div class="codewrap">
+    <div class="codewrap__head"><span>sc-azure-premium-ssd-v2.yaml · Azure Premium SSD v2</span>
+      <button class="codewrap__copy" onclick="copyCode(this)">Copy</button></div>
+<pre><code class="language-yaml">apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: azure-premium-ssd-v2
+provisioner: disk.csi.azure.com
+parameters:
+  skuName: PremiumV2_LRS
+  diskIOPSReadWrite: "3000"
+  diskMBpsReadWrite: "125"
+  cachingMode: None            # Premium SSD v2 不支援 host caching
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true</code></pre>
+  </div>
+
+  <div class="codewrap">
+    <div class="codewrap__head"><span>sc-nfs.yaml · NFS CSI Driver（on-prem）</span>
+      <button class="codewrap__copy" onclick="copyCode(this)">Copy</button></div>
+<pre><code class="language-yaml">apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-shared
+provisioner: nfs.csi.k8s.io
+parameters:
+  server: nfs.internal.example.com
+  share: /exports/k8s-volumes
+  subDir: ${pvc.metadata.namespace}/${pvc.metadata.name}  # 每個 PVC 獨立子目錄
+  onDelete: delete              # 刪 PVC 時刪除子目錄（archive = 只移動不刪）
+reclaimPolicy: Delete
+volumeBindingMode: Immediate    # NFS 無拓撲限制，可用 Immediate
+allowVolumeExpansion: false     # NFS CSI 不支援 resize（quota 需另外管）
+mountOptions:
+  - nfsvers=4.1
+  - hard</code></pre>
+  </div>
+
+  <h3>4.5　StorageClass 分層設計最佳實踐</h3>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>層級</th><th>StorageClass 名稱</th><th>特性</th><th>適用場景</th></tr></thead>
+    <tbody>
+      <tr><td>🥉 Bronze</td><td><code>standard-hdd</code></td><td>HDD / 低 IOPS / 低成本</td><td>日誌、備份、冷資料</td></tr>
+      <tr><td>🥈 Silver</td><td><code>standard-ssd</code></td><td>SSD / 中等 IOPS / 預設</td><td>一般 Web 應用、CI/CD artifact</td></tr>
+      <tr><td>🥇 Gold</td><td><code>fast-ssd</code></td><td>gp3 / io2 / Premium SSD / 高 IOPS</td><td>資料庫（Postgres、MySQL）</td></tr>
+      <tr><td>💎 Platinum</td><td><code>ultra-ssd</code></td><td>io2 Block Express / Ultra Disk</td><td>高頻交易、時序資料庫</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ================================================================ CH5 -->
+<section class="chapter" id="ch5">
+  <div class="chapter__number">Chapter 05</div>
+  <h2 class="chapter__title">VolumeAttributesClass <span class="ver ver--ga">v1.34 GA</span></h2>
+
+  <p>
+    傳統上，K8s volume 有兩個特性：StorageClass（不可變的 provisioning 規格）和 capacity（可透過 resize 修改）。
+    但 IOPS、throughput 這類效能屬性既不在 StorageClass（不可變），也不是容量。
+    這造成一個痛點：<strong>要調整 IOPS，必須重建 PVC</strong>——意味著停機。
+  </p>
+
+  <p>
+    <strong>VolumeAttributesClass（VAC）</strong> 就是為此而生。它在 v1.29 Alpha、v1.31 Beta，
+    並在 <strong>v1.34 正式 GA</strong>，讓管理員定義可動態修改的 volume 屬性「profile」，
+    使用者只需更新 PVC 的 <code>volumeAttributesClassName</code>，底層 CSI driver 就會即時調整。
+  </p>
+
+  <h3>5.1　與 StorageClass 的核心差異</h3>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th></th><th>StorageClass</th><th>VolumeAttributesClass</th></tr></thead>
+    <tbody>
+      <tr><td><strong>用途</strong></td><td>定義 Provisioning 規格（type、encryption…）</td><td>定義可動態修改的 runtime 屬性（IOPS、throughput）</td></tr>
+      <tr><td><strong>可變性</strong></td><td>一旦 PV 建立後不可修改</td><td>PVC 建立後可以切換不同 VAC</td></tr>
+      <tr><td><strong>觸發動作</strong></td><td>CreateVolume（建立時一次）</td><td>ModifyVolume（動態修改，隨時可觸發）</td></tr>
+      <tr><td><strong>需要停機?</strong></td><td>更換 StorageClass 需重建 PVC（停機）</td><td>切換 VAC 不需重建 PVC（<em>無停機</em>）</td></tr>
+      <tr><td><strong>CSI 支援</strong></td><td>所有 CSI driver</td><td>需要 driver 實作 <code>ModifyVolume</code> RPC</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>5.2　工作原理</h3>
+
+  <div class="mermaid-wrap" data-src="sequenceDiagram
+    participant User as Developer
+    participant API as kube-apiserver
+    participant Resizer as external-resizer
+    participant CSI as CSI Driver
+    participant Storage as 底層儲存
+
+    User->>API: Update PVC volumeAttributesClassName silver to gold
+    API->>Resizer: PVC change event
+    Resizer->>Resizer: Detect VAC change
+    Resizer->>CSI: ControllerModifyVolume RPC
+    CSI->>Storage: Adjust IOPS and throughput
+    Storage-->>CSI: Modification complete
+    CSI-->>Resizer: Success
+    Resizer->>API: Update PVC status ModifyVolumeStatus"></div>
+
+  <h3>5.3　VAC 資源定義與 PVC 使用範例</h3>
+
+  <div class="codewrap">
+    <div class="codewrap__head"><span>vac-gcp.yaml · VolumeAttributesClass（GCP Hyperdisk）</span>
+      <button class="codewrap__copy" onclick="copyCode(this)">Copy</button></div>
+<pre><code class="language-yaml">apiVersion: storage.k8s.io/v1
+kind: VolumeAttributesClass
+metadata:
+  name: silver
+driverName: pd.csi.storage.gke.io
+parameters:
+  provisioned-iops: "3000"
+  provisioned-throughput: "150"   # MiB/s
+
+---
+apiVersion: storage.k8s.io/v1
+kind: VolumeAttributesClass
+metadata:
+  name: gold
+driverName: pd.csi.storage.gke.io
+parameters:
+  provisioned-iops: "10000"
+  provisioned-throughput: "500"   # MiB/s
+
+---
+# PVC 初始使用 silver，可隨時切換到 gold
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: app-data
+spec:
+  storageClassName: gcp-hyperdisk-balanced
+  volumeAttributesClassName: silver      # 初始 QoS profile
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 100Gi</code></pre>
+  </div>
+
+  <div class="codewrap">
+    <div class="codewrap__head"><span>bash · 動態切換 QoS（silver → gold，無需停機）</span>
+      <button class="codewrap__copy" onclick="copyCode(this)">Copy</button></div>
+<pre><code class="language-bash"># 流量尖峰時，把 PVC 從 silver 升級到 gold
+kubectl patch pvc app-data -n production \
+  -p '{"spec":{"volumeAttributesClassName":"gold"}}' \
+  --type=merge
+
+# 監控修改狀態
+kubectl get pvc app-data -n production \
+  -o jsonpath='{.status.modifyVolumeStatus}'
+# InProgress → Complete
+
+# 查看完整狀態
+kubectl describe pvc app-data -n production | grep -A5 "Volume Attributes"</code></pre>
+  </div>
+
+  <div class="codewrap">
+    <div class="codewrap__head"><span>vac-aws.yaml · VolumeAttributesClass（AWS EBS gp3）</span>
+      <button class="codewrap__copy" onclick="copyCode(this)">Copy</button></div>
+<pre><code class="language-yaml">apiVersion: storage.k8s.io/v1
+kind: VolumeAttributesClass
+metadata:
+  name: aws-silver
+driverName: ebs.csi.aws.com
+parameters:
+  iops: "3000"
+  throughput: "125"
+
+---
+apiVersion: storage.k8s.io/v1
+kind: VolumeAttributesClass
+metadata:
+  name: aws-gold
+driverName: ebs.csi.aws.com
+parameters:
+  iops: "16000"
+  throughput: "1000"</code></pre>
+  </div>
+
+  <h3>5.4　適用場景</h3>
+
+  <ul>
+    <li><strong>HPC / 批次工作負載</strong>：工作執行期間臨時提升 IOPS，完成後降回，節省成本。</li>
+    <li><strong>資料庫 Tier 動態調整</strong>：離峰時段用 silver，促銷期間切換到 gold，不重建 PVC。</li>
+    <li><strong>Multi-tenant 環境</strong>：不同租戶共用同一 StorageClass，但各自使用不同 VAC 控制 QoS。</li>
+  </ul>
+
+  <div class="callout callout--warning">
+    <span class="callout__icon">⚠</span>
+    <div>
+      <p><strong>限制</strong>：VAC 只能與 CSI 儲存搭配，且 CSI driver 必須實作 <code>ModifyVolume</code> RPC。2026/05 支援狀況：GCE PD CSI（Hyperdisk）✓、AWS EBS CSI（gp3/io2）✓、大多數 on-prem driver 尚未支援。使用前請確認 driver 版本。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ CH6 -->
+<section class="chapter" id="ch6">
+  <div class="chapter__number">Chapter 06</div>
+  <h2 class="chapter__title">CSI 架構與 Sidecar 容器</h2>
+
+  <p>
+    CSI（Container Storage Interface）是一個標準化的 gRPC 介面規範，
+    讓任何儲存廠商都可以實作自己的 CSI driver，而不需要修改 Kubernetes 核心。
+    理解 CSI 架構，是排查儲存問題、部署 CSI driver、甚至自行開發 driver 的必備基礎。
+  </p>
+
+  <h3>6.1　CSI 三大 Service 與 RPC 分工</h3>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Service</th><th>部署位置</th><th>主要 RPC</th><th>職責</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Identity</strong></td>
+        <td>Controller + Node 都要有</td>
+        <td><code>GetPluginInfo</code> <code>GetPluginCapabilities</code> <code>Probe</code></td>
+        <td>回報 driver 名稱、版本、支援的功能</td>
+      </tr>
+      <tr>
+        <td><strong>Controller</strong></td>
+        <td>Deployment（通常 1–3 副本）</td>
+        <td><code>CreateVolume</code> <code>DeleteVolume</code> <code>ControllerPublishVolume</code> <code>CreateSnapshot</code> <code>ControllerExpandVolume</code> <code>ModifyVolume</code></td>
+        <td>管理 volume 生命週期；需要存取雲端 API；不需在每個節點執行</td>
+      </tr>
+      <tr>
+        <td><strong>Node</strong></td>
+        <td>DaemonSet（每個節點一個）</td>
+        <td><code>NodeStageVolume</code> <code>NodePublishVolume</code> <code>NodeUnpublishVolume</code> <code>NodeExpandVolume</code></td>
+        <td>在節點上掛載/卸載 volume；需要節點層級的系統呼叫（mount、格式化）</td>
+      </tr>
+    </tbody>
+  </table></div>
+
+  <h3>6.2　部署架構圖</h3>
+
+  <div class="mermaid-wrap" data-src="flowchart TD
+    subgraph ControlPlane [Controller Deployment]
+      CP[CSI Controller Plugin] --- SC1[external-provisioner]
+      CP --- SC2[external-attacher]
+      CP --- SC3[external-snapshotter]
+      CP --- SC4[external-resizer]
+    end
+    subgraph NodeA [Node DaemonSet - node-a]
+      NP1[CSI Node Plugin] --- SC5[node-driver-registrar]
+      NP1 --- Kubelet1[kubelet socket]
+    end
+    subgraph NodeB [Node DaemonSet - node-b]
+      NP2[CSI Node Plugin] --- SC6[node-driver-registrar]
+      NP2 --- Kubelet2[kubelet socket]
+    end
+    SC1 -->|gRPC CreateVolume| CP
+    SC2 -->|gRPC ControllerPublish| CP
+    Kubelet1 -->|gRPC NodePublish| NP1
+    Kubelet2 -->|gRPC NodePublish| NP2"></div>
+
+  <h3>6.3　五大官方 Sidecar 容器</h3>
+
+  <div class="sidecar-grid">
+    <div class="sidecar-card">
+      <div class="sidecar-card__name">external-provisioner</div>
+      <div class="sidecar-card__role">動態建立 / 刪除 Volume</div>
+      <div class="sidecar-card__desc">監聽 PVC 事件，觸發 CSI <code>CreateVolume</code> / <code>DeleteVolume</code>。搭配 StorageClass 及 VolumeAttributesClass 使用。</div>
+    </div>
+    <div class="sidecar-card">
+      <div class="sidecar-card__name">external-attacher</div>
+      <div class="sidecar-card__role">將 Volume 附加 / 卸離節點</div>
+      <div class="sidecar-card__desc">監聽 VolumeAttachment 物件，觸發 <code>ControllerPublishVolume</code> / <code>ControllerUnpublishVolume</code>，完成 block device 附加。</div>
+    </div>
+    <div class="sidecar-card">
+      <div class="sidecar-card__name">external-snapshotter</div>
+      <div class="sidecar-card__role">管理 Volume Snapshot</div>
+      <div class="sidecar-card__desc">監聽 VolumeSnapshotContent 事件，觸發 <code>CreateSnapshot</code> / <code>DeleteSnapshot</code>。v8.4 起支援 VolumeGroupSnapshot。</div>
+    </div>
+    <div class="sidecar-card">
+      <div class="sidecar-card__name">external-resizer</div>
+      <div class="sidecar-card__role">擴容 Volume / 修改屬性</div>
+      <div class="sidecar-card__desc">監聽 PVC resize 與 VAC 切換事件，觸發 <code>ControllerExpandVolume</code> 和 <code>ModifyVolume</code>（VAC 支援）。</div>
+    </div>
+    <div class="sidecar-card">
+      <div class="sidecar-card__name">node-driver-registrar</div>
+      <div class="sidecar-card__role">向 kubelet 註冊 CSI driver</div>
+      <div class="sidecar-card__desc">部署在每個節點的 DaemonSet 中，透過 kubelet plugin registration 機制讓 kubelet 知道如何呼叫該節點的 CSI driver。</div>
+    </div>
+  </div>
+
+  <h3>6.4　完整 CSI Driver Deployment 範例</h3>
+
+  <div class="codewrap">
+    <div class="codewrap__head"><span>csi-controller.yaml · Controller StatefulSet（精簡版）</span>
+      <button class="codewrap__copy" onclick="copyCode(this)">Copy</button></div>
+<pre><code class="language-yaml">apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: my-csi-controller
+  namespace: kube-system
+spec:
+  replicas: 2                          # HA：2 副本，leader election 選出 1 個 active
+  selector:
+    matchLabels:
+      app: my-csi-controller
+  template:
+    spec:
+      serviceAccountName: my-csi-controller-sa
+      containers:
+        # ── 主要 CSI driver 容器（儲存廠商提供）
+        - name: my-csi-driver
+          image: vendor/my-csi-driver:v1.5.0
+          args:
+            - --endpoint=unix:///var/lib/csi/sockets/pluginproxy/csi.sock
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /var/lib/csi/sockets/pluginproxy/
+
+        # ── external-provisioner sidecar
+        - name: csi-provisioner
+          image: registry.k8s.io/sig-storage/csi-provisioner:v5.1.0
+          args:
+            - --csi-address=$(ADDRESS)
+            - --leader-election              # HA 部署必須啟用
+            - --leader-election-namespace=kube-system
+            - --feature-gates=Topology=true
+            - --enable-capacity             # 啟用 CSIStorageCapacity
+          env:
+            - name: ADDRESS
+              value: /var/lib/csi/sockets/pluginproxy/csi.sock
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /var/lib/csi/sockets/pluginproxy/
+
+        # ── external-attacher sidecar
+        - name: csi-attacher
+          image: registry.k8s.io/sig-storage/csi-attacher:v4.7.0
+          args:
+            - --csi-address=$(ADDRESS)
+            - --leader-election
+          env:
+            - name: ADDRESS
+              value: /var/lib/csi/sockets/pluginproxy/csi.sock
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /var/lib/csi/sockets/pluginproxy/
+
+        # ── external-resizer sidecar（含 ModifyVolume 支援）
+        - name: csi-resizer
+          image: registry.k8s.io/sig-storage/csi-resizer:v1.12.0
+          args:
+            - --csi-address=$(ADDRESS)
+            - --leader-election
+          env:
+            - name: ADDRESS
+              value: /var/lib/csi/sockets/pluginproxy/csi.sock
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /var/lib/csi/sockets/pluginproxy/
+
+      volumes:
+        - name: socket-dir
+          emptyDir: {}</code></pre>
+  </div>
+
+  <div class="codewrap">
+    <div class="codewrap__head"><span>csi-node.yaml · Node DaemonSet（精簡版）</span>
+      <button class="codewrap__copy" onclick="copyCode(this)">Copy</button></div>
+<pre><code class="language-yaml">apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: my-csi-node
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: my-csi-node
+  template:
+    spec:
+      hostNetwork: true
+      containers:
+        # ── 主要 CSI Node driver
+        - name: my-csi-driver
+          image: vendor/my-csi-driver:v1.5.0
+          securityContext:
+            privileged: true             # 需要掛載 volume（mount syscall）
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi
+            - name: kubelet-dir
+              mountPath: /var/lib/kubelet
+              mountPropagation: Bidirectional  # 讓掛載傳遞到主機
+            - name: device-dir
+              mountPath: /dev
+
+        # ── node-driver-registrar sidecar（必須在 Node daemonset）
+        - name: node-driver-registrar
+          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.12.0
+          args:
+            - --csi-address=/csi/csi.sock
+            - --kubelet-registration-path=/var/lib/kubelet/plugins/my-csi/csi.sock
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi
+            - name: registration-dir
+              mountPath: /registration
+
+      volumes:
+        - name: kubelet-dir
+          hostPath:
+            path: /var/lib/kubelet
+            type: Directory
+        - name: plugin-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/my-csi/
+            type: DirectoryOrCreate
+        - name: registration-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry/
+            type: Directory
+        - name: device-dir
+          hostPath:
+            path: /dev
+            type: Directory</code></pre>
+  </div>
+
+  <h3>6.5　Leader Election 與 HA 部署</h3>
+
+  <p>
+    Controller 端的 sidecar（external-provisioner、external-attacher 等）都支援 Leader Election，
+    讓多個副本中只有一個 active，其餘等待。Leader 死亡後約 15 秒重新選舉。
+  </p>
+
+  <div class="callout">
+    <span class="callout__icon">!</span>
+    <div>
+      <p><strong>Node DaemonSet 不需要 Leader Election</strong>：每個節點只有一個 Node plugin 副本，它只負責自己節點的 volume 掛載，天生無競爭。Leader Election 只需要在 Controller StatefulSet 的 sidecar 上啟用。</p>
+    </div>
+  </div>
+
+  <h3>6.6　CSIStorageCapacity — Scheduler 感知儲存容量</h3>
+
+  <p>
+    啟用 <code>--enable-capacity</code> 後，<code>external-provisioner</code> 會定期建立 <code>CSIStorageCapacity</code> 物件，
+    告知 Scheduler 每個節點/拓撲的可用儲存容量。
+    搭配 <code>WaitForFirstConsumer</code>，Scheduler 就不會把 Pod 調度到儲存空間不足的節點。
+  </p>
+
+  <div class="codewrap">
+    <div class="codewrap__head"><span>bash · 查看 CSIStorageCapacity</span>
+      <button class="codewrap__copy" onclick="copyCode(this)">Copy</button></div>
+<pre><code class="language-bash"># 查看叢集中各拓撲的可用儲存
+kubectl get csistoragecapacities -A
+
+# 範例輸出
+# NAMESPACE     NAME                        STORAGECLASS   CAPACITY
+# kube-system   csc-us-east-1a-fast-ssd    fast-ssd       4.8Ti
+# kube-system   csc-us-east-1b-fast-ssd    fast-ssd       3.2Ti
+# kube-system   csc-us-east-1c-fast-ssd    fast-ssd       6.1Ti</code></pre>
+  </div>
+
+  <h3>6.7　CSI Driver 開發三原則</h3>
+
+  <ul>
+    <li><strong>Follow the CSI spec</strong>：實作所有 required RPC，遵循錯誤碼規範（gRPC status codes），避免自行定義行為。</li>
+    <li><strong>Idempotent 操作</strong>：<code>CreateVolume</code> 被呼叫兩次（相同參數）應回傳相同結果，而非建立兩個 volume。這對 retry 和 failover 場景至關重要。</li>
+    <li><strong>Graceful failure handling</strong>：操作失敗時清理已建立的資源，回傳適當的 gRPC error code，讓 sidecar 的 retry 機制能正確判斷是否重試。</li>
+  </ul>
+</section>
+
+  </main>
+</div>
+
+<!-- FOOTER -->
+<footer class="footer">
+  <div class="footer__series">SRE Reliability Series</div>
+  <div>Vol. 04 · K8s CSI / PV / StorageClass · Part 1（Ch.1–6）· 2026-05</div>
+  <div style="margin-top:var(--space-2)">Part 2（Ch.7–12）即將發布 · 涵蓋 Snapshot、Volume Expand、Rook-Ceph、OpenEBS 與故障診斷</div>
+  <div style="margin-top:var(--space-2)">版本基準：Kubernetes 1.34 · CSI spec v1.12 · external-snapshotter v8.4 · Rook v1.18 · OpenEBS v4.4</div>
+</footer>
+
+<!-- theme-toggle.js (inlined) -->
+<script>
+(function(){
+  'use strict';
+  var KEY='jhsun-theme';
+  var ICONS={light:'☀',dark:'☾',system:'◐'};
+  var LABELS={light:'Light',dark:'Dark',system:'System'};
+  function getStored(){try{return localStorage.getItem(KEY);}catch(_){return null;}}
+  function setStored(v){try{if(v==='system'||v==null)localStorage.removeItem(KEY);else localStorage.setItem(KEY,v);}catch(_){}}
+  function sysPref(){return window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  function effective(m){return m==='system'?sysPref():m;}
+  function applyTheme(m){
+    var eff=effective(m);
+    document.documentElement.dataset.theme=eff;
+    document.documentElement.dataset.themeMode=m;
+    document.querySelectorAll('[data-theme-toggle]').forEach(function(btn){
+      btn.dataset.themeMode=m;
+      btn.setAttribute('aria-label','Theme: '+LABELS[m]);
+      btn.title='Theme: '+LABELS[m];
+      if(!btn.dataset.themeToggleStyled)
+        btn.innerHTML='<span class="theme-icon">'+ICONS[m]+'</span><span class="theme-label">'+LABELS[m]+'</span>';
+    });
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed',{detail:{theme:eff,mode:m}}));
+  }
+  function cycle(c){return c==='light'?'dark':c==='dark'?'system':'light';}
+  function getMode(){return getStored()||'system';}
+  function init(){
+    applyTheme(getMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(function(btn){
+      btn.addEventListener('click',function(){var n=cycle(getMode());setStored(n);applyTheme(n);});
+    });
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',function(){
+      if(getMode()==='system')applyTheme('system');
+    });
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);
+  else init();
+  window.JHsunTheme={get:getMode,set:function(m){setStored(m);applyTheme(m);},toggle:function(){var n=cycle(getMode());setStored(n);applyTheme(n);}};
+})();
+</script>
+
+<!-- Mermaid + hljs + copy -->
+<script>
+(function(){
+  'use strict';
+  var PAL={
+    light:{bg:'#f9f8f6',surface:'#ffffff',muted:'#f3f2ef',border:'#d8d6d0',
+      text:'#2a2825',textMuted:'#8a8780',primary:'#0891b2'},
+    dark:{bg:'#29261f',surface:'#332f27',muted:'#3a3730',border:'#524e44',
+      text:'#ede9e2',textMuted:'#8a867e',primary:'#22d3ee'}
+  };
+  function cfg(){
+    var isDark=document.documentElement.dataset.theme==='dark';
+    var p=isDark?PAL.dark:PAL.light;
+    return{startOnLoad:false,theme:'base',securityLevel:'loose',
+      themeVariables:{background:p.bg,primaryColor:p.muted,primaryTextColor:p.text,
+        primaryBorderColor:p.primary,lineColor:p.textMuted,
+        secondaryColor:p.surface,tertiaryColor:p.bg,
+        nodeBorder:p.border,clusterBkg:p.muted,clusterBorder:p.border,
+        edgeLabelBackground:p.bg,
+        fontFamily:'DM Sans,Inter,"Noto Sans TC",system-ui,sans-serif'},
+      flowchart:{curve:'basis',padding:14,useMaxWidth:true},
+      sequence:{useMaxWidth:true}};
+  }
+  function renderMermaid(){
+    if(typeof window.mermaid==='undefined'){console.warn('[report] mermaid unavailable');return;}
+    try{
+      window.mermaid.initialize(cfg());
+      document.querySelectorAll('.mermaid-wrap[data-src]').forEach(function(wrap,i){
+        var src=wrap.getAttribute('data-src');
+        if(!src)return;
+        var id='mr-'+i+'-'+Date.now();
+        window.mermaid.render(id,src).then(function(r){wrap.innerHTML=r.svg;})
+          .catch(function(e){
+            console.warn('[report] diagram '+i+':',e&&e.message||e);
+            wrap.innerHTML='<pre style="color:var(--color-danger);font-size:12px;padding:8px">[Diagram error: '+(e&&e.message||e)+']</pre>';
+          });
+      });
+    }catch(e){console.warn('[report] renderMermaid:',e);}
+  }
+  function applyHljs(){
+    var dark=document.documentElement.dataset.theme==='dark';
+    var l=document.getElementById('hljs-light'),d=document.getElementById('hljs-dark');
+    if(l)l.disabled=dark; if(d)d.disabled=!dark;
+  }
+  function highlightCode(){
+    if(typeof window.hljs==='undefined')return;
+    document.querySelectorAll('.codewrap pre code').forEach(function(b){
+      try{if(!b.dataset.highlighted){window.hljs.highlightElement(b);b.dataset.highlighted='yes';}}
+      catch(e){console.warn('[report] hljs:',e);}
+    });
+  }
+  window.copyCode=function(btn){
+    try{
+      var wrap=btn.closest('.codewrap');if(!wrap)return;
+      var code=wrap.querySelector('pre code');
+      var text=code?code.innerText:'';
+      var done=function(){
+        var o=btn.textContent;btn.textContent='Copied!';btn.classList.add('copied');
+        setTimeout(function(){btn.textContent=o;btn.classList.remove('copied');},1500);
+      };
+      if(navigator.clipboard&&navigator.clipboard.writeText)
+        navigator.clipboard.writeText(text).then(done).catch(function(){
+          var t=document.createElement('textarea');t.value=text;
+          document.body.appendChild(t);t.select();
+          try{document.execCommand('copy');}catch(_){}document.body.removeChild(t);done();
+        });
+      else{
+        var t=document.createElement('textarea');t.value=text;
+        document.body.appendChild(t);t.select();
+        try{document.execCommand('copy');}catch(_){}document.body.removeChild(t);done();
+      }
+    }catch(e){console.warn('[report] copyCode:',e);}
+  };
+  function init(){applyHljs();highlightCode();renderMermaid();}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);
+  else init();
+  window.addEventListener('jhsun:theme-changed',function(){applyHljs();renderMermaid();});
+})();
+</script>
+</body>
+</html>

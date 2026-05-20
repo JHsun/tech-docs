@@ -1,0 +1,1149 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.34 Config Management Plugins (CMP) 進階：sidecar 架構與自訂 plugin — Argo CD 完整教學手冊</title>
+<style>
+:root{--tk-hue:200;--tk-chroma:0.11;--color-success:#16a34a;--color-success-soft:#dcfce7;--color-warning:#d97706;--color-warning-soft:#fef3c7;--color-danger:#dc2626;--color-danger-soft:#fee2e2;--color-info:#0891b2;--color-info-soft:#cffafe;--color-neutral-accent:#7c3aed;--color-primary:oklch(0.55 var(--tk-chroma) var(--tk-hue));--color-primary-hover:oklch(0.48 var(--tk-chroma) var(--tk-hue));--color-primary-soft:oklch(0.96 calc(var(--tk-chroma)*.25) var(--tk-hue));--color-primary-text:oklch(0.40 var(--tk-chroma) var(--tk-hue));--bg-canvas:oklch(0.985 0.004 60);--bg-surface:oklch(0.995 0.003 60);--bg-muted:oklch(0.96 0.005 60);--bg-code:oklch(0.975 0.006 60);--border-soft:oklch(0.92 0.006 60);--border-mid:oklch(0.85 0.008 60);--text-primary:oklch(0.22 0.008 60);--text-secondary:oklch(0.42 0.008 60);--text-muted:oklch(0.58 0.008 60);--font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;--font-sans:"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif;--font-serif:"Playfair Display","Source Serif 4","Noto Serif TC",Georgia,serif;--font-body:"Source Serif 4","Noto Serif TC",Georgia,serif;--text-xs:12px;--text-sm:14px;--text-base:16px;--text-md:18px;--text-lg:20px;--text-xl:24px;--text-2xl:32px;--text-3xl:44px;--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-7:48px;--space-8:64px;--space-9:96px;--radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:20px;--shadow-sm:0 1px 3px oklch(0.20 0.01 60/0.07);--shadow-md:0 4px 14px oklch(0.20 0.01 60/0.10);}
+:root[data-theme="dark"]{--color-success:#4ade80;--color-success-soft:oklch(0.28 0.08 145);--color-warning:#fbbf24;--color-warning-soft:oklch(0.30 0.10 70);--color-danger:#f87171;--color-danger-soft:oklch(0.30 0.10 27);--color-info:#22d3ee;--color-info-soft:oklch(0.30 0.08 200);--color-neutral-accent:#a78bfa;--color-primary:oklch(0.72 calc(var(--tk-chroma)*.95) var(--tk-hue));--color-primary-hover:oklch(0.80 calc(var(--tk-chroma)*.95) var(--tk-hue));--color-primary-soft:oklch(0.28 calc(var(--tk-chroma)*.6) var(--tk-hue));--color-primary-text:oklch(0.85 calc(var(--tk-chroma)*.6) var(--tk-hue));--bg-canvas:oklch(0.14 0.008 50);--bg-surface:oklch(0.18 0.009 50);--bg-muted:oklch(0.21 0.010 50);--bg-code:oklch(0.16 0.009 50);--border-soft:oklch(0.26 0.010 50);--border-mid:oklch(0.34 0.012 50);--text-primary:oklch(0.93 0.005 60);--text-secondary:oklch(0.74 0.006 60);--text-muted:oklch(0.56 0.007 60);--shadow-sm:0 1px 3px oklch(0.04 0 0/.50);--shadow-md:0 4px 14px oklch(0.04 0 0/.60);}
+html{color-scheme:light dark;}html[data-theme="light"]{color-scheme:light;}html[data-theme="dark"]{color-scheme:dark;}
+body{background:var(--bg-canvas);color:var(--text-primary);font-family:var(--font-sans);font-size:var(--text-base);line-height:1.7;margin:0;padding:0;transition:background .25s,color .25s;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+.topbar{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:10px var(--space-6);background:var(--bg-surface);border-bottom:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.tb-left{display:flex;align-items:center;gap:var(--space-3);}
+.tb-logo{width:30px;height:30px;border-radius:var(--radius-md);background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:13px;font-weight:800;}
+.tb-trail{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.tb-trail .sep{color:var(--border-mid);}.tb-trail .cur{color:var(--color-primary);font-weight:600;}
+.tb-right{display:flex;align-items:center;gap:var(--space-2);}
+.pill{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);border:1px solid;}
+.pill-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.pill-ver{background:var(--color-info-soft);color:var(--color-info);border-color:var(--color-info);}
+[data-theme-toggle]{cursor:pointer;border:1px solid var(--border-mid);background:var(--bg-muted);color:var(--text-secondary);border-radius:var(--radius-md);padding:6px var(--space-3);font-family:var(--font-sans);font-size:var(--text-sm);display:flex;align-items:center;gap:6px;transition:all .2s;}
+[data-theme-toggle]:hover{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.page{display:flex;min-height:100vh;}
+.toc-sidebar{width:230px;flex-shrink:0;position:sticky;top:49px;height:calc(100vh - 49px);overflow-y:auto;padding:var(--space-5) var(--space-3);border-right:1px solid var(--border-soft);background:var(--bg-surface);}
+.toc-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-3);}
+.toc-list{list-style:none;}
+.toc-list li{margin-bottom:2px;}
+.toc-list a{display:block;padding:4px var(--space-2);font-size:var(--text-sm);color:var(--text-secondary);text-decoration:none;border-radius:var(--radius-sm);border-left:2px solid transparent;transition:all .15s;line-height:1.4;}
+.toc-list a:hover,.toc-list a.active{color:var(--color-primary);background:var(--color-primary-soft);border-left-color:var(--color-primary);font-weight:600;}
+.toc-h3{padding-left:var(--space-4)!important;font-size:var(--text-xs)!important;}
+.toc-lbl{display:block;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:var(--space-3) var(--space-2) var(--space-1);margin-top:var(--space-2);}
+.content{flex:1;min-width:0;padding:var(--space-8) var(--space-7) var(--space-9);max-width:900px;}
+.ch-header{margin-bottom:var(--space-8);padding-bottom:var(--space-6);border-bottom:1px solid var(--border-soft);}
+.ch-meta{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-4);flex-wrap:wrap;}
+.m-badge{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);}
+.m-ch{background:var(--color-primary);color:#fff;}
+.m-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border:1px solid var(--color-primary);}
+.m-time{background:var(--bg-muted);color:var(--text-muted);border:1px solid var(--border-soft);}
+.ch-header h1{font-family:var(--font-serif);font-size:clamp(var(--text-2xl),4vw,var(--text-3xl));font-weight:700;color:var(--text-primary);line-height:1.2;margin-bottom:var(--space-4);}
+.ch-header h1 em{font-style:normal;color:var(--color-primary);}
+.ch-lead{font-size:var(--text-md);color:var(--text-secondary);line-height:1.7;max-width:700px;font-family:var(--font-body);}
+.prereq{margin-top:var(--space-5);display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--bg-muted);border-radius:var(--radius-md);border:1px solid var(--border-soft);}
+.prereq .pico{font-size:var(--text-lg);flex-shrink:0;margin-top:1px;}
+.prereq p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;}
+.prereq strong{color:var(--text-primary);}
+.obj-box{background:var(--color-primary-soft);border:1px solid var(--color-primary);border-radius:var(--radius-lg);padding:var(--space-5);margin-bottom:var(--space-7);}
+.obj-box h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--color-primary-text);font-weight:700;margin-bottom:var(--space-3);}
+.obj-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-2);}
+.obj-list li{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-sm);color:var(--color-primary-text);line-height:1.5;}
+.obj-list li::before{content:"\2713";font-weight:700;color:var(--color-primary);flex-shrink:0;margin-top:1px;}
+.sec{margin-bottom:var(--space-9);scroll-margin-top:80px;}
+.sec h2{font-family:var(--font-serif);font-size:var(--text-2xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-4);padding-bottom:var(--space-3);border-bottom:2px solid var(--border-soft);display:flex;align-items:center;gap:var(--space-3);}
+.sn{font-family:var(--font-mono);font-size:var(--text-sm);background:var(--color-primary);color:#fff;padding:2px 8px;border-radius:var(--radius-sm);font-weight:700;white-space:nowrap;flex-shrink:0;}
+.sec h3{font-family:var(--font-sans);font-size:var(--text-lg);font-weight:700;color:var(--text-primary);margin:var(--space-6) 0 var(--space-3);}
+.sec h4{font-family:var(--font-sans);font-size:var(--text-base);font-weight:700;color:var(--text-primary);margin:var(--space-5) 0 var(--space-2);}
+p{font-family:var(--font-body);font-size:var(--text-base);color:var(--text-secondary);line-height:1.8;margin-bottom:var(--space-4);}
+strong{color:var(--text-primary);}em{color:var(--color-primary);font-style:normal;}
+.cal{display:flex;gap:var(--space-3);padding:var(--space-4) var(--space-5);border-radius:var(--radius-lg);margin:var(--space-5) 0;border-left:4px solid;}
+.ci{background:var(--color-info-soft);border-color:var(--color-info);}
+.cw{background:var(--color-warning-soft);border-color:var(--color-warning);}
+.ct{background:var(--color-success-soft);border-color:var(--color-success);}
+.cd{background:var(--color-primary-soft);border-color:var(--color-primary);}
+.cal .ic{font-size:var(--text-lg);flex-shrink:0;margin-top:2px;}
+.cal h4{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-1);font-family:var(--font-sans);}
+.cal p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.65;margin:0;font-family:var(--font-sans);}
+.code-wrap{margin:var(--space-4) 0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.code-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px var(--space-4);background:var(--bg-muted);border-bottom:1px solid var(--border-soft);}
+.code-lang{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;}
+.copy-btn{cursor:pointer;font-family:var(--font-mono);font-size:11px;padding:3px 10px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--border-mid);color:var(--text-muted);transition:all .2s;}
+.copy-btn:hover{background:var(--color-primary-soft);color:var(--color-primary);border-color:var(--color-primary);}
+.copy-btn.copied{background:var(--color-success-soft);color:var(--color-success);border-color:var(--color-success);}
+pre{margin:0;padding:var(--space-5);background:var(--bg-code);overflow-x:auto;font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.65;color:var(--text-primary);}
+code{font-family:var(--font-mono);font-size:.92em;background:var(--bg-code);padding:1px 5px;border-radius:var(--radius-sm);color:var(--color-primary-text);border:1px solid var(--border-soft);}
+pre code{background:none;padding:0;border:none;color:inherit;font-size:inherit;}
+.yk{color:var(--color-info);}.yv{color:var(--color-success);}.yc{color:var(--text-muted);font-style:italic;}
+.yn{color:var(--color-warning);}.yh{color:var(--color-neutral-accent);font-weight:700;}
+.tw{overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);margin:var(--space-5) 0;}
+table{width:100%;border-collapse:collapse;font-size:var(--text-sm);}
+thead th{background:var(--bg-muted);padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.07em;border-bottom:2px solid var(--border-mid);text-align:left;white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--border-soft);transition:background .12s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--bg-muted);}
+td{padding:var(--space-3) var(--space-4);vertical-align:top;line-height:1.6;font-family:var(--font-sans);}
+td:first-child{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--color-primary-text);background:var(--color-primary-soft);white-space:nowrap;font-weight:600;}
+.concept-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);margin:var(--space-5) 0;}
+.concept{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.concept-head{padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:var(--text-sm);font-weight:700;border-bottom:1px solid var(--border-soft);}
+.concept-body{padding:var(--space-4);font-size:11px;color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.concept-body .formula{font-family:var(--font-mono);font-size:11px;background:var(--bg-muted);padding:6px 10px;border-radius:var(--radius-sm);margin:var(--space-2) 0;display:block;color:var(--text-primary);}
+.lifecycle{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-5);margin:var(--space-5) 0;box-shadow:var(--shadow-sm);}
+.lc-step{display:flex;gap:var(--space-3);margin-bottom:var(--space-3);align-items:flex-start;}
+.lc-num{font-family:var(--font-mono);font-size:11px;font-weight:700;background:var(--color-primary);color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.lc-content{flex:1;font-size:var(--text-xs);color:var(--text-secondary);font-family:var(--font-sans);line-height:1.6;}
+.lc-content strong{color:var(--text-primary);}
+.lc-content code{background:var(--bg-muted);padding:1px 6px;border-radius:var(--radius-sm);font-size:11px;}
+.kp{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);margin:var(--space-7) 0;box-shadow:var(--shadow-sm);}
+.kp h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-4);margin-top:0;}
+.kp-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-3);}
+.kp-list li{display:flex;align-items:flex-start;gap:var(--space-3);font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.kp-ic{font-size:var(--text-md);flex-shrink:0;margin-top:1px;}
+.ch-nav{display:flex;justify-content:space-between;margin-top:var(--space-9);padding-top:var(--space-6);border-top:1px solid var(--border-soft);}
+.nav-btn{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);text-decoration:none;font-size:var(--text-sm);font-weight:600;transition:all .2s;box-shadow:var(--shadow-md);}
+.nav-prev{background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-mid);}.nav-prev:hover{background:var(--bg-muted);transform:translateX(-2px);}
+.nav-next{background:var(--color-primary);color:#fff;}.nav-next:hover{background:var(--color-primary-hover);transform:translateX(2px);}
+.nav-sub{font-size:11px;opacity:.75;font-family:var(--font-mono);}
+footer{border-top:1px solid var(--border-soft);padding:var(--space-5) var(--space-8);font-family:var(--font-mono);font-size:11px;color:var(--text-muted);text-align:center;}
+footer strong{color:var(--color-primary);}
+@media(max-width:900px){.toc-sidebar{display:none;}.content{padding:var(--space-6) var(--space-4) var(--space-8);}.concept-grid{grid-template-columns:1fr;}}
+@media(max-width:640px){.topbar{padding:8px var(--space-4);}.tb-trail{display:none;}}
+</style>
+</head><body>
+<header class="topbar">
+  <div class="tb-left">
+    <div class="tb-logo">A</div>
+    <nav class="tb-trail">
+      <span>Argo CD 完整教學手冊</span><span class="sep">›</span>
+      <span>Vol 7 開發者指南與延伸整合</span><span class="sep">›</span>
+      <span class="cur">Ch.34 Config Management Plugins</span>
+    </nav>
+  </div>
+  <div class="tb-right">
+    <span class="pill pill-vol">Vol 7 · Ch.34</span>
+    <span class="pill pill-ver">v3.4</span>
+    <button data-theme-toggle></button>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="toc-sidebar">
+    <div class="toc-title">本章目錄</div>
+    <ul class="toc-list">
+      <li><a href="#obj">學習目標</a></li>
+      <span class="toc-lbl">第一節</span>
+      <li><a href="#s1">為什麼需要 CMP</a></li>
+      <li><a href="#s1a" class="toc-h3">v1 ConfigMap vs v2 sidecar</a></li>
+      <li><a href="#s1b" class="toc-h3">何時用 CMP？</a></li>
+      <span class="toc-lbl">第二節</span>
+      <li><a href="#s2">Sidecar 架構與通訊</a></li>
+      <li><a href="#s2a" class="toc-h3">socket 通訊機制</a></li>
+      <li><a href="#s2b" class="toc-h3">完整流程</a></li>
+      <span class="toc-lbl">第三節</span>
+      <li><a href="#s3">plugin.yaml 規範</a></li>
+      <li><a href="#s3a" class="toc-h3">init / generate / discover</a></li>
+      <li><a href="#s3b" class="toc-h3">環境變數</a></li>
+      <li><a href="#s3c" class="toc-h3">parameters 與 dynamic</a></li>
+      <span class="toc-lbl">第四節</span>
+      <li><a href="#s4">建立第一個 CMP</a></li>
+      <li><a href="#s4a" class="toc-h3">Dockerfile</a></li>
+      <li><a href="#s4b" class="toc-h3">repo-server patch</a></li>
+      <span class="toc-lbl">第五節</span>
+      <li><a href="#s5">三個實戰 CMP</a></li>
+      <li><a href="#s5a" class="toc-h3">Helmfile</a></li>
+      <li><a href="#s5b" class="toc-h3">CDK8s</a></li>
+      <li><a href="#s5c" class="toc-h3">Cue / Tanka</a></li>
+      <span class="toc-lbl">第六節</span>
+      <li><a href="#s6">Discovery 與選擇邏輯</a></li>
+      <span class="toc-lbl">第七節</span>
+      <li><a href="#s7">與 ApplicationSet 整合</a></li>
+      <span class="toc-lbl">第八節</span>
+      <li><a href="#s8">除錯與最佳實踐</a></li>
+      <span class="toc-lbl">總結</span>
+      <li><a href="#sum">重點回顧</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <header class="ch-header">
+      <div class="ch-meta">
+        <span class="m-badge m-ch">Chapter 34</span>
+        <span class="m-badge m-vol">Vol 7 — 開發者指南與延伸整合</span>
+        <span class="m-badge m-time">⏱ 預計閱讀時間 50 分鐘</span>
+      </div>
+      <h1>Config Management Plugins<br><em>(CMP) v2 sidecar 架構與實戰</em></h1>
+      <p class="ch-lead">Argo CD 內建支援 Helm / Kustomize / Jsonnet / plain YAML 四種 manifest 來源。但實務上你可能需要 Helmfile、CDK8s、Cue、Tanka、Pulumi——這些都需要 <strong>Config Management Plugin（CMP）</strong>。v2.8 起 ConfigMap 方式完全移除，<strong>必須用 sidecar 架構</strong>。本章涵蓋 sidecar 通訊機制（gRPC over Unix socket）、plugin.yaml 完整規範（init / generate / discover）、自訂 plugin 從 Dockerfile 到部署、三個生產級實戰範例（Helmfile / CDK8s / Cue）、與 ApplicationSet 整合、除錯流程。</p>
+      <div class="prereq">
+        <span class="pico">📋</span>
+        <p><strong>前置：</strong>已完成 Vol 1-6 與 Ch.32-33。理解 Ch.05（manifest tools 內建）。Docker / containerization 基本概念。理解 K8s sidecar pattern（多容器共享 volume）。對 Helmfile / CDK8s / Cue 等工具有基本認識（本章是 CMP 整合，不教這些工具）。</p>
+      </div>
+    </header>
+
+    <div class="obj-box" id="obj">
+      <h3>🎯 學習目標</h3>
+      <ul class="obj-list">
+        <li>理解 CMP v1（ConfigMap）與 v2（sidecar）的差異與 v2.8 起 v1 完全移除的事實</li>
+        <li>掌握 sidecar 架構：cmp-server 作為 sidecar 在 repo-server pod 中，透過 Unix socket（<code>/home/argocd/cmp-server/plugins/*.sock</code>）與 repo-server gRPC 通訊</li>
+        <li>撰寫 <code>plugin.yaml</code>：init（初始化）、generate（產生 YAML）、discover（自動發現）三大命令；parameters 收集動態參數</li>
+        <li>理解環境變數三層：① 系統內建（<code>ARGOCD_APP_NAME</code> / <code>ARGOCD_APP_NAMESPACE</code> / <code>ARGOCD_APP_SOURCE_PATH</code> 等）；② 系統 + build 變數；③ 使用者自訂（自動加 <code>ARGOCD_ENV_</code> 前綴防注入）</li>
+        <li>從零建立 CMP：① Dockerfile（含 argocd-cmp-server binary + tool）；② plugin.yaml；③ patch argocd-repo-server Deployment 加 sidecar；④ Application spec 指定 plugin</li>
+        <li>實作三個生產級 CMP：① Helmfile（多 chart 編排）；② CDK8s（TypeScript / Python 寫 manifest）；③ Cue（強型別 schema validation）</li>
+        <li>掌握 discovery 兩種方式：① <code>find.glob</code>（檔案 pattern match）；② <code>find.command</code>（執行命令判斷）；以及為什麼 plugin 名稱明確指定更可靠</li>
+        <li>與 ApplicationSet 整合：在 template 中用 <code>spec.source.plugin</code> 引用 CMP，並傳入動態參數</li>
+        <li>除錯利器：cmp-server logs、socket 是否建立、Hard Refresh 清除 Redis cache、ARGOCD_EXEC_TIMEOUT 調整</li>
+        <li>避開常見陷阱：discovery 過於寬鬆造成誤觸發、忘記 Hard Refresh、image cache 問題、ConfigMap 變更需重啟 repo-server</li>
+      </ul>
+    </div>
+
+    <section class="sec" id="s1">
+      <h2><span class="sn">1</span>為什麼需要 CMP</h2>
+
+      <h3 id="s1a">1.1 v1（ConfigMap）vs v2（sidecar）</h3>
+
+      <p>CMP 的演進顯示 Argo CD 對「extensibility 與 security 並重」的態度：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>面向</th><th>v1（argocd-cm，已移除）</th><th>v2（sidecar）</th></tr></thead>
+          <tbody>
+            <tr><td>設定位置</td><td>argocd-cm ConfigMap</td><td>argocd-repo-server 的 sidecar 容器</td></tr>
+            <tr><td>執行環境</td><td>repo-server 主容器內</td><td>獨立 sidecar 容器</td></tr>
+            <tr><td>安全性</td><td>plugin 命令可存取 repo-server 全部檔案</td><td>filesystem 隔離（含 /tmp 不共用）</td></tr>
+            <tr><td>套件依賴</td><td>必須建自訂 argocd-repo-server image（混亂）</td><td>plugin 自帶 image（乾淨）</td></tr>
+            <tr><td>多 plugin 衝突</td><td>所有 plugin 共用同一 image 容易版本衝突</td><td>每個 plugin 獨立 sidecar 互不影響</td></tr>
+            <tr><td>v2.4</td><td>deprecated</td><td>introduced</td></tr>
+            <tr><td>v2.8</td><td><strong>完全移除</strong></td><td>唯一支援方式</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>v2.8 起 ConfigMap 方式完全移除</h4>
+          <p>如果你還在用 <code>configManagementPlugins</code> in argocd-cm，<strong>升級到 v2.8+ 會立刻失效</strong>。必須先遷移到 sidecar 架構。遷移流程：① 把 plugin spec 從 argocd-cm 抽出到獨立 ConfigMap；② patch argocd-repo-server Deployment 加 sidecar；③ Application 的 <code>spec.source.plugin.name</code> 移除（讓 discovery 自動偵測）或改為新名稱（<code>&lt;name&gt;-&lt;version&gt;</code>）。本章專注 v2 sidecar 架構。</p>
+        </div>
+      </div>
+
+      <h3 id="s1b">1.2 何時需要 CMP？</h3>
+
+      <p>Argo CD 內建工具已涵蓋 90% 場景。CMP 用於剩下的 10%：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>需求</th><th>原因</th><th>常見 CMP</th></tr></thead>
+          <tbody>
+            <tr><td>多 Helm chart 編排</td><td>內建 Helm 不支援跨 chart 依賴</td><td>Helmfile</td></tr>
+            <tr><td>程式碼寫 manifest（TS / Python / Go）</td><td>YAML 不足以表達複雜邏輯</td><td>CDK8s, Pulumi</td></tr>
+            <tr><td>強型別 schema validation</td><td>YAML 弱型別容易出錯</td><td>Cue</td></tr>
+            <tr><td>Grafana Labs jsonnet 工具</td><td>內建 jsonnet 不支援 jsonnet-bundler</td><td>Tanka, jkcfg</td></tr>
+            <tr><td>Secret 解密（pre-render）</td><td>內建工具不解密</td><td>argocd-vault-plugin（Ch.35）, Helm Secrets</td></tr>
+            <tr><td>YAML 後處理（validation / lint / patch）</td><td>渲染後再加工</td><td>kpt, OPA Conftest</td></tr>
+            <tr><td>未來的新工具（YTT、Pkl）</td><td>主流工具更新快</td><td>YTT, Apple Pkl</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>先確認內建方案不夠才用 CMP</h4>
+          <p>CMP 是強大但<strong>有運維成本</strong>的功能：要維護 plugin image、處理 socket / discovery 問題、debug 比內建工具更複雜。建議優先嘗試：① Helm + Kustomize 組合（Argo CD v2.4+ 內建 <code>kustomize.buildOptions</code>，可在 kustomization 中引用 helm chart）；② 用 Source Hydrator（Ch.27）預渲染再 commit；③ ApplicationSet 的 templating 解決動態化需求。<strong>確認內建工具真的不夠</strong>才考慮 CMP。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s2">
+      <h2><span class="sn">2</span>Sidecar 架構與通訊機制</h2>
+
+      <h3 id="s2a">2.1 Socket 通訊機制</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Mermaid — CMP sidecar 架構</span><button class="copy-btn">Copy</button></div>
+        <pre><code>┌────────────────────────────────────────────────────────────┐
+│  argocd-repo-server Pod                                    │
+│                                                            │
+│  ┌──────────────────────┐    Unix Socket    ┌────────────┐ │
+│  │ Init container       │                   │            │ │
+│  │ (copy argocd-cmp-    │                   │            │ │
+│  │  server to volume)   │                   │            │ │
+│  └──────────────────────┘                   │            │ │
+│                                             │            │ │
+│  ┌──────────────────────┐                   │            │ │
+│  │ argocd-repo-server   │ ◄──── gRPC ────►  │            │ │
+│  │ (main container)     │                   │  Sidecar   │ │
+│  │                      │                   │  Container │ │
+│  │  - 列出 plugin socket │                   │            │ │
+│  │  - 選擇 plugin       │                   │  - Helmfile│ │
+│  │  - 發 GenerateMan-   │                   │  - CDK8s   │ │
+│  │    ifests RPC        │                   │  - Cue     │ │
+│  │                      │                   │  - ...     │ │
+│  └──────────────────────┘                   │            │ │
+│       ▲                                     │            │ │
+│       │ Git clone                           └────────────┘ │
+│       │                                                    │
+└───────┼────────────────────────────────────────────────────┘
+        │
+   ┌────┴────┐
+   │   Git   │
+   │   Repo  │
+   └─────────┘
+
+# 共用 volumes：
+# /var/run/argocd      含 argocd-cmp-server binary（由 init container 填入）
+# /home/argocd/cmp-server/plugins      socket 註冊位置（pluginName-version.sock）
+# /tmp                                  cmp-tmp（不與 repo-server 共用以防 path traversal）</code></pre>
+      </div>
+
+      <h3 id="s2b">2.2 完整流程</h3>
+
+      <div class="lifecycle">
+        <div class="lc-step"><div class="lc-num">1</div><div class="lc-content"><strong>Pod startup</strong>：init container 把 <code>argocd-cmp-server</code> binary 複製到共用 volume <code>/var/run/argocd</code></div></div>
+        <div class="lc-step"><div class="lc-num">2</div><div class="lc-content"><strong>Sidecar 啟動</strong>：以 <code>argocd-cmp-server</code> 為 entrypoint，讀取 <code>/home/argocd/cmp-server/config/plugin.yaml</code></div></div>
+        <div class="lc-step"><div class="lc-num">3</div><div class="lc-content"><strong>註冊 plugin</strong>：sidecar 在 <code>/home/argocd/cmp-server/plugins/</code> 建立 socket（<code>my-plugin-v1.0.sock</code>）</div></div>
+        <div class="lc-step"><div class="lc-num">4</div><div class="lc-content"><strong>Application sync 觸發</strong>：repo-server 收到請求，clone Git repo 到臨時目錄</div></div>
+        <div class="lc-step"><div class="lc-num">5</div><div class="lc-content"><strong>Discovery</strong>：repo-server 列出 plugins 目錄，對每個 plugin 執行 <code>discover.find</code> 命令——第一個回 true 的 plugin 被選中（或 Application 明確指定 plugin name）</div></div>
+        <div class="lc-step"><div class="lc-num">6</div><div class="lc-content"><strong>gRPC 呼叫</strong>：repo-server 透過 socket 對 cmp-server 發 <code>GenerateManifests(path)</code> RPC</div></div>
+        <div class="lc-step"><div class="lc-num">7</div><div class="lc-content"><strong>執行 generate</strong>：sidecar 執行 <code>init.command</code>（若有）→ <code>generate.command</code>，輸出 YAML 到 stdout</div></div>
+        <div class="lc-step"><div class="lc-num">8</div><div class="lc-content"><strong>回傳 manifest</strong>：repo-server 接收 stdout 內容，傳給 application-controller 進行 sync</div></div>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>filesystem 隔離（v2.4+ 安全強化）</h4>
+          <p>v2.4 起，<strong>sidecar 不能與 repo-server 共用 <code>/tmp</code></strong>——每個 sidecar 必須有自己的 <code>cmp-tmp</code> emptyDir。這是為了防止 path traversal 攻擊：惡意 plugin 不能透過 <code>..</code> 路徑存取 repo-server 的其他 repo 內容。<strong>如果你的 plugin.yaml 範例還在共用 /tmp，必須改</strong>，否則 v2.4+ 會運作異常。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s3">
+      <h2><span class="sn">3</span>plugin.yaml 規範</h2>
+
+      <h3 id="s3a">3.1 init / generate / discover</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — plugin.yaml 完整骨架</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: ConfigManagementPlugin</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-plugin</span>           <span class="yc"># plugin 名稱（必須）</span>
+<span class="yk">spec:</span>
+  <span class="yk">version:</span> <span class="yv">v1.0</span>           <span class="yc"># 版本（可選，用於 socket naming）</span>
+
+  <span class="yc"># Plugin 名稱完整格式：</span>
+  <span class="yc"># - 有 version: &lt;name&gt;-&lt;version&gt; (e.g. my-plugin-v1.0)</span>
+  <span class="yc"># - 無 version: &lt;name&gt;          (e.g. my-plugin)</span>
+
+  <span class="yc"># ── init: 初始化（每次 generate 前都跑）─────────</span>
+  <span class="yk">init:</span>
+    <span class="yk">command:</span> [<span class="yv">sh</span>, <span class="yv">-c</span>]
+    <span class="yk">args:</span>
+      - |
+        <span class="yc"># 例：安裝依賴、下載資源</span>
+        npm install 2&gt;/dev/null || true
+        helmfile deps
+
+  <span class="yc"># ── generate: 產生 manifests（必須）─────────────</span>
+  <span class="yk">generate:</span>
+    <span class="yk">command:</span> [<span class="yv">sh</span>, <span class="yv">-c</span>]
+    <span class="yk">args:</span>
+      - |
+        <span class="yc"># 必須輸出 valid YAML 到 stdout</span>
+        helmfile template --quiet --namespace $ARGOCD_APP_NAMESPACE
+
+  <span class="yc"># ── discover: 自動發現（可選但建議）─────────────</span>
+  <span class="yk">discover:</span>
+    <span class="yc"># 方法 1：用 glob pattern</span>
+    <span class="yk">find:</span>
+      <span class="yk">glob:</span> <span class="yv">"**/helmfile.yaml"</span>
+
+    <span class="yc"># 方法 2：用 command（更彈性）</span>
+    <span class="yc"># find:</span>
+    <span class="yc">#   command: [sh, -c, "find . -name helmfile.yaml | head -1 | grep -q ."]</span>
+
+    <span class="yc"># 方法 3：用 fileName（單一檔案 match）</span>
+    <span class="yc"># fileName: "helmfile.yaml"</span>
+
+  <span class="yc"># ── 行為控制 ─────────────────────────────────</span>
+  <span class="yk">allowConcurrency:</span> <span class="yv">true</span>      <span class="yc"># 允許多個 application 同時用此 plugin</span>
+  <span class="yk">lockRepo:</span> <span class="yv">false</span>            <span class="yc"># true: plugin 執行時 lock repo（避免多 plugin 同時修改）</span>
+
+  <span class="yc"># ── Git credentials（可選，謹慎使用）────────</span>
+  <span class="yk">provideGitCreds:</span> <span class="yv">false</span>     <span class="yc"># true: plugin 取得 repo-server 的 Git 認證</span>
+                            <span class="yc"># （只信任的 plugin 才開啟）</span>
+
+  <span class="yc"># ── parameters（v2.5+，UI 顯示參數）─────────</span>
+  <span class="yk">parameters:</span>
+    <span class="yk">static:</span>
+      - <span class="yk">name:</span> <span class="yv">environment</span>
+        <span class="yk">title:</span> <span class="yv">Environment</span>
+        <span class="yk">required:</span> <span class="yv">true</span>
+        <span class="yk">itemType:</span> <span class="yv">string</span>
+    <span class="yk">dynamic:</span>
+      <span class="yk">command:</span> [<span class="yv">sh</span>, <span class="yv">-c</span>, <span class="yv">"ls envs/"</span>]
+      <span class="yc"># 動態列出所有環境（envs/ 下的子目錄）</span></code></pre>
+      </div>
+
+      <h3 id="s3b">3.2 環境變數三層</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>層級</th><th>變數來源</th><th>範例</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>系統環境（sidecar 容器的 env）</td><td><code>PATH</code>, 自訂 <code>VAULT_ADDR</code></td></tr>
+            <tr><td>2</td><td>Argo CD 內建變數（automatic）</td><td><code>ARGOCD_APP_NAME</code>, <code>ARGOCD_APP_NAMESPACE</code>, <code>ARGOCD_APP_SOURCE_PATH</code>, <code>ARGOCD_APP_REVISION</code>, <code>KUBE_VERSION</code>, <code>KUBE_API_VERSIONS</code></td></tr>
+            <tr><td>3</td><td>使用者自訂（Application spec.source.plugin.env）</td><td>會自動加 <code>ARGOCD_ENV_</code> 前綴（防注入）</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Application 傳遞自訂變數</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: Application</span>
+<span class="yk">spec:</span>
+  <span class="yk">source:</span>
+    <span class="yk">repoURL:</span> <span class="yv">https://github.com/myorg/configs.git</span>
+    <span class="yk">path:</span> <span class="yv">apps/my-app</span>
+    <span class="yk">plugin:</span>
+      <span class="yk">name:</span> <span class="yv">helmfile-v1.0</span>      <span class="yc"># 明確指定 plugin（推薦）</span>
+      <span class="yk">env:</span>
+        - <span class="yk">name:</span> <span class="yv">FOO</span>
+          <span class="yk">value:</span> <span class="yv">bar</span>
+          <span class="yc"># Plugin 內看到的是 ARGOCD_ENV_FOO=bar（自動加前綴）</span>
+        - <span class="yk">name:</span> <span class="yv">REVISION</span>
+          <span class="yk">value:</span> <span class="yv">test-$ARGOCD_APP_REVISION</span>
+          <span class="yc"># 支援系統變數插值，最終值為 test-abc1234</span></code></pre>
+      </div>
+
+      <h3 id="s3c">3.3 Parameters（v2.5+ UI 顯示）</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — parameters static + dynamic</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">spec:</span>
+  <span class="yk">parameters:</span>
+    <span class="yc"># Static：固定的參數（UI 顯示輸入欄位）</span>
+    <span class="yk">static:</span>
+      - <span class="yk">name:</span> <span class="yv">replicas</span>
+        <span class="yk">title:</span> <span class="yv">Replica count</span>
+        <span class="yk">required:</span> <span class="yv">true</span>
+        <span class="yk">itemType:</span> <span class="yv">number</span>
+        <span class="yk">collectionType:</span> <span class="yv">value</span>      <span class="yc"># value | array | map</span>
+
+      - <span class="yk">name:</span> <span class="yv">image</span>
+        <span class="yk">required:</span> <span class="yv">true</span>
+        <span class="yk">tooltip:</span> <span class="yv">"Container image URL"</span>
+
+    <span class="yc"># Dynamic：執行命令動態取得選項</span>
+    <span class="yk">dynamic:</span>
+      <span class="yk">command:</span> [<span class="yv">sh</span>, <span class="yv">-c</span>]
+      <span class="yk">args:</span>
+        - |
+          <span class="yc"># 輸出 JSON 陣列：UI 顯示為下拉選單</span>
+          echo '[
+            {"name": "env", "title": "Environment",
+             "itemType": "string", "collectionType": "value",
+             "string": "dev"},
+            {"name": "env", "title": "Environment",
+             "itemType": "string", "collectionType": "value",
+             "string": "prod"}
+          ]'</code></pre>
+      </div>
+    </section>
+    <section class="sec" id="s4">
+      <h2><span class="sn">4</span>建立第一個 CMP</h2>
+
+      <h3 id="s4a">4.1 Dockerfile</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Dockerfile — Helmfile CMP image</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment"># Dockerfile</span>
+FROM alpine:3.19
+
+<span class="sh-comment"># 安裝必要工具：helmfile + helm + helm plugins</span>
+RUN apk add --no-cache curl bash git \
+    &amp;&amp; curl -fsSL https://get.helm.sh/helm-v3.14.0-linux-amd64.tar.gz | tar -xz \
+    &amp;&amp; mv linux-amd64/helm /usr/local/bin/ \
+    &amp;&amp; rm -rf linux-amd64
+
+<span class="sh-comment"># Helmfile</span>
+RUN curl -fsSL -o /usr/local/bin/helmfile \
+    https://github.com/helmfile/helmfile/releases/download/v0.166.0/helmfile_0.166.0_linux_amd64.tar.gz \
+    &amp;&amp; chmod +x /usr/local/bin/helmfile
+
+<span class="sh-comment"># Helm plugins（helmfile 依賴）</span>
+RUN helm plugin install https://github.com/databus23/helm-diff \
+    &amp;&amp; helm plugin install https://github.com/jkroepke/helm-secrets
+
+<span class="sh-comment"># 建立 argocd user（cmp-server 需 non-root）</span>
+RUN adduser -D -u 999 argocd
+
+<span class="sh-comment"># 必須：使用 argocd user</span>
+USER 999
+
+<span class="sh-comment"># 對應 sidecar 中 argocd-cmp-server 的 entrypoint</span>
+ENTRYPOINT ["/var/run/argocd/argocd-cmp-server"]</code></pre>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — plugin.yaml + ConfigMap</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">cmp-helmfile</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yk">plugin.yaml:</span> |
+    apiVersion: argoproj.io/v1alpha1
+    kind: ConfigManagementPlugin
+    metadata:
+      name: helmfile
+    spec:
+      version: v1.0
+      init:
+        command: [sh, -c]
+        args:
+          - |
+            helmfile deps 2&gt;&amp;1 | head -50
+
+      generate:
+        command: [sh, -c]
+        args:
+          - |
+            helmfile template \
+              --quiet \
+              --namespace $ARGOCD_APP_NAMESPACE
+
+      discover:
+        find:
+          glob: "**/helmfile.yaml"
+
+      allowConcurrency: true
+      lockRepo: false</code></pre>
+      </div>
+
+      <h3 id="s4b">4.2 Patch argocd-repo-server 加 sidecar</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — argocd-repo-server sidecar patch</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: apps/v1</span>
+<span class="yh">kind: Deployment</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-repo-server</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">spec:</span>
+  <span class="yk">template:</span>
+    <span class="yk">spec:</span>
+      <span class="yk">containers:</span>
+        - <span class="yk">name:</span> <span class="yv">helmfile</span>
+          <span class="yk">command:</span> [<span class="yv">/var/run/argocd/argocd-cmp-server</span>]
+          <span class="yk">image:</span> <span class="yv">myregistry.io/cmp-helmfile:v1.0.0</span>
+          <span class="yk">imagePullPolicy:</span> <span class="yv">IfNotPresent</span>
+          <span class="yk">securityContext:</span>
+            <span class="yk">runAsNonRoot:</span> <span class="yv">true</span>
+            <span class="yk">runAsUser:</span> <span class="yv">999</span>
+
+          <span class="yk">volumeMounts:</span>
+            <span class="yc"># 1) argocd-cmp-server binary（由 init container 填入）</span>
+            - <span class="yk">mountPath:</span> <span class="yv">/var/run/argocd</span>
+              <span class="yk">name:</span> <span class="yv">var-files</span>
+
+            <span class="yc"># 2) Plugin socket 註冊位置</span>
+            - <span class="yk">mountPath:</span> <span class="yv">/home/argocd/cmp-server/plugins</span>
+              <span class="yk">name:</span> <span class="yv">plugins</span>
+
+            <span class="yc"># 3) Plugin 設定檔（從 ConfigMap mount）</span>
+            - <span class="yk">mountPath:</span> <span class="yv">/home/argocd/cmp-server/config/plugin.yaml</span>
+              <span class="yk">subPath:</span> <span class="yv">plugin.yaml</span>
+              <span class="yk">name:</span> <span class="yv">cmp-helmfile-config</span>
+
+            <span class="yc"># 4) cmp-tmp（v2.4+ 必須與 repo-server /tmp 分離）</span>
+            - <span class="yk">mountPath:</span> <span class="yv">/tmp</span>
+              <span class="yk">name:</span> <span class="yv">cmp-tmp</span>
+
+      <span class="yk">volumes:</span>
+        - <span class="yk">name:</span> <span class="yv">cmp-helmfile-config</span>
+          <span class="yk">configMap:</span>
+            <span class="yk">name:</span> <span class="yv">cmp-helmfile</span>
+        - <span class="yk">name:</span> <span class="yv">cmp-tmp</span>
+          <span class="yk">emptyDir:</span> {}
+        <span class="yc"># var-files 與 plugins volume 在原 Deployment 已存在</span></code></pre>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — 套用 + 驗證</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## 1) 套用 ConfigMap 與 Deployment patch</span>
+$ kubectl apply -f cmp-helmfile-cm.yaml
+$ kubectl patch deploy argocd-repo-server -n argocd --patch-file repo-server-patch.yaml
+
+<span class="sh-comment">## 2) 重啟 repo-server 載入 sidecar</span>
+$ kubectl rollout restart deploy argocd-repo-server -n argocd
+
+<span class="sh-comment">## 3) 確認 sidecar 啟動</span>
+$ kubectl get pods -n argocd -l app.kubernetes.io/name=argocd-repo-server \
+    -o jsonpath=<span class="yv">'{.items[*].spec.containers[*].name}'</span>
+<span class="sh-comment"># argocd-repo-server helmfile</span>
+
+<span class="sh-comment">## 4) 看 sidecar log 確認 socket 註冊</span>
+$ kubectl logs -n argocd deploy/argocd-repo-server -c helmfile --tail=20
+<span class="sh-comment"># argocd-cmp-server v3.4.0 serving on /home/argocd/cmp-server/plugins/helmfile-v1.0.sock</span>
+
+<span class="sh-comment">## 5) 建立測試 Application</span>
+$ cat &lt;&lt; EOF | kubectl apply -f -
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: my-helmfile-app
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/myorg/configs.git
+    path: apps/my-app
+    plugin:
+      name: helmfile-v1.0      <span class="sh-comment"># 明確指定 plugin（含 version）</span>
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: my-app
+EOF</code></pre>
+      </div>
+    </section>
+
+    <section class="sec" id="s5">
+      <h2><span class="sn">5</span>三個生產實戰 CMP</h2>
+
+      <h3 id="s5a">5.1 Helmfile（多 chart 編排）</h3>
+
+      <p>使用情境：Application 需要部署多個 chart（如 monitoring stack: prometheus + grafana + alertmanager），且彼此有依賴關係：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Helmfile 多 chart 範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc"># Git repo 結構：apps/monitoring/helmfile.yaml</span>
+<span class="yk">repositories:</span>
+  - <span class="yk">name:</span> <span class="yv">prometheus-community</span>
+    <span class="yk">url:</span> <span class="yv">https://prometheus-community.github.io/helm-charts</span>
+  - <span class="yk">name:</span> <span class="yv">grafana</span>
+    <span class="yk">url:</span> <span class="yv">https://grafana.github.io/helm-charts</span>
+
+<span class="yk">releases:</span>
+  - <span class="yk">name:</span> <span class="yv">prometheus</span>
+    <span class="yk">chart:</span> <span class="yv">prometheus-community/prometheus</span>
+    <span class="yk">version:</span> <span class="yv">25.8.0</span>
+    <span class="yk">values:</span>
+      - <span class="yk">server:</span>
+          <span class="yk">retention:</span> <span class="yv">"30d"</span>
+
+  - <span class="yk">name:</span> <span class="yv">grafana</span>
+    <span class="yk">chart:</span> <span class="yv">grafana/grafana</span>
+    <span class="yk">version:</span> <span class="yv">7.3.0</span>
+    <span class="yc"># 依賴 prometheus：先部署 prometheus 才部署 grafana</span>
+    <span class="yk">needs:</span>
+      - <span class="yv">prometheus</span>
+    <span class="yk">values:</span>
+      - <span class="yk">datasources:</span>
+          <span class="yk">datasources.yaml:</span>
+            <span class="yk">apiVersion:</span> <span class="yv">1</span>
+            <span class="yk">datasources:</span>
+              - <span class="yk">name:</span> <span class="yv">Prometheus</span>
+                <span class="yk">url:</span> <span class="yv">http://prometheus-server</span>
+
+  - <span class="yk">name:</span> <span class="yv">alertmanager</span>
+    <span class="yk">chart:</span> <span class="yv">prometheus-community/alertmanager</span>
+    <span class="yk">version:</span> <span class="yv">1.5.0</span>
+    <span class="yk">needs:</span>
+      - <span class="yv">prometheus</span>
+
+<span class="yc"># Argo CD 透過 Helmfile CMP 一次部署三個 chart，依賴順序由 helmfile 處理</span></code></pre>
+      </div>
+
+      <h3 id="s5b">5.2 CDK8s（程式碼寫 manifest）</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — CDK8s plugin.yaml</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">data:</span>
+  <span class="yk">plugin.yaml:</span> |
+    apiVersion: argoproj.io/v1alpha1
+    kind: ConfigManagementPlugin
+    metadata:
+      name: cdk8s
+    spec:
+      version: v1.0
+      init:
+        command: [sh, -c]
+        args:
+          - |
+            <span class="yc"># Install dependencies</span>
+            npm install --silent
+      generate:
+        command: [sh, -c]
+        args:
+          - |
+            <span class="yc"># Run CDK8s synth 產生 manifests</span>
+            npm run synth --silent &gt;/dev/null
+            <span class="yc"># Combine 所有產出的 YAML</span>
+            cat dist/*.yaml
+      discover:
+        find:
+          glob: "**/cdk8s.yaml"
+      allowConcurrency: true</code></pre>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">TypeScript — CDK8s 範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">// main.ts (in app repo)</span>
+<span class="yc">import</span> { App, Chart } <span class="yc">from</span> 'cdk8s';
+<span class="yc">import</span> { KubeDeployment, KubeService } <span class="yc">from</span> './imports/k8s';
+
+<span class="yc">class</span> MyAppChart <span class="yc">extends</span> Chart {
+  <span class="yc">constructor</span>(scope: App, name: string) {
+    <span class="yc">super</span>(scope, name);
+
+    <span class="yc">const</span> labels = { app: 'my-app' };
+    <span class="yc">const</span> replicas = parseInt(process.env.ARGOCD_ENV_REPLICAS || <span class="yv">'3'</span>);
+
+    <span class="yc">new</span> KubeDeployment(<span class="yc">this</span>, 'deployment', {
+      spec: {
+        replicas,
+        selector: { matchLabels: labels },
+        template: {
+          metadata: { labels },
+          spec: {
+            containers: [{
+              name: 'app',
+              image: process.env.ARGOCD_ENV_IMAGE || <span class="yv">'my-app:latest'</span>,
+              ports: [{ containerPort: <span class="yn">8080</span> }],
+            }],
+          },
+        },
+      },
+    });
+
+    <span class="yc">new</span> KubeService(<span class="yc">this</span>, 'service', {
+      spec: { selector: labels, ports: [{ port: <span class="yn">80</span>, targetPort: <span class="yn">8080</span> as any }] },
+    });
+  }
+}
+
+<span class="yc">const</span> app = <span class="yc">new</span> App();
+<span class="yc">new</span> MyAppChart(app, 'my-app');
+app.synth();</code></pre>
+      </div>
+
+      <h3 id="s5c">5.3 Cue（強型別 schema validation）</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Cue plugin.yaml</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">data:</span>
+  <span class="yk">plugin.yaml:</span> |
+    apiVersion: argoproj.io/v1alpha1
+    kind: ConfigManagementPlugin
+    metadata:
+      name: cue
+    spec:
+      version: v1.0
+      init:
+        command: [sh, -c]
+        args: ["cue mod tidy"]
+      generate:
+        command: [sh, -c]
+        args:
+          - |
+            <span class="yc"># 用 cue export 輸出 K8s manifest</span>
+            cue export ./... --out yaml \
+              --inject env=$ARGOCD_ENV_ENVIRONMENT
+      discover:
+        find:
+          glob: "**/*.cue"
+      allowConcurrency: true</code></pre>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Cue — 強型別 schema 範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">// app.cue: 用 Cue 定義強型別 schema</span>
+<span class="yc">package</span> myapp
+
+<span class="yc">// 1) 定義 schema（含 validation）</span>
+#AppConfig: {
+    name:     string &amp; =~"^[a-z][a-z0-9-]*$"     <span class="yc">// regex 驗證</span>
+    replicas: int &amp; &gt;=1 &amp; &lt;=100                   <span class="yc">// 範圍驗證</span>
+    image:    string                              <span class="yc">// 必填</span>
+    env:      "dev" | "staging" | "prod"          <span class="yc">// enum 驗證</span>
+    resources: {
+        cpu:    string &amp; =~"^[0-9]+m?$"
+        memory: string &amp; =~"^[0-9]+(Mi|Gi)$"
+    }
+}
+
+<span class="yc">// 2) 注入環境（cue export 時 --inject env=prod）</span>
+env: *"dev" | "staging" | "prod" @tag(env)
+
+<span class="yc">// 3) 環境特定 config（自動切換）</span>
+config: #AppConfig &amp; {
+    name: "my-app"
+    env:  env
+    if env == "prod" {
+        replicas: 10
+        resources: cpu: "1000m"
+    }
+    if env != "prod" {
+        replicas: 2
+        resources: cpu: "500m"
+    }
+    image:     "myregistry.io/my-app:v1.2.3"
+    resources: memory: "512Mi"
+}
+
+<span class="yc">// 4) 輸出 K8s manifest（cue export 自動產生）</span>
+deployment: {
+    apiVersion: "apps/v1"
+    kind:       "Deployment"
+    metadata: name: config.name
+    spec: {
+        replicas: config.replicas
+        selector: matchLabels: app: config.name
+        template: {
+            metadata: labels: app: config.name
+            spec: containers: [{
+                name:  config.name
+                image: config.image
+                resources: requests: config.resources
+            }]
+        }
+    }
+}</code></pre>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>三個 CMP 的差異</h4>
+          <p>① <strong>Helmfile</strong>——適合「已用 Helm，需要多 chart 編排」團隊；② <strong>CDK8s</strong>——適合「想用熟悉語言（TS/Python）寫 manifest，避免 YAML 複雜邏輯」團隊；③ <strong>Cue</strong>——適合「嚴格 schema validation、平台工程團隊」場景。<strong>都比直接寫 YAML 更安全</strong>，但學習曲線各異——選擇取決於團隊背景。</p>
+        </div>
+      </div>
+    </section>
+    <section class="sec" id="s6">
+      <h2><span class="sn">6</span>Discovery 與選擇邏輯</h2>
+
+      <p>Discovery 決定「哪個 plugin 處理這個 Application 的 source」。有兩種方式：</p>
+
+      <h3>6.1 自動 discovery（用 find）</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — 三種 discovery 寫法</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc"># 方法 1：glob pattern（最簡單）</span>
+<span class="yk">discover:</span>
+  <span class="yk">find:</span>
+    <span class="yk">glob:</span> <span class="yv">"**/helmfile.yaml"</span>
+    <span class="yc"># 在 source path 下任何深度找 helmfile.yaml 都 match</span>
+
+<span class="yc"># 方法 2：fileName（單一檔名 match）</span>
+<span class="yk">discover:</span>
+  <span class="yk">fileName:</span> <span class="yv">"helmfile.yaml"</span>
+
+<span class="yc"># 方法 3：command（最彈性）</span>
+<span class="yk">discover:</span>
+  <span class="yk">find:</span>
+    <span class="yk">command:</span> [<span class="yv">sh</span>, <span class="yv">-c</span>]
+    <span class="yk">args:</span>
+      - |
+        <span class="yc"># 任何輸出非空就視為 match</span>
+        if [ -f "$ARGOCD_APP_SOURCE_PATH/helmfile.yaml" ] &amp;&amp; \
+           [ ! -f "$ARGOCD_APP_SOURCE_PATH/Chart.yaml" ]; then
+          echo "match"
+        fi
+        <span class="yc"># 條件：有 helmfile.yaml 但沒 Chart.yaml（避免 helm chart 誤觸發）</span></code></pre>
+      </div>
+
+      <h3>6.2 明確指定 plugin（推薦）</h3>
+
+      <p>Argo CD discussion #13870 等 issue 顯示<strong>自動 discovery 在多 plugin 環境容易出錯</strong>——多個 plugin 都可能 match 同一個 source，且 race condition 造成不一致。<strong>生產環境建議明確指定 plugin name</strong>：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — 明確指定 plugin（生產推薦）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: Application</span>
+<span class="yk">spec:</span>
+  <span class="yk">source:</span>
+    <span class="yk">repoURL:</span> <span class="yv">https://github.com/myorg/configs.git</span>
+    <span class="yk">path:</span> <span class="yv">apps/monitoring</span>
+    <span class="yk">plugin:</span>
+      <span class="yc"># 完整 plugin name 格式：&lt;name&gt;-&lt;version&gt;</span>
+      <span class="yc"># 來自 plugin.yaml 的 metadata.name 與 spec.version</span>
+      <span class="yk">name:</span> <span class="yv">helmfile-v1.0</span>
+
+      <span class="yc"># 可選：傳入自訂 env</span>
+      <span class="yk">env:</span>
+        - <span class="yk">name:</span> <span class="yv">ENVIRONMENT</span>
+          <span class="yk">value:</span> <span class="yv">production</span>
+
+      <span class="yc"># 可選：傳入 parameters（v2.5+）</span>
+      <span class="yk">parameters:</span>
+        - <span class="yk">name:</span> <span class="yv">replicas</span>
+          <span class="yk">string:</span> <span class="yv">"10"</span></code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>Plugin name 格式必須完全匹配</h4>
+          <p>① <code>plugin.yaml metadata.name: helmfile</code> + <code>spec.version: v1.0</code> → 完整名稱是 <strong><code>helmfile-v1.0</code></strong>；② 沒 version → 完整名稱是 <code>helmfile</code>。Application 的 <code>plugin.name</code> 必須<strong>完全匹配</strong>，否則報「<code>plugin sidecar failed. couldn't find cmp-server plugin with name</code>」錯誤（discussion #8216）。<strong>升級 plugin 時要同步更新所有 Application 的 plugin.name</strong>。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s7">
+      <h2><span class="sn">7</span>與 ApplicationSet 整合</h2>
+
+      <p>CMP 可以在 ApplicationSet template 中使用，配合 generator 動態建立多個 Application：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — ApplicationSet + Helmfile CMP</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: ApplicationSet</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">multi-env-monitoring</span>
+<span class="yk">spec:</span>
+  <span class="yk">goTemplate:</span> <span class="yv">true</span>
+  <span class="yk">goTemplateOptions:</span> [<span class="yv">"missingkey=error"</span>]
+
+  <span class="yk">generators:</span>
+    - <span class="yk">list:</span>
+        <span class="yk">elements:</span>
+          - <span class="yk">env:</span> <span class="yv">dev</span>
+            <span class="yk">cluster:</span> <span class="yv">https://dev-cluster.example.com</span>
+            <span class="yk">retention:</span> <span class="yv">"7d"</span>
+          - <span class="yk">env:</span> <span class="yv">staging</span>
+            <span class="yk">cluster:</span> <span class="yv">https://staging-cluster.example.com</span>
+            <span class="yk">retention:</span> <span class="yv">"14d"</span>
+          - <span class="yk">env:</span> <span class="yv">prod</span>
+            <span class="yk">cluster:</span> <span class="yv">https://prod-cluster.example.com</span>
+            <span class="yk">retention:</span> <span class="yv">"30d"</span>
+
+  <span class="yk">template:</span>
+    <span class="yk">metadata:</span>
+      <span class="yk">name:</span> <span class="yv">'monitoring-{{.env}}'</span>
+    <span class="yk">spec:</span>
+      <span class="yk">project:</span> <span class="yv">platform</span>
+      <span class="yk">source:</span>
+        <span class="yk">repoURL:</span> <span class="yv">https://github.com/myorg/monitoring.git</span>
+        <span class="yk">path:</span> <span class="yv">helmfile</span>
+        <span class="yk">targetRevision:</span> <span class="yv">main</span>
+
+        <span class="yc"># 引用 CMP</span>
+        <span class="yk">plugin:</span>
+          <span class="yk">name:</span> <span class="yv">helmfile-v1.0</span>
+          <span class="yc"># Generator 變數透過 env 傳給 plugin</span>
+          <span class="yk">env:</span>
+            - <span class="yk">name:</span> <span class="yv">ENVIRONMENT</span>
+              <span class="yk">value:</span> <span class="yv">'{{.env}}'</span>
+            - <span class="yk">name:</span> <span class="yv">RETENTION</span>
+              <span class="yk">value:</span> <span class="yv">'{{.retention}}'</span>
+
+      <span class="yk">destination:</span>
+        <span class="yk">server:</span> <span class="yv">'{{.cluster}}'</span>
+        <span class="yk">namespace:</span> <span class="yv">monitoring</span>
+      <span class="yk">syncPolicy:</span>
+        <span class="yk">automated:</span> {<span class="yk">prune:</span> <span class="yv">true</span>, <span class="yk">selfHeal:</span> <span class="yv">true</span>}</code></pre>
+      </div>
+
+      <p>helmfile.yaml 中可以引用環境變數（Go template syntax）：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — helmfile.yaml 使用環境變數</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc"># helmfile/helmfile.yaml in monitoring repo</span>
+<span class="yk">releases:</span>
+  - <span class="yk">name:</span> <span class="yv">prometheus</span>
+    <span class="yk">chart:</span> <span class="yv">prometheus-community/prometheus</span>
+    <span class="yk">version:</span> <span class="yv">25.8.0</span>
+    <span class="yk">values:</span>
+      - <span class="yk">server:</span>
+          <span class="yc"># 注意：是 ARGOCD_ENV_RETENTION（前綴自動加）</span>
+          <span class="yk">retention:</span> <span class="yv">"{{ env "ARGOCD_ENV_RETENTION" | default "7d" }}"</span>
+        <span class="yk">global:</span>
+          <span class="yk">external_labels:</span>
+            <span class="yk">environment:</span> <span class="yv">"{{ env "ARGOCD_ENV_ENVIRONMENT" }}"</span>
+            <span class="yk">cluster:</span> <span class="yv">"{{ env "ARGOCD_APP_NAME" }}"</span></code></pre>
+      </div>
+    </section>
+
+    <section class="sec" id="s8">
+      <h2><span class="sn">8</span>除錯與最佳實踐</h2>
+
+      <h3>常用除錯指令</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — CMP 除錯工具集</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## 1. 確認 sidecar 正常啟動</span>
+$ kubectl get pods -n argocd -l app.kubernetes.io/name=argocd-repo-server
+$ kubectl logs -n argocd deploy/argocd-repo-server -c helmfile --tail=50
+<span class="sh-comment"># 看到 "argocd-cmp-server v3.4.0 serving on .../helmfile-v1.0.sock" 就是 OK</span>
+
+<span class="sh-comment">## 2. 確認 socket 已建立</span>
+$ kubectl exec -n argocd deploy/argocd-repo-server -c helmfile -- \
+    ls -la /home/argocd/cmp-server/plugins/
+<span class="sh-comment"># helmfile-v1.0.sock</span>
+
+<span class="sh-comment">## 3. 確認 plugin.yaml 內容</span>
+$ kubectl exec -n argocd deploy/argocd-repo-server -c helmfile -- \
+    cat /home/argocd/cmp-server/config/plugin.yaml
+
+<span class="sh-comment">## 4. 看 repo-server 主容器 log（plugin selection logic）</span>
+$ kubectl logs -n argocd deploy/argocd-repo-server -c argocd-repo-server \
+    --tail=200 | grep -i plugin
+<span class="sh-comment"># 找：plugin "helmfile-v1.0" matched / not found / errors</span>
+
+<span class="sh-comment">## 5. Application 報錯：強制 Hard Refresh（清 Redis cache）</span>
+<span class="sh-comment"># 在 UI 點 "Refresh" 旁邊的下拉 → "Hard Refresh"</span>
+<span class="sh-comment"># 或 CLI：</span>
+$ argocd app get my-app --refresh hard
+
+<span class="sh-comment">## 6. 手動執行 plugin 命令測試（在 sidecar 內）</span>
+$ kubectl exec -n argocd deploy/argocd-repo-server -c helmfile -- sh
+$ cd /tmp/test-source-path     <span class="sh-comment"># 模擬 Argo CD 的 source path</span>
+$ export ARGOCD_APP_NAMESPACE=my-app
+$ helmfile template --quiet --namespace $ARGOCD_APP_NAMESPACE
+
+<span class="sh-comment">## 7. 修改 plugin.yaml ConfigMap 後必重啟 repo-server</span>
+$ kubectl rollout restart deploy/argocd-repo-server -n argocd
+
+<span class="sh-comment">## 8. 調整 timeout（plugin 執行慢時）</span>
+$ kubectl set env deploy/argocd-repo-server -n argocd \
+    -c helmfile ARGOCD_EXEC_TIMEOUT=300s</code></pre>
+      </div>
+
+      <h3>常見錯誤對照</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>錯誤訊息</th><th>原因</th><th>解法</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>couldn't find cmp-server plugin with name X</code></td>
+              <td>Application 的 plugin name 與 sidecar 註冊的 name 不符</td>
+              <td>確認 <code>&lt;name&gt;-&lt;version&gt;</code> 完整格式；看 sidecar log 確認註冊的名稱</td>
+            </tr>
+            <tr>
+              <td>Sidecar pod CrashLoopBackOff</td>
+              <td>init container 沒成功填入 binary；或 sidecar 命令錯</td>
+              <td>確認 entrypoint 是 <code>/var/run/argocd/argocd-cmp-server</code>；確認 mount 正確</td>
+            </tr>
+            <tr>
+              <td>Plugin 執行 timeout</td>
+              <td>generate 命令執行超過 90s（預設）</td>
+              <td>設 <code>ARGOCD_EXEC_TIMEOUT=300s</code> 在 sidecar；同時調 repo-server 整體 timeout</td>
+            </tr>
+            <tr>
+              <td>修改 plugin.yaml 沒生效</td>
+              <td>ConfigMap mount 是 lazy，需重啟 repo-server pod</td>
+              <td><code>kubectl rollout restart</code> repo-server</td>
+            </tr>
+            <tr>
+              <td>Error 被 cache</td>
+              <td>Redis cache 保留錯誤 manifest</td>
+              <td>Hard Refresh 清 cache</td>
+            </tr>
+            <tr>
+              <td>Discovery 選錯 plugin</td>
+              <td>多個 plugin 都 match 同一 source</td>
+              <td>明確 <code>plugin.name</code>；或讓 discovery 條件更嚴</td>
+            </tr>
+            <tr>
+              <td><code>Permission denied</code></td>
+              <td>sidecar 非 root 但 plugin 需要 root</td>
+              <td>確保 image 中所有檔案 <code>chown 999</code>；或調整 securityContext</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>最佳實踐</h3>
+
+      <div class="cal ct">
+        <span class="ic">✅</span>
+        <div>
+          <h4>CMP 上線 Checklist</h4>
+          <p>① <strong>plugin.yaml 用 ConfigMap 管理</strong>（不要 bake 到 image，更新方便）；② <strong>Application 明確 <code>plugin.name</code></strong>不要依賴 discovery（多 plugin 環境容易亂）；③ <strong>必設 <code>spec.version</code></strong>方便管理多版本並存；④ <strong>Dockerfile 用 distroless / alpine</strong>降低 attack surface；⑤ <strong>USER 999</strong>且 securityContext.runAsNonRoot;⑥ <strong>cmp-tmp 用獨立 emptyDir</strong>（v2.4+ 強制隔離）；⑦ <strong>修改 plugin 必 rollout restart repo-server</strong>；⑧ <strong>plugin 升級用新 version</strong>（v1.0 → v1.1）並同步更新 Application；⑨ <strong>監控 sidecar resources</strong>（CPU/memory limit 適當）；⑩ <strong>不要把 generate 命令做太複雜</strong>（複雜邏輯放 application repo 中的腳本）。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="sum">
+      <h2><span class="sn">✓</span>本章重點回顧</h2>
+      <div class="kp">
+        <h3>📌 Key Takeaways</h3>
+        <ul class="kp-list">
+          <li><span class="kp-ic">🔌</span><span><strong>CMP v2 sidecar 是唯一支援方式</strong>：v2.4 deprecated v1（ConfigMap），<strong>v2.8 完全移除</strong>。如果還在用 argocd-cm configManagementPlugins 必須先遷移。sidecar 架構帶來 filesystem 隔離（v2.4+ <code>/tmp</code> 不共用）、plugin 自帶 image、多 plugin 互不影響的好處。</span></li>
+          <li><span class="kp-ic">⚙️</span><span><strong>架構核心：cmp-server 是 sidecar，repo-server 透過 Unix socket 用 gRPC 通訊</strong>。init container 把 <code>argocd-cmp-server</code> binary 複製到共用 volume <code>/var/run/argocd</code>。Sidecar 以此為 entrypoint，註冊 socket 到 <code>/home/argocd/cmp-server/plugins/&lt;name&gt;-&lt;version&gt;.sock</code>。</span></li>
+          <li><span class="kp-ic">📄</span><span><strong>plugin.yaml 三大命令</strong>：① <code>init</code>（每次 generate 前跑，可裝依賴）；② <code>generate</code>（產出 YAML 到 stdout，<strong>必須</strong>）；③ <code>discover</code>（自動發現，可選但建議）。<strong>allowConcurrency: true</strong>多數情況需要（否則 plugin 序列化執行）；<strong>provideGitCreds 只給信任 plugin</strong>（會把 Git 認證傳給 plugin）。</span></li>
+          <li><span class="kp-ic">🔑</span><span><strong>環境變數三層</strong>：① 系統（sidecar 容器 env）；② Argo CD 內建（<code>ARGOCD_APP_NAME</code> / <code>ARGOCD_APP_SOURCE_PATH</code> / <code>ARGOCD_APP_REVISION</code> / <code>KUBE_VERSION</code>）；③ 使用者自訂（Application spec.source.plugin.env，<strong>自動加 ARGOCD_ENV_ 前綴防注入</strong>）。Plugin 內存取自訂變數記得用前綴名。</span></li>
+          <li><span class="kp-ic">🏗️</span><span><strong>建立 CMP 四步驟</strong>：① Dockerfile（installs tool + USER 999 + entrypoint <code>argocd-cmp-server</code>）；② plugin.yaml（在 ConfigMap）；③ patch argocd-repo-server Deployment 加 sidecar（含 var-files / plugins / config / cmp-tmp 四個 volume mount）；④ Application 用 <code>spec.source.plugin.name: &lt;name&gt;-&lt;version&gt;</code> 引用。</span></li>
+          <li><span class="kp-ic">📦</span><span><strong>三個生產 CMP 範例</strong>：① <strong>Helmfile</strong>（多 chart 依賴編排，<code>needs:</code> 控制順序）；② <strong>CDK8s</strong>（TS/Python 寫 manifest，process.env 讀 Argo CD env）；③ <strong>Cue</strong>（強型別 schema validation，<code>cue export --inject</code> 注入環境參數）。<strong>選 CMP 取決於團隊背景</strong>，不是哪個更好。</span></li>
+          <li><span class="kp-ic">🔍</span><span><strong>Discovery 兩種：glob 與 command</strong>。<strong>生產推薦明確 <code>spec.source.plugin.name</code></strong>不依賴 discovery（多 plugin 環境容易 race condition 選錯 plugin，discussion #13870）。Plugin name 格式必須<strong>完全匹配</strong> <code>&lt;name&gt;-&lt;version&gt;</code>（如有 version）或 <code>&lt;name&gt;</code>（無 version），否則報 plugin not found（#8216）。</span></li>
+          <li><span class="kp-ic">🎫</span><span><strong>與 ApplicationSet 整合</strong>：在 template 的 <code>spec.source.plugin</code> 引用 CMP，<strong>generator 變數透過 env 傳給 plugin</strong>（自動加 ARGOCD_ENV_ 前綴）。Plugin 內可在 helmfile / cue / cdk8s 程式中讀取這些 env。實現「N 個環境 × M 個 CMP」的動態組合。</span></li>
+          <li><span class="kp-ic">🐛</span><span><strong>除錯起點</strong>：① 看 sidecar log 確認 socket 註冊；② <code>kubectl exec</code> 進 sidecar 手動執行 generate；③ Hard Refresh 清 Redis cache（修改 plugin 後 manifest 還是舊版的常見原因）；④ <code>ARGOCD_EXEC_TIMEOUT</code> 調整 plugin 執行 timeout（預設 90s）；⑤ 修改 plugin.yaml ConfigMap 後 <strong>必 rollout restart repo-server</strong>。</span></li>
+          <li><span class="kp-ic">✅</span><span><strong>10 項上線 Checklist</strong>：① plugin.yaml 用 ConfigMap（更新方便）；② Application 明確 plugin.name；③ 必設 spec.version；④ Dockerfile 用 distroless/alpine；⑤ USER 999 + runAsNonRoot；⑥ cmp-tmp 獨立 emptyDir；⑦ 修改 plugin 必 rollout restart；⑧ 升級用新 version 並同步 Application；⑨ 監控 sidecar resources；⑩ generate 命令簡單（複雜邏輯放 app repo 腳本）。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <nav class="ch-nav">
+      <a href="ch33-sync-hooks-advanced.html" class="nav-btn nav-prev">
+        <div><div class="nav-sub">上一章 / PREV</div><div>← Ch.33 Sync Hooks 進階</div></div>
+      </a>
+      <a href="#" class="nav-btn nav-next">
+        <div><div class="nav-sub">下一章 / NEXT</div><div>Ch.35 ArgoCD Vault Plugin 與 External Secrets →</div></div>
+      </a>
+    </nav>
+  </main>
+</div>
+
+<footer>Argo CD 完整教學手冊 · <strong>Vol 7 Ch.34</strong> · 基於 Argo CD <strong>v3.4</strong> · 2026-05-09</footer>
+
+<script>
+(function(){
+  'use strict';
+  const KEY='jhsun-theme';
+  const IC={light:'☀',dark:'☾',system:'◐'};
+  const LB={light:'Light',dark:'Dark',system:'System'};
+  function gs(){try{return localStorage.getItem(KEY);}catch(_){return null;}}
+  function ss(v){try{v==='system'||v==null?localStorage.removeItem(KEY):localStorage.setItem(KEY,v);}catch(_){}}
+  function sp(){return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  function ef(m){return m==='system'?sp():m;}
+  function apply(m){
+    const e=ef(m);
+    document.documentElement.dataset.theme=e;
+    document.documentElement.dataset.themeMode=m;
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{
+      b.dataset.themeMode=m;
+      b.setAttribute('aria-label','Theme: '+LB[m]);
+      b.title='Theme: '+LB[m];
+      if(!b.dataset.themeToggleStyled)b.innerHTML='<span>'+IC[m]+'</span><span>'+LB[m]+'</span>';
+    });
+    dispatchEvent(new CustomEvent('jhsun:theme-changed',{detail:{theme:e,mode:m}}));
+  }
+  function cyc(c){return c==='light'?'dark':c==='dark'?'system':'light';}
+  function cur(){return gs()||'system';}
+  function init(){
+    apply(cur());
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{b.addEventListener('click',()=>{const n=cyc(cur());ss(n);apply(n);});});
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(cur()==='system')apply('system');});
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+  window.JHsunTheme={get:cur,set:m=>{ss(m);apply(m);},toggle:()=>{const n=cyc(cur());ss(n);apply(n);}};
+})();
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('.copy-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const pre=btn.closest('.code-wrap').querySelector('pre');
+      navigator.clipboard.writeText(pre.innerText).then(()=>{btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},2000);});
+    });
+  });
+  const hds=document.querySelectorAll('.sec h2,.sec h3');
+  const lks=document.querySelectorAll('.toc-list a');
+  const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){lks.forEach(l=>l.classList.remove('active'));const id=e.target.id||e.target.closest('[id]')?.id;if(id){const a=document.querySelector('.toc-list a[href="#'+id+'"]');if(a)a.classList.add('active');}}});},{rootMargin:'-60px 0px -70% 0px'});
+  hds.forEach(h=>{if(h.id)obs.observe(h);});
+});
+</script>
+</body>
+</html>

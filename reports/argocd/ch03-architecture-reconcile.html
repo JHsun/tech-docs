@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.03 架構深度解析：五大元件與 Reconcile Loop — Argo CD 完整教學手冊</title>
+<style>
+:root {
+  --tk-hue:200;--tk-chroma:0.11;
+  --color-success:#16a34a;--color-success-soft:#dcfce7;
+  --color-warning:#d97706;--color-warning-soft:#fef3c7;
+  --color-danger:#dc2626;--color-danger-soft:#fee2e2;
+  --color-info:#0891b2;--color-info-soft:#cffafe;
+  --color-neutral-accent:#7c3aed;
+  --color-primary:oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:oklch(0.96 calc(var(--tk-chroma)*.25) var(--tk-hue));
+  --color-primary-text:oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas:oklch(0.985 0.004 60);--bg-surface:oklch(0.995 0.003 60);
+  --bg-muted:oklch(0.96 0.005 60);--bg-code:oklch(0.975 0.006 60);
+  --border-soft:oklch(0.92 0.006 60);--border-mid:oklch(0.85 0.008 60);
+  --text-primary:oklch(0.22 0.008 60);--text-secondary:oklch(0.42 0.008 60);--text-muted:oklch(0.58 0.008 60);
+  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --font-sans:"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif;
+  --font-serif:"Playfair Display","Source Serif 4","Noto Serif TC",Georgia,serif;
+  --font-body:"Source Serif 4","Noto Serif TC",Georgia,serif;
+  --text-xs:12px;--text-sm:14px;--text-base:16px;--text-md:18px;--text-lg:20px;--text-xl:24px;--text-2xl:32px;--text-3xl:44px;
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-7:48px;--space-8:64px;--space-9:96px;
+  --radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:20px;
+  --shadow-sm:0 1px 3px oklch(0.20 0.01 60/0.07);--shadow-md:0 4px 14px oklch(0.20 0.01 60/0.10);
+}
+:root[data-theme="dark"]{
+  --color-success:#4ade80;--color-success-soft:oklch(0.28 0.08 145);
+  --color-warning:#fbbf24;--color-warning-soft:oklch(0.30 0.10 70);
+  --color-danger:#f87171;--color-danger-soft:oklch(0.30 0.10 27);
+  --color-info:#22d3ee;--color-info-soft:oklch(0.30 0.08 200);
+  --color-neutral-accent:#a78bfa;
+  --color-primary:oklch(0.72 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-hover:oklch(0.80 calc(var(--tk-chroma)*.95) var(--tk-hue));
+  --color-primary-soft:oklch(0.28 calc(var(--tk-chroma)*.6) var(--tk-hue));
+  --color-primary-text:oklch(0.85 calc(var(--tk-chroma)*.6) var(--tk-hue));
+  --bg-canvas:oklch(0.14 0.008 50);--bg-surface:oklch(0.18 0.009 50);
+  --bg-muted:oklch(0.21 0.010 50);--bg-code:oklch(0.16 0.009 50);
+  --border-soft:oklch(0.26 0.010 50);--border-mid:oklch(0.34 0.012 50);
+  --text-primary:oklch(0.93 0.005 60);--text-secondary:oklch(0.74 0.006 60);--text-muted:oklch(0.56 0.007 60);
+  --shadow-sm:0 1px 3px oklch(0.04 0 0/.50);--shadow-md:0 4px 14px oklch(0.04 0 0/.60);
+}
+html{color-scheme:light dark;}html[data-theme="light"]{color-scheme:light;}html[data-theme="dark"]{color-scheme:dark;}
+body{background:var(--bg-canvas);color:var(--text-primary);font-family:var(--font-sans);font-size:var(--text-base);line-height:1.7;margin:0;padding:0;transition:background .25s,color .25s;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+.topbar{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:10px var(--space-6);background:var(--bg-surface);border-bottom:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.tb-left{display:flex;align-items:center;gap:var(--space-3);}
+.tb-logo{width:30px;height:30px;border-radius:var(--radius-md);background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:13px;font-weight:800;}
+.tb-trail{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.tb-trail .sep{color:var(--border-mid);}.tb-trail .cur{color:var(--color-primary);font-weight:600;}
+.tb-right{display:flex;align-items:center;gap:var(--space-2);}
+.pill{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);border:1px solid;}
+.pill-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.pill-ver{background:var(--color-info-soft);color:var(--color-info);border-color:var(--color-info);}
+[data-theme-toggle]{cursor:pointer;border:1px solid var(--border-mid);background:var(--bg-muted);color:var(--text-secondary);border-radius:var(--radius-md);padding:6px var(--space-3);font-family:var(--font-sans);font-size:var(--text-sm);display:flex;align-items:center;gap:6px;transition:all .2s;}
+[data-theme-toggle]:hover{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.page{display:flex;min-height:100vh;}
+.toc-sidebar{width:230px;flex-shrink:0;position:sticky;top:49px;height:calc(100vh - 49px);overflow-y:auto;padding:var(--space-5) var(--space-3);border-right:1px solid var(--border-soft);background:var(--bg-surface);}
+.toc-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-3);}
+.toc-list{list-style:none;}
+.toc-list li{margin-bottom:2px;}
+.toc-list a{display:block;padding:4px var(--space-2);font-size:var(--text-sm);color:var(--text-secondary);text-decoration:none;border-radius:var(--radius-sm);border-left:2px solid transparent;transition:all .15s;line-height:1.4;}
+.toc-list a:hover,.toc-list a.active{color:var(--color-primary);background:var(--color-primary-soft);border-left-color:var(--color-primary);font-weight:600;}
+.toc-h3{padding-left:var(--space-4)!important;font-size:var(--text-xs)!important;}
+.toc-lbl{display:block;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:var(--space-3) var(--space-2) var(--space-1);margin-top:var(--space-2);}
+.content{flex:1;min-width:0;padding:var(--space-8) var(--space-7) var(--space-9);max-width:880px;}
+.ch-header{margin-bottom:var(--space-8);padding-bottom:var(--space-6);border-bottom:1px solid var(--border-soft);}
+.ch-meta{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-4);flex-wrap:wrap;}
+.m-badge{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);}
+.m-ch{background:var(--color-primary);color:#fff;}
+.m-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border:1px solid var(--color-primary);}
+.m-time{background:var(--bg-muted);color:var(--text-muted);border:1px solid var(--border-soft);}
+.ch-header h1{font-family:var(--font-serif);font-size:clamp(var(--text-2xl),4vw,var(--text-3xl));font-weight:700;color:var(--text-primary);line-height:1.2;margin-bottom:var(--space-4);}
+.ch-header h1 em{font-style:normal;color:var(--color-primary);}
+.ch-lead{font-size:var(--text-md);color:var(--text-secondary);line-height:1.7;max-width:700px;font-family:var(--font-body);}
+.prereq{margin-top:var(--space-5);display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--bg-muted);border-radius:var(--radius-md);border:1px solid var(--border-soft);}
+.prereq .pico{font-size:var(--text-lg);flex-shrink:0;margin-top:1px;}
+.prereq p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;}
+.prereq strong{color:var(--text-primary);}
+.obj-box{background:var(--color-primary-soft);border:1px solid var(--color-primary);border-radius:var(--radius-lg);padding:var(--space-5);margin-bottom:var(--space-7);}
+.obj-box h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--color-primary-text);font-weight:700;margin-bottom:var(--space-3);}
+.obj-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-2);}
+.obj-list li{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-sm);color:var(--color-primary-text);line-height:1.5;}
+.obj-list li::before{content:"✓";font-weight:700;color:var(--color-primary);flex-shrink:0;margin-top:1px;}
+.sec{margin-bottom:var(--space-8);scroll-margin-top:80px;}
+.sec h2{font-family:var(--font-serif);font-size:var(--text-2xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-4);padding-bottom:var(--space-3);border-bottom:2px solid var(--border-soft);display:flex;align-items:center;gap:var(--space-3);}
+.sn{font-family:var(--font-mono);font-size:var(--text-sm);background:var(--color-primary);color:#fff;padding:2px 8px;border-radius:var(--radius-sm);font-weight:700;white-space:nowrap;flex-shrink:0;}
+.sec h3{font-family:var(--font-sans);font-size:var(--text-lg);font-weight:700;color:var(--text-primary);margin:var(--space-6) 0 var(--space-3);}
+.sec h4{font-family:var(--font-sans);font-size:var(--text-base);font-weight:700;color:var(--text-primary);margin:var(--space-4) 0 var(--space-2);}
+p{font-family:var(--font-body);font-size:var(--text-base);color:var(--text-secondary);line-height:1.8;margin-bottom:var(--space-4);}
+strong{color:var(--text-primary);}em{color:var(--color-primary);font-style:normal;}
+.cal{display:flex;gap:var(--space-3);padding:var(--space-4) var(--space-5);border-radius:var(--radius-lg);margin:var(--space-5) 0;border-left:4px solid;}
+.ci{background:var(--color-info-soft);border-color:var(--color-info);}
+.cw{background:var(--color-warning-soft);border-color:var(--color-warning);}
+.ct{background:var(--color-success-soft);border-color:var(--color-success);}
+.cd{background:var(--color-primary-soft);border-color:var(--color-primary);}
+.cal .ic{font-size:var(--text-lg);flex-shrink:0;margin-top:2px;}
+.cal h4{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-1);font-family:var(--font-sans);}
+.cal p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.65;margin:0;font-family:var(--font-sans);}
+.code-wrap{margin:var(--space-4) 0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.code-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px var(--space-4);background:var(--bg-muted);border-bottom:1px solid var(--border-soft);}
+.code-lang{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;}
+.copy-btn{cursor:pointer;font-family:var(--font-mono);font-size:11px;padding:3px 10px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--border-mid);color:var(--text-muted);transition:all .2s;}
+.copy-btn:hover{background:var(--color-primary-soft);color:var(--color-primary);border-color:var(--color-primary);}
+.copy-btn.copied{background:var(--color-success-soft);color:var(--color-success);border-color:var(--color-success);}
+pre{margin:0;padding:var(--space-5);background:var(--bg-code);overflow-x:auto;font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.65;color:var(--text-primary);}
+code{font-family:var(--font-mono);font-size:.92em;background:var(--bg-code);padding:1px 5px;border-radius:var(--radius-sm);color:var(--color-primary-text);border:1px solid var(--border-soft);}
+pre code{background:none;padding:0;border:none;color:inherit;font-size:inherit;}
+.yk{color:var(--color-info);}.yv{color:var(--color-success);}.yc{color:var(--text-muted);font-style:italic;}
+.yn{color:var(--color-warning);}.yh{color:var(--color-neutral-accent);font-weight:700;}
+:root[data-theme="dark"] .ys{color:oklch(0.75 0.12 50);}
+.dw{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);margin:var(--space-5) 0;overflow-x:auto;box-shadow:var(--shadow-sm);}
+.dt{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:var(--space-4);}
+.mermaid{text-align:center;}
+/* component cards */
+.comp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:var(--space-4);margin:var(--space-5) 0;}
+.comp-card{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-5);box-shadow:var(--shadow-sm);position:relative;overflow:hidden;transition:box-shadow .2s,transform .2s;}
+.comp-card:hover{box-shadow:var(--shadow-md);transform:translateY(-2px);}
+.comp-card::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--cc);}
+.cc-icon{font-size:32px;margin-bottom:var(--space-3);}
+.cc-name{font-family:var(--font-mono);font-size:var(--text-sm);font-weight:700;color:var(--cc);margin-bottom:var(--space-1);}
+.cc-kind{font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-bottom:var(--space-3);}
+.cc-desc{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.cc-port{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);margin-top:var(--space-3);padding-top:var(--space-2);border-top:1px solid var(--border-soft);}
+/* table */
+.tw{overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);margin:var(--space-5) 0;}
+table{width:100%;border-collapse:collapse;font-size:var(--text-sm);}
+thead th{background:var(--bg-muted);padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.07em;border-bottom:2px solid var(--border-mid);text-align:left;white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--border-soft);transition:background .12s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--bg-muted);}
+td{padding:var(--space-3) var(--space-4);vertical-align:top;line-height:1.6;font-family:var(--font-sans);}
+td:first-child{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--color-primary-text);background:var(--color-primary-soft);white-space:nowrap;font-weight:600;}
+.tc{font-size:var(--text-xs);color:var(--text-muted);}
+/* reconcile loop steps */
+.loop-steps{counter-reset:step;display:flex;flex-direction:column;gap:var(--space-3);margin:var(--space-5) 0;}
+.loop-step{display:flex;gap:var(--space-4);align-items:flex-start;padding:var(--space-4) var(--space-5);background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);transition:box-shadow .15s;}
+.loop-step:hover{box-shadow:var(--shadow-md);}
+.step-num{counter-increment:step;width:36px;height:36px;border-radius:50%;background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:var(--text-sm);font-weight:700;flex-shrink:0;}
+.step-body{flex:1;}
+.step-title{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:4px;}
+.step-desc{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.step-tag{display:inline-block;font-family:var(--font-mono);font-size:10px;padding:1px 6px;border-radius:var(--radius-sm);border:1px solid;margin-left:var(--space-2);}
+.st-ctrl{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.st-repo{background:var(--color-info-soft);color:var(--color-info);border-color:var(--color-info);}
+.st-redis{background:var(--color-warning-soft);color:var(--color-warning);border-color:var(--color-warning);}
+.st-k8s{background:var(--color-success-soft);color:var(--color-success);border-color:var(--color-success);}
+/* key points */
+.kp{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);margin:var(--space-7) 0;box-shadow:var(--shadow-sm);}
+.kp h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-4);margin-top:0;}
+.kp-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-3);}
+.kp-list li{display:flex;align-items:flex-start;gap:var(--space-3);font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.kp-ic{font-size:var(--text-md);flex-shrink:0;margin-top:1px;}
+/* debug panel */
+.debug-panel{background:var(--bg-code);border:1px solid var(--border-mid);border-radius:var(--radius-lg);overflow:hidden;margin:var(--space-5) 0;}
+.debug-header{padding:var(--space-3) var(--space-5);background:var(--bg-muted);border-bottom:1px solid var(--border-soft);font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;}
+.debug-body{padding:var(--space-4) var(--space-5);display:flex;flex-direction:column;gap:var(--space-3);}
+.debug-cmd{display:flex;align-items:flex-start;gap:var(--space-3);}
+.debug-cmd .prompt{color:var(--color-success);font-family:var(--font-mono);font-size:var(--text-sm);flex-shrink:0;margin-top:1px;}
+.debug-cmd .cmd{font-family:var(--font-mono);font-size:var(--text-sm);color:var(--text-primary);flex:1;}
+.debug-cmd .note{font-size:var(--text-xs);color:var(--text-muted);font-family:var(--font-sans);margin-top:2px;}
+/* nav */
+.ch-nav{display:flex;justify-content:space-between;margin-top:var(--space-9);padding-top:var(--space-6);border-top:1px solid var(--border-soft);}
+.nav-btn{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);text-decoration:none;font-size:var(--text-sm);font-weight:600;transition:all .2s;box-shadow:var(--shadow-md);}
+.nav-prev{background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-mid);}.nav-prev:hover{background:var(--bg-muted);transform:translateX(-2px);}
+.nav-next{background:var(--color-primary);color:#fff;}.nav-next:hover{background:var(--color-primary-hover);transform:translateX(2px);}
+.nav-sub{font-size:11px;opacity:.75;font-family:var(--font-mono);}
+footer{border-top:1px solid var(--border-soft);padding:var(--space-5) var(--space-8);font-family:var(--font-mono);font-size:11px;color:var(--text-muted);text-align:center;}
+footer strong{color:var(--color-primary);}
+@media(max-width:900px){.toc-sidebar{display:none;}.content{padding:var(--space-6) var(--space-4) var(--space-8);}.comp-grid{grid-template-columns:1fr;}}
+@media(max-width:640px){.topbar{padding:8px var(--space-4);}.tb-trail{display:none;}}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.6.1/mermaid.min.js"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="tb-left">
+    <div class="tb-logo">A</div>
+    <nav class="tb-trail">
+      <span>Argo CD 完整教學手冊</span><span class="sep">›</span>
+      <span>Vol 1 入門基礎</span><span class="sep">›</span>
+      <span class="cur">Ch.03 架構深度解析</span>
+    </nav>
+  </div>
+  <div class="tb-right">
+    <span class="pill pill-vol">Vol 1 · Ch.03</span>
+    <span class="pill pill-ver">v3.4</span>
+    <button data-theme-toggle></button>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="toc-sidebar">
+    <div class="toc-title">本章目錄</div>
+    <ul class="toc-list">
+      <li><a href="#obj">學習目標</a></li>
+      <span class="toc-lbl">第一節</span>
+      <li><a href="#s1">架構全覽</a></li>
+      <li><a href="#s1a" class="toc-h3">設計哲學</a></li>
+      <li><a href="#s1b" class="toc-h3">資料流程圖</a></li>
+      <span class="toc-lbl">第二節</span>
+      <li><a href="#s2">五大元件詳解</a></li>
+      <li><a href="#s2a" class="toc-h3">argocd-server</a></li>
+      <li><a href="#s2b" class="toc-h3">application-controller</a></li>
+      <li><a href="#s2c" class="toc-h3">repo-server</a></li>
+      <li><a href="#s2d" class="toc-h3">argocd-dex</a></li>
+      <li><a href="#s2e" class="toc-h3">argocd-redis</a></li>
+      <span class="toc-lbl">第三節</span>
+      <li><a href="#s3">Reconcile Loop 深度解析</a></li>
+      <li><a href="#s3a" class="toc-h3">完整流程（十步）</a></li>
+      <li><a href="#s3b" class="toc-h3">觸發條件</a></li>
+      <li><a href="#s3c" class="toc-h3">時間參數調優</a></li>
+      <span class="toc-lbl">第四節</span>
+      <li><a href="#s4">持久化儲存</a></li>
+      <span class="toc-lbl">第五節</span>
+      <li><a href="#s5">元件故障排查</a></li>
+      <span class="toc-lbl">總結</span>
+      <li><a href="#sum">重點回顧</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <header class="ch-header">
+      <div class="ch-meta">
+        <span class="m-badge m-ch">Chapter 03</span>
+        <span class="m-badge m-vol">Vol 1 — GitOps 入門</span>
+        <span class="m-badge m-time">⏱ 預計閱讀時間 35 分鐘</span>
+      </div>
+      <h1>架構深度解析：<br><em>五大元件與 Reconcile Loop</em></h1>
+      <p class="ch-lead">Argo CD 的設計以「關注點分離」為核心哲學，五個元件各司其職。真正理解每個元件的職責、通訊方式、以及 Reconcile Loop 的完整流程，是進行生產環境除錯、效能調優與高可用規劃的必要基礎。</p>
+      <div class="prereq">
+        <span class="pico">📋</span>
+        <p><strong>前置：</strong>已閱讀 Ch.01（GitOps 概念）與 Ch.02（Application CRD、Sync / Health Status）。具備 Kubernetes 基礎（Pod、Deployment、StatefulSet）。</p>
+      </div>
+    </header>
+
+    <div class="obj-box" id="obj">
+      <h3>🎯 學習目標</h3>
+      <ul class="obj-list">
+        <li>說明 Argo CD 五大元件的職責、部署類型（Deployment / StatefulSet）與通訊埠號</li>
+        <li>描述從使用者 git push 到叢集狀態更新的完整資料流（十個步驟）</li>
+        <li>理解 Reconcile Loop 的觸發條件、時間參數與 jitter 的用途</li>
+        <li>區分 Argo CD 哪些資料存在 Redis（暫存）、哪些存在 Kubernetes etcd（持久）</li>
+        <li>能根據元件特性快速定位問題日誌位置，進行初步故障排查</li>
+        <li>了解 repo-server 的 manifest 快取機制與 parallelism 控制</li>
+      </ul>
+    </div>
+
+    <!-- S1 架構全覽 -->
+    <section class="sec" id="s1">
+      <h2><span class="sn">1</span>架構全覽：設計哲學與資料流</h2>
+
+      <h3 id="s1a">1.1 設計哲學：關注點分離</h3>
+      <p>Argo CD 的架構刻意保持<strong>簡單</strong>。相較於其他 CD 平台動輒十幾個微服務，Argo CD 只有五個核心元件，每個元件有明確的單一職責：</p>
+
+      <div class="cal ci">
+        <span class="ic">💡</span>
+        <div>
+          <h4>架構設計原則</h4>
+          <p>「API server 處理使用者互動，repo server 處理 manifest 生成，application controller 處理調和，Redis 透過快取串聯一切。這種有意的簡單性是特性，不是限制——更少的移動部件，代表更少可能出錯的地方。」</p>
+        </div>
+      </div>
+
+      <p>Argo CD 的所有持久資料都以 <strong>Kubernetes 原生物件</strong>的形式存在（ConfigMap、Secret、CRD），Redis 只是效能快取，即使 Redis 失效，資料也不會遺失。這個設計讓災難復原（DR）極為簡單：備份 argocd namespace 即備份全部狀態。</p>
+
+      <h3 id="s1b">1.2 完整資料流程圖</h3>
+      <div class="dw">
+        <div class="dt">📊 Argo CD 完整架構與資料流（使用者 push 到叢集更新）</div>
+        <div class="mermaid">
+graph TB
+  subgraph EXT["外部世界"]
+    User["👩‍💻 使用者<br/>git push / UI / CLI"]
+    Git["📁 Git Repository<br/>（GitHub / GitLab...）"]
+    IdP["🔐 Identity Provider<br/>（Okta / GitHub / LDAP）"]
+  end
+
+  subgraph ARGOCD["Argo CD（argocd namespace）"]
+    Server["🖥️ argocd-server<br/>Deployment<br/>:8080 gRPC+REST / :8083 metrics"]
+    Dex["🔑 argocd-dex-server<br/>Deployment<br/>:5556 OIDC / :5557 gRPC"]
+    RepoSrv["📦 argocd-repo-server<br/>Deployment<br/>:8081 gRPC"]
+    Ctrl["⚙️ argocd-application-controller<br/>StatefulSet<br/>:8082 metrics"]
+    Redis["🔴 argocd-redis<br/>Deployment / HA Sentinel<br/>:6379"]
+  end
+
+  subgraph TARGET["目標叢集"]
+    K8sAPI["☸️ Kubernetes API Server"]
+    Resources["📋 Kubernetes Resources<br/>Deployment / Service / CM..."]
+  end
+
+  User -->|"HTTPS / gRPC"| Server
+  User -->|"git push"| Git
+  Server -->|"OIDC / OAuth2"| Dex
+  Dex -->|"Federate"| IdP
+  Server -->|"Manifest request"| RepoSrv
+  RepoSrv -->|"git clone / pull"| Git
+  RepoSrv -->|"Cache manifests"| Redis
+  Ctrl -->|"Watch Applications"| Redis
+  Ctrl -->|"Get live state"| K8sAPI
+  Ctrl -->|"Apply manifests"| K8sAPI
+  K8sAPI --> Resources
+  Server -->|"Read/Write"| K8sAPI
+
+  style ARGOCD fill:oklch(0.97 0.01 200),stroke:oklch(0.75 0.08 200)
+  style EXT fill:oklch(0.97 0.01 80),stroke:oklch(0.75 0.05 80)
+  style TARGET fill:oklch(0.96 0.03 145),stroke:oklch(0.70 0.08 145)
+        </div>
+      </div>
+    </section>
+
+    <!-- S2 五大元件 -->
+    <section class="sec" id="s2">
+      <h2><span class="sn">2</span>五大元件詳解</h2>
+      <p>以下逐一深入說明每個元件的職責、部署特性、關鍵配置，以及在故障排查時應關注的面向。</p>
+
+      <div class="comp-grid">
+        <div class="comp-card" style="--cc:var(--color-primary)">
+          <div class="cc-icon">🖥️</div>
+          <div class="cc-name">argocd-server</div>
+          <div class="cc-kind">Deployment · 可水平擴展</div>
+          <div class="cc-desc">API Gateway：所有外部請求的入口。服務 Web UI、CLI（argocd）、第三方 CI/CD 系統。同時負責 RBAC 執行、Session 管理、通知觸發協調。</div>
+          <div class="cc-port">Port :8080 gRPC+REST API · :8083 Prometheus metrics</div>
+        </div>
+        <div class="comp-card" style="--cc:oklch(0.50 0.13 160)">
+          <div class="cc-icon">⚙️</div>
+          <div class="cc-name">argocd-application-controller</div>
+          <div class="cc-kind">StatefulSet · 支援 Sharding</div>
+          <div class="cc-desc">Argo CD 的大腦。持續執行 Reconcile Loop：比對 desired state（Git）與 live state（K8s），觸發 sync 操作，計算 Sync Status 與 Health Status。</div>
+          <div class="cc-port">Port :8082 Prometheus metrics · 無對外 HTTP</div>
+        </div>
+        <div class="comp-card" style="--cc:var(--color-info)">
+          <div class="cc-icon">📦</div>
+          <div class="cc-name">argocd-repo-server</div>
+          <div class="cc-kind">Deployment · 可水平擴展</div>
+          <div class="cc-desc">Manifest 工廠。Clone Git repo、執行 Helm template / Kustomize build / Jsonnet eval 等工具，生成最終 Kubernetes manifest，並快取結果到 Redis。</div>
+          <div class="cc-port">Port :8081 gRPC（僅內部） · :8084 metrics</div>
+        </div>
+        <div class="comp-card" style="--cc:var(--color-warning)">
+          <div class="cc-icon">🔑</div>
+          <div class="cc-name">argocd-dex-server</div>
+          <div class="cc-kind">Deployment · 選配（可用外部 OIDC）</div>
+          <div class="cc-desc">SSO 橋接器。作為 OIDC broker，連接外部 IdP（GitHub、Okta、LDAP、SAML 等）。若直接設定外部 OIDC provider，可跳過 Dex。</div>
+          <div class="cc-port">Port :5556 OIDC / HTTP · :5557 gRPC · :5558 metrics</div>
+        </div>
+        <div class="comp-card" style="--cc:var(--color-danger)">
+          <div class="cc-icon">🔴</div>
+          <div class="cc-name">argocd-redis</div>
+          <div class="cc-kind">Deployment（標準）/ StatefulSet（HA Sentinel）</div>
+          <div class="cc-desc">快取層（非持久儲存）。快取 manifest 生成結果、叢集資源狀態、Session token 等。Redis 資料可隨時丟棄並重建，不影響持久配置。</div>
+          <div class="cc-port">Port :6379 Redis · HA 模式加 Sentinel :26379</div>
+        </div>
+      </div>
+
+      <h3 id="s2a">2.1 argocd-server 深入解析</h3>
+      <p><code>argocd-server</code> 同時提供 <strong>gRPC</strong>（argocd CLI 使用）與 <strong>REST/HTTP</strong>（Web UI 使用）兩種協定，由同一個 process 處理。它是 Argo CD 中唯一需要對外暴露的元件（透過 Ingress 或 LoadBalancer Service）。</p>
+
+      <p>在 <strong>authn（身份驗證）</strong>流程上：使用者透過 SSO 登入時，argocd-server 將請求導向 argocd-dex-server，Dex 完成與外部 IdP 的 OAuth2/OIDC 交換，並回傳 JWT token。argocd-server 解析 JWT 中的 claims（user、groups）作為後續 RBAC 的主體（subject）。</p>
+
+      <p>在 <strong>authz（授權）</strong>流程上：argocd-server 使用 <strong>Casbin</strong> 作為 RBAC engine，讀取 <code>argocd-rbac-cm</code> ConfigMap 中的 policy 定義，對每個 API 請求進行 resource / action / subject 三維度的權限驗算。v3.0 起強制使用 Fine-Grained RBAC，子資源操作需獨立授權。</p>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>argocd-server 重新啟動的影響</h4>
+          <p>argocd-server 是 stateless 的（所有狀態在 Kubernetes 或 Redis 中），可安全地滾動重啟或水平擴展。但重啟期間，UI 與 CLI 請求會暫時中斷，在生產環境中建議設定 2+ 副本（HA 模式）。</p>
+        </div>
+      </div>
+
+      <h3 id="s2b">2.2 argocd-application-controller 深入解析</h3>
+      <p>Application Controller 是整個 Argo CD 的核心。它以 <strong>StatefulSet</strong> 而非 Deployment 的形式部署，原因是每個副本（shard）需要維護穩定的身份，負責固定的叢集子集（Sharding）。</p>
+
+      <h4>內部工作佇列</h4>
+      <p>Application Controller 內部維護兩個佇列：</p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>佇列類型</th><th>預設 Worker 數</th><th>設定方式</th><th>職責</th></tr></thead>
+          <tbody>
+            <tr><td>status processors</td><td>20</td><td><code>controller.status.processors</code></td><td>計算 Application 的 Sync Status 與 Health Status</td></tr>
+            <tr><td>operation processors</td><td>10</td><td><code>controller.operation.processors</code></td><td>執行實際的 sync 操作（呼叫 K8s API apply manifest）</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>selfHeal 的指數退避機制</h4>
+      <p>當 <code>selfHeal: true</code> 且偵測到 drift 時，Controller 不會立即 sync，而是等待 <code>--self-heal-timeout-seconds</code>（預設 5 秒）。若 sync 失敗，使用指數退避（exponential backoff）策略，初始等待 2 秒，每次乘以 3，上限 300 秒：</p>
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — argocd-cmd-params-cm：self-heal 退避調優</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-cmd-params-cm</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yc"># selfHeal 初始等待（秒）</span>
+  <span class="yk">controller.self.heal.timeout.seconds:</span> <span class="yv">"5"</span>
+  <span class="yc"># selfHeal 退避基底（秒）</span>
+  <span class="yk">controller.self.heal.backoff.timeout.seconds:</span> <span class="yv">"2"</span>
+  <span class="yc"># 退避乘數</span>
+  <span class="yk">controller.self.heal.backoff.factor:</span> <span class="yv">"3"</span>
+  <span class="yc"># 退避上限（秒）</span>
+  <span class="yk">controller.self.heal.backoff.cap.seconds:</span> <span class="yv">"300"</span>
+  <span class="yc"># Status 計算 workers</span>
+  <span class="yk">controller.status.processors:</span> <span class="yv">"20"</span>
+  <span class="yc"># Sync operation workers</span>
+  <span class="yk">controller.operation.processors:</span> <span class="yv">"10"</span></code></pre>
+      </div>
+
+      <h4>Sharding（叢集分片）</h4>
+      <p>當 Argo CD 管理大量叢集（通常超過 20–30 個）時，單一 Application Controller 的記憶體與 CPU 負擔會顯著上升。<strong>Sharding</strong> 讓多個 Controller 副本各自負責一部分叢集，實現水平擴展：</p>
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — StatefulSet 啟用 Sharding（2 replicas 範例）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: apps/v1</span>
+<span class="yh">kind: StatefulSet</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-application-controller</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">spec:</span>
+  <span class="yk">replicas:</span> <span class="yn">2</span>  <span class="yc"># 增加副本數即啟用 Sharding</span>
+  <span class="yk">template:</span>
+    <span class="yk">spec:</span>
+      <span class="yk">containers:</span>
+      - <span class="yk">name:</span> <span class="yv">argocd-application-controller</span>
+        <span class="yk">env:</span>
+        - <span class="yk">name:</span> <span class="yv">ARGOCD_CONTROLLER_REPLICAS</span>
+          <span class="yk">value:</span> <span class="yv">"2"</span>  <span class="yc"># 必須與 replicas 數量一致</span>
+        <span class="yk">args:</span>
+        - <span class="yv">--sharding-method=consistent-hashing</span>  <span class="yc"># 推薦：均勻分佈且減少重新分配</span></code></pre>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>三種 Sharding 演算法</h4>
+          <p><code>legacy</code>（預設）：基於 UID 的非均勻分佈；<code>round-robin</code>：均勻輪詢分配；<code>consistent-hashing</code>（推薦）：一致性雜湊，在新增或移除叢集時最小化重新分配。v3.x 中 Dynamic Cluster Distribution 功能已正式穩定，可讓 shard 數量動態調整。</p>
+        </div>
+      </div>
+
+      <h3 id="s2c">2.3 argocd-repo-server 深入解析</h3>
+      <p><code>argocd-repo-server</code> 是效能瓶頸最常發生的地方，因為它負責所有昂貴的 manifest 生成操作。每次生成 manifest 時，它會 <code>fork/exec</code> 對應的工具（<code>helm template</code>、<code>kustomize build</code>、<code>jsonnet</code>），這些操作會消耗大量 CPU 與記憶體。</p>
+
+      <h4>快取機制（commit SHA 為 key）</h4>
+      <p>Repo server 使用 <strong>Git commit SHA</strong> 作為快取 key，將生成的 manifest 快取到 Redis。只有當 commit SHA 改變時（或快取過期），才重新執行 manifest 生成工具。這讓大多數 Reconcile Loop 不需要重複 fork/exec，效能得以保持。</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>場景</th><th>是否重新生成 manifest</th><th>說明</th></tr></thead>
+          <tbody>
+            <tr><td>Git 無新 commit，叢集有 drift</td><td>否（使用快取）</td><td>Reconcile 只需取得快取 manifest 與 live state 比對即可</td></tr>
+            <tr><td>Git 有新 commit</td><td>是</td><td>commit SHA 改變，快取失效，重新執行 helm/kustomize</td></tr>
+            <tr><td>Parameters override（UI/CLI）</td><td>是</td><td>參數改變視同不同的 cache key</td></tr>
+            <tr><td>Redis 重啟後</td><td>是（第一次）</td><td>快取消失，但資料可從 Git 重建，無資料遺失</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>並發控制</h4>
+      <p>大量 Application 同時需要生成 manifest 時，repo-server 可能因 OOM（記憶體不足）而崩潰。透過 <code>reposerver.parallelism.limit</code> 限制並發數，避免資源耗盡：</p>
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — argocd-cmd-params-cm：repo-server 效能調優</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">data:</span>
+  <span class="yc"># 限制同時進行 manifest 生成的並發數（0 = 無限制）</span>
+  <span class="yk">reposerver.parallelism.limit:</span> <span class="yv">"10"</span>
+  <span class="yc"># 啟用 shallow clone（減少 git clone 流量與時間）</span>
+  <span class="yk">reposerver.git.shallow.clone:</span> <span class="yv">"true"</span>
+  <span class="yc"># repo cache 過期時間</span>
+  <span class="yk">reposerver.repo.cache.expiration:</span> <span class="yv">"24h"</span></code></pre>
+      </div>
+
+      <h3 id="s2d">2.4 argocd-dex-server 深入解析</h3>
+      <p><code>argocd-dex-server</code> 是選配元件。若組織已有 OIDC-compliant IdP（如 Okta、Auth0、Azure AD），可以在 <code>argocd-cm</code> 中直接設定外部 OIDC provider，完全繞過 Dex。但 Dex 的優勢在於支援不原生支援 OIDC 的協定，例如 LDAP、SAML 2.0——Dex 可作為協定橋接器，將這些協定轉換為 OIDC 格式供 argocd-server 使用。</p>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>v3.0 Dex 認證主體變更</h4>
+          <p>v3.0 將 RBAC 中的使用者主體從 JWT 的 <code>sub</code> claim 改為 <code>federated_claims.user_id</code>。若從 v2.x 升級且使用 Dex SSO，必須更新 argocd-rbac-cm 中的 policy 主體定義，否則所有 SSO 使用者的權限將失效。完整升級指南見 Vol 3 Ch.19。</p>
+        </div>
+      </div>
+
+      <h3 id="s2e">2.5 argocd-redis 深入解析</h3>
+      <p>Redis 在 Argo CD 中的定位是<strong>純快取</strong>，而非持久儲存。官方明確指出：「Redis 是快取層，可以隨時丟棄並重建，不影響任何配置資料。」這個設計決策讓 Argo CD 的災難復原非常簡單。</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>Redis 中儲存的內容</th><th>來源</th><th>失效後影響</th></tr></thead>
+          <tbody>
+            <tr><td>manifest 生成結果（commit SHA → manifest）</td><td>repo-server 生成後寫入</td><td>下次 Reconcile 重新生成（效能短暫下降）</td></tr>
+            <tr><td>叢集資源 live state 快照</td><td>controller 從 K8s watch 後快取</td><td>下次 Reconcile 重新從 K8s API 取得</td></tr>
+            <tr><td>應用程式狀態快取（app-state）</td><td>controller 計算後存入</td><td>UI 可能暫時顯示 stale 狀態，下次 Reconcile 後恢復</td></tr>
+            <tr><td>Session token（使用者登入）</td><td>argocd-server 登入時寫入</td><td>所有使用者被登出，需重新登入（非資料遺失）</td></tr>
+            <tr><td>Repo 索引與 ref 快取</td><td>repo-server 查詢 Git 後快取</td><td>下次操作重新查詢 Git</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- S3 Reconcile Loop -->
+    <section class="sec" id="s3">
+      <h2><span class="sn">3</span>Reconcile Loop 深度解析</h2>
+      <p>Reconcile Loop 是 Argo CD 實現「持續調和」原則的核心機制。理解這個循環的每個步驟，才能在生產環境中精確定位問題：「是 Git 拉取失敗？是 manifest 生成錯誤？還是 K8s apply 被拒絕？」</p>
+
+      <h3 id="s3a">3.1 完整 Reconcile 流程（十步）</h3>
+      <div class="loop-steps">
+        <div class="loop-step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <div class="step-title">觸發條件滿足 <span class="step-tag st-ctrl">application-controller</span></div>
+            <div class="step-desc">輪詢定時器到期（預設 120s + jitter 60s）、Git Webhook 通知到達、或偵測到叢集資源變化事件（Watch event）。Application 被加入「待調和」佇列。</div>
+          </div>
+        </div>
+        <div class="loop-step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <div class="step-title">請求 manifest 生成 <span class="step-tag st-ctrl">application-controller</span> → <span class="step-tag st-repo">repo-server</span></div>
+            <div class="step-desc">Application Controller 向 Repo Server 發送 gRPC 請求，指定 repoURL、targetRevision、path 及所有參數。Repo Server 先查詢 Redis 快取。</div>
+          </div>
+        </div>
+        <div class="loop-step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <div class="step-title">取得 desired state manifest <span class="step-tag st-repo">repo-server</span></div>
+            <div class="step-desc">快取命中：直接從 Redis 取得快取 manifest（μs 等級）。快取未命中：Clone / pull Git repo → 執行 helm template / kustomize build → 將結果存入 Redis 快取 → 回傳 manifest。</div>
+          </div>
+        </div>
+        <div class="loop-step">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <div class="step-title">取得 live state（叢集現況） <span class="step-tag st-ctrl">application-controller</span> → <span class="step-tag st-k8s">K8s API</span></div>
+            <div class="step-desc">Controller 透過 Kubernetes Watch 機制維護所有 tracked 資源的本地快照（存於 Redis）。此步驟通常從 Redis 快照讀取，避免每次都呼叫 K8s API。</div>
+          </div>
+        </div>
+        <div class="loop-step">
+          <div class="step-num">5</div>
+          <div class="step-body">
+            <div class="step-title">計算 Diff（desired vs live） <span class="step-tag st-ctrl">application-controller</span></div>
+            <div class="step-desc">比對 desired state manifest 與 live state，考慮 <code>ignoreDifferences</code> 規則。若有差異，標記為 OutOfSync 並記錄具體的 diff 清單（可在 UI 的 App Diff 頁面查看）。</div>
+          </div>
+        </div>
+        <div class="loop-step">
+          <div class="step-num">6</div>
+          <div class="step-body">
+            <div class="step-title">計算 Health Status <span class="step-tag st-ctrl">application-controller</span></div>
+            <div class="step-desc">對每個 tracked 資源執行 health check（內建或自定義 Lua script），聚合得出 Application 整體 Health Status（worst-case 原則）。</div>
+          </div>
+        </div>
+        <div class="loop-step">
+          <div class="step-num">7</div>
+          <div class="step-body">
+            <div class="step-title">更新 Application 狀態 <span class="step-tag st-ctrl">application-controller</span> → <span class="step-tag st-k8s">K8s API</span></div>
+            <div class="step-desc">將 Sync Status、Health Status、Resource List 等寫入 Application CRD 的 <code>status</code> 欄位（存於 etcd）。這是 UI 與 CLI 讀取到的「最新狀態」的來源。</div>
+          </div>
+        </div>
+        <div class="loop-step">
+          <div class="step-num">8</div>
+          <div class="step-body">
+            <div class="step-title">判斷是否需要 Sync <span class="step-tag st-ctrl">application-controller</span></div>
+            <div class="step-desc">若 Application 設定了 <code>automated sync</code> 且狀態為 OutOfSync，進入 Sync 流程。若為手動模式，等待使用者觸發。若 Synced，回到步驟 1 等待下次觸發。</div>
+          </div>
+        </div>
+        <div class="loop-step">
+          <div class="step-num">9</div>
+          <div class="step-body">
+            <div class="step-title">執行 Sync 操作 <span class="step-tag st-ctrl">application-controller</span> → <span class="step-tag st-k8s">K8s API</span></div>
+            <div class="step-desc">依照 Sync Waves 順序（由低到高），對每個 OutOfSync 資源執行 <code>kubectl apply</code>（或 server-side apply）。先執行 PreSync hooks，完成後執行 PostSync hooks。</div>
+          </div>
+        </div>
+        <div class="loop-step">
+          <div class="step-num">10</div>
+          <div class="step-body">
+            <div class="step-title">Reconcile 完成，等待下次觸發 <span class="step-tag st-ctrl">application-controller</span></div>
+            <div class="step-desc">所有資源 apply 完成後，Controller 重新評估 Health Status（等待 Progressing → Healthy），更新 Operation Result，並回到步驟 1 等待下一次 Reconcile 週期。</div>
+          </div>
+        </div>
+      </div>
+
+      <h3 id="s3b">3.2 Reconcile 觸發條件</h3>
+      <div class="tw">
+        <table>
+          <thead><tr><th>觸發類型</th><th>機制</th><th>延遲</th><th>設定位置</th></tr></thead>
+          <tbody>
+            <tr><td>定期輪詢（預設）</td><td>timeout.reconciliation 計時器到期</td><td>最長 180s（120s + 60s jitter）</td><td>argocd-cm: timeout.reconciliation</td></tr>
+            <tr><td>Git Webhook</td><td>GitHub/GitLab push event → argocd-server → controller</td><td>幾乎即時（&lt;1s）</td><td>Ingress + Git 倉庫 Webhook 設定</td></tr>
+            <tr><td>叢集資源變化</td><td>Kubernetes Watch event 觸發</td><td>幾乎即時</td><td>內建，無需設定</td></tr>
+            <tr><td>手動 Refresh</td><td>UI 點擊 Refresh / argocd app get --refresh</td><td>即時</td><td>使用者操作</td></tr>
+            <tr><td>Hard Refresh</td><td>清除快取並重新生成 manifest</td><td>即時（+git pull 時間）</td><td>app get --hard-refresh</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="s3c">3.3 時間參數調優：解決 Thundering Herd</h3>
+      <p>當 Argo CD 管理數百個 Application 時，預設的 120s 輪詢間隔會導致所有 Application 在相同時間點同時觸發 Reconcile，對 repo-server 和 K8s API server 造成瞬間高峰（<strong>Thundering Herd 問題</strong>）。透過 jitter 可以將負載分散：</p>
+
+      <div class="dw">
+        <div class="dt">📊 Jitter 效果：無 jitter vs 有 jitter（500 個 Application）</div>
+        <div class="mermaid">
+gantt
+    title Reconcile 負載分佈比較（3 分鐘週期）
+    dateFormat mm:ss
+    section 無 Jitter（突波）
+    500 apps 同時 Reconcile :crit, t1, 00:00, 30s
+    閒置期 :t2, after t1, 150s
+    下次突波 :crit, t3, 03:00, 30s
+    section 有 Jitter（60s）
+    分散式 Reconcile :active, j1, 00:00, 3m
+        </div>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — argocd-cm：Reconcile 時間調優</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: v1</span>
+<span class="yh">kind: ConfigMap</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">argocd-cm</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">data:</span>
+  <span class="yc"># 輪詢間隔（預設 120s）。使用 Webhook 的環境可調高至 600s</span>
+  <span class="yk">timeout.reconciliation:</span> <span class="yv">"120s"</span>
+
+  <span class="yc"># Jitter 上限（預設 60s）。每個 App 的實際間隔 = 120s + random(0, 60s)</span>
+  <span class="yc"># 大型部署（500+ apps）建議調高至 120s 以更好地分散負載</span>
+  <span class="yk">timeout.reconciliation.jitter:</span> <span class="yv">"60s"</span>
+
+  <span class="yc"># 設為 0 可完全停用定期輪詢（僅依賴 Webhook）</span>
+  <span class="yc"># timeout.reconciliation: "0"</span></code></pre>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>最佳實踐：結合 Webhook + 加長輪詢間隔</h4>
+          <p>生產環境建議：設定 Git Webhook（消除延遲）+ 將 <code>timeout.reconciliation</code> 調高至 600s（減少不必要的輪詢）+ 設定足夠的 jitter（分散殘餘輪詢負載）。這三招組合可讓 repo-server 的負載降低 80% 以上。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S4 持久化 -->
+    <section class="sec" id="s4">
+      <h2><span class="sn">4</span>持久化儲存：etcd vs Redis vs Git</h2>
+      <p>理解 Argo CD 的資料儲存層次，是規劃備份與 DR 策略的基礎。Argo CD 沒有自己的資料庫，而是巧妙地利用 Kubernetes 本身作為持久化後端：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>資料類型</th><th>儲存位置</th><th>持久性</th><th>備份需求</th></tr></thead>
+          <tbody>
+            <tr><td>Application / AppProject CRD</td><td>etcd（Kubernetes objects）</td><td>永久持久</td><td>備份 argocd namespace 即可</td></tr>
+            <tr><td>argocd-cm（UI/behavior 設定）</td><td>etcd（ConfigMap）</td><td>永久持久</td><td>同上</td></tr>
+            <tr><td>argocd-rbac-cm（RBAC policy）</td><td>etcd（ConfigMap）</td><td>永久持久</td><td>同上</td></tr>
+            <tr><td>argocd-secret（admin 密碼、token）</td><td>etcd（Secret）</td><td>永久持久</td><td>同上（加密備份）</td></tr>
+            <tr><td>Cluster / Repo 憑證</td><td>etcd（Secret）</td><td>永久持久</td><td>同上（加密備份）</td></tr>
+            <tr><td>Manifest 快取</td><td>Redis</td><td>揮發性（可重建）</td><td>不需要</td></tr>
+            <tr><td>Live state 快照</td><td>Redis</td><td>揮發性（可重建）</td><td>不需要</td></tr>
+            <tr><td>Session token</td><td>Redis</td><td>揮發性（重啟後登出）</td><td>不需要</td></tr>
+            <tr><td>Application desired state（Git）</td><td>Git repo</td><td>永久（版本控制）</td><td>Git 本身負責</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>備份只需一個指令</h4>
+          <p>使用 <code>argocd admin export</code> 可將所有 Argo CD 設定（Application、AppProject、ClusterSecret、RepositorySecret、ConfigMap）匯出為 YAML 格式，用於備份或遷移。還原時使用 <code>argocd admin import</code> 即可。完整 DR 流程見 Vol 3 Ch.19。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S5 故障排查 -->
+    <section class="sec" id="s5">
+      <h2><span class="sn">5</span>元件故障排查：快速定位問題</h2>
+      <p>根據問題現象，可以快速判斷應查看哪個元件的日誌：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>問題現象</th><th>可能元件</th><th>查看方向</th></tr></thead>
+          <tbody>
+            <tr><td>UI 無法登入 / 無法存取</td><td>argocd-server</td><td>server pod logs、Ingress 設定、TLS 憑證</td></tr>
+            <tr><td>SSO 登入失敗</td><td>argocd-dex-server</td><td>dex logs、argocd-cm OIDC 設定、IdP 回調 URL</td></tr>
+            <tr><td>App 一直顯示 Unknown（無法計算 diff）</td><td>argocd-repo-server</td><td>repo-server logs（git clone 失敗？manifest 解析錯誤？）</td></tr>
+            <tr><td>App Sync 失敗（manifest 生成錯誤）</td><td>argocd-repo-server</td><td>repo-server logs、argocd app logs --repo-server</td></tr>
+            <tr><td>App Sync 失敗（K8s apply 被拒絕）</td><td>application-controller</td><td>controller logs、K8s events（kubectl get events -n target-ns）</td></tr>
+            <tr><td>App 狀態長時間未更新</td><td>application-controller</td><td>controller logs（Reconcile queue 塞車？）、Redis 連線狀況</td></tr>
+            <tr><td>所有用戶突然被登出</td><td>argocd-redis</td><td>Redis 是否重啟（Session token 失效）</td></tr>
+            <tr><td>Reconcile 明顯變慢（大量 App）</td><td>argocd-repo-server</td><td>parallelism.limit 設定、repo-server replica 數、OOM 紀錄</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="debug-panel">
+        <div class="debug-header">🔍 常用故障排查指令</div>
+        <div class="debug-body">
+          <div class="debug-cmd">
+            <span class="prompt">$</span>
+            <div>
+              <div class="cmd">kubectl logs -n argocd -l app.kubernetes.io/name=argocd-application-controller --tail=100 -f</div>
+              <div class="note">查看 application-controller 日誌（Reconcile 流程、sync 操作）</div>
+            </div>
+          </div>
+          <div class="debug-cmd">
+            <span class="prompt">$</span>
+            <div>
+              <div class="cmd">kubectl logs -n argocd -l app.kubernetes.io/name=argocd-repo-server --tail=100 -f</div>
+              <div class="note">查看 repo-server 日誌（git clone、manifest 生成、快取）</div>
+            </div>
+          </div>
+          <div class="debug-cmd">
+            <span class="prompt">$</span>
+            <div>
+              <div class="cmd">kubectl logs -n argocd -l app.kubernetes.io/name=argocd-server --tail=100 -f</div>
+              <div class="note">查看 argocd-server 日誌（API 請求、authn/authz）</div>
+            </div>
+          </div>
+          <div class="debug-cmd">
+            <span class="prompt">$</span>
+            <div>
+              <div class="cmd">argocd app get MY_APP --refresh</div>
+              <div class="note">強制 Reconcile（觸發 immediate soft refresh）</div>
+            </div>
+          </div>
+          <div class="debug-cmd">
+            <span class="prompt">$</span>
+            <div>
+              <div class="cmd">argocd app get MY_APP --hard-refresh</div>
+              <div class="note">清除 manifest 快取並重新從 Git 生成（排查快取問題）</div>
+            </div>
+          </div>
+          <div class="debug-cmd">
+            <span class="prompt">$</span>
+            <div>
+              <div class="cmd">kubectl exec -n argocd argocd-redis-0 -- redis-cli info stats | grep -E "keyspace|hits|misses"</div>
+              <div class="note">查看 Redis 快取命中率（hits vs misses）</div>
+            </div>
+          </div>
+          <div class="debug-cmd">
+            <span class="prompt">$</span>
+            <div>
+              <div class="cmd">argocd admin settings validate --argocd-cm-path argocd-cm.yaml --argocd-rbac-cm-path argocd-rbac-cm.yaml</div>
+              <div class="note">驗證 ConfigMap 設定是否有語法錯誤（變更前先驗證）</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Summary -->
+    <section class="sec" id="sum">
+      <h2><span class="sn">✓</span>本章重點回顧</h2>
+      <div class="kp">
+        <h3>📌 Key Takeaways</h3>
+        <ul class="kp-list">
+          <li><span class="kp-ic">🏗️</span><span><strong>五大元件各司其職</strong>：argocd-server（API Gateway + authn/authz）、application-controller（Reconcile Loop 核心，StatefulSet）、repo-server（manifest 生成工廠，Deployment）、dex（SSO 橋接器，選配）、redis（純快取，可隨時重建）。</span></li>
+          <li><span class="kp-ic">🔄</span><span><strong>Reconcile Loop 的十個步驟</strong>：觸發 → 請求 manifest → 取得快取或重新生成 → 取得 live state → 計算 diff → 計算 health → 更新 Application status → 判斷是否需要 sync → 執行 sync（按 Wave 順序）→ 完成後等待下次觸發。</span></li>
+          <li><span class="kp-ic">⏱️</span><span><strong>Reconcile 時間調優三要素</strong>：<code>timeout.reconciliation</code>（輪詢間隔）+ <code>timeout.reconciliation.jitter</code>（分散負載的隨機延遲）+ Git Webhook（消除輪詢延遲）。三者結合可大幅降低 repo-server 負載。</span></li>
+          <li><span class="kp-ic">💾</span><span><strong>持久資料在 etcd，快取在 Redis</strong>：Application CRD、ConfigMap、Secret 均持久存在 Kubernetes etcd 中，Redis 失效後無資料遺失。備份 argocd namespace 即完整備份 Argo CD 設定。</span></li>
+          <li><span class="kp-ic">⚙️</span><span><strong>application-controller 是 StatefulSet</strong>：原因是支援 Sharding（每個 replica 負責固定叢集子集）。管理 20+ 叢集時考慮啟用 Sharding，演算法推薦 consistent-hashing。</span></li>
+          <li><span class="kp-ic">🔍</span><span><strong>問題定位公式</strong>：UI/登入問題 → argocd-server；SSO 失敗 → dex；manifest 生成失敗 / Unknown 狀態 → repo-server；sync 失敗 / Reconcile 停滯 → application-controller；全員登出 → redis 重啟。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <nav class="ch-nav">
+      <a href="ch02-core-concepts.html" class="nav-btn nav-prev">
+        <div><div class="nav-sub">上一章 / PREV</div><div>← Ch.02 核心概念全解：Application、Project、Sync 狀態</div></div>
+      </a>
+      <a href="#" class="nav-btn nav-next">
+        <div><div class="nav-sub">下一章 / NEXT</div><div>Ch.04 快速上手：安裝、UI 巡覽與第一個 Application →</div></div>
+      </a>
+    </nav>
+  </main>
+</div>
+
+<footer>Argo CD 完整教學手冊 · <strong>Vol 1 Ch.03</strong> · 基於 Argo CD <strong>v3.4</strong> · 2026-05-08</footer>
+
+<script>
+(function(){
+  'use strict';
+  const KEY='jhsun-theme';
+  const IC={light:'☀',dark:'☾',system:'◐'};
+  const LB={light:'Light',dark:'Dark',system:'System'};
+  function gs(){try{return localStorage.getItem(KEY);}catch(_){return null;}}
+  function ss(v){try{v==='system'||v==null?localStorage.removeItem(KEY):localStorage.setItem(KEY,v);}catch(_){}}
+  function sp(){return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  function ef(m){return m==='system'?sp():m;}
+  function apply(m){
+    const e=ef(m);
+    document.documentElement.dataset.theme=e;
+    document.documentElement.dataset.themeMode=m;
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{
+      b.dataset.themeMode=m;
+      b.setAttribute('aria-label','Theme: '+LB[m]);
+      b.title='Theme: '+LB[m];
+      if(!b.dataset.themeToggleStyled)b.innerHTML='<span>'+IC[m]+'</span><span>'+LB[m]+'</span>';
+    });
+    dispatchEvent(new CustomEvent('jhsun:theme-changed',{detail:{theme:e,mode:m}}));
+  }
+  function cyc(c){return c==='light'?'dark':c==='dark'?'system':'light';}
+  function cur(){return gs()||'system';}
+  function init(){
+    apply(cur());
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{b.addEventListener('click',()=>{const n=cyc(cur());ss(n);apply(n);});});
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(cur()==='system')apply('system');});
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+  window.JHsunTheme={get:cur,set:m=>{ss(m);apply(m);},toggle:()=>{const n=cyc(cur());ss(n);apply(n);}};
+})();
+mermaid.initialize({startOnLoad:true,theme:'base',themeVariables:{primaryColor:'oklch(0.55 0.11 200)',primaryTextColor:'#fff',primaryBorderColor:'oklch(0.48 0.11 200)',lineColor:'oklch(0.58 0.008 60)',secondaryColor:'oklch(0.96 0.028 200)',background:'oklch(0.995 0.003 60)',mainBkg:'oklch(0.995 0.003 60)',nodeBorder:'oklch(0.85 0.008 60)',clusterBkg:'oklch(0.97 0.005 60)',titleColor:'oklch(0.22 0.008 60)',fontFamily:'"DM Sans","Noto Sans TC",system-ui,sans-serif'},flowchart:{htmlLabels:true,curve:'basis'},gantt:{fontSize:12}});
+window.addEventListener('jhsun:theme-changed',({detail})=>{
+  const d=detail.theme==='dark';
+  mermaid.initialize({startOnLoad:false,theme:d?'dark':'base',themeVariables:d?{primaryColor:'oklch(0.72 0.105 200)',primaryTextColor:'oklch(0.14 0.008 50)',lineColor:'oklch(0.56 0.007 60)',secondaryColor:'oklch(0.28 0.066 200)',background:'oklch(0.18 0.009 50)',mainBkg:'oklch(0.18 0.009 50)',clusterBkg:'oklch(0.21 0.010 50)',titleColor:'oklch(0.93 0.005 60)',fontFamily:'"DM Sans","Noto Sans TC",system-ui,sans-serif'}:{primaryColor:'oklch(0.55 0.11 200)',primaryTextColor:'#fff',primaryBorderColor:'oklch(0.48 0.11 200)',lineColor:'oklch(0.58 0.008 60)',secondaryColor:'oklch(0.96 0.028 200)',background:'oklch(0.995 0.003 60)',mainBkg:'oklch(0.995 0.003 60)',clusterBkg:'oklch(0.97 0.005 60)',titleColor:'oklch(0.22 0.008 60)',fontFamily:'"DM Sans","Noto Sans TC",system-ui,sans-serif'}});
+  document.querySelectorAll('.mermaid[data-processed]').forEach(el=>el.removeAttribute('data-processed'));
+  mermaid.run();
+});
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('.copy-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const pre=btn.closest('.code-wrap').querySelector('pre');
+      navigator.clipboard.writeText(pre.innerText).then(()=>{btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},2000);});
+    });
+  });
+  const hds=document.querySelectorAll('.sec h2,.sec h3');
+  const lks=document.querySelectorAll('.toc-list a');
+  const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){lks.forEach(l=>l.classList.remove('active'));const id=e.target.id||e.target.closest('[id]')?.id;if(id){const a=document.querySelector('.toc-list a[href="#'+id+'"]');if(a)a.classList.add('active');}}});},{rootMargin:'-60px 0px -70% 0px'});
+  hds.forEach(h=>{if(h.id)obs.observe(h);});
+});
+</script>
+</body>
+</html>

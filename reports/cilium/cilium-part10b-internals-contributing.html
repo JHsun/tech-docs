@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cilium 教學手冊 第十部 B｜內部架構與貢獻</title>
+
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger:  #dc2626; --color-danger-soft:  #fee2e2;
+  --color-info:    #0891b2; --color-info-soft:    #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+  --font-mono:  "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:  "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs:12px; --text-sm:14px; --text-base:16px; --text-md:18px;
+  --text-lg:20px; --text-xl:24px; --text-2xl:32px; --text-3xl:44px; --text-4xl:64px;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px;
+  --space-5:24px; --space-6:32px; --space-7:48px; --space-8:64px; --space-9:96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm:4px; --radius-md:8px; --radius-lg:12px; --radius-xl:16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success:#4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning:#fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft:  oklch(0.32 0.10 27);
+  --color-info:   #22d3ee; --color-info-soft:    oklch(0.32 0.08 200);
+  --color-neutral-accent:#a78bfa;
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas:  oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted:   oklch(0.23 0.010 50);
+  --bg-code:    oklch(0.18 0.009 50);
+  --border-soft:oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary:  oklch(0.93 0.005 60);
+  --text-secondary:oklch(0.74 0.006 60);
+  --text-muted:    oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+</style>
+
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font-serif-body); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.layout { display: grid; grid-template-columns: 280px 1fr; max-width: var(--container-wide); margin: 0 auto; gap: var(--space-7); padding: var(--space-5); }
+@media (max-width: 960px) { .layout { grid-template-columns: 1fr; padding: var(--space-4); } .toc { position: static !important; max-height: none !important; } }
+.toc { position: sticky; top: var(--space-5); max-height: calc(100vh - var(--space-7)); overflow-y: auto; font-family: var(--font-sans); font-size: var(--text-sm); padding-right: var(--space-3); border-right: 1px solid var(--border-soft); }
+.toc h3 { font-family: var(--font-sans); font-size: var(--text-sm); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin: 0 0 var(--space-3); }
+.toc ol { list-style: none; padding: 0; margin: 0; }
+.toc ol ol { padding-left: var(--space-4); margin-top: var(--space-1); }
+.toc li { margin: var(--space-1) 0; }
+.toc a { color: var(--text-secondary); text-decoration: none; display: block; padding: 2px 0; }
+.toc a:hover { color: var(--color-primary); }
+main { min-width: 0; }
+header.hero { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); margin-bottom: var(--space-7); }
+.eyebrow { font-family: var(--font-sans); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.15em; color: var(--color-primary-text); margin-bottom: var(--space-3); }
+h1 { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 700; line-height: 1.15; margin: 0 0 var(--space-4); }
+.lead { font-size: var(--text-md); color: var(--text-secondary); max-width: 60ch; margin: 0; }
+.meta { display: flex; flex-wrap: wrap; gap: var(--space-4); margin-top: var(--space-5); font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-muted); }
+.meta strong { color: var(--text-secondary); }
+h2 { font-family: var(--font-serif); font-size: var(--text-2xl); margin-top: var(--space-8); margin-bottom: var(--space-4); padding-bottom: var(--space-2); border-bottom: 2px solid var(--color-primary-soft); scroll-margin-top: var(--space-5); }
+h3 { font-family: var(--font-serif); font-size: var(--text-xl); margin-top: var(--space-6); margin-bottom: var(--space-3); scroll-margin-top: var(--space-5); }
+h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 600; margin-top: var(--space-5); margin-bottom: var(--space-2); color: var(--color-primary-text); }
+p { margin: 0 0 var(--space-4); }
+strong { color: var(--text-primary); font-weight: 600; }
+code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 2px 6px; border-radius: var(--radius-sm); border: 1px solid var(--border-soft); }
+a { color: var(--color-primary); }
+ul, ol { padding-left: var(--space-5); margin: 0 0 var(--space-4); }
+li { margin-bottom: var(--space-2); }
+.callout { border-left: 4px solid var(--color-info); background: var(--color-info-soft); padding: var(--space-4) var(--space-5); border-radius: var(--radius-md); margin: var(--space-5) 0; }
+.callout.warn { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.danger { border-color: var(--color-danger); background: var(--color-danger-soft); }
+.callout.ok { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout-title { font-family: var(--font-sans); font-weight: 600; margin-bottom: var(--space-2); font-size: var(--text-sm); text-transform: uppercase; letter-spacing: 0.05em; }
+.code-block { position: relative; margin: var(--space-4) 0; border-radius: var(--radius-md); border: 1px solid var(--border-soft); background: var(--bg-code); overflow: hidden; }
+.code-header { display: flex; align-items: center; justify-content: space-between; padding: var(--space-2) var(--space-4); background: var(--bg-muted); border-bottom: 1px solid var(--border-soft); font-family: var(--font-sans); font-size: var(--text-xs); color: var(--text-muted); }
+.code-lang { text-transform: uppercase; letter-spacing: 0.08em; }
+.copy-btn { background: transparent; border: 1px solid var(--border-mid); color: var(--text-secondary); padding: 2px var(--space-2); border-radius: var(--radius-sm); cursor: pointer; font-family: var(--font-sans); font-size: var(--text-xs); transition: all 0.15s ease; }
+.copy-btn:hover { color: var(--color-primary); border-color: var(--color-primary); }
+.copy-btn.copied { color: var(--color-success); border-color: var(--color-success); }
+pre { margin: 0; padding: var(--space-4); overflow-x: auto; font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.6; }
+pre code { background: transparent; border: none; padding: 0; }
+table { width: 100%; border-collapse: collapse; margin: var(--space-4) 0; font-family: var(--font-sans); font-size: var(--text-sm); }
+th, td { text-align: left; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+th { background: var(--bg-muted); font-weight: 600; color: var(--text-primary); border-bottom: 2px solid var(--border-mid); }
+tbody tr:hover { background: var(--bg-muted); }
+[data-theme-toggle] { position: fixed; top: var(--space-4); right: var(--space-4); z-index: 100; display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); color: var(--text-primary); font-family: var(--font-sans); font-size: var(--text-sm); cursor: pointer; box-shadow: var(--shadow-sm); transition: all 0.2s ease; }
+[data-theme-toggle]:hover { border-color: var(--color-primary); color: var(--color-primary); box-shadow: var(--shadow-md); }
+.theme-icon { font-size: var(--text-md); line-height: 1; }
+.mermaid { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); margin: var(--space-5) 0; text-align: center; overflow-x: auto; }
+footer.book-footer { margin-top: var(--space-8); padding: var(--space-6) 0; border-top: 1px solid var(--border-soft); font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-muted); display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3); }
+.tree { font-family: var(--font-mono); font-size: var(--text-sm); background: var(--bg-code); padding: var(--space-4); border-radius: var(--radius-md); border: 1px solid var(--border-soft); white-space: pre; overflow-x: auto; }
+.tree b { color: var(--color-primary-text); font-weight: 600; }
+.step-row { display: flex; gap: var(--space-4); margin: var(--space-4) 0; align-items: flex-start; }
+.step-num { flex-shrink: 0; width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: var(--bg-surface); display: flex; align-items: center; justify-content: center; font-family: var(--font-sans); font-weight: 700; font-size: var(--text-sm); }
+.step-content { flex: 1; }
+.step-content h4 { margin-top: 0; }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => { const n = cycle(getCurrentMode()); setStored(n); applyTheme(n); });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window.JHsunTheme = { get: getCurrentMode, set: (m) => { setStored(m); applyTheme(m); }, toggle: () => { const n = cycle(getCurrentMode()); setStored(n); applyTheme(n); } };
+})();
+</script>
+</head>
+
+<body>
+<button data-theme-toggle aria-label="Toggle theme"></button>
+
+<div class="layout">
+
+  <aside class="toc">
+    <h3>本章目錄</h3>
+    <ol>
+      <li><a href="#sec-1">1. Code Overview</a></li>
+      <li><a href="#sec-2">2. Cilium Operator</a></li>
+      <li><a href="#sec-3">3. Hubble Internals</a></li>
+      <li><a href="#sec-4">4. Security Identities 內部</a></li>
+      <li><a href="#sec-5">5. Hive 框架</a></li>
+      <li><a href="#sec-6">6. StateDB</a></li>
+      <li><a href="#sec-7">7. Datapath 配置與除錯</a></li>
+      <li><a href="#sec-8">8. 開發環境建置</a></li>
+      <li><a href="#sec-9">9. 貢獻流程</a></li>
+      <li><a href="#sec-10">10. Testing</a></li>
+      <li><a href="#sec-11">11. Release &amp; Backport</a></li>
+      <li><a href="#sec-12">12. API Reference</a></li>
+      <li><a href="#sec-13">13. 本章重點回顧</a></li>
+    </ol>
+  </aside>
+
+  <main>
+
+  <header class="hero">
+    <div class="eyebrow">Cilium 教學手冊 · Part 10B / 14</div>
+    <h1>內部架構與貢獻</h1>
+    <p class="lead">這一章給<strong>想看懂 Cilium 原始碼、做 contributor、或讀內部設計</strong>的讀者。涵蓋 repo 結構、Operator 設計、Hubble Server/Relay 內部、Security Identity 機制、Hive 依賴注入框架、StateDB 控制平面狀態、開發環境建置、PR / Backport / Release 流程、各種測試框架，以及 gRPC API。</p>
+    <div class="meta">
+      <span><strong>對應官方文件：</strong>Contributor → Code Overview / Hive / StateDB / Testing / Release；Internals → Code Overview / Hubble / Operator / Identities；API Reference 全套</span>
+      <span><strong>Cilium 版本：</strong>1.19.x</span>
+      <span><strong>主要對象：</strong>contributor / Go 開發者</span>
+    </div>
+  </header>
+
+  <!-- ============================================================
+       Section 1 — Code Overview
+       ============================================================ -->
+  <section id="sec-1">
+  <h2>1. Code Overview：repo 結構</h2>
+
+  <p><code>github.com/cilium/cilium</code> 是個大 monorepo（百萬行 Go + C）。第一次進去常迷路，先把<strong>頂層目錄</strong>記住：</p>
+
+  <div class="tree"><b>cilium/</b>
+├── <b>api/v1/</b>              # 所有 gRPC / OpenAPI 定義；產生 client
+├── <b>bpf/</b>                 # C 寫的 BPF 程式（datapath 核心）
+├── <b>cilium-cli/</b>          # cilium 本機 CLI (Go)
+├── <b>cilium-dbg/</b>          # agent pod 內 CLI
+├── <b>cilium-health/</b>       # node 互通 health endpoint
+├── <b>contrib/</b>             # 社群腳本、工具、demo
+├── <b>daemon/</b>              # cilium-agent main 與初始化（Hive cells）
+├── <b>Documentation/</b>       # docs.cilium.io 原始 reStructuredText
+├── <b>examples/</b>            # 範例 manifest / kubernetes 例子
+├── <b>hubble-relay/</b>        # Hubble Relay deployment 主程式
+├── <b>install/kubernetes/</b>  # Helm chart 原始檔
+├── <b>operator/</b>            # cilium-operator main
+├── <b>pkg/</b>                 # 大部分商業邏輯（Go package）
+├── <b>plugins/</b>             # cilium-cni binary
+├── <b>proxylib/</b>            # 早期 L7 proxy lib (Go)，多數已被 Envoy 取代
+├── <b>test/</b>                # legacy ginkgo-based E2E
+├── <b>tools/</b>               # 內部 build 工具
+└── <b>vendor/</b>              # vendored Go deps</div>
+
+  <h4>pkg/ 內最常碰到的子目錄</h4>
+
+  <table>
+    <thead><tr><th>目錄</th><th>內容</th></tr></thead>
+    <tbody>
+      <tr><td><code>pkg/datapath/</code></td><td>把 BPF program load 進 kernel 的 Go 端</td></tr>
+      <tr><td><code>pkg/endpoint/</code></td><td>endpoint 物件、生命週期、policy compile</td></tr>
+      <tr><td><code>pkg/policy/</code></td><td>policy engine 與 selector cache</td></tr>
+      <tr><td><code>pkg/identity/</code></td><td>identity allocation</td></tr>
+      <tr><td><code>pkg/service/</code></td><td>K8s Service / kube-proxy replacement</td></tr>
+      <tr><td><code>pkg/k8s/</code></td><td>Kubernetes API client、watcher、CRD types</td></tr>
+      <tr><td><code>pkg/hubble/</code></td><td>Hubble server-side（embedded in agent）</td></tr>
+      <tr><td><code>pkg/hive/</code></td><td>Hive DI framework wrapper</td></tr>
+      <tr><td><code>pkg/statedb/</code></td><td>StateDB control-plane state</td></tr>
+      <tr><td><code>pkg/bpf/</code></td><td>BPF map / program Go bindings</td></tr>
+      <tr><td><code>pkg/envoy/</code></td><td>Envoy 整合（xDS server）</td></tr>
+      <tr><td><code>pkg/ipam/</code></td><td>IPAM 各模式實作</td></tr>
+      <tr><td><code>pkg/ipcache/</code></td><td>IP ↔ identity 對照</td></tr>
+      <tr><td><code>pkg/maps/</code></td><td>各 BPF map 定義（ct、policy、lb、ipcache...）</td></tr>
+    </tbody>
+  </table>
+
+  <h4>姊妹 repo</h4>
+
+  <table>
+    <thead><tr><th>Repo</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td><code>github.com/cilium/hubble</code></td><td>Hubble CLI (Go)，獨立 release cycle</td></tr>
+      <tr><td><code>github.com/cilium/hubble-ui</code></td><td>Hubble UI (React/TS)</td></tr>
+      <tr><td><code>github.com/cilium/cilium-cli</code></td><td>cilium CLI（已合進 cilium 主 repo，但歷史 commit 在這）</td></tr>
+      <tr><td><code>github.com/cilium/hive</code></td><td>Hive DI framework，獨立 Go module</td></tr>
+      <tr><td><code>github.com/cilium/statedb</code></td><td>StateDB，獨立 Go module</td></tr>
+      <tr><td><code>github.com/cilium/ebpf</code></td><td>純 Go BPF library，Cilium 主要 consumer</td></tr>
+      <tr><td><code>github.com/cilium/tetragon</code></td><td>姊妹專案：runtime security</td></tr>
+      <tr><td><code>github.com/cilium/proxy</code></td><td>Cilium 用的 Envoy fork</td></tr>
+    </tbody>
+  </table>
+
+  </section>
+
+  <!-- ============================================================
+       Section 2 — Operator
+       ============================================================ -->
+  <section id="sec-2">
+  <h2>2. Cilium Operator</h2>
+
+  <p>cilium-operator 是<strong>cluster-wide 的 controller</strong>，跑在 K8s Deployment（不像 cilium-agent 是每 node）。負責「<strong>不適合放在每個 node、需要全 cluster 一致觀點</strong>」的任務：</p>
+
+  <div class="mermaid">
+graph TB
+    Op[cilium-operator<br/>Deployment]
+
+    Op --> IPAM[IPAM 分配<br/>cluster-pool 切 CIDR<br/>給每 node]
+    Op --> IDGC[Identity GC<br/>清不再使用的 CiliumIdentity]
+    Op --> CES[CiliumEndpointSlice<br/>聚合 endpoint]
+    Op --> NodeGC[CiliumNode GC<br/>移除消失的 node 物件]
+    Op --> LBIPAM[LB IPAM<br/>給 LoadBalancer Service<br/>分配 VIP]
+    Op --> BGP[BGP NodeConfig<br/>自動產生 per-node config]
+    Op --> Ingress[Ingress / Gateway<br/>建底層 LB Service]
+    Op --> CRD[CRD installer<br/>cluster 啟動時裝 CRD]
+
+    classDef op fill:#fef3c7,stroke:#d97706
+    classDef task fill:#cffafe,stroke:#0891b2
+    class Op op
+    class IPAM,IDGC,CES,NodeGC,LBIPAM,BGP,Ingress,CRD task
+  </div>
+
+  <h4>Operator 種類</h4>
+
+  <p>歷史上 Cilium 有多種 operator binary（雲端各一個 + generic），1.16+ 合併為單一 <code>cilium-operator-generic</code> + 雲端模式 switch：</p>
+
+  <table>
+    <thead><tr><th>Binary</th><th>說明</th></tr></thead>
+    <tbody>
+      <tr><td><code>cilium-operator-generic</code></td><td>地端、cluster-pool、kubernetes IPAM 用（最常見）</td></tr>
+      <tr><td><code>cilium-operator-aws</code></td><td>AWS ENI IPAM 模式</td></tr>
+      <tr><td><code>cilium-operator-azure</code></td><td>Azure IPAM 模式</td></tr>
+      <tr><td><code>cilium-operator-alibabacloud</code></td><td>阿里雲</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Leader Election</h4>
+
+  <p>生產 Helm value 通常設 <code>operator.replicas: 2</code> 高可用。多 replica 時透過 K8s lease 做 leader election，<strong>只有 leader 真正做事，其他 stand-by</strong>。leader 掛了由 K8s API 選新 leader（通常 &lt; 15 秒）。</p>
+
+  <h4>Source 入口</h4>
+
+  <ul>
+    <li>main：<code>operator/main.go</code></li>
+    <li>cells（Hive 模組）：<code>operator/cmd/cells.go</code></li>
+    <li>具體 logic：<code>operator/pkg/...</code></li>
+  </ul>
+
+  </section>
+
+  <!-- ============================================================
+       Section 3 — Hubble Internals
+       ============================================================ -->
+  <section id="sec-3">
+  <h2>3. Hubble Internals</h2>
+
+  <p>第七部從用戶角度講過 Hubble。這裡看內部設計：</p>
+
+  <div class="mermaid">
+graph TB
+    BPF[Cilium BPF datapath] -->|perf event /<br/>ringbuf| Mon[Cilium Monitor<br/>kernel event reader]
+    Mon -->|register listener| Hub["Hubble Server<br/>(in cilium-agent)"]
+
+    subgraph Hub
+        Ring[Ring Buffer<br/>userspace<br/>fixed capacity]
+        ObserverSvc[Observer gRPC<br/>GetFlows / GetNodes /<br/>GetNamespaces / ServerStatus]
+        PeerSvc[Peer gRPC<br/>Notify stream]
+        Ring --> ObserverSvc
+    end
+
+    Hub -->|Unix socket| LocalCLI[Local Hubble CLI]
+    Hub -->|gRPC TCP| Relay[Hubble Relay<br/>Deployment]
+    Hub -.PeerSvc.-> Relay
+
+    Relay --> UI[Hubble UI]
+    Relay --> RemoteCLI[Remote hubble CLI]
+    Relay --> Metrics[Hubble Metrics<br/>Prometheus]
+
+    classDef src fill:#fef3c7,stroke:#d97706
+    classDef hub fill:#cffafe,stroke:#0891b2
+    classDef out fill:#dcfce7,stroke:#16a34a
+    class BPF,Mon src
+    class Hub,Ring,ObserverSvc,PeerSvc,Relay hub
+    class UI,LocalCLI,RemoteCLI,Metrics out
+  </div>
+
+  <h4>關鍵設計</h4>
+
+  <ul>
+    <li><strong>Hubble Server embedded in agent</strong>：與 cilium-agent 同 process，零 IPC 開銷接 datapath event</li>
+    <li><strong>Userspace ring buffer</strong>：固定容量（power of 2，預設 4095 events），<strong>無鎖設計</strong>用 atomic ops，舊事件被新事件 override</li>
+    <li><strong>兩個 gRPC service</strong>：<code>Observer</code>（GetFlows 等查詢）/ <code>Peer</code>（Relay 用，回報這個 cluster 有哪些 Hubble instance）</li>
+    <li><strong>Hubble Relay</strong> 是獨立 Deployment，連所有 cilium-agent 的 Hubble Server，提供「<strong>multi-node cluster-wide view</strong>」</li>
+  </ul>
+
+  <h4>為什麼 Relay 是必要的</h4>
+
+  <ul>
+    <li>Hubble Server 每個 node 一份，只看到自家 flow</li>
+    <li>UI / CLI 不想連 N 個 endpoint（複雜、TLS 一堆）</li>
+    <li>Relay 做<strong>聚合 fan-out</strong>：把 client query 同時送到所有 Hubble Server，收集結果</li>
+    <li>Peer 服務讓 Relay 知道 cluster 內現在有哪些 instance（pod 來去自動更新）</li>
+  </ul>
+
+  <h4>Source 入口</h4>
+
+  <ul>
+    <li>Server in agent：<code>pkg/hubble/</code></li>
+    <li>Relay：<code>hubble-relay/</code></li>
+    <li>Observer gRPC service：<code>pkg/hubble/observer/</code></li>
+    <li>Ring buffer：<code>pkg/hubble/container/</code></li>
+    <li>Peer service：<code>pkg/hubble/peer/</code></li>
+  </ul>
+
+  </section>
+
+  <!-- ============================================================
+       Section 4 — Identity
+       ============================================================ -->
+  <section id="sec-4">
+  <h2>4. Security Identity 內部機制</h2>
+
+  <p>第六部介紹過 identity 概念。內部實作分三層：</p>
+
+  <div class="mermaid">
+graph LR
+    PodLabels[Pod labels] -->|filter relevant| RelevantLabels[Relevant labels<br/>k8s:* + container:* +<br/>reserved:*]
+    RelevantLabels -->|hash + allocate| ID["Numeric identity<br/>(16-bit)"]
+    ID -->|store| CRD[CiliumIdentity CRD<br/>or kvstore key]
+    ID -->|propagate via ipcache| BPF[BPF policy map<br/>每個 node]
+
+    classDef step fill:#cffafe,stroke:#0891b2
+    classDef store fill:#dcfce7,stroke:#16a34a
+    class PodLabels,RelevantLabels,ID step
+    class CRD,BPF store
+  </div>
+
+  <h4>Identity ID 區段配置</h4>
+
+  <table>
+    <thead><tr><th>Range</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td>1 ~ 16777215（cluster-pool）</td><td>動態分配給 pod label set</td></tr>
+      <tr><td>0 ~ 255（reserved）</td><td>系統保留 identity（<code>world</code>=2, <code>cluster</code>=8, <code>host</code>=1 等）</td></tr>
+      <tr><td>local scope</td><td>node-local 分配（沒被 cluster identify 出去的 entity）</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Allocation 流程（CRD 模式，預設）</h4>
+
+  <ol>
+    <li>新 pod 起來，agent 觀察到 label set</li>
+    <li>過濾掉「不參與 identity 的 label」（namespace 一些自動加的 label）</li>
+    <li>查 local cache 有沒有對應 identity</li>
+    <li>沒有就建 <code>CiliumIdentity</code> CRD（K8s API 唯一性靠 conflict + retry 保證）</li>
+    <li>更新 ipcache 把 IP → identity ID 寫入</li>
+    <li>透過 K8s watch，所有 cluster node 都得知這個 mapping</li>
+  </ol>
+
+  <h4>檢視 identity</h4>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># Cluster 內所有 identity
+kubectl get ciliumidentities -A
+
+# 看某 identity 的 labels
+kubectl get ciliumidentity 12345 -o yaml
+
+# 在 agent 內查
+kubectl -n kube-system exec ds/cilium -- cilium-dbg identity list
+
+# Reserved identities
+kubectl -n kube-system exec ds/cilium -- cilium-dbg identity list reserved</code></pre>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 5 — Hive framework
+       ============================================================ -->
+  <section id="sec-5">
+  <h2>5. Hive 框架</h2>
+
+  <p>Cilium 從 1.13 起逐步把 codebase 改用 <strong>Hive</strong> 組織。Hive 是<strong>Cilium 團隊自寫的 Go dependency injection (DI) framework</strong>（基於 uber/dig），現在獨立成 <code>github.com/cilium/hive</code>。</p>
+
+  <h3>5.1 為什麼要 DI</h3>
+
+  <p>Cilium 早期是一大坨 <code>main()</code> 手動配線，問題：</p>
+
+  <ul>
+    <li>初始化順序錯亂</li>
+    <li>全域變數到處都是，難測試</li>
+    <li>新元件難加入（要找出在 main 哪行加 init）</li>
+    <li>shutdown 時 leak goroutine</li>
+  </ul>
+
+  <p>Hive 的解法：<strong>每個元件描述為一個 Cell（包含建構函數與依賴）</strong>，Hive 自動：</p>
+
+  <ul>
+    <li>解析依賴圖、決定建構順序</li>
+    <li>調用每個 Cell 的 <code>Start</code> / <code>Stop</code> hook（lifecycle）</li>
+    <li>暴露 CLI flag（每個 Cell 可以宣告自己的 flag）</li>
+    <li>產出依賴圖（dot graph，視覺化）</li>
+  </ul>
+
+  <h3>5.2 Cell 範例</h3>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">go</span><button class="copy-btn">複製</button></div>
+<pre><code>// pkg/foo/cell.go
+package foo
+
+import (
+    "github.com/cilium/hive/cell"
+    "github.com/cilium/hive/job"
+)
+
+// Cell 定義一個元件
+var Cell = cell.Module(
+    "foo-service",                 // 唯一 ID
+    "Foo service that does X",     // 描述
+
+    cell.Provide(newFooService),   // 構造函數
+    cell.Config(defaultConfig),    // 配置（自動暴露 CLI flag）
+    cell.Invoke(registerHandler),  // 啟動時呼叫
+)
+
+type Config struct {
+    FooEnabled bool   `mapstructure:"foo-enabled"`
+}
+
+var defaultConfig = Config{ FooEnabled: true }
+
+func (Config) Flags(flags *pflag.FlagSet) {
+    flags.Bool("foo-enabled", true, "Enable foo service")
+}
+
+type FooService struct {
+    log  *slog.Logger
+    cfg  Config
+    deps SomeDependency        // Hive 自動注入
+}
+
+// 由 Hive 自動呼叫，參數從依賴圖找
+func newFooService(
+    log *slog.Logger,
+    lc cell.Lifecycle,         // 生命週期 hook
+    cfg Config,
+    deps SomeDependency,
+) *FooService {
+    s := &FooService{ log: log, cfg: cfg, deps: deps }
+    lc.Append(cell.Hook{
+        OnStart: s.start,
+        OnStop:  s.stop,
+    })
+    return s
+}</code></pre>
+  </div>
+
+  <h3>5.3 Module 結構（agent）</h3>
+
+  <p>cilium-agent 入口在 <code>daemon/cmd/cells.go</code>，整個 agent 是一棵 Cell tree：</p>
+
+  <div class="tree"><b>Agent (root)</b>
+├── <b>Infrastructure</b>          # 與外部系統溝通：K8s API client、etcd
+│   ├── K8s clientset
+│   ├── KVStore
+│   └── ...
+├── <b>ControlPlane</b>            # 純邏輯，無需特權即可測試
+│   ├── policy engine
+│   ├── identity allocator
+│   ├── ipcache
+│   ├── service manager
+│   └── ...
+└── <b>Datapath</b>                # BPF / kernel 互動，需要特權
+    ├── BPF map loader
+    ├── endpoint regeneration
+    ├── routing manager
+    └── ...</div>
+
+  <h3>5.4 視覺化依賴圖</h3>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 在 daemon source 跑
+go run ./daemon hive dot-graph &gt; agent.dot
+
+# 渲染
+dot -Tsvg agent.dot &gt; agent.svg
+
+# 看 Cell 列表
+go run ./daemon hive
+
+# 看單一 Cell 詳細
+go run ./daemon hive show foo-service</code></pre>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 6 — StateDB
+       ============================================================ -->
+  <section id="sec-6">
+  <h2>6. StateDB</h2>
+
+  <p>StateDB 是 Cilium 為了管理 control-plane state 自寫的 <strong>in-memory database</strong>（也已獨立成 <code>github.com/cilium/statedb</code>）。它解決：</p>
+
+  <ul>
+    <li><strong>state 與 controller 分離</strong>：state 在 DB 內，controller 是 reconciler 訂閱 DB 變動</li>
+    <li><strong>MVCC（Multi-Version Concurrency Control）</strong>：reader 不會 block writer</li>
+    <li><strong>有索引</strong>：複合條件查詢不用 linear scan</li>
+    <li><strong>可觀察</strong>：每張表都能訂閱變動，自然支援 reactive 設計</li>
+    <li><strong>Persistent Adaptive Radix Tree</strong>：高效不可變樹結構</li>
+  </ul>
+
+  <h4>典型 Cilium 用法</h4>
+
+  <div class="mermaid">
+graph LR
+    K8s[Kubernetes API] -->|K8s Reflector| Tbl[StateDB Table<br/>Table&lt;Pod&gt;<br/>Table&lt;Service&gt;<br/>Table&lt;Node&gt;]
+    Tbl -->|Watch / Observe| Rec[Reconciler<br/>e.g. BPF map writer]
+    Rec -->|update| BPF[BPF maps]
+
+    classDef src fill:#cffafe,stroke:#0891b2
+    classDef db fill:#fef3c7,stroke:#d97706
+    classDef rec fill:#dcfce7,stroke:#16a34a
+    class K8s src
+    class Tbl db
+    class Rec,BPF rec
+  </div>
+
+  <h4>程式碼片段</h4>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">go</span><button class="copy-btn">複製</button></div>
+<pre><code>// 定義 Pod table（簡化）
+type LocalPod struct {
+    NamespacedName types.NamespacedName
+    IPs            []net.IP
+    Labels         map[string]string
+}
+
+var IndexName = statedb.Index[LocalPod, types.NamespacedName]{
+    Name: "name",
+    FromObject: func(p LocalPod) index.KeySet {
+        return index.NewKeySet(index.Stringer(p.NamespacedName))
+    },
+    FromKey: index.Stringer[types.NamespacedName],
+    Unique:  true,
+}
+
+// 在 reconciler 內訂閱變動
+func (r *MyReconciler) run(ctx context.Context) error {
+    for ev := range r.tablePods.Watch(ctx) {
+        switch ev.Kind {
+        case statedb.Update:
+            r.handlePodUpdate(ev.Object)
+        case statedb.Delete:
+            r.handlePodDelete(ev.Object)
+        }
+    }
+    return nil
+}</code></pre>
+  </div>
+
+  <h4>看現有 StateDB 內容</h4>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code>kubectl -n kube-system exec ds/cilium -- cilium-dbg statedb
+# 預期: 列出所有 table
+
+# 看特定 table
+kubectl -n kube-system exec ds/cilium -- cilium-dbg statedb devices
+kubectl -n kube-system exec ds/cilium -- cilium-dbg statedb routes</code></pre>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 7 — Datapath dev
+       ============================================================ -->
+  <section id="sec-7">
+  <h2>7. Datapath 配置與除錯</h2>
+
+  <h4>哪些 BPF program 掛在哪</h4>
+
+  <table>
+    <thead><tr><th>掛點</th><th>BPF C source</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td>NIC ingress (TC/XDP)</td><td><code>bpf/bpf_xdp.c</code> / <code>bpf_host.c</code></td><td>外部進來流量</td></tr>
+      <tr><td>NIC egress (TC)</td><td><code>bpf/bpf_host.c</code></td><td>對外送出</td></tr>
+      <tr><td>veth pod side ingress</td><td><code>bpf/bpf_lxc.c</code></td><td>進 pod 的流量</td></tr>
+      <tr><td>veth host side egress</td><td><code>bpf/bpf_lxc.c</code></td><td>出 pod 的流量</td></tr>
+      <tr><td>cgroup connect</td><td><code>bpf/bpf_sock.c</code></td><td>socket-LB</td></tr>
+      <tr><td>tunnel decap</td><td><code>bpf/bpf_overlay.c</code></td><td>VXLAN/Geneve 解封</td></tr>
+    </tbody>
+  </table>
+
+  <h4>本機 build + 套 datapath debug</h4>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># Build agent image
+make docker-cilium-image
+
+# 開 datapath debug + verifier log
+helm upgrade cilium ... \
+  --set debug.enabled=true \
+  --set debug.verbose=datapath \
+  --set image.tag=local-dev
+
+# 看 verifier message
+kubectl -n kube-system logs ds/cilium | grep -i verifier</code></pre>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 8 — Dev env
+       ============================================================ -->
+  <section id="sec-8">
+  <h2>8. 開發環境建置</h2>
+
+  <p>官方推薦的開發環境：</p>
+
+  <div class="step-row">
+    <div class="step-num">1</div>
+    <div class="step-content">
+      <h4>必要工具</h4>
+      <ul>
+        <li>Go 1.22+（與 <code>go.mod</code> 對齊）</li>
+        <li>Docker 或 Podman</li>
+        <li>make</li>
+        <li>kubectl + helm</li>
+        <li>kind 或 vagrant</li>
+        <li>LLVM/clang ≥ 17（編譯 BPF）</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="step-row">
+    <div class="step-num">2</div>
+    <div class="step-content">
+      <h4>clone 與初次 build</h4>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code>git clone https://github.com/cilium/cilium.git
+cd cilium
+
+# Go 端
+make build
+
+# 編譯所有 BPF
+make -C bpf
+
+# 跑單元測試
+make unit-tests</code></pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="step-row">
+    <div class="step-num">3</div>
+    <div class="step-content">
+      <h4>建本地 dev kind cluster</h4>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code>make kind                           # 建 3-node kind cluster
+make kind-image                     # build 本地 cilium image
+make kind-install-cilium-dev        # 安裝 dev 版
+
+# 改 code 後重 build
+make kind-image
+make kind-install-cilium-dev        # 重新部署
+
+# 清掉
+make kind-down</code></pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="step-row">
+    <div class="step-num">4</div>
+    <div class="step-content">
+      <h4>LVH (Little VM Helper)</h4>
+      <p>跑特定 kernel 版本 BPF unit test 需要真實 kernel，社群提供 <strong>LVH</strong>（基於 QEMU 的小工具），預載各版本 kernel image：</p>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 跑 kernel 5.10 環境的 BPF unit test
+make -C bpf KERNEL=5.10 run-test
+
+# 跑 kernel 6.x
+make -C bpf KERNEL=6.6 run-test</code></pre>
+      </div>
+    </div>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 9 — Contributing
+       ============================================================ -->
+  <section id="sec-9">
+  <h2>9. 貢獻流程</h2>
+
+  <p>送 PR 標準路徑：</p>
+
+  <div class="mermaid">
+graph LR
+    A[fork repo] --> B[branch off main]
+    B --> C[code + tests]
+    C --> D[commit with DCO sign-off]
+    D --> E[push to fork]
+    E --> F[open PR]
+    F --> G[CI runs]
+    G -->|fail| H[fix]
+    H --> C
+    G -->|pass| I[reviewer assigned]
+    I -->|changes requested| J[address comments]
+    J --> C
+    I -->|approved| K[maintainer merge]
+
+    classDef step fill:#cffafe,stroke:#0891b2
+    classDef ci fill:#fef3c7,stroke:#d97706
+    classDef done fill:#dcfce7,stroke:#16a34a
+    class A,B,C,D,E,F,H,J step
+    class G,I ci
+    class K done
+  </div>
+
+  <h4>關鍵規矩</h4>
+
+  <ul>
+    <li><strong>每個 commit DCO sign-off</strong>：<code>git commit -s</code>，CLA 透過 DCO 替代</li>
+    <li><strong>Commit message 格式</strong>：第一行 ≤ 75 字，<code>subsystem: short summary</code>；body 解釋為什麼、附 fixes # 編號</li>
+    <li><strong>Label</strong>：PR 標題用前綴（<code>fix(network):</code>、<code>feat(security):</code>）讓 release note generator 抓得到</li>
+    <li><strong>不要混重構 + 功能</strong>：拆成多個 PR / 多個 commit</li>
+    <li><strong>每個改動有對應 test</strong>：unit / integration / E2E 至少一層</li>
+    <li><strong>release-note 標籤</strong>：bug fix 標 <code>release-note/bug</code>，新功能標 <code>release-note/major</code> 或 <code>minor</code></li>
+  </ul>
+
+  <h4>第一次貢獻怎麼起步</h4>
+
+  <ol>
+    <li>找 <code>good-first-issue</code> 或 <code>help-wanted</code> 標籤的 issue</li>
+    <li>留言「I'll work on this」避免撞單</li>
+    <li>動手前先進 <a href="https://slack.cilium.io">Slack #development</a> 問設計方向</li>
+    <li>送 draft PR 早點拿 feedback，別憋一個月才送</li>
+  </ol>
+
+  <h4>Code style</h4>
+
+  <p>Go code 跑 <code>golangci-lint</code>（CI 會檢查）；C BPF code 有 <code>.editorconfig</code> 與 <code>clang-format</code> 設定。送 PR 前：</p>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code>make lint                  # Go lint
+make test-coverage         # 看 coverage
+
+# 自動修可修的
+make fmt
+gofumpt -w .</code></pre>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 10 — Testing
+       ============================================================ -->
+  <section id="sec-10">
+  <h2>10. Testing</h2>
+
+  <p>Cilium 有四層 test，每層工具不同：</p>
+
+  <table>
+    <thead><tr><th>類型</th><th>工具</th><th>跑哪</th><th>關注</th></tr></thead>
+    <tbody>
+      <tr><td>Unit test</td><td>Go <code>testing</code></td><td>CI、本機</td><td>單一 package 邏輯</td></tr>
+      <tr><td>Integration test</td><td>Go <code>testing</code> + Hive test harness</td><td>CI、本機</td><td>多元件協作（無 BPF）</td></tr>
+      <tr><td>BPF unit test</td><td>LVH + 真實 kernel</td><td>CI（QEMU）</td><td>BPF program 行為</td></tr>
+      <tr><td>E2E connectivity</td><td><code>cilium-cli connectivity test</code></td><td>真 kind / GKE / EKS cluster</td><td>整套行為</td></tr>
+      <tr><td>Scalability test</td><td>cluster-loader2 + 客製</td><td>大型 cluster</td><td>5000+ node 表現</td></tr>
+      <tr><td>Legacy E2E (Ginkgo)</td><td>Ginkgo + Vagrant</td><td>逐步淘汰</td><td>老 E2E suite</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Unit test 範例</h4>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 跑特定 package
+go test ./pkg/policy/... -v
+
+# 跑單一 test
+go test ./pkg/policy -run TestPolicyMerge -v
+
+# 開 verbose + race detector
+go test ./pkg/policy -race -v
+
+# 跑全部 unit test
+make unit-tests</code></pre>
+  </div>
+
+  <h4>Hive test harness</h4>
+
+  <p>Cilium 用 <code>scripttest</code>（Go 1.21+ <code>testscript</code> 衍生）寫 integration test。每個 <code>.txtar</code> 檔案內：</p>
+  <ul>
+    <li>K8s objects YAML</li>
+    <li>命令序列</li>
+    <li>預期輸出 / state</li>
+  </ul>
+
+  <p>範例位置：<code>daemon/k8s/testdata/pod.txtar</code>、<code>pkg/ciliumenvoyconfig/testdata/</code>。</p>
+
+  <h4>BPF unit test</h4>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 在 LVH 環境跑特定 kernel
+make -C bpf KERNEL=5.10 run-test
+
+# 跑特定 test case
+make -C bpf KERNEL=6.6 run-test TESTNAME=tc_egress_no_policy</code></pre>
+  </div>
+
+  <h4>E2E connectivity test</h4>
+
+  <p>第二部已示範。重點：</p>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 跑完整 32 test suite
+cilium connectivity test
+
+# 只跑 north-south LB 那組
+cilium connectivity test --test north-south-loadbalancing
+
+# 跨叢集
+cilium connectivity test --multi-cluster kind-c2
+
+# 用本地 dev image
+cilium connectivity test \
+  --image quay.io/cilium/cilium-dev:local \
+  --pull-policy Never</code></pre>
+  </div>
+
+  <h4>Scalability test</h4>
+
+  <p>大規模 scaling test 用 <a href="https://github.com/kubernetes/perf-tests/tree/master/clusterloader2">cluster-loader2</a> + Cilium 客製 config。1000–5000 node 規模，重點測 identity allocation、CiliumEndpointSlice、policy compile 延遲。一般 contributor 跑不起來（要大資源），這是 Isovalent 內部 CI。</p>
+
+  </section>
+
+  <!-- ============================================================
+       Section 11 — Release & backport
+       ============================================================ -->
+  <section id="sec-11">
+  <h2>11. Release Management &amp; Backport</h2>
+
+  <h3>11.1 Release cycle</h3>
+
+  <p>Cilium minor release（<code>1.X.0</code>）大約每 <strong>4 個月</strong>一次。流程：</p>
+
+  <ol>
+    <li><strong>Feature freeze</strong>：release 前 ~6 週，停收新 feature PR</li>
+    <li><strong>Release candidate</strong>：rc1、rc2... 公開測試</li>
+    <li><strong>Release</strong>：tag <code>v1.X.0</code>，發 blog、release note</li>
+    <li>後續 <strong>patch release</strong>（<code>1.X.1</code>, <code>1.X.2</code>...）每 2–4 週</li>
+    <li>每個 minor 維護 ~1 年（依社群決定）</li>
+  </ol>
+
+  <h3>11.2 Backport 流程</h3>
+
+  <p>bug fix 通常先 merge 到 <code>main</code>，再 backport 到 active minor。流程：</p>
+
+  <div class="step-row">
+    <div class="step-num">1</div>
+    <div class="step-content">
+      <h4>PR 標記要 backport</h4>
+      <p>主 PR 上加 <code>needs-backport/1.18</code> / <code>needs-backport/1.19</code> 標籤，maintainer 看到會列入 backport queue。</p>
+    </div>
+  </div>
+
+  <div class="step-row">
+    <div class="step-num">2</div>
+    <div class="step-content">
+      <h4>自動產 backport PR</h4>
+      <p>Cilium 有 <code>contrib/backporting/</code> 腳本（社群常用 <code>create-backport-pr.sh</code>）自動 cherry-pick 並建 PR：</p>
+      <div class="code-block">
+        <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code>./contrib/backporting/start-backport.sh v1.19 12345
+# 12345 = 原 PR 編號
+
+# 解 conflict 後送 PR，標題: "Backport: 1.19: ..."</code></pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="step-row">
+    <div class="step-num">3</div>
+    <div class="step-content">
+      <h4>Backport PR 規矩</h4>
+      <ul>
+        <li>原則上只接 <strong>bug fix</strong> 與 <strong>security fix</strong></li>
+        <li>新 feature <strong>不 backport</strong>，避免引入回歸</li>
+        <li>conflict 一定要在 PR 中說明怎麼解</li>
+        <li>backport 的 commit 在原 commit 後加 <code>[ upstream commit abcdef1 ]</code></li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>11.3 Security release</h3>
+
+  <p>發現 security vulnerability：</p>
+
+  <ol>
+    <li><strong>不要發 GitHub issue</strong>，先寄 <code>security@cilium.io</code>（embargo）</li>
+    <li>Security committee 評估、產 CVE、寫 fix</li>
+    <li>所有 active minor 同時發 patch + advisory</li>
+    <li>公開 disclosure（通常 7–14 天後）</li>
+  </ol>
+
+  </section>
+
+  <!-- ============================================================
+       Section 12 — API Reference
+       ============================================================ -->
+  <section id="sec-12">
+  <h2>12. API Reference</h2>
+
+  <p>Cilium 對外暴露<strong>三套 API</strong>：</p>
+
+  <h4>12.1 REST API（cilium-agent）</h4>
+
+  <p>OpenAPI spec 在 <code>api/v1/openapi.yaml</code>，agent 透過 unix socket 暴露。用於 cilium-dbg 內部呼叫。一般使用者不直接用。</p>
+
+  <h4>12.2 gRPC：Flow / Observer / Peer / Relay</h4>
+
+  <table>
+    <thead><tr><th>Proto</th><th>位置</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td><code>flow.proto</code></td><td><code>api/v1/flow/</code></td><td>Flow 資料結構（Hubble flow event）</td></tr>
+      <tr><td><code>observer.proto</code></td><td><code>api/v1/observer/</code></td><td>Hubble Observer Service：GetFlows / GetNodes / GetNamespaces / ServerStatus</td></tr>
+      <tr><td><code>peer.proto</code></td><td><code>api/v1/peer/</code></td><td>Peer Service：Notify Hubble instances</td></tr>
+      <tr><td><code>relay.proto</code></td><td><code>api/v1/relay/</code></td><td>Hubble Relay API</td></tr>
+      <tr><td><code>sdp.proto</code></td><td><code>api/v1/sdp/</code></td><td>Standalone DNS Proxy API（1.18+）</td></tr>
+    </tbody>
+  </table>
+
+  <h4>12.3 從 Go 程式呼叫 Hubble</h4>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">go</span><button class="copy-btn">複製</button></div>
+<pre><code>package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    flowpb "github.com/cilium/cilium/api/v1/flow"
+    observerpb "github.com/cilium/cilium/api/v1/observer"
+    "google.golang.org/grpc"
+    "google.golang.org/grpc/credentials/insecure"
+)
+
+func main() {
+    conn, err := grpc.NewClient(
+        "localhost:4245",
+        grpc.WithTransportCredentials(insecure.NewCredentials()),
+    )
+    if err != nil { log.Fatal(err) }
+    defer conn.Close()
+
+    client := observerpb.NewObserverClient(conn)
+    stream, err := client.GetFlows(context.Background(), &amp;observerpb.GetFlowsRequest{
+        Number: 100,
+        Follow: false,
+        Whitelist: []*flowpb.FlowFilter{{
+            Verdict: []flowpb.Verdict{flowpb.Verdict_DROPPED},
+        }},
+    })
+    if err != nil { log.Fatal(err) }
+
+    for {
+        resp, err := stream.Recv()
+        if err != nil { break }
+        flow := resp.GetFlow()
+        fmt.Printf("%s: %s -> %s [%s]\n",
+            flow.Time.AsTime(),
+            flow.Source.PodName, flow.Destination.PodName,
+            flow.Verdict)
+    }
+}</code></pre>
+  </div>
+
+  <h4>12.4 Compatibility</h4>
+
+  <p>API 遵守 <strong>semver-ish</strong>：</p>
+  <ul>
+    <li>同一 minor 內欄位只加不刪</li>
+    <li>跨 minor 可能 deprecate（保留 release cycle 後移除）</li>
+    <li>major 變動（如 v2）會有獨立 proto 包</li>
+  </ul>
+
+  </section>
+
+  <!-- ============================================================
+       Section 13
+       ============================================================ -->
+  <section id="sec-13">
+  <h2>13. 本章重點回顧</h2>
+
+  <ul>
+    <li>Cilium repo 頂層三大關鍵：<strong>bpf/</strong>（C 寫的 datapath）、<strong>pkg/</strong>（Go 商業邏輯）、<strong>daemon/</strong>（agent main + Hive cells）。</li>
+    <li><strong>Operator</strong> 跑 cluster-wide 任務（IPAM 切 CIDR、Identity GC、LB IPAM、BGP NodeConfig）。多 replica leader election。</li>
+    <li><strong>Hubble Server embedded in agent</strong>（無 IPC 開銷）→ userspace ring buffer（無鎖）→ Observer/Peer gRPC → Relay 聚合多 node → UI / CLI / Metrics。</li>
+    <li><strong>Identity</strong> 是 label hash → 16-bit numeric ID → 存 CiliumIdentity CRD（or kvstore）→ 透過 ipcache 傳到所有 node。</li>
+    <li><strong>Hive</strong> 是 Cilium 自家 DI framework：每個元件 = <strong>Cell</strong>（Provide / Config / Invoke / Lifecycle）；自動解析依賴圖。Agent root cell tree 分 Infrastructure / ControlPlane / Datapath。</li>
+    <li><strong>StateDB</strong> 是 in-memory MVCC DB，control-plane state 放這、reconciler 訂閱變動。基於 Persistent Adaptive Radix Tree。</li>
+    <li>Datapath 主要 BPF source：<code>bpf_xdp.c</code> / <code>bpf_host.c</code>（NIC）、<code>bpf_lxc.c</code>（veth）、<code>bpf_sock.c</code>（socket-LB）、<code>bpf_overlay.c</code>（tunnel）。</li>
+    <li>開發環境：<code>make kind</code> 一鍵起 3-node 環境；<strong>LVH</strong> 在 QEMU 跑特定 kernel 版本的 BPF unit test。</li>
+    <li>貢獻流程：<strong>DCO sign-off</strong> + <code>subsystem: summary</code> commit message + release-note label。第一次貢獻找 <code>good-first-issue</code>，Slack #development 問設計。</li>
+    <li>測試四層：<strong>unit</strong>（Go testing）/ <strong>integration</strong>（Hive harness + scripttest）/ <strong>BPF unit</strong>（LVH）/ <strong>E2E</strong>（cilium connectivity test）。</li>
+    <li>Release ~4 個月一個 minor，每 minor 維護 ~1 年。<strong>Backport</strong> 用 <code>needs-backport/X.Y</code> label + <code>start-backport.sh</code> 腳本；<strong>只接 bug/security fix，不接 feature</strong>。</li>
+    <li>三套 API：REST (agent) / gRPC (Flow/Observer/Peer/Relay/SDP) / cilium-cli 包裝。Go 程式直接呼叫 Hubble 用 <code>observerpb.NewObserverClient</code>。</li>
+  </ul>
+
+  <div class="callout ok">
+    <div class="callout-title">✓ 下一步</div>
+    <p style="margin:0">內部架構講完，前 10 部完整覆蓋 Cilium 官方文件。最後一份是<strong>附錄</strong>：社群資源、與其他 CNI 對照、常見錯誤對照、三大角色學習檢查清單、認證資源。整套手冊收尾。</p>
+  </div>
+
+  </section>
+
+  <footer class="book-footer">
+    <span>Cilium 教學手冊 · Part 10B / 14 · 內部架構與貢獻</span>
+    <span>對應 Cilium 1.19.x · 最後更新 2026-05</span>
+  </footer>
+
+  </main>
+</div>
+
+<script>
+(function () {
+  function mermaidTheme() { return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default'; }
+  function init() {
+    if (typeof mermaid === 'undefined') return;
+    mermaid.initialize({
+      startOnLoad: true, theme: mermaidTheme(),
+      themeVariables: { fontFamily: 'DM Sans, Inter, Noto Sans TC, system-ui, sans-serif', fontSize: '14px' },
+      flowchart: { curve: 'basis' }, securityLevel: 'loose'
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+
+  window.addEventListener('jhsun:theme-changed', function () {
+    if (typeof mermaid === 'undefined') return;
+    document.querySelectorAll('.mermaid').forEach(el => {
+      const src = el.getAttribute('data-original') || el.textContent.trim();
+      if (!el.getAttribute('data-original')) el.setAttribute('data-original', src);
+      el.removeAttribute('data-processed');
+      el.innerHTML = el.getAttribute('data-original');
+    });
+    mermaid.initialize({
+      startOnLoad: false, theme: mermaidTheme(),
+      themeVariables: { fontFamily: 'DM Sans, Inter, Noto Sans TC, system-ui, sans-serif', fontSize: '14px' },
+      flowchart: { curve: 'basis' }, securityLevel: 'loose'
+    });
+    mermaid.run();
+  });
+})();
+</script>
+
+<script>
+document.querySelectorAll('.copy-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const block = btn.closest('.code-block');
+    if (!block) return;
+    const code = block.querySelector('pre code') || block.querySelector('pre');
+    if (!code) return;
+    navigator.clipboard.writeText(code.innerText).then(() => {
+      const original = btn.textContent;
+      btn.textContent = '已複製';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = original; btn.classList.remove('copied'); }, 1500);
+    });
+  });
+});
+</script>
+
+</body>
+</html>

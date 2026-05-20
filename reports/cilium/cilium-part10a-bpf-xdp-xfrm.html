@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cilium 教學手冊 第十部 A｜BPF / XDP / XFRM Reference</title>
+
+<style>
+:root {
+  --tk-hue: 200; --tk-chroma: 0.11;
+  --color-success: #16a34a; --color-success-soft: #dcfce7;
+  --color-warning: #d97706; --color-warning-soft: #fef3c7;
+  --color-danger:  #dc2626; --color-danger-soft:  #fee2e2;
+  --color-info:    #0891b2; --color-info-soft:    #cffafe;
+  --color-neutral-accent: #7c3aed;
+  --color-primary:        oklch(0.55 var(--tk-chroma) var(--tk-hue));
+  --color-primary-hover:  oklch(0.48 var(--tk-chroma) var(--tk-hue));
+  --color-primary-soft:   oklch(0.96 calc(var(--tk-chroma) * 0.25) var(--tk-hue));
+  --color-primary-text:   oklch(0.40 var(--tk-chroma) var(--tk-hue));
+  --bg-canvas:      oklch(0.985 0.004 60);
+  --bg-surface:     oklch(0.995 0.003 60);
+  --bg-muted:       oklch(0.96 0.005 60);
+  --bg-code:        oklch(0.975 0.006 60);
+  --border-soft:    oklch(0.92 0.006 60);
+  --border-mid:     oklch(0.85 0.008 60);
+  --text-primary:   oklch(0.22 0.008 60);
+  --text-secondary: oklch(0.42 0.008 60);
+  --text-muted:     oklch(0.58 0.008 60);
+  --font-mono:  "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans:  "DM Sans", "Inter", "Noto Sans TC", system-ui, sans-serif;
+  --font-serif: "Playfair Display", "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --font-serif-body: "Source Serif 4", "Noto Serif TC", Georgia, serif;
+  --text-xs:12px; --text-sm:14px; --text-base:16px; --text-md:18px;
+  --text-lg:20px; --text-xl:24px; --text-2xl:32px; --text-3xl:44px; --text-4xl:64px;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px;
+  --space-5:24px; --space-6:32px; --space-7:48px; --space-8:64px; --space-9:96px;
+  --container-narrow: 720px; --container-wide: 1280px;
+  --radius-sm:4px; --radius-md:8px; --radius-lg:12px; --radius-xl:16px;
+  --shadow-sm: 0 1px 2px oklch(0.20 0.01 60 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.20 0.01 60 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0.20 0.01 60 / 0.10);
+}
+:root[data-theme="dark"] {
+  --color-success:#4ade80; --color-success-soft: oklch(0.30 0.08 145);
+  --color-warning:#fbbf24; --color-warning-soft: oklch(0.32 0.10 70);
+  --color-danger: #f87171; --color-danger-soft:  oklch(0.32 0.10 27);
+  --color-info:   #22d3ee; --color-info-soft:    oklch(0.32 0.08 200);
+  --color-neutral-accent:#a78bfa;
+  --color-primary:        oklch(0.72 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-hover:  oklch(0.80 calc(var(--tk-chroma) * 0.95) var(--tk-hue));
+  --color-primary-soft:   oklch(0.30 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --color-primary-text:   oklch(0.85 calc(var(--tk-chroma) * 0.6) var(--tk-hue));
+  --bg-canvas:  oklch(0.16 0.008 50);
+  --bg-surface: oklch(0.20 0.009 50);
+  --bg-muted:   oklch(0.23 0.010 50);
+  --bg-code:    oklch(0.18 0.009 50);
+  --border-soft:oklch(0.28 0.010 50);
+  --border-mid: oklch(0.36 0.012 50);
+  --text-primary:  oklch(0.93 0.005 60);
+  --text-secondary:oklch(0.74 0.006 60);
+  --text-muted:    oklch(0.58 0.007 60);
+  --shadow-sm: 0 1px 2px oklch(0.05 0 0 / 0.4);
+  --shadow-md: 0 4px 12px oklch(0.05 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px oklch(0.05 0 0 / 0.6);
+}
+html { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+body { background: var(--bg-canvas); color: var(--text-primary); transition: background 0.25s ease, color 0.25s ease; }
+</style>
+
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font-serif-body); font-size: var(--text-base); line-height: 1.75; -webkit-font-smoothing: antialiased; }
+.layout { display: grid; grid-template-columns: 280px 1fr; max-width: var(--container-wide); margin: 0 auto; gap: var(--space-7); padding: var(--space-5); }
+@media (max-width: 960px) { .layout { grid-template-columns: 1fr; padding: var(--space-4); } .toc { position: static !important; max-height: none !important; } }
+.toc { position: sticky; top: var(--space-5); max-height: calc(100vh - var(--space-7)); overflow-y: auto; font-family: var(--font-sans); font-size: var(--text-sm); padding-right: var(--space-3); border-right: 1px solid var(--border-soft); }
+.toc h3 { font-family: var(--font-sans); font-size: var(--text-sm); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin: 0 0 var(--space-3); }
+.toc ol { list-style: none; padding: 0; margin: 0; }
+.toc ol ol { padding-left: var(--space-4); margin-top: var(--space-1); }
+.toc li { margin: var(--space-1) 0; }
+.toc a { color: var(--text-secondary); text-decoration: none; display: block; padding: 2px 0; }
+.toc a:hover { color: var(--color-primary); }
+main { min-width: 0; }
+header.hero { padding: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border-soft); margin-bottom: var(--space-7); }
+.eyebrow { font-family: var(--font-sans); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.15em; color: var(--color-primary-text); margin-bottom: var(--space-3); }
+h1 { font-family: var(--font-serif); font-size: var(--text-3xl); font-weight: 700; line-height: 1.15; margin: 0 0 var(--space-4); }
+.lead { font-size: var(--text-md); color: var(--text-secondary); max-width: 60ch; margin: 0; }
+.meta { display: flex; flex-wrap: wrap; gap: var(--space-4); margin-top: var(--space-5); font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-muted); }
+.meta strong { color: var(--text-secondary); }
+h2 { font-family: var(--font-serif); font-size: var(--text-2xl); margin-top: var(--space-8); margin-bottom: var(--space-4); padding-bottom: var(--space-2); border-bottom: 2px solid var(--color-primary-soft); scroll-margin-top: var(--space-5); }
+h3 { font-family: var(--font-serif); font-size: var(--text-xl); margin-top: var(--space-6); margin-bottom: var(--space-3); scroll-margin-top: var(--space-5); }
+h4 { font-family: var(--font-sans); font-size: var(--text-md); font-weight: 600; margin-top: var(--space-5); margin-bottom: var(--space-2); color: var(--color-primary-text); }
+p { margin: 0 0 var(--space-4); }
+strong { color: var(--text-primary); font-weight: 600; }
+code { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-code); padding: 2px 6px; border-radius: var(--radius-sm); border: 1px solid var(--border-soft); }
+a { color: var(--color-primary); }
+ul, ol { padding-left: var(--space-5); margin: 0 0 var(--space-4); }
+li { margin-bottom: var(--space-2); }
+.callout { border-left: 4px solid var(--color-info); background: var(--color-info-soft); padding: var(--space-4) var(--space-5); border-radius: var(--radius-md); margin: var(--space-5) 0; }
+.callout.warn { border-color: var(--color-warning); background: var(--color-warning-soft); }
+.callout.danger { border-color: var(--color-danger); background: var(--color-danger-soft); }
+.callout.ok { border-color: var(--color-success); background: var(--color-success-soft); }
+.callout-title { font-family: var(--font-sans); font-weight: 600; margin-bottom: var(--space-2); font-size: var(--text-sm); text-transform: uppercase; letter-spacing: 0.05em; }
+.code-block { position: relative; margin: var(--space-4) 0; border-radius: var(--radius-md); border: 1px solid var(--border-soft); background: var(--bg-code); overflow: hidden; }
+.code-header { display: flex; align-items: center; justify-content: space-between; padding: var(--space-2) var(--space-4); background: var(--bg-muted); border-bottom: 1px solid var(--border-soft); font-family: var(--font-sans); font-size: var(--text-xs); color: var(--text-muted); }
+.code-lang { text-transform: uppercase; letter-spacing: 0.08em; }
+.copy-btn { background: transparent; border: 1px solid var(--border-mid); color: var(--text-secondary); padding: 2px var(--space-2); border-radius: var(--radius-sm); cursor: pointer; font-family: var(--font-sans); font-size: var(--text-xs); transition: all 0.15s ease; }
+.copy-btn:hover { color: var(--color-primary); border-color: var(--color-primary); }
+.copy-btn.copied { color: var(--color-success); border-color: var(--color-success); }
+pre { margin: 0; padding: var(--space-4); overflow-x: auto; font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.6; }
+pre code { background: transparent; border: none; padding: 0; }
+table { width: 100%; border-collapse: collapse; margin: var(--space-4) 0; font-family: var(--font-sans); font-size: var(--text-sm); }
+th, td { text-align: left; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+th { background: var(--bg-muted); font-weight: 600; color: var(--text-primary); border-bottom: 2px solid var(--border-mid); }
+tbody tr:hover { background: var(--bg-muted); }
+[data-theme-toggle] { position: fixed; top: var(--space-4); right: var(--space-4); z-index: 100; display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: var(--radius-md); color: var(--text-primary); font-family: var(--font-sans); font-size: var(--text-sm); cursor: pointer; box-shadow: var(--shadow-sm); transition: all 0.2s ease; }
+[data-theme-toggle]:hover { border-color: var(--color-primary); color: var(--color-primary); box-shadow: var(--shadow-md); }
+.theme-icon { font-size: var(--text-md); line-height: 1; }
+.mermaid { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-5); margin: var(--space-5) 0; text-align: center; overflow-x: auto; }
+.metric-table th, .metric-table td { font-size: var(--text-xs); }
+.metric-table code { font-size: 11px; }
+footer.book-footer { margin-top: var(--space-8); padding: var(--space-6) 0; border-top: 1px solid var(--border-soft); font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-muted); display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3); }
+.advanced-note { background: var(--bg-muted); border: 1px dashed var(--border-mid); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); margin: var(--space-4) 0; font-family: var(--font-sans); font-size: var(--text-sm); color: var(--text-secondary); }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+
+<script>
+(function () {
+  'use strict';
+  const STORAGE_KEY = 'jhsun-theme';
+  const ICONS = { light: '☀', dark: '☾', system: '◐' };
+  const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
+  function getStored() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function setStored(v) { try { if (v === 'system' || v == null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, v); } catch (_) {} }
+  function systemPref() { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  function effective(mode) { return mode === 'system' ? systemPref() : mode; }
+  function applyTheme(mode) {
+    const eff = effective(mode);
+    document.documentElement.dataset.theme = eff;
+    document.documentElement.dataset.themeMode = mode;
+    updateButtons(mode);
+    window.dispatchEvent(new CustomEvent('jhsun:theme-changed', { detail: { theme: eff, mode } }));
+  }
+  function updateButtons(mode) {
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.dataset.themeMode = mode;
+      btn.setAttribute('aria-label', `Theme: ${LABELS[mode]} (click to change)`);
+      btn.title = `Theme: ${LABELS[mode]}`;
+      if (!btn.dataset.themeToggleStyled) {
+        btn.innerHTML = `<span class="theme-icon">${ICONS[mode]}</span><span class="theme-label">${LABELS[mode]}</span>`;
+      }
+    });
+  }
+  function cycle(c) { return c === 'light' ? 'dark' : c === 'dark' ? 'system' : 'light'; }
+  function getCurrentMode() { return getStored() || 'system'; }
+  function init() {
+    applyTheme(getCurrentMode());
+    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => { const n = cycle(getCurrentMode()); setStored(n); applyTheme(n); });
+    });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => { if (getCurrentMode() === 'system') applyTheme('system'); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+  window.JHsunTheme = { get: getCurrentMode, set: (m) => { setStored(m); applyTheme(m); }, toggle: () => { const n = cycle(getCurrentMode()); setStored(n); applyTheme(n); } };
+})();
+</script>
+</head>
+
+<body>
+<button data-theme-toggle aria-label="Toggle theme"></button>
+
+<div class="layout">
+
+  <aside class="toc">
+    <h3>本章目錄</h3>
+    <ol>
+      <li><a href="#sec-1">1. BPF 架構</a>
+        <ol>
+          <li><a href="#sec-1-1">1.1 BPF Virtual Machine</a></li>
+          <li><a href="#sec-1-2">1.2 編譯流程</a></li>
+          <li><a href="#sec-1-3">1.3 Verifier</a></li>
+          <li><a href="#sec-1-4">1.4 JIT</a></li>
+        </ol>
+      </li>
+      <li><a href="#sec-2">2. BPF Maps</a></li>
+      <li><a href="#sec-3">3. Program Types &amp; Hooks</a>
+        <ol>
+          <li><a href="#sec-3-1">3.1 XDP</a></li>
+          <li><a href="#sec-3-2">3.2 TC (cls_bpf)</a></li>
+          <li><a href="#sec-3-3">3.3 cgroup BPF</a></li>
+          <li><a href="#sec-3-4">3.4 Socket Filter</a></li>
+          <li><a href="#sec-3-5">3.5 tracing 類</a></li>
+        </ol>
+      </li>
+      <li><a href="#sec-4">4. Tail Calls &amp; BPF-to-BPF</a></li>
+      <li><a href="#sec-5">5. Helpers</a></li>
+      <li><a href="#sec-6">6. BPF Pinning &amp; bpffs</a></li>
+      <li><a href="#sec-7">7. 開發工具鏈</a>
+        <ol>
+          <li><a href="#sec-7-1">7.1 LLVM/clang</a></li>
+          <li><a href="#sec-7-2">7.2 bpftool</a></li>
+          <li><a href="#sec-7-3">7.3 iproute2 / bpftrace</a></li>
+        </ol>
+      </li>
+      <li><a href="#sec-8">8. Debug &amp; Test</a></li>
+      <li><a href="#sec-9">9. XFRM Reference</a>
+        <ol>
+          <li><a href="#sec-9-1">9.1 概念</a></li>
+          <li><a href="#sec-9-2">9.2 封包流</a></li>
+          <li><a href="#sec-9-3">9.3 ip xfrm 輸出</a></li>
+          <li><a href="#sec-9-4">9.4 XFRM Errors</a></li>
+        </ol>
+      </li>
+      <li><a href="#sec-10">10. 本章重點回顧</a></li>
+    </ol>
+  </aside>
+
+  <main>
+
+  <header class="hero">
+    <div class="eyebrow">Cilium 教學手冊 · Part 10A / 14</div>
+    <h1>BPF / XDP / XFRM Reference</h1>
+    <p class="lead">這一章給<strong>想看懂 Cilium 內部運作</strong>、開發 BPF program、或除錯 IPsec 的開發者。涵蓋 BPF 架構（VM、verifier、JIT、map）、9 種 program type 與對應 hook、開發工具鏈（LLVM、bpftool、bpftrace），以及 Cilium IPsec 底層的 XFRM 子系統。日常運維讀者可以略過，需要時再翻。</p>
+    <div class="meta">
+      <span><strong>對應官方文件：</strong>Reference Guides → BPF and XDP / XFRM</span>
+      <span><strong>Cilium 版本：</strong>1.19.x</span>
+      <span><strong>主要對象：</strong>開發者 / Kernel 工程師</span>
+    </div>
+  </header>
+
+  <!-- ============================================================
+       Section 1 — BPF Architecture
+       ============================================================ -->
+  <section id="sec-1">
+  <h2>1. BPF 架構</h2>
+
+  <p>eBPF 是 Linux Kernel 一個<strong>通用、安全、可程式化的擴充機制</strong>。從 4.x 開始大量擴充，到 6.x 已經是 Linux 觀測與網路堆疊的核心。Cilium 整個 datapath 就建在它上面。先把整個架構看清楚：</p>
+
+  <div class="mermaid">
+graph TB
+    Src["C source<br/>(Cilium bpf/*.c)"] -->|clang -target bpf| Obj["BPF ELF object<br/>(.o)"]
+    Obj -->|loader<br/>(iproute2 / libbpf / cilium)| Sys["bpf() syscall"]
+    Sys --> Ver[Verifier]
+    Ver -->|✅ pass| JIT[JIT compiler]
+    Ver -->|❌ reject| Err[error]
+    JIT --> Native["Native machine code<br/>(x86_64 / arm64 / ...)"]
+    Native --> Hook["Hook point<br/>(TC / XDP / cgroup / kprobe ...)"]
+    Hook -->|執行時觸發| Run[BPF program runs]
+
+    Maps[(BPF Maps<br/>shared k/v store)] <--> Run
+    Helpers["Kernel helper<br/>functions"] <--> Run
+
+    classDef src fill:#cffafe,stroke:#0891b2
+    classDef kern fill:#dcfce7,stroke:#16a34a
+    classDef bad fill:#fee2e2,stroke:#dc2626
+    class Src,Obj src
+    class Ver,JIT,Native,Hook,Run,Maps,Helpers kern
+    class Err bad
+</div>
+
+  <h3 id="sec-1-1">1.1 BPF Virtual Machine</h3>
+
+  <p>eBPF 是一個 <strong>RISC-like 64-bit virtual machine</strong>，有：</p>
+
+  <ul>
+    <li>11 個 64-bit 暫存器（R0–R10，R10 是 frame pointer）</li>
+    <li>固定 stack 大小 512 bytes</li>
+    <li>受限的指令集（算術、跳轉、load/store、function call）</li>
+    <li>不能任意呼叫 kernel function，只能透過 <strong>helper functions</strong></li>
+    <li>沒有 loop（4.x），<strong>5.3+ 有 bounded loop</strong>，5.17+ 有更彈性的 iter</li>
+  </ul>
+
+  <h3 id="sec-1-2">1.2 編譯流程：C → BPF bytecode → native</h3>
+
+  <p>Cilium 的 BPF program 寫在 <code>bpf/</code> 目錄下，是 C source。流程：</p>
+
+  <ol>
+    <li><strong>cilium-agent</strong> 啟動時用<strong>內嵌的 clang/LLVM</strong>編譯 BPF C → ELF object</li>
+    <li>每個 endpoint 都有<strong>個別客製化</strong>的 BPF object（label、IP、policy 編進去）</li>
+    <li>透過 <code>bpf()</code> syscall load 進 kernel</li>
+    <li>kernel verifier 驗證後 JIT 編譯為 native instruction</li>
+    <li>attach 到對應 hook</li>
+  </ol>
+
+  <div class="callout">
+    <div class="callout-title">💡 為什麼 Cilium 要在 agent 內帶 clang</div>
+    <p style="margin:0">傳統 BPF program 是「<strong>固定編譯好</strong>」load 進去。但 Cilium 要對每個 endpoint 把 identity、IP、policy 用 <code>#define</code> 編進 BPF code，產出最佳化版本。這需要動態編譯，因此 cilium-agent image 內含 clang/LLVM 工具鏈。</p>
+  </div>
+
+  <h3 id="sec-1-3">1.3 Verifier（成敗關鍵）</h3>
+
+  <p>Verifier 是 kernel 內的<strong>靜態分析器</strong>，BPF program load 進來會被它檢查：</p>
+
+  <ul>
+    <li><strong>會不會無窮迴圈</strong>：早期不允許 loop；5.3+ bounded loop；5.17+ iter</li>
+    <li><strong>會不會 unbounded recursion</strong>：tail call 限制鏈深度（5+ 一般是 33）</li>
+    <li><strong>會不會 access 越界記憶體</strong>：load/store 都要先檢查 bound</li>
+    <li><strong>會不會 access 未初始化記憶體</strong>：每個 register 都追蹤狀態</li>
+    <li><strong>map access 是否合法</strong>：lookup 結果可能是 NULL，必須先檢查再用</li>
+    <li><strong>指令數上限</strong>：早期 4096，現在 1M（與 privileges 有關）</li>
+  </ul>
+
+  <p>沒過 verifier 的 program 直接被拒絕 load，<strong>運行時不可能 panic kernel</strong>。這是 BPF 安全性的核心保證。</p>
+
+  <h3 id="sec-1-4">1.4 JIT Compiler</h3>
+
+  <p>verifier 通過後，kernel 用 JIT 把 BPF bytecode 編譯成<strong>對應 CPU 架構的 native instruction</strong>（x86_64、arm64、ppc64、s390x、riscv 等）。執行時直接跑 native，沒有解釋器開銷。</p>
+
+  <p>啟用 JIT：</p>
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 確認 kernel 有 BPF JIT 編進去
+zcat /proc/config.gz | grep BPF_JIT
+# CONFIG_BPF_JIT=y
+
+# 看是否啟用（多數發行版預設啟用）
+sysctl net.core.bpf_jit_enable
+# net.core.bpf_jit_enable = 1
+
+# JIT 強化（unprivileged BPF）
+sysctl net.core.bpf_jit_harden
+# 0 = off, 1 = unpriv, 2 = all</code></pre>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 2 — Maps
+       ============================================================ -->
+  <section id="sec-2">
+  <h2>2. BPF Maps</h2>
+
+  <p>BPF map 是 <strong>kernel 與 userspace 共享的 key-value store</strong>。BPF program 透過 helper（<code>bpf_map_lookup_elem</code>、<code>bpf_map_update_elem</code>、<code>bpf_map_delete_elem</code>）讀寫，cilium-agent 從 userspace 也能讀寫。</p>
+
+  <p>Cilium 用了非常多 map 類型，幾個重要的：</p>
+
+  <table>
+    <thead><tr><th>Map 類型</th><th>結構</th><th>Cilium 用途範例</th></tr></thead>
+    <tbody>
+      <tr><td><code>BPF_MAP_TYPE_HASH</code></td><td>通用 hash map</td><td><code>cilium_lxc</code>（endpoint table）</td></tr>
+      <tr><td><code>BPF_MAP_TYPE_ARRAY</code></td><td>固定大小 array</td><td>per-CPU 計數器</td></tr>
+      <tr><td><code>BPF_MAP_TYPE_LRU_HASH</code></td><td>LRU eviction hash</td><td><code>cilium_ct_*</code>（conntrack 表）</td></tr>
+      <tr><td><code>BPF_MAP_TYPE_LPM_TRIE</code></td><td>Longest Prefix Match</td><td><code>cilium_ipcache</code>（CIDR → identity）</td></tr>
+      <tr><td><code>BPF_MAP_TYPE_PERCPU_HASH</code></td><td>per-CPU hash（無鎖）</td><td>高頻計數</td></tr>
+      <tr><td><code>BPF_MAP_TYPE_HASH_OF_MAPS</code></td><td>map 包 map</td><td>per-endpoint policy map</td></tr>
+      <tr><td><code>BPF_MAP_TYPE_PROG_ARRAY</code></td><td>BPF program 跳轉表</td><td>tail call 目標</td></tr>
+      <tr><td><code>BPF_MAP_TYPE_PERF_EVENT_ARRAY</code></td><td>傳事件到 userspace</td><td><code>cilium_events</code>（Hubble 資料源）</td></tr>
+      <tr><td><code>BPF_MAP_TYPE_RINGBUF</code></td><td>5.8+ 改進版 perf buffer</td><td>1.16+ Hubble event 改用</td></tr>
+      <tr><td><code>BPF_MAP_TYPE_SOCKHASH</code></td><td>socket map</td><td>sockmap-based redirect</td></tr>
+    </tbody>
+  </table>
+
+  <h4>看 Cilium 用了哪些 map</h4>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 進 agent pod
+kubectl -n kube-system exec -ti ds/cilium -- bash
+
+# bpftool 列所有 map
+bpftool map list | grep cilium | head -20
+
+# 看某個 map 詳細
+bpftool map show name cilium_lxc
+# 預期:
+# 12345: hash  name cilium_lxc  flags 0x1
+#         key 8B  value 96B  max_entries 65535  memlock 6553600B
+
+# dump 內容
+bpftool map dump name cilium_lxc | head
+
+# 等同 cilium-dbg 的便利包裝
+cilium-dbg map list
+cilium-dbg map get cilium_lxc</code></pre>
+  </div>
+
+  <h4>Memlock 是限制</h4>
+
+  <p>每個 map 都消耗 kernel 記憶體（locked，不能 swap）。default <code>memlock</code> rlimit 偏小，現代 cilium-agent 跑成 privileged 通常已調大，自己寫 BPF 程式記得：</p>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 看 locked memory 上限
+ulimit -l
+# unlimited 為佳
+
+# 改 systemd unit 內限制
+[Service]
+LimitMEMLOCK=infinity</code></pre>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 3 — Program types
+       ============================================================ -->
+  <section id="sec-3">
+  <h2>3. Program Types &amp; Hooks</h2>
+
+  <p>BPF 不只是「網路 BPF」，現在已有 30+ 種 program type，掛到 kernel 各角落。Cilium 用到的主要幾種：</p>
+
+  <h3 id="sec-3-1">3.1 XDP（eXpress Data Path）</h3>
+
+  <p><strong>掛在 NIC driver 層</strong>，封包進來時最早的 hook 點。重要性質：</p>
+
+  <ul>
+    <li><strong>速度極快</strong>：還沒進 kernel network stack 就執行</li>
+    <li>程式回傳值決定動作：<code>XDP_PASS</code>（給 stack）/ <code>XDP_DROP</code>（丟）/ <code>XDP_TX</code>（送回同 NIC）/ <code>XDP_REDIRECT</code>（送去別的 NIC）</li>
+    <li>能存取的封包資料較限制（沒 <code>sk_buff</code>，只有原始 frame）</li>
+    <li>三種模式：<strong>Native XDP</strong>（driver 內，最快）/ <strong>Generic XDP</strong>（generic stack，較慢但相容）/ <strong>Offloaded XDP</strong>（SmartNIC 硬體執行）</li>
+  </ul>
+
+  <p>Cilium 用 XDP 做：</p>
+  <ul>
+    <li>NodePort / LoadBalancer Service 加速（<code>loadBalancer.acceleration: native</code>）</li>
+    <li>DDoS 防護的 prefilter</li>
+    <li>1.19 的 BGP packet 處理也部分用到</li>
+  </ul>
+
+  <h3 id="sec-3-2">3.2 TC (cls_bpf) — Cilium 主力</h3>
+
+  <p><strong>掛在 Traffic Control 子系統</strong>，每個 network device 都有 ingress / egress queue：</p>
+
+  <ul>
+    <li>能存取完整 <code>sk_buff</code>（含 socket、route info）</li>
+    <li>能修改 packet（NAT、redirect、header insert）</li>
+    <li>回傳值：<code>TC_ACT_OK</code>（繼續）/ <code>TC_ACT_SHOT</code>（丟）/ <code>TC_ACT_REDIRECT</code>（轉發）</li>
+    <li>kernel 6.6+ 引入 <strong>tcx</strong>，取代舊 cls_bpf API，1.19 已支援</li>
+  </ul>
+
+  <p>Cilium 把 TC BPF program <strong>掛到每個 veth peer（host 端）與 host NIC 的 ingress/egress hook</strong>，這是 datapath 主力。</p>
+
+  <h3 id="sec-3-3">3.3 cgroup BPF（Socket-LB 核心）</h3>
+
+  <p>掛在 cgroup 層級，攔截特定 syscall：</p>
+
+  <ul>
+    <li><code>BPF_CGROUP_INET4_CONNECT</code> / <code>INET6_CONNECT</code>：<code>connect()</code> 時改 dst IP/port</li>
+    <li><code>BPF_CGROUP_INET4_SENDMSG</code> / <code>INET6_SENDMSG</code>：UDP <code>sendto()</code> 時改 dst</li>
+    <li><code>BPF_CGROUP_INET4_GETSOCKNAME</code>：應用 query 對端 IP 時還原</li>
+  </ul>
+
+  <p>Cilium 用這個實作 <strong>socket-LB</strong>：cluster 內 pod 連 ClusterIP 時，<code>connect()</code> 在 syscall 階段就被改寫成直接連 backend pod IP。<strong>連 conntrack 都不用</strong>，零 datapath 開銷。</p>
+
+  <h3 id="sec-3-4">3.4 Socket Filter / SO_ATTACH_BPF</h3>
+
+  <p>舊式（classic BPF 時代），用於 socket layer 的 packet filter（tcpdump 用）。Cilium 主要不依賴這個。</p>
+
+  <h3 id="sec-3-5">3.5 Tracing 類（Tetragon / 觀測用）</h3>
+
+  <p>Cilium 本身 datapath 不直接用，但姊妹專案 Tetragon 大量使用：</p>
+
+  <ul>
+    <li><strong>kprobe</strong>：掛 kernel function entry</li>
+    <li><strong>kretprobe</strong>：掛 kernel function return</li>
+    <li><strong>tracepoint</strong>：kernel 預定義事件點</li>
+    <li><strong>uprobe / uretprobe</strong>：使用者空間 binary 函數</li>
+    <li><strong>perf_event</strong>：CPU 計數器、profiling</li>
+    <li><strong>LSM (Linux Security Module)</strong>：5.7+ 用 BPF 寫 LSM hook</li>
+  </ul>
+
+  <h4>看現在 attach 了什麼</h4>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 列所有 attach 點
+bpftool net show
+# 預期看到 tc / xdp 掛點
+
+bpftool cgroup tree
+# 看 cgroup BPF attach</code></pre>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 4 — Tail calls / BPF-to-BPF
+       ============================================================ -->
+  <section id="sec-4">
+  <h2>4. Tail Calls &amp; BPF-to-BPF Calls</h2>
+
+  <p>BPF program 受 verifier 限制不能 unbounded 函數調用。但 Cilium 邏輯複雜（policy + service + observability），需要拆成多個小 program 串接：</p>
+
+  <h3>4.1 Tail Calls</h3>
+
+  <p>把 program ID 放進 <code>BPF_MAP_TYPE_PROG_ARRAY</code>，呼叫 <code>bpf_tail_call(ctx, prog_map, index)</code> 跳轉到對應 program。</p>
+
+  <ul>
+    <li><strong>跳轉 = 替代</strong>：當前 program 結束，新 program 重新開始（不會 return 回來）</li>
+    <li>最大 chain 深度 33（5+ kernel）</li>
+    <li>動態：map 內容可以動態改，不需要 reload program</li>
+  </ul>
+
+  <p>Cilium 用 tail call 把 datapath 拆成多段（from-container、to-container、handle-policy…），編譯快、verifier 友善。</p>
+
+  <h3>4.2 BPF-to-BPF Function Calls</h3>
+
+  <p>5.0+ 引入，<strong>正常的函數呼叫（return 回來繼續）</strong>。比 tail call 更接近一般 C 函數，但有 stack 深度限制。Cilium 用它組織 helper 邏輯。</p>
+
+  </section>
+
+  <!-- ============================================================
+       Section 5 — Helpers
+       ============================================================ -->
+  <section id="sec-5">
+  <h2>5. Helper Functions</h2>
+
+  <p>BPF program 不能呼叫任意 kernel 函數。kernel 提供一組受控的 <strong>helper functions</strong>，每個 helper 都有對應 ID，由 verifier 確認 program 有權使用。</p>
+
+  <p>網路 BPF 常用 helper：</p>
+
+  <table>
+    <thead><tr><th>Helper</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td><code>bpf_map_lookup_elem</code></td><td>查 map</td></tr>
+      <tr><td><code>bpf_map_update_elem</code></td><td>更新 map</td></tr>
+      <tr><td><code>bpf_redirect</code></td><td>把 packet 轉到另一個 device</td></tr>
+      <tr><td><code>bpf_redirect_neigh</code></td><td>5.10+，根據 dst IP 自動找 neighbour</td></tr>
+      <tr><td><code>bpf_redirect_peer</code></td><td>送到對端 netns peer device（netkit 用）</td></tr>
+      <tr><td><code>bpf_skb_change_head</code> / <code>change_tail</code></td><td>插入 / 移除 packet header</td></tr>
+      <tr><td><code>bpf_clone_redirect</code></td><td>複製 packet 送去別處</td></tr>
+      <tr><td><code>bpf_skb_set_tunnel_key</code></td><td>設定 VXLAN/Geneve metadata</td></tr>
+      <tr><td><code>bpf_fib_lookup</code></td><td>查 Linux FIB 找 next hop</td></tr>
+      <tr><td><code>bpf_perf_event_output</code></td><td>送 event 到 userspace（Hubble 用）</td></tr>
+      <tr><td><code>bpf_ringbuf_output</code></td><td>5.8+，改進版</td></tr>
+      <tr><td><code>bpf_get_current_pid_tgid</code></td><td>取得當前 process ID</td></tr>
+      <tr><td><code>bpf_ktime_get_ns</code></td><td>kernel monotonic timestamp</td></tr>
+    </tbody>
+  </table>
+
+  <h4>看 program 用了哪些 helper</h4>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code>bpftool prog show id &lt;prog-id&gt; --pretty
+bpftool prog dump xlated id &lt;prog-id&gt; | head -30
+# 看 disassembled 指令，能找出呼叫的 helper</code></pre>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 6 — Pinning & bpffs
+       ============================================================ -->
+  <section id="sec-6">
+  <h2>6. Object Pinning &amp; bpffs</h2>
+
+  <p>預設 BPF map 與 program 的<strong>生命週期綁定載入者</strong>：load 它的 process 退出，object refcount 降為 0，kernel 自動清掉。對 Cilium 不好：cilium-agent 重啟一次就清光所有 map，所有連線斷。</p>
+
+  <p>解法：<strong>pinning</strong>，把 map / program pin 到 <strong>bpffs</strong>（一種特殊 pseudo filesystem，掛在 <code>/sys/fs/bpf</code>）：</p>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 看 bpffs 內的 pinned object
+ls -la /sys/fs/bpf/
+# 應該有 tc/globals/, ip/, ... 一堆 cilium_* 開頭
+
+ls -la /sys/fs/bpf/tc/globals/ | head
+# cilium_lxc, cilium_ipcache, cilium_lb4_services_v2, ...
+
+# bpftool 看
+bpftool map list pinned</code></pre>
+  </div>
+
+  <p>Cilium 的所有 datapath map 都 pin 到 bpffs，所以 <strong>cilium-agent 重啟時 BPF map 完整保留</strong>，現有連線不會斷（被 verifier 檢查過的 BPF program 也還在 kernel 內運行）。</p>
+
+  <div class="callout danger">
+    <div class="callout-title">⚠ 別動 /sys/fs/bpf</div>
+    <p style="margin:0">手動刪 bpffs 內的 cilium_* 檔案 = 強制清 BPF map = 所有 datapath state 消失 = cluster 大斷網。<strong>除非你確切知道在做什麼，不要 touch</strong>。</p>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 7 — Tooling
+       ============================================================ -->
+  <section id="sec-7">
+  <h2>7. 開發工具鏈</h2>
+
+  <h3 id="sec-7-1">7.1 LLVM / clang（編譯）</h3>
+
+  <p>BPF C source 用 <code>clang -target bpf</code> 編譯。要支援 BTF（BPF Type Format）以利 CO-RE：</p>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 編譯 BPF source
+clang -O2 -g -Wall -target bpf \
+  -D__TARGET_ARCH_x86 \
+  -I/usr/include/bpf \
+  -c hello.bpf.c -o hello.bpf.o
+
+# 看產出的 BTF info
+bpftool btf dump file hello.bpf.o</code></pre>
+  </div>
+
+  <h3 id="sec-7-2">7.2 bpftool（瑞士刀）</h3>
+
+  <p>kernel 內建（package <code>linux-tools-*</code>），是看/改 BPF 狀態的標準工具：</p>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 主要 subcommands
+bpftool prog list                    # 所有 BPF program
+bpftool prog show id 123             # 單一 program
+bpftool prog dump xlated id 123      # 看 disassembled
+bpftool prog dump jited id 123       # 看 JIT 後 native code
+
+bpftool map list                     # 所有 map
+bpftool map dump name cilium_lxc     # dump 內容
+bpftool map update id 123 key 0x01 0x02 value 0x03 0x04
+
+bpftool net show                     # 看 TC / XDP attach
+bpftool cgroup tree                  # cgroup BPF
+bpftool btf list                     # 載入的 BTF
+
+# Feature probing：這個 kernel 支援什麼 BPF feature
+bpftool feature probe full</code></pre>
+  </div>
+
+  <h3 id="sec-7-3">7.3 iproute2 與 bpftrace</h3>
+
+  <p><strong>iproute2</strong>：傳統 attach TC BPF 的工具（<code>tc filter add ... bpf da obj hello.o sec ingress</code>）。Cilium 現在直接走 libbpf API，不依賴 iproute2 load，但 host 仍需要 iproute2 做其他 routing 操作。</p>
+
+  <p><strong>bpftrace</strong>：類似 awk 的 BPF 腳本語言，快速寫一次性追蹤：</p>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 追蹤所有 connect()
+sudo bpftrace -e 'tracepoint:syscalls:sys_enter_connect {
+  printf("%s -> family %d\n", comm, args->uservaddr->sa_family);
+}'
+
+# 統計 conntrack lookup 結果
+sudo bpftrace -e 'kprobe:nf_conntrack_in {
+  @[comm] = count();
+}'</code></pre>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 8 — Debug & Test
+       ============================================================ -->
+  <section id="sec-8">
+  <h2>8. Debug &amp; Test</h2>
+
+  <h4>BPF program log</h4>
+
+  <p>BPF 內無 <code>printf</code>，但有 <code>bpf_printk()</code>（helper）把訊息寫到 kernel trace pipe：</p>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># BPF 程式內
+bpf_printk("packet src=%pI4 dst=%pI4\n", &src_ip, &dst_ip);
+
+# Host 上看
+sudo cat /sys/kernel/debug/tracing/trace_pipe
+# 或
+sudo bpftool prog tracelog</code></pre>
+  </div>
+
+  <h4>BPF testing</h4>
+
+  <p>5.x 起 BPF 提供 <code>BPF_PROG_TEST_RUN</code> syscall：對 program 灌入指定封包，看回傳值與封包修改結果。Cilium 內部 test framework 基於這個。</p>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># bpftool 提供 wrapper
+bpftool prog run id 123 \
+  data_in test_packet.bin \
+  data_out result.bin
+
+# 看回傳值
+echo $?</code></pre>
+  </div>
+
+  <h4>verifier log</h4>
+
+  <p>load 失敗時最有用的 debug：</p>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># load 時加上 -d
+bpftool prog load hello.bpf.o /sys/fs/bpf/hello \
+  type tc verbose -d
+
+# verifier reject 範例輸出:
+# func#0 @0
+# 0: R1=ctx(off=0,imm=0) R10=fp0
+# ; struct iphdr *ip = data;
+# 1: (b7) r2 = 14                    ; R2_w=14
+# 2: (0f) r2 += r3                   ; R2_w=invalid pointer
+# math between pkt pointer and register with unbounded min value</code></pre>
+  </div>
+
+  <h4>Cilium-specific datapath debug</h4>
+
+  <p>第八部 B 已示範。複習：</p>
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 對 endpoint 開 BPF debug
+cilium-dbg endpoint config &lt;id&gt; Debug=true
+cilium-dbg endpoint config &lt;id&gt; DebugLB=true   # LB-specific
+cilium-dbg endpoint config &lt;id&gt; DebugPolicy=true
+
+# 看 datapath event（加 datapath 選項才有低層 BPF event）
+cilium-dbg config debug-verbose=datapath
+cilium-dbg monitor -v</code></pre>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 9 — XFRM
+       ============================================================ -->
+  <section id="sec-9">
+  <h2>9. XFRM Reference（IPsec 底層）</h2>
+
+  <p>XFRM 是 Linux kernel 的 <strong>IPsec 框架</strong>，名字來自「transform」。Cilium IPsec encryption 完全靠 XFRM；理解它對排查 IPsec 問題不可少。WireGuard 路徑不用 XFRM。</p>
+
+  <h3 id="sec-9-1">9.1 概念：State 與 Policy</h3>
+
+  <table>
+    <thead><tr><th>概念</th><th>意義</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>XFRM State (SA, Security Association)</strong></td>
+        <td>實際的加密參數：算法、key、SPI（Security Parameter Index）、source/destination、模式（tunnel / transport）</td>
+      </tr>
+      <tr>
+        <td><strong>XFRM Policy (SP, Security Policy)</strong></td>
+        <td>「<strong>哪些封包要走加密</strong>」的規則：source/destination CIDR、protocol、方向（in/out/fwd）、要綁哪些 state（template）</td>
+      </tr>
+      <tr>
+        <td><strong>SPI</strong></td>
+        <td>32-bit 識別碼，受方靠它找到對應 state 解密</td>
+      </tr>
+      <tr>
+        <td><strong>ESP / AH</strong></td>
+        <td>IPsec 兩種 protocol：ESP 加密+完整性，AH 只完整性。Cilium 用 ESP</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h4>典型 Cilium 環境的 ip xfrm 輸出</h4>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 進 node host namespace（kind 環境用 docker exec）
+sudo ip xfrm state list
+sudo ip xfrm policy list
+
+# 範例 state:
+# src 192.168.1.10 dst 192.168.1.20
+#   proto esp spi 0x00000003 reqid 1 mode tunnel
+#   replay-window 0
+#   mark 0xd00/0xf00
+#   aead rfc4106(gcm(aes)) 0xa1b2c3d4... 128
+#   anti-replay context: seq 0x0, oseq 0x0, bitmap 0x00000000
+
+# 範例 policy:
+# src 0.0.0.0/0 dst 10.1.0.0/16
+#   dir out priority 0
+#   mark 0xe00/0xf00
+#   tmpl src 192.168.1.10 dst 192.168.1.20
+#     proto esp reqid 1 mode tunnel</code></pre>
+  </div>
+
+  <h3 id="sec-9-2">9.2 封包流程（簡化）</h3>
+
+  <div class="mermaid">
+graph TB
+    P[發送 packet<br/>Pod A] --> Out[OUTPUT chain]
+    Out --> Lookup1["XFRM Policy lookup<br/>(out)"]
+    Lookup1 -->|match| Enc["XFRM encode<br/>encrypt + ESP header"]
+    Lookup1 -->|no match| PolicyMiss["plain<br/>(無加密)"]
+    Enc --> Send[NIC 送出<br/>外層 ESP]
+
+    Send -.受方接收.-> Recv[INPUT chain]
+    Recv --> Dec["XFRM decode<br/>SPI 找 state<br/>decrypt"]
+    Dec -->|成功| InPolicy["XFRM Policy lookup<br/>(in)"]
+    InPolicy -->|match| Deliver[送給 local process]
+    InPolicy -->|no match| Drop1[drop]
+    Dec -->|失敗| ErrCount["error counter<br/>(/proc/net/xfrm_stat)"]
+
+    classDef pkt fill:#cffafe,stroke:#0891b2
+    classDef xfrm fill:#fef3c7,stroke:#d97706
+    classDef good fill:#dcfce7,stroke:#16a34a
+    classDef bad fill:#fee2e2,stroke:#dc2626
+    class P,Recv,Deliver pkt
+    class Lookup1,Enc,Dec,InPolicy xfrm
+    class Send good
+    class Drop1,ErrCount,PolicyMiss bad
+  </div>
+
+  <p>Cilium 為了讓 BPF datapath 與 XFRM 共存，<strong>用 packet mark 引導</strong>哪些封包要進 XFRM。在 tc-bpf ingress 上對 IPsec 封包打 mark，然後 IP route 把對應 mark 的封包導到 INPUT chain 進 XFRM decode。</p>
+
+  <h3 id="sec-9-3">9.3 ip xfrm 輸出解讀關鍵欄位</h3>
+
+  <table>
+    <thead><tr><th>欄位</th><th>意義</th></tr></thead>
+    <tbody>
+      <tr><td><code>proto esp</code></td><td>使用 ESP（Cilium 一律 ESP）</td></tr>
+      <tr><td><code>spi 0x...</code></td><td>SPI；Cilium 用 KEYID 概念對應</td></tr>
+      <tr><td><code>reqid N</code></td><td>連結 state 與 policy template 的編號</td></tr>
+      <tr><td><code>mode tunnel</code></td><td>tunnel 模式（封裝原始 IP 標頭）</td></tr>
+      <tr><td><code>mark 0xXXX/0xfff</code></td><td>Cilium 用的 packet mark，用於 BPF / iptables 協調</td></tr>
+      <tr><td><code>aead rfc4106(gcm(aes))</code></td><td>AEAD 算法（Authenticated Encryption with Associated Data）</td></tr>
+      <tr><td><code>replay-window</code></td><td>抗重放視窗大小</td></tr>
+      <tr><td><code>anti-replay context: seq, oseq, bitmap</code></td><td>抗重放狀態</td></tr>
+    </tbody>
+  </table>
+
+  <h3 id="sec-9-4">9.4 XFRM Errors 對照表</h3>
+
+  <p>XFRM 錯誤計數器在 <code>/proc/net/xfrm_stat</code>，要先開 <code>CONFIG_XFRM_STATISTICS</code>。每個錯誤都代表一個 packet drop。</p>
+
+  <table>
+    <thead><tr><th>Error</th><th>意義</th><th>常見原因</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>XfrmInError</code></td>
+        <td>kernel 內部錯誤（記憶體配置失敗、route lookup 失敗）</td>
+        <td>memory pressure / 對端 pod 已刪除但 packet 還在</td>
+      </tr>
+      <tr>
+        <td><code>XfrmInBufferError</code></td>
+        <td>解密期間 buffer 配置失敗</td>
+        <td>memory pressure</td>
+      </tr>
+      <tr>
+        <td><code>XfrmInHdrError</code></td>
+        <td>外層 IP header 或 SPI 格式錯</td>
+        <td>傳輸過程封包損壞</td>
+      </tr>
+      <tr>
+        <td><code>XfrmInNoStates</code></td>
+        <td>找不到對應 state（最常見錯誤）</td>
+        <td><strong>Key rotation</strong> 時新舊 key 不同步、SPI 不匹配</td>
+      </tr>
+      <tr>
+        <td><code>XfrmInStateProtoError</code></td>
+        <td>protocol 不對 / checksum 失敗 / decrypt 失敗</td>
+        <td>Key 改了但<strong>SPI 沒換</strong>，做正確的 key rotation 修</td>
+      </tr>
+      <tr>
+        <td><code>XfrmInStateModeError</code></td>
+        <td>tunnel vs transport mode 不一致</td>
+        <td>配置錯誤</td>
+      </tr>
+      <tr>
+        <td><code>XfrmInStateSeqError</code></td>
+        <td>anti-replay window 之外</td>
+        <td>網路嚴重亂序、key rotation 沒重置 seq</td>
+      </tr>
+      <tr>
+        <td><code>XfrmInStateExpired</code></td>
+        <td>state 過期</td>
+        <td>Cilium 一般不設過期，不該出現</td>
+      </tr>
+      <tr>
+        <td><code>XfrmInTmplMismatch</code></td>
+        <td>state 不符 policy template</td>
+        <td>配置不一致</td>
+      </tr>
+      <tr>
+        <td><code>XfrmInNoPols</code></td>
+        <td>找不到對應 policy</td>
+        <td>policy 沒裝、reqid 不對</td>
+      </tr>
+      <tr>
+        <td><code>XfrmInPolBlock</code></td>
+        <td>policy 顯式 block</td>
+        <td>配置有 deny policy</td>
+      </tr>
+      <tr>
+        <td><code>XfrmOutStateSeqError</code></td>
+        <td>OUT state sequence 達上限</td>
+        <td>state 用太久沒 rotate</td>
+      </tr>
+      <tr>
+        <td><code>XfrmOutPolBlock</code></td>
+        <td>OUT 方向 policy block</td>
+        <td>常見大量出現，已知 Cilium issue #26954，<strong>多數情況下無害</strong>但要看 Release Note 確認版本修復</td>
+      </tr>
+      <tr>
+        <td><code>XfrmFwdHdrError</code></td>
+        <td>decrypt 後 route lookup 失敗</td>
+        <td>對端 pod 已刪、CiliumNode 資訊還沒到</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout warn">
+    <div class="callout-title">⚠ 哪些可忍受、哪些要修</div>
+    <p style="margin:0">官方建議：<strong><code>XfrmFwdHdrError</code> 與 <code>XfrmInError</code> 在正常運維下可能少量出現</strong>（pod 剛刪 / 資訊還沒同步）。其他 XFRM error 通常代表 Cilium bug 或配置錯誤，要看版本與 release notes。<code>XfrmOutPolBlock</code> 是知名 issue，1.13+ 多次修補，務必跑最新 patch。</p>
+  </div>
+
+  <h4>檢查 IPsec 狀態</h4>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># cilium 包裝
+kubectl -n kube-system exec ds/cilium -- cilium-dbg encrypt status
+
+# 直接看 kernel counter
+cat /proc/net/xfrm_stat
+
+# 看 state 與 policy
+sudo ip -s xfrm state list
+sudo ip -s xfrm policy list
+
+# 看 anti-replay 失敗
+cat /proc/net/xfrm_stat | grep -i seqerror</code></pre>
+  </div>
+
+  <h4>Key Rotation 正確流程</h4>
+
+  <p>升級或定期 rotate IPsec key 時，<strong>必須增加 SPI</strong>，否則會大量 <code>XfrmInStateProtoError</code>：</p>
+
+  <div class="code-block">
+    <div class="code-header"><span class="code-lang">bash</span><button class="copy-btn">複製</button></div>
+<pre><code># 1. 取得現有 secret 與 SPI（KEYID）
+kubectl -n kube-system get secret cilium-ipsec-keys -o jsonpath='{.data.keys}' | base64 -d
+# 範例: 3+ rfc4106(gcm(aes)) ABCD...DEF 128
+
+# 2. 產新 key（SPI +1，注意第一個數字）
+NEW_KEY="4+ rfc4106(gcm(aes)) $(echo $(dd if=/dev/urandom count=20 bs=1 2>/dev/null | xxd -p -c 64)) 128"
+
+# 3. 更新 secret（保留舊 key，agent 會自動切換）
+kubectl -n kube-system patch secret cilium-ipsec-keys --type='json' \
+  -p='[{"op":"replace","path":"/data/keys","value":"'$(echo "$NEW_KEY" | base64 -w0)'"}]'
+
+# 4. 等所有 agent 套用（預設 1 分鐘內）
+sleep 90
+kubectl -n kube-system exec ds/cilium -- cilium-dbg encrypt status
+
+# ClusterMesh 環境 key rotation 跨多 cluster，default 5 分鐘 cleanup window 可能不夠：
+helm upgrade ... --set encryption.ipsec.keyRotationDuration=30m</code></pre>
+  </div>
+
+  </section>
+
+  <!-- ============================================================
+       Section 10 — 回顧
+       ============================================================ -->
+  <section id="sec-10">
+  <h2>10. 本章重點回顧</h2>
+
+  <ul>
+    <li><strong>eBPF 三件套</strong>：受 verifier 檢查的 sandboxed program、與 userspace 共享的 BPF maps、kernel 提供的 helper functions。verifier 是安全核心。</li>
+    <li>Cilium agent 內含 <strong>clang/LLVM</strong>，因為每個 endpoint 都需要客製化編譯（identity / IP / policy 編進 BPF）。</li>
+    <li>三大 BPF map 用途：<strong>LPM_TRIE</strong>（ipcache CIDR 比對）/ <strong>LRU_HASH</strong>（conntrack）/ <strong>HASH_OF_MAPS</strong>（per-endpoint policy）。</li>
+    <li>四大 Program Type：<strong>XDP</strong>（極速 LB / DDoS）/ <strong>TC（cls_bpf / tcx）</strong>（Cilium 主力）/ <strong>cgroup BPF</strong>（socket-LB）/ <strong>tracing 類</strong>（Tetragon 用）。</li>
+    <li><strong>Tail call</strong> 拆 program 串接（不 return）；<strong>BPF-to-BPF call</strong> 是正常函數呼叫（5.0+）。</li>
+    <li><strong>bpffs pinning</strong> 讓 Cilium agent 重啟時 BPF map 與 program 保留，連線不斷。<strong>絕對不要手動刪 /sys/fs/bpf/cilium_*</strong>。</li>
+    <li>三大工具：<strong>clang -target bpf</strong>（編譯）、<strong>bpftool</strong>（看狀態）、<strong>bpftrace</strong>（快速腳本）。</li>
+    <li>debug 工具：<code>bpf_printk</code> → <code>/sys/kernel/debug/tracing/trace_pipe</code>；verifier reject → 加 <code>-d</code> verbose 看 register state。</li>
+    <li>XFRM 是 Linux IPsec 框架。<strong>state = SA</strong>（實際加密參數）/ <strong>policy = SP</strong>（哪些封包要加密）。SPI 是收方找對應 state 的 32-bit ID。</li>
+    <li>XFRM 錯誤定位：<code>XfrmInNoStates</code> = key rotation 不同步；<code>XfrmInStateProtoError</code> = key 改了沒換 SPI；<code>XfrmFwdHdrError</code> = pod 剛刪（可忍受）；<code>XfrmOutPolBlock</code> = 知名 issue 看 release notes。</li>
+    <li>IPsec key rotation <strong>務必遞增 SPI（KEYID）</strong>，並考慮 ClusterMesh 需要更長的 cleanup window。</li>
+  </ul>
+
+  <div class="callout ok">
+    <div class="callout-title">✓ 下一步</div>
+    <p style="margin:0">kernel 底層完成。第十部 B 接續講<strong>Cilium 內部架構</strong>：Code Overview、Operator 設計、Hubble Internals、Hive 框架、StateDB、開發環境建置、貢獻與 release 流程。</p>
+  </div>
+
+  </section>
+
+  <footer class="book-footer">
+    <span>Cilium 教學手冊 · Part 10A / 14 · BPF / XDP / XFRM Reference</span>
+    <span>對應 Cilium 1.19.x · 最後更新 2026-05</span>
+  </footer>
+
+  </main>
+</div>
+
+<script>
+(function () {
+  function mermaidTheme() { return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default'; }
+  function init() {
+    if (typeof mermaid === 'undefined') return;
+    mermaid.initialize({
+      startOnLoad: true, theme: mermaidTheme(),
+      themeVariables: { fontFamily: 'DM Sans, Inter, Noto Sans TC, system-ui, sans-serif', fontSize: '14px' },
+      flowchart: { curve: 'basis' }, securityLevel: 'loose'
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+
+  window.addEventListener('jhsun:theme-changed', function () {
+    if (typeof mermaid === 'undefined') return;
+    document.querySelectorAll('.mermaid').forEach(el => {
+      const src = el.getAttribute('data-original') || el.textContent.trim();
+      if (!el.getAttribute('data-original')) el.setAttribute('data-original', src);
+      el.removeAttribute('data-processed');
+      el.innerHTML = el.getAttribute('data-original');
+    });
+    mermaid.initialize({
+      startOnLoad: false, theme: mermaidTheme(),
+      themeVariables: { fontFamily: 'DM Sans, Inter, Noto Sans TC, system-ui, sans-serif', fontSize: '14px' },
+      flowchart: { curve: 'basis' }, securityLevel: 'loose'
+    });
+    mermaid.run();
+  });
+})();
+</script>
+
+<script>
+document.querySelectorAll('.copy-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const block = btn.closest('.code-block');
+    if (!block) return;
+    const code = block.querySelector('pre code') || block.querySelector('pre');
+    if (!code) return;
+    navigator.clipboard.writeText(code.innerText).then(() => {
+      const original = btn.textContent;
+      btn.textContent = '已複製';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = original; btn.classList.remove('copied'); }, 1500);
+    });
+  });
+});
+</script>
+
+</body>
+</html>

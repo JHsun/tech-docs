@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.36 Argo Rollouts 基礎：Rollout CRD、Canary、Blue-Green — Argo CD 完整教學手冊</title>
+<style>
+:root{--tk-hue:200;--tk-chroma:0.11;--color-success:#16a34a;--color-success-soft:#dcfce7;--color-warning:#d97706;--color-warning-soft:#fef3c7;--color-danger:#dc2626;--color-danger-soft:#fee2e2;--color-info:#0891b2;--color-info-soft:#cffafe;--color-neutral-accent:#7c3aed;--color-primary:oklch(0.55 var(--tk-chroma) var(--tk-hue));--color-primary-hover:oklch(0.48 var(--tk-chroma) var(--tk-hue));--color-primary-soft:oklch(0.96 calc(var(--tk-chroma)*.25) var(--tk-hue));--color-primary-text:oklch(0.40 var(--tk-chroma) var(--tk-hue));--bg-canvas:oklch(0.985 0.004 60);--bg-surface:oklch(0.995 0.003 60);--bg-muted:oklch(0.96 0.005 60);--bg-code:oklch(0.975 0.006 60);--border-soft:oklch(0.92 0.006 60);--border-mid:oklch(0.85 0.008 60);--text-primary:oklch(0.22 0.008 60);--text-secondary:oklch(0.42 0.008 60);--text-muted:oklch(0.58 0.008 60);--font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;--font-sans:"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif;--font-serif:"Playfair Display","Source Serif 4","Noto Serif TC",Georgia,serif;--font-body:"Source Serif 4","Noto Serif TC",Georgia,serif;--text-xs:12px;--text-sm:14px;--text-base:16px;--text-md:18px;--text-lg:20px;--text-xl:24px;--text-2xl:32px;--text-3xl:44px;--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-7:48px;--space-8:64px;--space-9:96px;--radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:20px;--shadow-sm:0 1px 3px oklch(0.20 0.01 60/0.07);--shadow-md:0 4px 14px oklch(0.20 0.01 60/0.10);}
+:root[data-theme="dark"]{--color-success:#4ade80;--color-success-soft:oklch(0.28 0.08 145);--color-warning:#fbbf24;--color-warning-soft:oklch(0.30 0.10 70);--color-danger:#f87171;--color-danger-soft:oklch(0.30 0.10 27);--color-info:#22d3ee;--color-info-soft:oklch(0.30 0.08 200);--color-neutral-accent:#a78bfa;--color-primary:oklch(0.72 calc(var(--tk-chroma)*.95) var(--tk-hue));--color-primary-hover:oklch(0.80 calc(var(--tk-chroma)*.95) var(--tk-hue));--color-primary-soft:oklch(0.28 calc(var(--tk-chroma)*.6) var(--tk-hue));--color-primary-text:oklch(0.85 calc(var(--tk-chroma)*.6) var(--tk-hue));--bg-canvas:oklch(0.14 0.008 50);--bg-surface:oklch(0.18 0.009 50);--bg-muted:oklch(0.21 0.010 50);--bg-code:oklch(0.16 0.009 50);--border-soft:oklch(0.26 0.010 50);--border-mid:oklch(0.34 0.012 50);--text-primary:oklch(0.93 0.005 60);--text-secondary:oklch(0.74 0.006 60);--text-muted:oklch(0.56 0.007 60);--shadow-sm:0 1px 3px oklch(0.04 0 0/.50);--shadow-md:0 4px 14px oklch(0.04 0 0/.60);}
+html{color-scheme:light dark;}html[data-theme="light"]{color-scheme:light;}html[data-theme="dark"]{color-scheme:dark;}
+body{background:var(--bg-canvas);color:var(--text-primary);font-family:var(--font-sans);font-size:var(--text-base);line-height:1.7;margin:0;padding:0;transition:background .25s,color .25s;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+.topbar{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:10px var(--space-6);background:var(--bg-surface);border-bottom:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.tb-left{display:flex;align-items:center;gap:var(--space-3);}
+.tb-logo{width:30px;height:30px;border-radius:var(--radius-md);background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:13px;font-weight:800;}
+.tb-trail{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.tb-trail .sep{color:var(--border-mid);}.tb-trail .cur{color:var(--color-primary);font-weight:600;}
+.tb-right{display:flex;align-items:center;gap:var(--space-2);}
+.pill{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);border:1px solid;}
+.pill-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.pill-ver{background:var(--color-info-soft);color:var(--color-info);border-color:var(--color-info);}
+[data-theme-toggle]{cursor:pointer;border:1px solid var(--border-mid);background:var(--bg-muted);color:var(--text-secondary);border-radius:var(--radius-md);padding:6px var(--space-3);font-family:var(--font-sans);font-size:var(--text-sm);display:flex;align-items:center;gap:6px;transition:all .2s;}
+[data-theme-toggle]:hover{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.page{display:flex;min-height:100vh;}
+.toc-sidebar{width:230px;flex-shrink:0;position:sticky;top:49px;height:calc(100vh - 49px);overflow-y:auto;padding:var(--space-5) var(--space-3);border-right:1px solid var(--border-soft);background:var(--bg-surface);}
+.toc-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-3);}
+.toc-list{list-style:none;}
+.toc-list li{margin-bottom:2px;}
+.toc-list a{display:block;padding:4px var(--space-2);font-size:var(--text-sm);color:var(--text-secondary);text-decoration:none;border-radius:var(--radius-sm);border-left:2px solid transparent;transition:all .15s;line-height:1.4;}
+.toc-list a:hover,.toc-list a.active{color:var(--color-primary);background:var(--color-primary-soft);border-left-color:var(--color-primary);font-weight:600;}
+.toc-h3{padding-left:var(--space-4)!important;font-size:var(--text-xs)!important;}
+.toc-lbl{display:block;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:var(--space-3) var(--space-2) var(--space-1);margin-top:var(--space-2);}
+.content{flex:1;min-width:0;padding:var(--space-8) var(--space-7) var(--space-9);max-width:900px;}
+.ch-header{margin-bottom:var(--space-8);padding-bottom:var(--space-6);border-bottom:1px solid var(--border-soft);}
+.ch-meta{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-4);flex-wrap:wrap;}
+.m-badge{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);}
+.m-ch{background:var(--color-primary);color:#fff;}
+.m-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border:1px solid var(--color-primary);}
+.m-time{background:var(--bg-muted);color:var(--text-muted);border:1px solid var(--border-soft);}
+.ch-header h1{font-family:var(--font-serif);font-size:clamp(var(--text-2xl),4vw,var(--text-3xl));font-weight:700;color:var(--text-primary);line-height:1.2;margin-bottom:var(--space-4);}
+.ch-header h1 em{font-style:normal;color:var(--color-primary);}
+.ch-lead{font-size:var(--text-md);color:var(--text-secondary);line-height:1.7;max-width:700px;font-family:var(--font-body);}
+.prereq{margin-top:var(--space-5);display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--bg-muted);border-radius:var(--radius-md);border:1px solid var(--border-soft);}
+.prereq .pico{font-size:var(--text-lg);flex-shrink:0;margin-top:1px;}
+.prereq p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;}
+.prereq strong{color:var(--text-primary);}
+.obj-box{background:var(--color-primary-soft);border:1px solid var(--color-primary);border-radius:var(--radius-lg);padding:var(--space-5);margin-bottom:var(--space-7);}
+.obj-box h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--color-primary-text);font-weight:700;margin-bottom:var(--space-3);}
+.obj-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-2);}
+.obj-list li{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-sm);color:var(--color-primary-text);line-height:1.5;}
+.obj-list li::before{content:"\2713";font-weight:700;color:var(--color-primary);flex-shrink:0;margin-top:1px;}
+.sec{margin-bottom:var(--space-9);scroll-margin-top:80px;}
+.sec h2{font-family:var(--font-serif);font-size:var(--text-2xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-4);padding-bottom:var(--space-3);border-bottom:2px solid var(--border-soft);display:flex;align-items:center;gap:var(--space-3);}
+.sn{font-family:var(--font-mono);font-size:var(--text-sm);background:var(--color-primary);color:#fff;padding:2px 8px;border-radius:var(--radius-sm);font-weight:700;white-space:nowrap;flex-shrink:0;}
+.sec h3{font-family:var(--font-sans);font-size:var(--text-lg);font-weight:700;color:var(--text-primary);margin:var(--space-6) 0 var(--space-3);}
+.sec h4{font-family:var(--font-sans);font-size:var(--text-base);font-weight:700;color:var(--text-primary);margin:var(--space-5) 0 var(--space-2);}
+p{font-family:var(--font-body);font-size:var(--text-base);color:var(--text-secondary);line-height:1.8;margin-bottom:var(--space-4);}
+strong{color:var(--text-primary);}em{color:var(--color-primary);font-style:normal;}
+.cal{display:flex;gap:var(--space-3);padding:var(--space-4) var(--space-5);border-radius:var(--radius-lg);margin:var(--space-5) 0;border-left:4px solid;}
+.ci{background:var(--color-info-soft);border-color:var(--color-info);}
+.cw{background:var(--color-warning-soft);border-color:var(--color-warning);}
+.ct{background:var(--color-success-soft);border-color:var(--color-success);}
+.cd{background:var(--color-primary-soft);border-color:var(--color-primary);}
+.cal .ic{font-size:var(--text-lg);flex-shrink:0;margin-top:2px;}
+.cal h4{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-1);font-family:var(--font-sans);}
+.cal p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.65;margin:0;font-family:var(--font-sans);}
+.code-wrap{margin:var(--space-4) 0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.code-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px var(--space-4);background:var(--bg-muted);border-bottom:1px solid var(--border-soft);}
+.code-lang{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;}
+.copy-btn{cursor:pointer;font-family:var(--font-mono);font-size:11px;padding:3px 10px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--border-mid);color:var(--text-muted);transition:all .2s;}
+.copy-btn:hover{background:var(--color-primary-soft);color:var(--color-primary);border-color:var(--color-primary);}
+.copy-btn.copied{background:var(--color-success-soft);color:var(--color-success);border-color:var(--color-success);}
+pre{margin:0;padding:var(--space-5);background:var(--bg-code);overflow-x:auto;font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.65;color:var(--text-primary);}
+code{font-family:var(--font-mono);font-size:.92em;background:var(--bg-code);padding:1px 5px;border-radius:var(--radius-sm);color:var(--color-primary-text);border:1px solid var(--border-soft);}
+pre code{background:none;padding:0;border:none;color:inherit;font-size:inherit;}
+.yk{color:var(--color-info);}.yv{color:var(--color-success);}.yc{color:var(--text-muted);font-style:italic;}
+.yn{color:var(--color-warning);}.yh{color:var(--color-neutral-accent);font-weight:700;}
+.tw{overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);margin:var(--space-5) 0;}
+table{width:100%;border-collapse:collapse;font-size:var(--text-sm);}
+thead th{background:var(--bg-muted);padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.07em;border-bottom:2px solid var(--border-mid);text-align:left;white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--border-soft);transition:background .12s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--bg-muted);}
+td{padding:var(--space-3) var(--space-4);vertical-align:top;line-height:1.6;font-family:var(--font-sans);}
+td:first-child{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--color-primary-text);background:var(--color-primary-soft);white-space:nowrap;font-weight:600;}
+.concept-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);margin:var(--space-5) 0;}
+.concept{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.concept-head{padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:var(--text-sm);font-weight:700;border-bottom:1px solid var(--border-soft);}
+.concept-body{padding:var(--space-4);font-size:11px;color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.concept-body .formula{font-family:var(--font-mono);font-size:11px;background:var(--bg-muted);padding:6px 10px;border-radius:var(--radius-sm);margin:var(--space-2) 0;display:block;color:var(--text-primary);}
+.lifecycle{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-5);margin:var(--space-5) 0;box-shadow:var(--shadow-sm);}
+.lc-step{display:flex;gap:var(--space-3);margin-bottom:var(--space-3);align-items:flex-start;}
+.lc-num{font-family:var(--font-mono);font-size:11px;font-weight:700;background:var(--color-primary);color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.lc-content{flex:1;font-size:var(--text-xs);color:var(--text-secondary);font-family:var(--font-sans);line-height:1.6;}
+.lc-content strong{color:var(--text-primary);}
+.lc-content code{background:var(--bg-muted);padding:1px 6px;border-radius:var(--radius-sm);font-size:11px;}
+.kp{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);margin:var(--space-7) 0;box-shadow:var(--shadow-sm);}
+.kp h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-4);margin-top:0;}
+.kp-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-3);}
+.kp-list li{display:flex;align-items:flex-start;gap:var(--space-3);font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.kp-ic{font-size:var(--text-md);flex-shrink:0;margin-top:1px;}
+.ch-nav{display:flex;justify-content:space-between;margin-top:var(--space-9);padding-top:var(--space-6);border-top:1px solid var(--border-soft);}
+.nav-btn{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);text-decoration:none;font-size:var(--text-sm);font-weight:600;transition:all .2s;box-shadow:var(--shadow-md);}
+.nav-prev{background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-mid);}.nav-prev:hover{background:var(--bg-muted);transform:translateX(-2px);}
+.nav-next{background:var(--color-primary);color:#fff;}.nav-next:hover{background:var(--color-primary-hover);transform:translateX(2px);}
+.nav-sub{font-size:11px;opacity:.75;font-family:var(--font-mono);}
+footer{border-top:1px solid var(--border-soft);padding:var(--space-5) var(--space-8);font-family:var(--font-mono);font-size:11px;color:var(--text-muted);text-align:center;}
+footer strong{color:var(--color-primary);}
+@media(max-width:900px){.toc-sidebar{display:none;}.content{padding:var(--space-6) var(--space-4) var(--space-8);}.concept-grid{grid-template-columns:1fr;}}
+@media(max-width:640px){.topbar{padding:8px var(--space-4);}.tb-trail{display:none;}}
+</style>
+</head><body>
+<header class="topbar">
+  <div class="tb-left">
+    <div class="tb-logo">A</div>
+    <nav class="tb-trail">
+      <span>Argo CD 完整教學手冊</span><span class="sep">›</span>
+      <span>Vol 8 Argo Rollouts 整合</span><span class="sep">›</span>
+      <span class="cur">Ch.36 Argo Rollouts 基礎</span>
+    </nav>
+  </div>
+  <div class="tb-right">
+    <span class="pill pill-vol">Vol 8 · Ch.36</span>
+    <span class="pill pill-ver">v3.4</span>
+    <button data-theme-toggle></button>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="toc-sidebar">
+    <div class="toc-title">本章目錄</div>
+    <ul class="toc-list">
+      <li><a href="#obj">學習目標</a></li>
+      <span class="toc-lbl">第一節</span>
+      <li><a href="#s1">Deployment 的限制</a></li>
+      <li><a href="#s1a" class="toc-h3">為什麼需要 Rollouts</a></li>
+      <li><a href="#s1b" class="toc-h3">Progressive Delivery</a></li>
+      <span class="toc-lbl">第二節</span>
+      <li><a href="#s2">安裝與架構</a></li>
+      <li><a href="#s2a" class="toc-h3">controller + dashboard + CLI</a></li>
+      <li><a href="#s2b" class="toc-h3">遷移 Deployment</a></li>
+      <span class="toc-lbl">第三節</span>
+      <li><a href="#s3">Rollout CRD 結構</a></li>
+      <li><a href="#s3a" class="toc-h3">vs Deployment 差異</a></li>
+      <li><a href="#s3b" class="toc-h3">ReplicaSet revisions</a></li>
+      <span class="toc-lbl">第四節</span>
+      <li><a href="#s4">Canary Strategy</a></li>
+      <li><a href="#s4a" class="toc-h3">setWeight + pause</a></li>
+      <li><a href="#s4b" class="toc-h3">replica-based vs traffic</a></li>
+      <li><a href="#s4c" class="toc-h3">promote / abort</a></li>
+      <span class="toc-lbl">第五節</span>
+      <li><a href="#s5">Blue-Green Strategy</a></li>
+      <li><a href="#s5a" class="toc-h3">active vs preview service</a></li>
+      <li><a href="#s5b" class="toc-h3">autoPromotionEnabled</a></li>
+      <span class="toc-lbl">第六節</span>
+      <li><a href="#s6">UI Dashboard 與 CLI</a></li>
+      <span class="toc-lbl">第七節</span>
+      <li><a href="#s7">常見場景與決策</a></li>
+      <span class="toc-lbl">總結</span>
+      <li><a href="#sum">重點回顧</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <header class="ch-header">
+      <div class="ch-meta">
+        <span class="m-badge m-ch">Chapter 36</span>
+        <span class="m-badge m-vol">Vol 8 — Argo Rollouts 整合</span>
+        <span class="m-badge m-time">⏱ 預計閱讀時間 45 分鐘</span>
+      </div>
+      <h1>Argo Rollouts 基礎<br><em>Rollout CRD、Canary、Blue-Green</em></h1>
+      <p class="ch-lead">Vol 8 第一章。K8s 原生 Deployment 只有 RollingUpdate，缺乏「先讓 10% 流量試試、觀察 5 分鐘、metrics 正常才推 50%」的精細控制——這正是 <strong>Argo Rollouts</strong> 解決的問題。本章涵蓋 Argo Rollouts 的核心 CRD（Rollout）、與 Deployment 的差異、Canary strategy（setWeight + pause）、Blue-Green strategy（active/preview service）、kubectl plugin CLI（promote/abort/retry）、Web Dashboard、與 Argo CD 的關係（Argo Rollouts 不依賴 Argo CD，但兩者完美互補）。下一章 Ch.37 將進入 AnalysisTemplate 自動化決策。</p>
+      <div class="prereq">
+        <span class="pico">📋</span>
+        <p><strong>前置：</strong>已完成 Vol 1-7。理解 K8s Deployment / ReplicaSet 機制（Ch.05）、Service 與 Endpoint。理解 rolling update strategy（maxSurge/maxUnavailable）。理解 readiness probe。對 canary / blue-green deployment 概念有基礎認識。</p>
+      </div>
+    </header>
+
+    <div class="obj-box" id="obj">
+      <h3>🎯 學習目標</h3>
+      <ul class="obj-list">
+        <li>理解 K8s 原生 Deployment 的 5 大限制：無法控制流量比例、無 metric-based 決策、不能 pause、回滾慢、難以實作 canary</li>
+        <li>掌握 Progressive Delivery 的核心概念：在 Continuous Delivery 基礎上加入「逐步擴大用戶曝光 + metric-driven 決策」</li>
+        <li>安裝 Argo Rollouts controller、kubectl-argo-rollouts plugin、Web Dashboard</li>
+        <li>從現有 Deployment 遷移到 Rollout：只需改 <code>apiVersion + kind + 加 strategy</code>，pod template 不變</li>
+        <li>掌握 Rollout CRD 完整結構：spec（與 Deployment 99% 相同）+ strategy（canary 或 blueGreen）</li>
+        <li>實作 Canary strategy：<code>setWeight</code>（流量比例）+ <code>pause</code>（duration 等待或無限等待）+ <code>analysis</code>（指向 AnalysisTemplate，Ch.37 詳細介紹）</li>
+        <li>區分 replica-based canary（不需 service mesh）vs traffic-based canary（精細流量控制，需 Istio/SMI/NGINX/Gateway API）</li>
+        <li>實作 Blue-Green strategy：activeService + previewService + autoPromotionEnabled + scaleDownDelaySeconds</li>
+        <li>掌握 kubectl-argo-rollouts CLI：<code>get</code> / <code>promote</code> / <code>abort</code> / <code>restart</code> / <code>retry</code> / <code>set image</code> / <code>watch</code></li>
+        <li>使用 Argo Rollouts Web Dashboard（不需 Argo CD）獨立查看 rollout 進度</li>
+        <li>選擇正確的策略：何時用 canary、何時用 blue-green、何時 traffic-based vs replica-based</li>
+      </ul>
+    </div>
+
+    <section class="sec" id="s1">
+      <h2><span class="sn">1</span>Deployment 的限制</h2>
+
+      <h3 id="s1a">1.1 為什麼需要 Argo Rollouts？</h3>
+
+      <p>K8s 原生 Deployment 提供 <code>RollingUpdate</code> 策略，但有明顯限制：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>限制</th><th>原生 Deployment</th><th>Argo Rollouts</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>流量比例控制</td>
+              <td>❌ 只能控制 pod 數量（maxSurge/maxUnavailable），實際流量不精確</td>
+              <td>✅ setWeight 精確控制流量百分比（搭配 service mesh）</td>
+            </tr>
+            <tr>
+              <td>Metric-based 決策</td>
+              <td>❌ 無法依 error rate / latency 決定是否繼續</td>
+              <td>✅ AnalysisTemplate 整合 Prometheus / Datadog / New Relic 自動判斷</td>
+            </tr>
+            <tr>
+              <td>暫停 (Pause)</td>
+              <td>❌ 不能暫停 rollout</td>
+              <td>✅ 在任何 step 可手動或自動暫停</td>
+            </tr>
+            <tr>
+              <td>回滾速度</td>
+              <td>慢（要 scale down 新 ReplicaSet、scale up 舊的）</td>
+              <td>✅ 立即（保留 stable ReplicaSet，只需切換流量）</td>
+            </tr>
+            <tr>
+              <td>Blue-Green</td>
+              <td>❌ 必須自行寫 script 切換 Service selector</td>
+              <td>✅ 原生支援，activeService + previewService 自動切換</td>
+            </tr>
+            <tr>
+              <td>實驗 (Experiment)</td>
+              <td>❌ 無</td>
+              <td>✅ Experiment CRD 可同時跑多版本 A/B test</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="s1b">1.2 Progressive Delivery 概念</h3>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>Progressive Delivery = CD + 漸進式曝光 + 自動決策</h4>
+          <p>① <strong>Continuous Delivery</strong>：自動部署到 production（但是 all-or-nothing）；② <strong>Progressive Delivery</strong>：在 CD 之上，加入<strong>逐步擴大用戶曝光</strong>（10% → 30% → 50% → 100%）+ <strong>metric-driven 決策</strong>（error rate &gt; 1% 自動 abort）。<strong>blast radius 限制在小範圍</strong>，問題在 10% 流量就被偵測並回滾，而不是影響全部用戶。</p>
+        </div>
+      </div>
+
+      <p>典型的 Progressive Delivery 場景：</p>
+
+      <ul style="margin-left: 24px; margin-bottom: 16px; color: var(--text-secondary); line-height: 1.7;">
+        <li>① <strong>新版本逐步擴大</strong>：10% 流量 5 分鐘 → 30% 5 分鐘 → 50% → 100%</li>
+        <li>② <strong>Header-based testing</strong>：特定 header（如 internal users）流量到新版，其他用戶看舊版</li>
+        <li>③ <strong>Blue-green with smoke test</strong>：新版本部署到 preview service，跑完 smoke test 才切換 active</li>
+        <li>④ <strong>A/B test</strong>：50/50 流量分到兩版本，依商業指標（轉換率）決定保留哪個</li>
+        <li>⑤ <strong>自動 abort</strong>：error rate / latency 超過閾值自動回滾，不需人工介入</li>
+      </ul>
+    </section>
+
+    <section class="sec" id="s2">
+      <h2><span class="sn">2</span>安裝與架構</h2>
+
+      <h3 id="s2a">2.1 三大元件</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>元件</th><th>角色</th><th>必要性</th></tr></thead>
+          <tbody>
+            <tr><td><strong>argo-rollouts-controller</strong></td><td>Watch Rollout CR，管理 ReplicaSet + 流量切換 + analysis</td><td>必須</td></tr>
+            <tr><td><strong>kubectl-argo-rollouts</strong></td><td>kubectl plugin，提供 <code>kubectl argo rollouts ...</code> 命令</td><td>建議</td></tr>
+            <tr><td><strong>argo-rollouts-dashboard</strong></td><td>Web UI（不需 Argo CD）</td><td>選用</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — 安裝 Argo Rollouts</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## 1) Controller</span>
+$ kubectl create namespace argo-rollouts
+$ kubectl apply -n argo-rollouts -f \
+    https://github.com/argoproj/argo-rollouts/releases/latest/download/install.yaml
+
+<span class="sh-comment">## 2) kubectl plugin（macOS）</span>
+$ curl -LO https://github.com/argoproj/argo-rollouts/releases/latest/download/kubectl-argo-rollouts-darwin-amd64
+$ chmod +x ./kubectl-argo-rollouts-darwin-amd64
+$ sudo mv kubectl-argo-rollouts-darwin-amd64 /usr/local/bin/kubectl-argo-rollouts
+
+<span class="sh-comment">## Linux：</span>
+$ curl -LO https://github.com/argoproj/argo-rollouts/releases/latest/download/kubectl-argo-rollouts-linux-amd64
+$ chmod +x ./kubectl-argo-rollouts-linux-amd64
+$ sudo mv kubectl-argo-rollouts-linux-amd64 /usr/local/bin/kubectl-argo-rollouts
+
+<span class="sh-comment">## 驗證</span>
+$ kubectl argo rollouts version
+<span class="sh-comment"># kubectl-argo-rollouts: v1.8.0+9c5d75d</span>
+
+<span class="sh-comment">## 3) Dashboard（本機開）</span>
+$ kubectl argo rollouts dashboard
+<span class="sh-comment"># INFO[0000] Argo Rollouts Dashboard is now available at http://localhost:3100</span>
+
+<span class="sh-comment">## 或部署到 cluster</span>
+$ kubectl apply -n argo-rollouts -f \
+    https://github.com/argoproj/argo-rollouts/releases/latest/download/dashboard-install.yaml</code></pre>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>Argo Rollouts 與 Argo CD 是獨立專案</h4>
+          <p>Argo Rollouts 是 <strong>Argo project 旗下獨立的 controller</strong>，不依賴 Argo CD 也能用。但兩者搭配是 GitOps + Progressive Delivery 的完美組合：① <strong>Argo CD</strong> 負責 Git → cluster 同步；② <strong>Argo Rollouts</strong> 接管 Rollout CR 的實際 deployment 邏輯。<strong>Argo CD 從 v2.0 起內建 Rollouts 的 health check</strong>，UI 自動顯示 rollout 進度（Ch.38 詳細介紹）。</p>
+        </div>
+      </div>
+
+      <h3 id="s2b">2.2 從 Deployment 遷移</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Deployment → Rollout 對比</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## ── BEFORE: K8s Deployment ───────────────────────────</span>
+<span class="yh">apiVersion: apps/v1</span>
+<span class="yh">kind: Deployment</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app</span>
+<span class="yk">spec:</span>
+  <span class="yk">replicas:</span> <span class="yn">5</span>
+  <span class="yk">selector:</span>
+    <span class="yk">matchLabels:</span>
+      <span class="yk">app:</span> <span class="yv">my-app</span>
+  <span class="yk">template:</span>
+    <span class="yk">metadata:</span>
+      <span class="yk">labels:</span>
+        <span class="yk">app:</span> <span class="yv">my-app</span>
+    <span class="yk">spec:</span>
+      <span class="yk">containers:</span>
+        - <span class="yk">name:</span> <span class="yv">my-app</span>
+          <span class="yk">image:</span> <span class="yv">myorg/my-app:v1.0.0</span>
+          <span class="yk">ports:</span>
+            - <span class="yk">containerPort:</span> <span class="yn">8080</span>
+  <span class="yk">strategy:</span>
+    <span class="yk">type:</span> <span class="yv">RollingUpdate</span>
+    <span class="yk">rollingUpdate:</span>
+      <span class="yk">maxSurge:</span> <span class="yv">25%</span>
+      <span class="yk">maxUnavailable:</span> <span class="yv">25%</span>
+
+<span class="yc">## ── AFTER: Argo Rollout（只改三處）──────────────────</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>  <span class="yc"># ① 變</span>
+<span class="yh">kind: Rollout</span>                       <span class="yc"># ② 變</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app</span>
+<span class="yk">spec:</span>
+  <span class="yk">replicas:</span> <span class="yn">5</span>
+  <span class="yk">selector:</span>
+    <span class="yk">matchLabels:</span>
+      <span class="yk">app:</span> <span class="yv">my-app</span>
+  <span class="yk">template:</span>                          <span class="yc"># Pod template 完全一樣</span>
+    <span class="yk">metadata:</span>
+      <span class="yk">labels:</span>
+        <span class="yk">app:</span> <span class="yv">my-app</span>
+    <span class="yk">spec:</span>
+      <span class="yk">containers:</span>
+        - <span class="yk">name:</span> <span class="yv">my-app</span>
+          <span class="yk">image:</span> <span class="yv">myorg/my-app:v1.0.0</span>
+          <span class="yk">ports:</span>
+            - <span class="yk">containerPort:</span> <span class="yn">8080</span>
+  <span class="yk">strategy:</span>                          <span class="yc"># ③ 換成 canary / blueGreen</span>
+    <span class="yk">canary:</span>
+      <span class="yk">steps:</span>
+        - <span class="yk">setWeight:</span> <span class="yn">25</span>
+        - <span class="yk">pause:</span> { <span class="yk">duration:</span> <span class="yv">5m</span> }
+        - <span class="yk">setWeight:</span> <span class="yn">50</span>
+        - <span class="yk">pause:</span> { <span class="yk">duration:</span> <span class="yv">5m</span> }
+        - <span class="yk">setWeight:</span> <span class="yn">100</span></code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>遷移時必須刪除舊 Deployment</h4>
+          <p>Rollout 與 Deployment 是<strong>不同 CRD</strong>——遷移時不能直接 <code>kubectl apply -f rollout.yaml</code> 就完事，必須先 <code>kubectl delete deployment my-app</code> 再 apply Rollout。否則會有兩個 controller 同時管 ReplicaSet，造成混亂。<strong>GitOps repo 中也要把 deployment.yaml 改成 rollout.yaml</strong>，Argo CD sync 時會偵測到變更。Ch.38 會講解 Argo CD 整合的細節。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s3">
+      <h2><span class="sn">3</span>Rollout CRD 結構</h2>
+
+      <h3 id="s3a">3.1 與 Deployment 99% 相同</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Rollout 完整 spec 結構</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: Rollout</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app</span>
+<span class="yk">spec:</span>
+  <span class="yc"># ── 與 Deployment 共同欄位 ──────────</span>
+  <span class="yk">replicas:</span> <span class="yn">5</span>
+  <span class="yk">selector:</span> {<span class="yk">matchLabels:</span> {<span class="yk">app:</span> <span class="yv">my-app</span>}}
+  <span class="yk">template:</span>
+    <span class="yk">metadata:</span>
+      <span class="yk">labels:</span> {<span class="yk">app:</span> <span class="yv">my-app</span>}
+    <span class="yk">spec:</span>
+      <span class="yk">containers:</span>
+        - <span class="yk">name:</span> <span class="yv">my-app</span>
+          <span class="yk">image:</span> <span class="yv">myorg/my-app:v1.0.0</span>
+          <span class="yk">readinessProbe:</span>
+            <span class="yk">httpGet:</span> {<span class="yk">path:</span> <span class="yv">/health</span>, <span class="yk">port:</span> <span class="yn">8080</span>}
+
+  <span class="yk">minReadySeconds:</span> <span class="yn">30</span>          <span class="yc"># pod 至少 ready 多久才算 healthy</span>
+  <span class="yk">revisionHistoryLimit:</span> <span class="yn">10</span>     <span class="yc"># 保留多少舊 ReplicaSet</span>
+  <span class="yk">progressDeadlineSeconds:</span> <span class="yn">600</span>  <span class="yc"># 10 分鐘沒進展視為失敗</span>
+
+  <span class="yc"># ── Rollouts 特有 ──────────────────</span>
+
+  <span class="yc"># 1) Strategy（canary 或 blueGreen，二選一）</span>
+  <span class="yk">strategy:</span>
+    <span class="yk">canary:</span>
+      <span class="yk">steps:</span>
+        - <span class="yk">setWeight:</span> <span class="yn">10</span>
+        - <span class="yk">pause:</span> {<span class="yk">duration:</span> <span class="yv">5m</span>}
+        - <span class="yk">setWeight:</span> <span class="yn">50</span>
+        - <span class="yk">pause:</span> {}                  <span class="yc"># 無限等待手動 promote</span>
+      <span class="yc"># 流量管理（traffic-based canary 必須）</span>
+      <span class="yk">canaryService:</span> <span class="yv">my-app-canary</span>
+      <span class="yk">stableService:</span> <span class="yv">my-app-stable</span>
+      <span class="yk">trafficRouting:</span>
+        <span class="yk">nginx:</span>
+          <span class="yk">stableIngress:</span> <span class="yv">my-app-ingress</span>
+
+  <span class="yc"># 2) Workload reference（v1.0+ 可選）</span>
+  <span class="yc"># 對既有 Deployment 直接 wrap，無需改 Deployment</span>
+  <span class="yc"># workloadRef:</span>
+  <span class="yc">#   apiVersion: apps/v1</span>
+  <span class="yc">#   kind: Deployment</span>
+  <span class="yc">#   name: existing-deployment</span></code></pre>
+      </div>
+
+      <h3 id="s3b">3.2 ReplicaSet revisions</h3>
+
+      <p>每次 spec 變更，controller 建一個新 ReplicaSet（<strong>canary</strong>）逐步 scale up，舊 ReplicaSet（<strong>stable</strong>）保留供 rollback：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — 查看 Rollout 狀態</span><button class="copy-btn">Copy</button></div>
+        <pre><code>$ kubectl argo rollouts get rollout my-app -n my-app
+
+<span class="sh-comment"># Name:            my-app</span>
+<span class="sh-comment"># Namespace:       my-app</span>
+<span class="sh-comment"># Status:          ॥ Paused</span>
+<span class="sh-comment"># Message:         CanaryPauseStep</span>
+<span class="sh-comment"># Strategy:        Canary</span>
+<span class="sh-comment">#   Step:          2/5</span>
+<span class="sh-comment">#   SetWeight:     25</span>
+<span class="sh-comment">#   ActualWeight:  25</span>
+<span class="sh-comment"># Images:          myorg/my-app:v1.0.0 (stable)</span>
+<span class="sh-comment">#                  myorg/my-app:v2.0.0 (canary)</span>
+<span class="sh-comment"># Replicas:</span>
+<span class="sh-comment">#   Desired:       4</span>
+<span class="sh-comment">#   Current:       5</span>
+<span class="sh-comment">#   Updated:       1</span>
+<span class="sh-comment">#   Ready:         5</span>
+<span class="sh-comment">#   Available:     5</span>
+<span class="sh-comment"># </span>
+<span class="sh-comment"># NAME                          KIND        STATUS     AGE</span>
+<span class="sh-comment"># ⟳ my-app                       Rollout     ॥ Paused   46h</span>
+<span class="sh-comment"># ├──# revision:2                                       </span>
+<span class="sh-comment"># │  └──⧉ my-app-6c8c79b696      ReplicaSet  ✔ Healthy  7m    canary</span>
+<span class="sh-comment"># │     ├──□ my-app-6c8c79-dsltf Pod         ✔ Running  7m    ready:1/1</span>
+<span class="sh-comment"># └──# revision:1</span>
+<span class="sh-comment">#    └──⧉ my-app-86bb7d659f      ReplicaSet  ✔ Healthy  46h   stable</span>
+<span class="sh-comment">#       ├──□ my-app-86bb7-r6drp  Pod         ✔ Running  46h   ready:1/1</span>
+<span class="sh-comment">#       ├──□ my-app-86bb7-x8nm2  Pod         ✔ Running  46h   ready:1/1</span>
+<span class="sh-comment">#       ├──□ my-app-86bb7-pq45h  Pod         ✔ Running  46h   ready:1/1</span>
+<span class="sh-comment">#       └──□ my-app-86bb7-kt9bv  Pod         ✔ Running  46h   ready:1/1</span></code></pre>
+      </div>
+    </section>
+    <section class="sec" id="s4">
+      <h2><span class="sn">4</span>Canary Strategy</h2>
+
+      <h3 id="s4a">4.1 setWeight + pause 基本範例</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — 5 步驟 canary 完整範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">spec:</span>
+  <span class="yk">replicas:</span> <span class="yn">10</span>
+  <span class="yk">strategy:</span>
+    <span class="yk">canary:</span>
+      <span class="yk">steps:</span>
+        <span class="yc"># Step 1：10% 流量 → 1 個 canary pod</span>
+        - <span class="yk">setWeight:</span> <span class="yn">10</span>
+
+        <span class="yc"># Step 2：等待 5 分鐘觀察</span>
+        - <span class="yk">pause:</span> {<span class="yk">duration:</span> <span class="yv">5m</span>}
+
+        <span class="yc"># Step 3：30% 流量 → 3 個 canary pod</span>
+        - <span class="yk">setWeight:</span> <span class="yn">30</span>
+        - <span class="yk">pause:</span> {<span class="yk">duration:</span> <span class="yv">5m</span>}
+
+        <span class="yc"># Step 4：50% 流量</span>
+        - <span class="yk">setWeight:</span> <span class="yn">50</span>
+        - <span class="yk">pause:</span> {}                  <span class="yc"># 無限等待 manual promote</span>
+
+        <span class="yc"># Step 5：100% 流量（manual promote 後執行）</span>
+        - <span class="yk">setWeight:</span> <span class="yn">100</span></code></pre>
+      </div>
+
+      <h3>Pause 兩種模式</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>寫法</th><th>行為</th><th>適合</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>pause: {duration: 5m}</code></td>
+              <td>等待 5 分鐘自動推進</td>
+              <td>低風險變更、自動化 pipeline</td>
+            </tr>
+            <tr>
+              <td><code>pause: {}</code></td>
+              <td><strong>無限等待</strong>，必須手動 <code>argo rollouts promote</code> 才繼續</td>
+              <td>重要環境、需 reviewer 批准</td>
+            </tr>
+            <tr>
+              <td><code>pause: {duration: 24h}</code></td>
+              <td>長時間 canary（觀察一整天）</td>
+              <td>需大量真實流量驗證</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="s4b">4.2 Replica-based vs Traffic-based Canary</h3>
+
+      <p>沒有 service mesh 時，Argo Rollouts 用 <strong>replica ratio</strong> 近似流量比例：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Mermaid — Replica-based vs Traffic-based</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## Replica-based canary（無 service mesh）</span>
+<span class="sh-comment">## - setWeight: 25 + 10 replicas → 2 canary + 8 stable（K8s service 隨機路由）</span>
+<span class="sh-comment">## - 流量 ≈ replica ratio，但不精確（service 是隨機輪詢）</span>
+
+  ┌───────────────────────┐
+  │ K8s Service           │
+  │ (random load balance) │
+  └────┬─────────────┬────┘
+       │             │
+  ┌────▼─────┐  ┌────▼─────┐
+  │ 2 canary │  │ 8 stable │   ratio = 2:8 ≈ 20:80
+  │ pods     │  │ pods     │
+  └──────────┘  └──────────┘
+
+<span class="sh-comment">## Traffic-based canary（with NGINX / Istio / SMI / Gateway API）</span>
+<span class="sh-comment">## - setWeight: 25 + 10 replicas → 可以是 1 canary + 9 stable</span>
+<span class="sh-comment">## - 流量精確 25%（service mesh 控制）</span>
+
+  ┌──────────────────────────┐
+  │ NGINX / Istio Gateway    │
+  │ (precise weight: 25/75)  │
+  └────┬─────────────┬───────┘
+       │ 25%         │ 75%
+  ┌────▼─────┐  ┌────▼──────┐
+  │ 1 canary │  │ 9 stable  │  流量精確控制
+  │ pod      │  │ pods      │
+  └──────────┘  └───────────┘</code></pre>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Traffic-based canary（NGINX Ingress）</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">spec:</span>
+  <span class="yk">strategy:</span>
+    <span class="yk">canary:</span>
+      <span class="yc"># 流量管理必要欄位</span>
+      <span class="yk">canaryService:</span> <span class="yv">my-app-canary</span>      <span class="yc"># 指向 canary ReplicaSet</span>
+      <span class="yk">stableService:</span> <span class="yv">my-app-stable</span>      <span class="yc"># 指向 stable ReplicaSet</span>
+
+      <span class="yk">trafficRouting:</span>
+        <span class="yc"># 選擇一種：nginx / istio / smi / alb / appmesh / gatewayAPI / traefik</span>
+        <span class="yk">nginx:</span>
+          <span class="yk">stableIngress:</span> <span class="yv">my-app-ingress</span>   <span class="yc"># NGINX Ingress 名稱</span>
+
+      <span class="yk">steps:</span>
+        - <span class="yk">setWeight:</span> <span class="yn">10</span>
+        - <span class="yk">pause:</span> {<span class="yk">duration:</span> <span class="yv">5m</span>}
+        - <span class="yk">setWeight:</span> <span class="yn">50</span>
+
+  <span class="yc"># Argo Rollouts 自動建立 my-app-canary Ingress（含 canary annotations）</span>
+  <span class="yc"># NGINX 看到兩個 Ingress（stable + canary），按 weight 路由流量</span>
+
+<span class="yh">---</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: Service</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app-stable</span>
+<span class="yk">spec:</span>
+  <span class="yk">selector:</span>
+    <span class="yk">app:</span> <span class="yv">my-app</span>            <span class="yc"># controller 自動加 rollouts-pod-template-hash label</span>
+  <span class="yk">ports:</span>
+    - <span class="yk">port:</span> <span class="yn">80</span>
+      <span class="yk">targetPort:</span> <span class="yn">8080</span>
+
+<span class="yh">---</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: Service</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app-canary</span>
+<span class="yk">spec:</span>
+  <span class="yk">selector:</span>
+    <span class="yk">app:</span> <span class="yv">my-app</span>
+  <span class="yk">ports:</span>
+    - <span class="yk">port:</span> <span class="yn">80</span>
+      <span class="yk">targetPort:</span> <span class="yn">8080</span></code></pre>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>選用 replica-based 或 traffic-based？</h4>
+          <p>① <strong>replica-based</strong>（無 service mesh）：設定簡單，適合大 replica 數（如 100+）。<strong>缺點</strong>：流量比例不精確，setWeight: 5% 對 10 replicas 沒意義（最少 1 個 pod = 10%）；② <strong>traffic-based</strong>（需 ingress / service mesh）：精確流量控制，可設 setWeight: 5%。<strong>缺點</strong>：需 Istio / NGINX 等基礎設施。<strong>多數情況推薦 traffic-based</strong>——尤其搭配 AnalysisTemplate（Ch.37）需要精確流量做 metric-based 決策。</p>
+        </div>
+      </div>
+
+      <h3 id="s4c">4.3 Promote / Abort 操作</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — Canary 控制命令</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## 1) Promote：推進到下一個 step</span>
+$ kubectl argo rollouts promote my-app
+<span class="sh-comment"># 從 pause:{} 推進到 setWeight: 100</span>
+
+<span class="sh-comment">## 2) Promote --full：直接跳到最後</span>
+$ kubectl argo rollouts promote my-app --full
+<span class="sh-comment"># 跳過剩餘 step 直接 setWeight: 100（緊急情況用）</span>
+
+<span class="sh-comment">## 3) Abort：放棄這次 rollout（流量切回 stable）</span>
+$ kubectl argo rollouts abort my-app
+<span class="sh-comment"># 立即把流量切回 stable，但 canary ReplicaSet 留著（不會 scale down）</span>
+
+<span class="sh-comment">## 4) Retry：abort 後重新觸發</span>
+$ kubectl argo rollouts retry rollout my-app
+
+<span class="sh-comment">## 5) Set image：直接改 image（觸發新 rollout）</span>
+$ kubectl argo rollouts set image my-app my-app=myorg/my-app:v2.1.0
+
+<span class="sh-comment">## 6) Pause / Unpause（無 step 的 pause）</span>
+$ kubectl argo rollouts pause my-app
+$ kubectl argo rollouts pause my-app --unpause
+
+<span class="sh-comment">## 7) Restart：rolling restart pod（不換版本）</span>
+$ kubectl argo rollouts restart my-app
+
+<span class="sh-comment">## 8) Watch：即時看進度</span>
+$ kubectl argo rollouts get rollout my-app --watch</code></pre>
+      </div>
+    </section>
+
+    <section class="sec" id="s5">
+      <h2><span class="sn">5</span>Blue-Green Strategy</h2>
+
+      <h3 id="s5a">5.1 Active vs Preview Service</h3>
+
+      <p>Blue-Green 是另一種 progressive delivery 模式——<strong>同時運行兩個完整版本</strong>，瞬間切換流量：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Mermaid — Blue-Green 架構</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## 部署前：</span>
+   ┌──────────────────┐
+   │ activeService    │ ─────► Blue ReplicaSet (v1)
+   │ (live traffic)   │
+   └──────────────────┘
+   
+<span class="sh-comment">## 更新觸發：建立 Green ReplicaSet</span>
+   ┌──────────────────┐
+   │ activeService    │ ─────► Blue (v1)   ← live traffic
+   └──────────────────┘
+   ┌──────────────────┐
+   │ previewService   │ ─────► Green (v2)  ← internal testing
+   │ (smoke test)     │
+   └──────────────────┘
+
+<span class="sh-comment">## Promote 後：瞬間切換</span>
+   ┌──────────────────┐
+   │ activeService    │ ─────► Green (v2)  ← live traffic
+   └──────────────────┘
+   ┌──────────────────┐
+   │ previewService   │ ─────► Green (v2)
+   └──────────────────┘
+   Blue (v1) ← 留著 scaleDownDelaySeconds 秒供 quick rollback
+
+<span class="sh-comment">## 等待結束：Blue 被 scale down</span>
+   Blue (v1) deleted
+   Green (v2) → only version</code></pre>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — Blue-Green 完整範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: Rollout</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app</span>
+<span class="yk">spec:</span>
+  <span class="yk">replicas:</span> <span class="yn">5</span>
+  <span class="yk">selector:</span> {<span class="yk">matchLabels:</span> {<span class="yk">app:</span> <span class="yv">my-app</span>}}
+  <span class="yk">template:</span>
+    <span class="yc"># ... 同上</span>
+
+  <span class="yk">strategy:</span>
+    <span class="yk">blueGreen:</span>
+      <span class="yc"># 必要：active service（line traffic）</span>
+      <span class="yk">activeService:</span> <span class="yv">my-app-active</span>
+
+      <span class="yc"># 可選：preview service（給 smoke test 用）</span>
+      <span class="yk">previewService:</span> <span class="yv">my-app-preview</span>
+
+      <span class="yc"># 自動 promotion 設定</span>
+      <span class="yk">autoPromotionEnabled:</span> <span class="yv">false</span>      <span class="yc"># true: 新版 ready 後自動切；false: 需手動 promote</span>
+      <span class="yk">autoPromotionSeconds:</span> <span class="yn">300</span>          <span class="yc"># 新版 ready 後等 5 分鐘自動 promote</span>
+
+      <span class="yc"># 舊版留多久供 rollback</span>
+      <span class="yk">scaleDownDelaySeconds:</span> <span class="yn">600</span>         <span class="yc"># 切換後 10 分鐘才 scale down 舊版</span>
+
+      <span class="yc"># Pre-promotion analysis（切流前先驗證）</span>
+      <span class="yk">prePromotionAnalysis:</span>
+        <span class="yk">templates:</span>
+          - <span class="yk">templateName:</span> <span class="yv">smoke-test</span>     <span class="yc"># Ch.37 介紹</span>
+
+      <span class="yc"># Post-promotion analysis（切流後 validate）</span>
+      <span class="yk">postPromotionAnalysis:</span>
+        <span class="yk">templates:</span>
+          - <span class="yk">templateName:</span> <span class="yv">error-rate-check</span>
+
+      <span class="yc"># Anti-affinity：強制 canary 與 stable 在不同 node</span>
+      <span class="yk">antiAffinity:</span>
+        <span class="yk">requiredDuringSchedulingIgnoredDuringExecution:</span> {}
+
+<span class="yh">---</span>
+<span class="yc"># Active service（live traffic）</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: Service</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app-active</span>
+<span class="yk">spec:</span>
+  <span class="yk">selector:</span>
+    <span class="yk">app:</span> <span class="yv">my-app</span>    <span class="yc"># controller 自動加 hash label 切換</span>
+  <span class="yk">ports:</span>
+    - <span class="yk">port:</span> <span class="yn">80</span>
+
+<span class="yh">---</span>
+<span class="yc"># Preview service（internal testing）</span>
+<span class="yh">apiVersion: v1</span>
+<span class="yh">kind: Service</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">my-app-preview</span>
+<span class="yk">spec:</span>
+  <span class="yk">selector:</span>
+    <span class="yk">app:</span> <span class="yv">my-app</span>
+  <span class="yk">ports:</span>
+    - <span class="yk">port:</span> <span class="yn">80</span></code></pre>
+      </div>
+
+      <h3 id="s5b">5.2 autoPromotionEnabled 兩種模式</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>autoPromotionEnabled</th><th>行為</th><th>適合</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>true</strong>（預設）</td>
+              <td>新版 ReplicaSet 全部 ready 後立即切換 active service</td>
+              <td>低風險變更</td>
+            </tr>
+            <tr>
+              <td><strong>false</strong></td>
+              <td>新版 ready 後<strong>無限等待</strong>，必須 manual <code>argo rollouts promote</code></td>
+              <td>需 QA 在 preview 跑完測試才切換</td>
+            </tr>
+            <tr>
+              <td><strong>false + autoPromotionSeconds: N</strong></td>
+              <td>新版 ready 後等 N 秒自動 promote（給 prePromotionAnalysis 跑）</td>
+              <td>有 automated smoke test 的場景</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>Canary vs Blue-Green 選擇</h4>
+          <p>① <strong>Canary</strong>：<strong>漸進式擴大</strong>（10% → 50% → 100%），適合需 metric-driven 決策、想觀察真實流量行為的場景。<strong>缺點</strong>：需要應用支援版本共存（API 向下相容）；② <strong>Blue-Green</strong>：<strong>瞬間切換</strong>，適合不能版本共存（如 DB schema 變更）、需明確 cutover 時間點的場景。<strong>缺點</strong>：需要 2x 資源（兩版本同時運行）。<strong>實務組合</strong>：dev/staging 用 canary 觀察 metrics，prod 用 blue-green 配合 prePromotionAnalysis（smoke test 通過才切換）。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s6">
+      <h2><span class="sn">6</span>UI Dashboard 與 CLI</h2>
+
+      <h3>6.1 Argo Rollouts Web Dashboard</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — Dashboard 部署與使用</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## 方法 A：本機 port-forward（開發用）</span>
+$ kubectl argo rollouts dashboard
+<span class="sh-comment"># INFO[0000] Argo Rollouts Dashboard is now available at http://localhost:3100</span>
+
+<span class="sh-comment">## 方法 B：部署到 cluster（生產用）</span>
+$ kubectl apply -n argo-rollouts -f \
+    https://github.com/argoproj/argo-rollouts/releases/latest/download/dashboard-install.yaml
+
+<span class="sh-comment">## 透過 Ingress 對外暴露</span>
+$ kubectl apply -f - &lt;&lt;EOF
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argo-rollouts-dashboard
+  namespace: argo-rollouts
+spec:
+  rules:
+  - host: rollouts.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: argo-rollouts-dashboard
+            port:
+              number: 3100
+EOF
+
+<span class="sh-comment"># Dashboard 提供：</span>
+<span class="sh-comment"># - 所有 Rollout 清單與狀態</span>
+<span class="sh-comment"># - 即時 setWeight / step 進度視覺化</span>
+<span class="sh-comment"># - Promote / Abort / Restart 按鈕</span>
+<span class="sh-comment"># - 歷史 revision 比對</span>
+<span class="sh-comment"># - Analysis Run 結果（Ch.37）</span></code></pre>
+      </div>
+
+      <h3>6.2 重要 CLI 命令速查</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>指令</th><th>用途</th><th>常用 flag</th></tr></thead>
+          <tbody>
+            <tr><td><code>get rollout &lt;name&gt;</code></td><td>查看狀態</td><td><code>--watch</code> 即時更新</td></tr>
+            <tr><td><code>promote &lt;name&gt;</code></td><td>推進到下一個 step</td><td><code>--full</code> 直接跳到完成</td></tr>
+            <tr><td><code>abort &lt;name&gt;</code></td><td>放棄 rollout 切回 stable</td><td>—</td></tr>
+            <tr><td><code>retry rollout &lt;name&gt;</code></td><td>abort 後重試</td><td>—</td></tr>
+            <tr><td><code>set image &lt;name&gt; &lt;c&gt;=&lt;img&gt;</code></td><td>直接改 image 觸發新 rollout</td><td>—</td></tr>
+            <tr><td><code>pause &lt;name&gt;</code></td><td>手動暫停（在任何階段）</td><td><code>--unpause</code> 恢復</td></tr>
+            <tr><td><code>restart &lt;name&gt;</code></td><td>滾動重啟 pod（不換版本）</td><td>—</td></tr>
+            <tr><td><code>undo &lt;name&gt;</code></td><td>回到上一個 revision</td><td><code>--to-revision=N</code></td></tr>
+            <tr><td><code>list rollouts</code></td><td>列出所有 Rollout</td><td><code>--all-namespaces</code></td></tr>
+            <tr><td><code>status &lt;name&gt;</code></td><td>等待 rollout 完成</td><td><code>--watch --timeout 10m</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>argocd app wait vs argo rollouts status</h4>
+          <p>① <strong><code>argocd app wait --sync --health</code></strong>（Ch.31）等待 Argo CD 完成 sync + 應用 Healthy；② <strong><code>kubectl argo rollouts status</code></strong>等待 Rollout 完成所有 step（包含 canary 全程）。<strong>兩者搭配用</strong>：CI 先 <code>argocd app wait</code> 確認 Argo CD sync 完成 → 再 <code>argo rollouts status</code> 確認 progressive delivery 完成。</p>
+        </div>
+      </div>
+    </section>
+    <section class="sec" id="s7">
+      <h2><span class="sn">7</span>常見場景與決策矩陣</h2>
+
+      <h3>場景對照</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>場景</th><th>推薦策略</th><th>關鍵設定</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>標準 microservice 升級</td>
+              <td>Canary + traffic-based</td>
+              <td>5 step（10/30/50/100 + 4 pause），用 NGINX/Istio</td>
+            </tr>
+            <tr>
+              <td>DB schema 變更 / 大版本升級</td>
+              <td>Blue-Green</td>
+              <td>autoPromotionEnabled: false，需 manual promote 並驗證</td>
+            </tr>
+            <tr>
+              <td>StatefulSet 應用</td>
+              <td>Canary（slow setWeight）</td>
+              <td>注意：StatefulSet 不直接支援 Rollout，需 workloadRef wrap</td>
+            </tr>
+            <tr>
+              <td>需 A/B test（兩版本同時跑）</td>
+              <td>Experiment CRD</td>
+              <td>不在本章範圍——獨立的 Experiment CRD</td>
+            </tr>
+            <tr>
+              <td>緊急 hotfix（最快上 prod）</td>
+              <td>RollingUpdate / Canary 無 step</td>
+              <td>留 strategy: canary 不設 steps，等同 rolling update</td>
+            </tr>
+            <tr>
+              <td>新版本要先給 internal users 看</td>
+              <td>Canary + header-based</td>
+              <td>用 Istio VirtualService matchLabels</td>
+            </tr>
+            <tr>
+              <td>2x 資源不可接受（無法 blue-green）</td>
+              <td>Canary + traffic-based + dynamicStableScale</td>
+              <td><code>dynamicStableScale: true</code> 隨 weight 動態調整 stable 數量</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>動態 Stable 縮放（dynamicStableScale）</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — 節省資源的 traffic-based canary</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yk">spec:</span>
+  <span class="yk">strategy:</span>
+    <span class="yk">canary:</span>
+      <span class="yk">canaryService:</span> <span class="yv">my-app-canary</span>
+      <span class="yk">stableService:</span> <span class="yv">my-app-stable</span>
+      <span class="yk">trafficRouting:</span>
+        <span class="yk">nginx:</span>
+          <span class="yk">stableIngress:</span> <span class="yv">my-app-ingress</span>
+
+      <span class="yc"># 預設 false：traffic-based 模式下 stable 永遠 100% replicas</span>
+      <span class="yc"># （安全但耗 2x 資源）</span>
+      <span class="yc"># 設 true：stable 隨 canary weight 反向縮放</span>
+      <span class="yk">dynamicStableScale:</span> <span class="yv">true</span>
+
+      <span class="yk">steps:</span>
+        - <span class="yk">setWeight:</span> <span class="yn">25</span>
+        <span class="yc"># dynamicStableScale: true → stable 從 100% 降到 75%</span>
+        <span class="yc"># 總 replicas 不變（節省資源）</span>
+        - <span class="yk">pause:</span> {<span class="yk">duration:</span> <span class="yv">5m</span>}
+        - <span class="yk">setWeight:</span> <span class="yn">75</span>
+        <span class="yc"># stable 降到 25%</span>
+        - <span class="yk">pause:</span> {<span class="yk">duration:</span> <span class="yv">5m</span>}
+        - <span class="yk">setWeight:</span> <span class="yn">100</span>
+        <span class="yc"># stable scale 為 0</span></code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>dynamicStableScale 的 trade-off</h4>
+          <p>① <strong>優點</strong>：節省資源（不需 2x replicas）；② <strong>缺點</strong>：abort 時 stable 需重新 scale up 才能接流量，<strong>rollback 變慢</strong>（從 secs 變成 minutes）。<strong>適合大 replica 數 + 資源緊張 + abort 不那麼緊急</strong>的場景。Critical service 寧可花資源也要保留 stable 100% 以便瞬間 rollback。</p>
+        </div>
+      </div>
+
+      <h3>實務 Checklist</h3>
+
+      <div class="cal ct">
+        <span class="ic">✅</span>
+        <div>
+          <h4>Rollout 上線 Checklist</h4>
+          <p>① <strong>從 simple canary 開始</strong>（2-3 step + duration pause）熟悉後再加 analysis；② <strong>必設 progressDeadlineSeconds</strong>（10 分鐘沒進展視為失敗，避免卡住）；③ <strong>必設 readinessProbe</strong>（rollout 用此判斷 pod ready）；④ <strong>minReadySeconds &gt; 30</strong> 避免 false positive；⑤ <strong>traffic-based 用 service mesh</strong> 取得精確流量；⑥ <strong>scaleDownDelaySeconds &gt;= 600</strong>（blue-green 留 10 分鐘以上 rollback）；⑦ <strong>monitor pausing condition</strong>（卡 pause 太久應自動 alert）；⑧ <strong>CI integrate <code>argo rollouts status</code></strong> 等待完成；⑨ <strong>Argo CD UI 整合</strong>（Ch.38）讓 sync 顯示 rollout 進度；⑩ <strong>準備 abort runbook</strong>（什麼情況該 abort、怎麼 git revert）。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="sum">
+      <h2><span class="sn">✓</span>本章重點回顧</h2>
+      <div class="kp">
+        <h3>📌 Key Takeaways</h3>
+        <ul class="kp-list">
+          <li><span class="kp-ic">🚀</span><span><strong>Argo Rollouts 補足 K8s Deployment 的 5 大限制</strong>：① 無精確流量控制；② 無 metric-based 決策；③ 不能 pause；④ 回滾慢；⑤ 不支援 blue-green。Rollouts 透過 CRD + controller + service mesh 整合提供 progressive delivery。<strong>與 Argo CD 是獨立但完美搭配的兩個 Argo project</strong>。</span></li>
+          <li><span class="kp-ic">📦</span><span><strong>三大元件</strong>：① argo-rollouts-controller（必要）；② kubectl-argo-rollouts CLI plugin（建議）；③ argo-rollouts-dashboard（選用，不需 Argo CD 也能用）。<strong>Rollout 與 Argo CD 完全解耦</strong>，可獨立部署使用。</span></li>
+          <li><span class="kp-ic">🔄</span><span><strong>從 Deployment 遷移只改三處</strong>：① <code>apiVersion: argoproj.io/v1alpha1</code>；② <code>kind: Rollout</code>；③ 加 <code>strategy: canary 或 blueGreen</code>。<strong>Pod template 完全不變</strong>。或用 <code>workloadRef</code> wrap 既有 Deployment 不刪除原物件。<strong>⚠️ GitOps repo 必須同步改</strong>，否則 Argo CD sync 會衝突。</span></li>
+          <li><span class="kp-ic">📊</span><span><strong>Canary strategy：setWeight + pause 黃金組合</strong>。<code>setWeight: N</code> 設定流量百分比，<code>pause: {duration: 5m}</code> 自動推進或 <code>pause: {}</code> 無限等待手動 promote。經典 5 step：10% → pause 5m → 30% → pause 5m → 50% → pause {} → 100%。</span></li>
+          <li><span class="kp-ic">🚦</span><span><strong>Replica-based vs Traffic-based canary</strong>：① <strong>replica-based</strong>（無 service mesh）：用 replica ratio 近似流量比例，簡單但不精確；② <strong>traffic-based</strong>（需 NGINX/Istio/SMI/Gateway API/Traefik/ALB/AppMesh）：精確控制流量。<strong>多數場景推薦 traffic-based</strong>，尤其搭配 AnalysisTemplate 需要精確流量。</span></li>
+          <li><span class="kp-ic">🔵🟢</span><span><strong>Blue-Green strategy：activeService + previewService</strong>。瞬間切換（vs canary 漸進），適合不能版本共存（DB schema 變更）的場景。<strong>autoPromotionEnabled: false + autoPromotionSeconds: N</strong> 提供 pre-promotion 驗證時間；<strong>scaleDownDelaySeconds: 600</strong> 留舊版 10 分鐘供 quick rollback。</span></li>
+          <li><span class="kp-ic">🎮</span><span><strong>10 個 CLI 必備命令</strong>：<code>get rollout --watch</code>、<code>promote</code>（含 --full）、<code>abort</code>、<code>retry</code>、<code>set image</code>、<code>pause/unpause</code>、<code>restart</code>、<code>undo</code>、<code>list rollouts</code>、<code>status --watch --timeout</code>。<strong>CI 中用 <code>argo rollouts status</code> 等待完成</strong>（與 <code>argocd app wait</code> 搭配）。</span></li>
+          <li><span class="kp-ic">🖥️</span><span><strong>Web Dashboard 獨立運作</strong>：本機用 <code>kubectl argo rollouts dashboard</code> port-forward；生產用 cluster 部署 + Ingress。提供：所有 Rollout 清單、即時 step 進度、Promote/Abort 按鈕、Analysis Run 結果（Ch.37）。<strong>不需 Argo CD</strong>。</span></li>
+          <li><span class="kp-ic">⚖️</span><span><strong>Canary vs Blue-Green 選擇</strong>：① canary 適合 API 向下相容、需 metric 觀察、節省資源；② blue-green 適合 DB schema 變更、需明確 cutover、可承受 2x 資源。<strong>實務組合</strong>：dev/staging canary 觀察；prod blue-green + prePromotionAnalysis。</span></li>
+          <li><span class="kp-ic">💰</span><span><strong>dynamicStableScale 節省資源</strong>：traffic-based 預設 stable 永遠 100%（耗 2x），設 true 後 stable 隨 canary weight 反向縮放（總 replicas 不變）。<strong>trade-off</strong>：節省資源 vs rollback 變慢（stable 需 scale up 才能接流量）。critical service 寧可耗資源也要保留即時 rollback 能力。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <nav class="ch-nav">
+      <a href="ch35-secrets-management.html" class="nav-btn nav-prev">
+        <div><div class="nav-sub">上一章 / PREV（Vol 7）</div><div>← Ch.35 Secrets 管理</div></div>
+      </a>
+      <a href="#" class="nav-btn nav-next">
+        <div><div class="nav-sub">下一章 / NEXT</div><div>Ch.37 AnalysisTemplate 與 Metric Providers →</div></div>
+      </a>
+    </nav>
+  </main>
+</div>
+
+<footer>Argo CD 完整教學手冊 · <strong>Vol 8 Ch.36</strong> · 基於 Argo CD <strong>v3.4</strong> · 2026-05-09</footer>
+
+<script>
+(function(){
+  'use strict';
+  const KEY='jhsun-theme';
+  const IC={light:'☀',dark:'☾',system:'◐'};
+  const LB={light:'Light',dark:'Dark',system:'System'};
+  function gs(){try{return localStorage.getItem(KEY);}catch(_){return null;}}
+  function ss(v){try{v==='system'||v==null?localStorage.removeItem(KEY):localStorage.setItem(KEY,v);}catch(_){}}
+  function sp(){return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  function ef(m){return m==='system'?sp():m;}
+  function apply(m){
+    const e=ef(m);
+    document.documentElement.dataset.theme=e;
+    document.documentElement.dataset.themeMode=m;
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{
+      b.dataset.themeMode=m;
+      b.setAttribute('aria-label','Theme: '+LB[m]);
+      b.title='Theme: '+LB[m];
+      if(!b.dataset.themeToggleStyled)b.innerHTML='<span>'+IC[m]+'</span><span>'+LB[m]+'</span>';
+    });
+    dispatchEvent(new CustomEvent('jhsun:theme-changed',{detail:{theme:e,mode:m}}));
+  }
+  function cyc(c){return c==='light'?'dark':c==='dark'?'system':'light';}
+  function cur(){return gs()||'system';}
+  function init(){
+    apply(cur());
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{b.addEventListener('click',()=>{const n=cyc(cur());ss(n);apply(n);});});
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(cur()==='system')apply('system');});
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+  window.JHsunTheme={get:cur,set:m=>{ss(m);apply(m);},toggle:()=>{const n=cyc(cur());ss(n);apply(n);}};
+})();
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('.copy-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const pre=btn.closest('.code-wrap').querySelector('pre');
+      navigator.clipboard.writeText(pre.innerText).then(()=>{btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},2000);});
+    });
+  });
+  const hds=document.querySelectorAll('.sec h2,.sec h3');
+  const lks=document.querySelectorAll('.toc-list a');
+  const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){lks.forEach(l=>l.classList.remove('active'));const id=e.target.id||e.target.closest('[id]')?.id;if(id){const a=document.querySelector('.toc-list a[href="#'+id+'"]');if(a)a.classList.add('active');}}});},{rootMargin:'-60px 0px -70% 0px'});
+  hds.forEach(h=>{if(h.id)obs.observe(h);});
+});
+</script>
+</body>
+</html>

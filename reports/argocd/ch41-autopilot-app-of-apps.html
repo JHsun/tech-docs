@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ch.41 ArgoCD Autopilot 與 App-of-Apps：自管 GitOps 結構 — Argo CD 完整教學手冊</title>
+<style>
+:root{--tk-hue:200;--tk-chroma:0.11;--color-success:#16a34a;--color-success-soft:#dcfce7;--color-warning:#d97706;--color-warning-soft:#fef3c7;--color-danger:#dc2626;--color-danger-soft:#fee2e2;--color-info:#0891b2;--color-info-soft:#cffafe;--color-neutral-accent:#7c3aed;--color-primary:oklch(0.55 var(--tk-chroma) var(--tk-hue));--color-primary-hover:oklch(0.48 var(--tk-chroma) var(--tk-hue));--color-primary-soft:oklch(0.96 calc(var(--tk-chroma)*.25) var(--tk-hue));--color-primary-text:oklch(0.40 var(--tk-chroma) var(--tk-hue));--bg-canvas:oklch(0.985 0.004 60);--bg-surface:oklch(0.995 0.003 60);--bg-muted:oklch(0.96 0.005 60);--bg-code:oklch(0.975 0.006 60);--border-soft:oklch(0.92 0.006 60);--border-mid:oklch(0.85 0.008 60);--text-primary:oklch(0.22 0.008 60);--text-secondary:oklch(0.42 0.008 60);--text-muted:oklch(0.58 0.008 60);--font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;--font-sans:"DM Sans","Inter","Noto Sans TC",system-ui,sans-serif;--font-serif:"Playfair Display","Source Serif 4","Noto Serif TC",Georgia,serif;--font-body:"Source Serif 4","Noto Serif TC",Georgia,serif;--text-xs:12px;--text-sm:14px;--text-base:16px;--text-md:18px;--text-lg:20px;--text-xl:24px;--text-2xl:32px;--text-3xl:44px;--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--space-7:48px;--space-8:64px;--space-9:96px;--radius-sm:4px;--radius-md:8px;--radius-lg:12px;--radius-xl:20px;--shadow-sm:0 1px 3px oklch(0.20 0.01 60/0.07);--shadow-md:0 4px 14px oklch(0.20 0.01 60/0.10);}
+:root[data-theme="dark"]{--color-success:#4ade80;--color-success-soft:oklch(0.28 0.08 145);--color-warning:#fbbf24;--color-warning-soft:oklch(0.30 0.10 70);--color-danger:#f87171;--color-danger-soft:oklch(0.30 0.10 27);--color-info:#22d3ee;--color-info-soft:oklch(0.30 0.08 200);--color-neutral-accent:#a78bfa;--color-primary:oklch(0.72 calc(var(--tk-chroma)*.95) var(--tk-hue));--color-primary-hover:oklch(0.80 calc(var(--tk-chroma)*.95) var(--tk-hue));--color-primary-soft:oklch(0.28 calc(var(--tk-chroma)*.6) var(--tk-hue));--color-primary-text:oklch(0.85 calc(var(--tk-chroma)*.6) var(--tk-hue));--bg-canvas:oklch(0.14 0.008 50);--bg-surface:oklch(0.18 0.009 50);--bg-muted:oklch(0.21 0.010 50);--bg-code:oklch(0.16 0.009 50);--border-soft:oklch(0.26 0.010 50);--border-mid:oklch(0.34 0.012 50);--text-primary:oklch(0.93 0.005 60);--text-secondary:oklch(0.74 0.006 60);--text-muted:oklch(0.56 0.007 60);--shadow-sm:0 1px 3px oklch(0.04 0 0/.50);--shadow-md:0 4px 14px oklch(0.04 0 0/.60);}
+html{color-scheme:light dark;}html[data-theme="light"]{color-scheme:light;}html[data-theme="dark"]{color-scheme:dark;}
+body{background:var(--bg-canvas);color:var(--text-primary);font-family:var(--font-sans);font-size:var(--text-base);line-height:1.7;margin:0;padding:0;transition:background .25s,color .25s;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+.topbar{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:10px var(--space-6);background:var(--bg-surface);border-bottom:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.tb-left{display:flex;align-items:center;gap:var(--space-3);}
+.tb-logo{width:30px;height:30px;border-radius:var(--radius-md);background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:13px;font-weight:800;}
+.tb-trail{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.tb-trail .sep{color:var(--border-mid);}.tb-trail .cur{color:var(--color-primary);font-weight:600;}
+.tb-right{display:flex;align-items:center;gap:var(--space-2);}
+.pill{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);border:1px solid;}
+.pill-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.pill-ver{background:var(--color-info-soft);color:var(--color-info);border-color:var(--color-info);}
+[data-theme-toggle]{cursor:pointer;border:1px solid var(--border-mid);background:var(--bg-muted);color:var(--text-secondary);border-radius:var(--radius-md);padding:6px var(--space-3);font-family:var(--font-sans);font-size:var(--text-sm);display:flex;align-items:center;gap:6px;transition:all .2s;}
+[data-theme-toggle]:hover{background:var(--color-primary-soft);color:var(--color-primary-text);border-color:var(--color-primary);}
+.page{display:flex;min-height:100vh;}
+.toc-sidebar{width:230px;flex-shrink:0;position:sticky;top:49px;height:calc(100vh - 49px);overflow-y:auto;padding:var(--space-5) var(--space-3);border-right:1px solid var(--border-soft);background:var(--bg-surface);}
+.toc-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-3);}
+.toc-list{list-style:none;}
+.toc-list li{margin-bottom:2px;}
+.toc-list a{display:block;padding:4px var(--space-2);font-size:var(--text-sm);color:var(--text-secondary);text-decoration:none;border-radius:var(--radius-sm);border-left:2px solid transparent;transition:all .15s;line-height:1.4;}
+.toc-list a:hover,.toc-list a.active{color:var(--color-primary);background:var(--color-primary-soft);border-left-color:var(--color-primary);font-weight:600;}
+.toc-h3{padding-left:var(--space-4)!important;font-size:var(--text-xs)!important;}
+.toc-lbl{display:block;font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:var(--space-3) var(--space-2) var(--space-1);margin-top:var(--space-2);}
+.content{flex:1;min-width:0;padding:var(--space-8) var(--space-7) var(--space-9);max-width:900px;}
+.ch-header{margin-bottom:var(--space-8);padding-bottom:var(--space-6);border-bottom:1px solid var(--border-soft);}
+.ch-meta{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-4);flex-wrap:wrap;}
+.m-badge{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--radius-sm);}
+.m-ch{background:var(--color-primary);color:#fff;}
+.m-vol{background:var(--color-primary-soft);color:var(--color-primary-text);border:1px solid var(--color-primary);}
+.m-time{background:var(--bg-muted);color:var(--text-muted);border:1px solid var(--border-soft);}
+.ch-header h1{font-family:var(--font-serif);font-size:clamp(var(--text-2xl),4vw,var(--text-3xl));font-weight:700;color:var(--text-primary);line-height:1.2;margin-bottom:var(--space-4);}
+.ch-header h1 em{font-style:normal;color:var(--color-primary);}
+.ch-lead{font-size:var(--text-md);color:var(--text-secondary);line-height:1.7;max-width:700px;font-family:var(--font-body);}
+.prereq{margin-top:var(--space-5);display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--bg-muted);border-radius:var(--radius-md);border:1px solid var(--border-soft);}
+.prereq .pico{font-size:var(--text-lg);flex-shrink:0;margin-top:1px;}
+.prereq p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;}
+.prereq strong{color:var(--text-primary);}
+.obj-box{background:var(--color-primary-soft);border:1px solid var(--color-primary);border-radius:var(--radius-lg);padding:var(--space-5);margin-bottom:var(--space-7);}
+.obj-box h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--color-primary-text);font-weight:700;margin-bottom:var(--space-3);}
+.obj-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-2);}
+.obj-list li{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-sm);color:var(--color-primary-text);line-height:1.5;}
+.obj-list li::before{content:"\2713";font-weight:700;color:var(--color-primary);flex-shrink:0;margin-top:1px;}
+.sec{margin-bottom:var(--space-9);scroll-margin-top:80px;}
+.sec h2{font-family:var(--font-serif);font-size:var(--text-2xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-4);padding-bottom:var(--space-3);border-bottom:2px solid var(--border-soft);display:flex;align-items:center;gap:var(--space-3);}
+.sn{font-family:var(--font-mono);font-size:var(--text-sm);background:var(--color-primary);color:#fff;padding:2px 8px;border-radius:var(--radius-sm);font-weight:700;white-space:nowrap;flex-shrink:0;}
+.sec h3{font-family:var(--font-sans);font-size:var(--text-lg);font-weight:700;color:var(--text-primary);margin:var(--space-6) 0 var(--space-3);}
+.sec h4{font-family:var(--font-sans);font-size:var(--text-base);font-weight:700;color:var(--text-primary);margin:var(--space-5) 0 var(--space-2);}
+p{font-family:var(--font-body);font-size:var(--text-base);color:var(--text-secondary);line-height:1.8;margin-bottom:var(--space-4);}
+strong{color:var(--text-primary);}em{color:var(--color-primary);font-style:normal;}
+.cal{display:flex;gap:var(--space-3);padding:var(--space-4) var(--space-5);border-radius:var(--radius-lg);margin:var(--space-5) 0;border-left:4px solid;}
+.ci{background:var(--color-info-soft);border-color:var(--color-info);}
+.cw{background:var(--color-warning-soft);border-color:var(--color-warning);}
+.ct{background:var(--color-success-soft);border-color:var(--color-success);}
+.cd{background:var(--color-primary-soft);border-color:var(--color-primary);}
+.cal .ic{font-size:var(--text-lg);flex-shrink:0;margin-top:2px;}
+.cal h4{font-size:var(--text-sm);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-1);font-family:var(--font-sans);}
+.cal p{font-size:var(--text-sm);color:var(--text-secondary);line-height:1.65;margin:0;font-family:var(--font-sans);}
+.code-wrap{margin:var(--space-4) 0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);}
+.code-hdr{display:flex;align-items:center;justify-content:space-between;padding:8px var(--space-4);background:var(--bg-muted);border-bottom:1px solid var(--border-soft);}
+.code-lang{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;}
+.copy-btn{cursor:pointer;font-family:var(--font-mono);font-size:11px;padding:3px 10px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--border-mid);color:var(--text-muted);transition:all .2s;}
+.copy-btn:hover{background:var(--color-primary-soft);color:var(--color-primary);border-color:var(--color-primary);}
+.copy-btn.copied{background:var(--color-success-soft);color:var(--color-success);border-color:var(--color-success);}
+pre{margin:0;padding:var(--space-5);background:var(--bg-code);overflow-x:auto;font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.65;color:var(--text-primary);}
+code{font-family:var(--font-mono);font-size:.92em;background:var(--bg-code);padding:1px 5px;border-radius:var(--radius-sm);color:var(--color-primary-text);border:1px solid var(--border-soft);}
+pre code{background:none;padding:0;border:none;color:inherit;font-size:inherit;}
+.yk{color:var(--color-info);}.yv{color:var(--color-success);}.yc{color:var(--text-muted);font-style:italic;}
+.yn{color:var(--color-warning);}.yh{color:var(--color-neutral-accent);font-weight:700;}
+.tw{overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border-soft);box-shadow:var(--shadow-sm);margin:var(--space-5) 0;}
+table{width:100%;border-collapse:collapse;font-size:var(--text-sm);}
+thead th{background:var(--bg-muted);padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.07em;border-bottom:2px solid var(--border-mid);text-align:left;white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--border-soft);transition:background .12s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--bg-muted);}
+td{padding:var(--space-3) var(--space-4);vertical-align:top;line-height:1.6;font-family:var(--font-sans);}
+td:first-child{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--color-primary-text);background:var(--color-primary-soft);white-space:nowrap;font-weight:600;}
+.concept-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);margin:var(--space-5) 0;}
+.concept{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-sm);}
+.concept-head{padding:var(--space-3) var(--space-4);font-family:var(--font-mono);font-size:var(--text-sm);font-weight:700;border-bottom:1px solid var(--border-soft);}
+.concept-body{padding:var(--space-4);font-size:11px;color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.concept-body .formula{font-family:var(--font-mono);font-size:11px;background:var(--bg-muted);padding:6px 10px;border-radius:var(--radius-sm);margin:var(--space-2) 0;display:block;color:var(--text-primary);}
+.lifecycle{background:var(--bg-surface);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:var(--space-5);margin:var(--space-5) 0;box-shadow:var(--shadow-sm);}
+.lc-step{display:flex;gap:var(--space-3);margin-bottom:var(--space-3);align-items:flex-start;}
+.lc-num{font-family:var(--font-mono);font-size:11px;font-weight:700;background:var(--color-primary);color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.lc-content{flex:1;font-size:var(--text-xs);color:var(--text-secondary);font-family:var(--font-sans);line-height:1.6;}
+.lc-content strong{color:var(--text-primary);}
+.lc-content code{background:var(--bg-muted);padding:1px 6px;border-radius:var(--radius-sm);font-size:11px;}
+.kp{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-6);margin:var(--space-7) 0;box-shadow:var(--shadow-sm);}
+.kp h3{font-family:var(--font-mono);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.10em;color:var(--text-muted);font-weight:700;margin-bottom:var(--space-4);margin-top:0;}
+.kp-list{list-style:none;display:flex;flex-direction:column;gap:var(--space-3);}
+.kp-list li{display:flex;align-items:flex-start;gap:var(--space-3);font-size:var(--text-sm);color:var(--text-secondary);line-height:1.6;font-family:var(--font-sans);}
+.kp-ic{font-size:var(--text-md);flex-shrink:0;margin-top:1px;}
+.ch-nav{display:flex;justify-content:space-between;margin-top:var(--space-9);padding-top:var(--space-6);border-top:1px solid var(--border-soft);}
+.nav-btn{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);text-decoration:none;font-size:var(--text-sm);font-weight:600;transition:all .2s;box-shadow:var(--shadow-md);}
+.nav-prev{background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-mid);}.nav-prev:hover{background:var(--bg-muted);transform:translateX(-2px);}
+.nav-next{background:var(--color-primary);color:#fff;}.nav-next:hover{background:var(--color-primary-hover);transform:translateX(2px);}
+.nav-sub{font-size:11px;opacity:.75;font-family:var(--font-mono);}
+footer{border-top:1px solid var(--border-soft);padding:var(--space-5) var(--space-8);font-family:var(--font-mono);font-size:11px;color:var(--text-muted);text-align:center;}
+footer strong{color:var(--color-primary);}
+@media(max-width:900px){.toc-sidebar{display:none;}.content{padding:var(--space-6) var(--space-4) var(--space-8);}.concept-grid{grid-template-columns:1fr;}}
+@media(max-width:640px){.topbar{padding:8px var(--space-4);}.tb-trail{display:none;}}
+</style>
+</head><body>
+<header class="topbar">
+  <div class="tb-left">
+    <div class="tb-logo">A</div>
+    <nav class="tb-trail">
+      <span>Argo CD 完整教學手冊</span><span class="sep">›</span>
+      <span>Vol 9 Argo 生態工具擴充</span><span class="sep">›</span>
+      <span class="cur">Ch.41 Autopilot</span>
+    </nav>
+  </div>
+  <div class="tb-right">
+    <span class="pill pill-vol">Vol 9 · Ch.41</span>
+    <span class="pill pill-ver">v3.4</span>
+    <button data-theme-toggle></button>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="toc-sidebar">
+    <div class="toc-title">本章目錄</div>
+    <ul class="toc-list">
+      <li><a href="#obj">學習目標</a></li>
+      <span class="toc-lbl">第一節</span>
+      <li><a href="#s1">App-of-Apps 模式</a></li>
+      <li><a href="#s1a" class="toc-h3">手動實作</a></li>
+      <li><a href="#s1b" class="toc-h3">問題與限制</a></li>
+      <span class="toc-lbl">第二節</span>
+      <li><a href="#s2">為什麼需要 Autopilot</a></li>
+      <li><a href="#s2a" class="toc-h3">解決的核心問題</a></li>
+      <li><a href="#s2b" class="toc-h3">與 app-of-apps 關係</a></li>
+      <span class="toc-lbl">第三節</span>
+      <li><a href="#s3">安裝與 Bootstrap</a></li>
+      <li><a href="#s3a" class="toc-h3">CLI 安裝</a></li>
+      <li><a href="#s3b" class="toc-h3">repo bootstrap 命令</a></li>
+      <span class="toc-lbl">第四節</span>
+      <li><a href="#s4">產生的目錄結構</a></li>
+      <li><a href="#s4a" class="toc-h3">bootstrap 目錄</a></li>
+      <li><a href="#s4b" class="toc-h3">projects 目錄</a></li>
+      <li><a href="#s4c" class="toc-h3">apps 目錄</a></li>
+      <span class="toc-lbl">第五節</span>
+      <li><a href="#s5">Project 與 Application 命令</a></li>
+      <span class="toc-lbl">第六節</span>
+      <li><a href="#s6">多 Cluster 多 Project</a></li>
+      <span class="toc-lbl">第七節</span>
+      <li><a href="#s7">Disaster Recovery 流程</a></li>
+      <span class="toc-lbl">第八節</span>
+      <li><a href="#s8">三方案對比</a></li>
+      <span class="toc-lbl">第九節</span>
+      <li><a href="#s9">限制與最佳實踐</a></li>
+      <span class="toc-lbl">總結</span>
+      <li><a href="#sum">重點回顧</a></li>
+    </ul>
+  </aside>
+
+  <main class="content">
+    <header class="ch-header">
+      <div class="ch-meta">
+        <span class="m-badge m-ch">Chapter 41</span>
+        <span class="m-badge m-vol">Vol 9 — Argo 生態工具擴充</span>
+        <span class="m-badge m-time">⏱ 預計閱讀時間 45 分鐘</span>
+      </div>
+      <h1>ArgoCD Autopilot 與 App-of-Apps<br><em>自管 GitOps 結構與一鍵 DR</em></h1>
+      <p class="ch-lead">Vol 9 第三章。Argo CD 安裝完後，新手最常問的問題：「<strong>GitOps repo 該怎麼組織？Application 該放哪？跨環境怎麼分？Argo CD 自己怎麼 GitOps？</strong>」傳統做法是手動實作 <strong>app-of-apps 模式</strong>——root Application 指向 apps 目錄，目錄中每個 Application 又是另一個 Application 的目錄。<strong>argocd-autopilot</strong>（Codefresh 開發後捐給 Argo 社群）把這套模式自動化，提供 <strong>opinionated 目錄結構 + CLI workflow + 自管 Argo CD + 一鍵 DR recovery</strong>。本章涵蓋手動 app-of-apps、Autopilot 完整工作流、目錄結構解析、多 cluster 多 project 跨環境部署、DR 流程、與 ApplicationSet / app-of-apps / Autopilot 三方案對比。</p>
+      <div class="prereq">
+        <span class="pico">📋</span>
+        <p><strong>前置：</strong>已完成 Vol 1-8。理解 Argo CD Application / AppProject CRD（Ch.02、Ch.11）。理解 ApplicationSet（Ch.23-26）。理解 Kustomize overlay 結構。對 Disaster Recovery 概念有基本認識（Ch.19）。</p>
+      </div>
+    </header>
+
+    <div class="obj-box" id="obj">
+      <h3>🎯 學習目標</h3>
+      <ul class="obj-list">
+        <li>理解 app-of-apps 模式：用一個 root Application 管理多個 child Application，達到「Argo CD 自管 + GitOps 全部設定」的效果</li>
+        <li>掌握 app-of-apps 的限制：手動寫 YAML、無強加目錄結構、跨環境推進需自己設計、無 DR 流程</li>
+        <li>理解 Autopilot 的定位：argocd-autopilot 是 <strong>argoproj-labs 的 opinionated CLI 工具</strong>（Codefresh 開發後捐給社群），自動化 app-of-apps 模式 + 強加目錄結構規範</li>
+        <li>使用 4 種安裝方式：brew / scoop / choco / yay；理解 GIT_TOKEN 與 GIT_REPO 環境變數</li>
+        <li>執行 <code>argocd-autopilot repo bootstrap</code>：① 安裝 Argo CD + ApplicationSet 到 cluster；② 在 Git repo 建立 bootstrap 目錄含三個關鍵 Application（autopilot-bootstrap / argo-cd / root）</li>
+        <li>理解三個關鍵 Application：① <strong>autopilot-bootstrap</strong>（管 bootstrap 目錄本身）；② <strong>argo-cd</strong>（管 Argo CD 自身 + ApplicationSet）；③ <strong>root</strong>（管 projects 目錄）</li>
+        <li>掌握目錄結構：<code>/bootstrap</code>（autopilot 自管，勿動）+ <code>/projects</code>（每 project 一個 yaml）+ <code>/apps</code>（每 app 一個 dir，含 base + overlays/&lt;project&gt;）</li>
+        <li>使用 <code>argocd-autopilot project create</code> 與 <code>app create</code> 命令——CLI 自動產生 Kustomize 結構並 commit 到 Git</li>
+        <li>實作多 cluster 跨環境部署：prod cluster 裝 Argo CD、staging cluster 用 <code>--dest-kube-context</code> 加入</li>
+        <li>實作 Disaster Recovery：<code>argocd-autopilot repo bootstrap --recover</code> 在新 cluster 用既有 GitOps repo 一鍵還原所有應用</li>
+        <li>對比三方案：① 手動 app-of-apps；② ApplicationSet；③ Autopilot——理解各自適用場景與並用方式</li>
+        <li>避開常見陷阱：① 只支援 Raw YAML + Kustomize（Helm 在 roadmap）；② Beta 階段謹慎用於 production；③ 修改 /bootstrap 會被覆蓋；④ GIT_TOKEN 權限不足；⑤ Argo CD 版本與 Autopilot 不相容</li>
+      </ul>
+    </div>
+
+    <section class="sec" id="s1">
+      <h2><span class="sn">1</span>App-of-Apps 模式（手動版本）</h2>
+
+      <h3 id="s1a">1.1 手動實作 app-of-apps</h3>
+
+      <p>app-of-apps 是 Argo CD 社群最早期就推廣的模式——<strong>用一個 Application 物件管理一堆 Application 物件</strong>。核心 idea：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Mermaid — App-of-Apps 架構</span><button class="copy-btn">Copy</button></div>
+        <pre><code>┌──────────────────────────┐
+│ Git Repo                 │
+│  /apps                   │
+│    ├── app1.yaml         │  ← 各個 Application YAML
+│    ├── app2.yaml         │
+│    ├── app3.yaml         │
+│    └── ...               │
+└────────────┬─────────────┘
+             │
+             │ 一個 root Application 指向 /apps directory
+             ▼
+┌──────────────────────────┐
+│ root Application         │
+│ (kind: Application)      │
+│ path: apps               │
+│ recurse: true            │
+└────────────┬─────────────┘
+             │ Argo CD sync /apps
+             │ apply 所有 Application YAML
+             ▼
+┌──────────────────────────────────────────┐
+│ Argo CD 自動建立：                         │
+│  - Application: app1                     │
+│  - Application: app2                     │
+│  - Application: app3                     │
+│                                          │
+│ 每個 child Application 又獨立 sync 自己的    │
+│ source repo / path                       │
+└──────────────────────────────────────────┘</code></pre>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — 手動 root Application 範例</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: Application</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">root</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+  <span class="yk">finalizers:</span>
+    - <span class="yv">resources-finalizer.argocd.argoproj.io</span>
+<span class="yk">spec:</span>
+  <span class="yk">project:</span> <span class="yv">default</span>
+  <span class="yk">source:</span>
+    <span class="yk">repoURL:</span> <span class="yv">https://github.com/myorg/gitops.git</span>
+    <span class="yk">path:</span> <span class="yv">apps</span>             <span class="yc"># 指向 apps 目錄</span>
+    <span class="yk">targetRevision:</span> <span class="yv">HEAD</span>
+    <span class="yk">directory:</span>
+      <span class="yk">recurse:</span> <span class="yv">true</span>          <span class="yc"># 遞迴載入子目錄</span>
+  <span class="yk">destination:</span>
+    <span class="yk">server:</span> <span class="yv">https://kubernetes.default.svc</span>
+    <span class="yk">namespace:</span> <span class="yv">argocd</span>     <span class="yc"># Application 物件放在 argocd namespace</span>
+  <span class="yk">syncPolicy:</span>
+    <span class="yk">automated:</span>
+      <span class="yk">prune:</span> <span class="yv">true</span>            <span class="yc"># 刪除 git 中移除的 Application</span>
+      <span class="yk">selfHeal:</span> <span class="yv">true</span>
+
+<span class="yc">## /apps 目錄下每個檔案是另一個 Application</span>
+<span class="yc">## apps/guestbook.yaml:</span>
+<span class="yh">## apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">## kind: Application</span>
+<span class="yc">## metadata: { name: guestbook }</span>
+<span class="yc">## spec: { project: default, source: ..., destination: ... }</span></code></pre>
+      </div>
+
+      <h3 id="s1b">1.2 手動 app-of-apps 的問題</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>問題</th><th>說明</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>無強加目錄結構</td>
+              <td>新手不知道該怎麼組織：apps/ vs projects/？dev/staging/prod 該怎麼分？</td>
+            </tr>
+            <tr>
+              <td>每個 app 寫一份 YAML</td>
+              <td>多 cluster / 多 env 時大量重複（後來才有 ApplicationSet 解決）</td>
+            </tr>
+            <tr>
+              <td>Argo CD 不自管</td>
+              <td>升級 Argo CD 自己要手動 kubectl apply，不在 GitOps 流程</td>
+            </tr>
+            <tr>
+              <td>跨環境推進無範本</td>
+              <td>image tag 怎麼推 dev → prod？沒明確規範</td>
+            </tr>
+            <tr>
+              <td>無 DR 流程</td>
+              <td>cluster 重建怎麼還原？需自己寫 script</td>
+            </tr>
+            <tr>
+              <td>Application 命名混亂</td>
+              <td>沒命名規範，team A、team B 命名衝突</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="sec" id="s2">
+      <h2><span class="sn">2</span>為什麼需要 Autopilot</h2>
+
+      <h3 id="s2a">2.1 Autopilot 解決的核心問題</h3>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>Autopilot = opinionated app-of-apps + Argo CD 自管 + CLI workflow</h4>
+          <p>① <strong>強加目錄結構</strong>：明確規範 <code>/bootstrap</code>、<code>/projects</code>、<code>/apps</code> 三層，新手不再迷茫；② <strong>Argo CD 自管</strong>：bootstrap 後 Argo CD 透過自己管自己（更新 Argo CD 變成 git push）；③ <strong>CLI 自動化</strong>：<code>argocd-autopilot app create</code> 自動產生 Kustomize 結構 + commit Git，不必手寫 YAML；④ <strong>DR 流程內建</strong>：<code>--recover</code> flag 一鍵還原 cluster 上所有應用；⑤ <strong>多 cluster 友善</strong>：<code>--dest-kube-context</code> 指定不同 cluster。</p>
+        </div>
+      </div>
+
+      <h3 id="s2b">2.2 與 app-of-apps 的關係</h3>
+
+      <p>Autopilot <strong>底層仍是 app-of-apps + ApplicationSet</strong>，但加上：</p>
+
+      <ul style="margin-left: 24px; margin-bottom: 16px; color: var(--text-secondary); line-height: 1.7;">
+        <li>① <strong>三個 root Application</strong>（autopilot-bootstrap / argo-cd / root）形成多層 app-of-apps；</li>
+        <li>② <strong>每個 Project 自帶 ApplicationSet</strong>，<code>git generator</code> 監聽 <code>/apps</code> 子目錄自動建立 Application；</li>
+        <li>③ <strong>Kustomize overlay 結構強加</strong>：<code>apps/&lt;app-name&gt;/base</code> + <code>apps/&lt;app-name&gt;/overlays/&lt;project&gt;</code>；</li>
+        <li>④ <strong>CLI 隱藏複雜度</strong>：使用者不需手寫這些 YAML。</li>
+      </ul>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>Autopilot 仍是 Beta 階段</h4>
+          <p>2026 年初 Autopilot 仍在<strong>積極開發中</strong>，官方 README 明確標注「currently under active development」。<strong>限制</strong>：① 目前只支援 <strong>Raw YAML 與 Kustomize</strong>（Helm 在 roadmap）；② API 仍可能變更；③ 處理 Secret 功能尚未完善。<strong>建議</strong>：在 dev / staging 試用，production 使用前評估自己的 use case 是否觸及限制。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s3">
+      <h2><span class="sn">3</span>安裝與 Bootstrap</h2>
+
+      <h3 id="s3a">3.1 CLI 安裝</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — 4 種安裝方式</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## macOS</span>
+$ brew install argocd-autopilot
+
+<span class="sh-comment">## Windows (Scoop)</span>
+$ scoop update
+$ scoop install argocd-autopilot
+
+<span class="sh-comment">## Windows (Chocolatey)</span>
+$ choco install argocd-autopilot
+
+<span class="sh-comment">## Arch Linux (AUR)</span>
+$ yay -S argocd-autopilot-bin
+
+<span class="sh-comment">## Docker（CI 環境用）</span>
+$ docker run \
+    -v ~/.kube:/home/autopilot/.kube \
+    -v ~/.gitconfig:/home/autopilot/.gitconfig \
+    -it quay.io/argoprojlabs/argocd-autopilot &lt;cmd&gt; &lt;flags&gt;
+
+<span class="sh-comment">## 驗證安裝</span>
+$ argocd-autopilot version</code></pre>
+      </div>
+
+      <h3 id="s3b">3.2 repo bootstrap 命令</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — 一鍵 bootstrap Argo CD + GitOps repo</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## Step 1：設環境變數（Git PAT 與 repo URL）</span>
+$ export GIT_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+$ export GIT_REPO=https://github.com/myorg/argocd-autopilot-gitops.git
+<span class="sh-comment"># GIT_TOKEN 需要 repo 權限（讀寫）</span>
+<span class="sh-comment"># GIT_REPO 不存在會自動建立 private repo（如有 token 權限）</span>
+
+<span class="sh-comment">## Step 2：執行 bootstrap</span>
+$ argocd-autopilot repo bootstrap
+
+<span class="sh-comment"># 輸出範例：</span>
+<span class="sh-comment"># INFO cloning git repository: https://github.com/myorg/argocd-autopilot-gitops.git</span>
+<span class="sh-comment"># INFO empty repository, initializing new one with main as default branch</span>
+<span class="sh-comment"># INFO using revision: "", installation path: "/"</span>
+<span class="sh-comment"># INFO pushing bootstrap manifests to repo</span>
+<span class="sh-comment"># INFO applying bootstrap manifests to cluster...</span>
+<span class="sh-comment"># INFO bootstrap completed successfully</span>
+<span class="sh-comment"># INFO argocd initialized. password: pfrDVRJZtHYZKzBv</span>
+<span class="sh-comment"># INFO run: kubectl port-forward -n argocd svc/argocd-server 8080:80</span>
+
+<span class="sh-comment">## Step 3：port-forward 到 Argo CD UI</span>
+$ kubectl port-forward -n argocd svc/argocd-server 8080:80
+<span class="sh-comment"># 開 http://localhost:8080 用 admin / pfrDVRJZtHYZKzBv 登入</span>
+
+<span class="sh-comment">## 進階選項：</span>
+<span class="sh-comment"># 安裝到特定 path 而非 root：</span>
+$ argocd-autopilot repo bootstrap \
+    --repo https://github.com/example/repo/path/to/installation_root
+
+<span class="sh-comment"># 指定 cluster context：</span>
+$ argocd-autopilot repo bootstrap --kubecontext prod-cluster
+
+<span class="sh-comment"># --recover 模式（DR）：</span>
+$ argocd-autopilot repo bootstrap --recover
+<span class="sh-comment"># 使用既有 GitOps repo 在新 cluster 一鍵還原</span></code></pre>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>Bootstrap 只與 cluster 直接互動<strong>一次</strong></h4>
+          <p>Autopilot <strong>只在 bootstrap 階段直接操作 cluster</strong>（kubectl apply Argo CD manifest）。之後所有命令（project create / app create / repo recover）<strong>只與 Git repo 互動</strong>——透過 Argo CD 同步到 cluster。<strong>意義</strong>：① CI/CD 中執行 Autopilot 不需 kubeconfig（只需 GIT_TOKEN）；② 多 cluster 場景下，從本機執行不需切 kubecontext；③ 整體更貼近 GitOps 純粹度。</p>
+        </div>
+      </div>
+    </section>
+    <section class="sec" id="s4">
+      <h2><span class="sn">4</span>產生的目錄結構解析</h2>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Diagram — Bootstrap 後的目錄結構</span><button class="copy-btn">Copy</button></div>
+        <pre><code>argocd-autopilot-gitops/
+├── bootstrap/                          ← autopilot 自管，請勿手動編輯
+│   ├── argo-cd.yaml                   ← Application: argo-cd（管 Argo CD 自身）
+│   ├── cluster-resources.yaml         ← Application: cluster-resources
+│   ├── root.yaml                      ← Application: root（管 projects/）
+│   └── argo-cd/                       ← Argo CD 的 Kustomize manifest
+│       ├── kustomization.yaml
+│       └── ...
+├── projects/                           ← 每個 project 一個 file
+│   └── DUMMY                          ← 初始 placeholder
+└── apps/                               ← 每個 app 一個 directory
+    └── (空，等 app create 命令填入)
+
+# Bootstrap 後 Argo CD 中應該看到三個 Application：
+# 1. autopilot-bootstrap  ← 管 bootstrap 目錄本身
+# 2. argo-cd              ← 管 bootstrap/argo-cd folder
+# 3. root                 ← 管 projects/ 目錄</code></pre>
+      </div>
+
+      <h3 id="s4a">4.1 /bootstrap 目錄（autopilot 自管）</h3>
+
+      <p>三個關鍵 Application 物件：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>Application</th><th>路徑</th><th>職責</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>autopilot-bootstrap</strong></td>
+              <td><code>/bootstrap</code></td>
+              <td>watch <code>/bootstrap</code> 目錄本身，是 root-of-roots</td>
+            </tr>
+            <tr>
+              <td><strong>argo-cd</strong></td>
+              <td><code>/bootstrap/argo-cd</code></td>
+              <td>管 Argo CD 自己的 deployment + ApplicationSet controller</td>
+            </tr>
+            <tr>
+              <td><strong>root</strong></td>
+              <td><code>/projects</code></td>
+              <td>watch <code>/projects</code> 目錄，自動建立各 project 的 ApplicationSet</td>
+            </tr>
+            <tr>
+              <td><strong>cluster-resources</strong></td>
+              <td><code>/bootstrap/cluster-resources</code></td>
+              <td>管 cluster-wide 資源（如 RBAC、CRD）</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cal cw">
+        <span class="ic">⚠️</span>
+        <div>
+          <h4>勿手動編輯 /bootstrap 目錄</h4>
+          <p>這個目錄由 Autopilot 維護，<strong>手動編輯可能被後續命令覆蓋</strong>。需要修改 Argo CD 設定時：① 升級版本：等 Autopilot 新版（會自動更新 bootstrap manifests）；② 自訂 Argo CD ConfigMap（如 RBAC、SSO）：改用 cluster-resources 目錄管理；③ 緊急 hotfix 必須手動改：改完<strong>立刻提 PR 給 Autopilot</strong>，避免 drift。</p>
+        </div>
+      </div>
+
+      <h3 id="s4b">4.2 /projects 目錄</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Diagram — projects 目錄結構</span><button class="copy-btn">Copy</button></div>
+        <pre><code>projects/
+├── DUMMY                              ← 初始 placeholder（無 project 時保留）
+├── production.yaml                    ← project: production 的設定 + ApplicationSet
+├── staging.yaml                       ← project: staging
+└── dev.yaml                           ← project: dev
+
+# 每個 yaml 包含兩個資源：
+# 1. AppProject（Argo CD AppProject CRD）
+# 2. ApplicationSet（監聽 /apps/*/overlays/&lt;project&gt;）</code></pre>
+      </div>
+
+      <p>每個 project file 內容：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">YAML — production.yaml 結構</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="yc">## 1) AppProject 定義</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: AppProject</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">production</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">spec:</span>
+  <span class="yk">description:</span> <span class="yv">production</span>
+  <span class="yk">destinations:</span>
+    - <span class="yk">namespace:</span> <span class="yv">'*'</span>
+      <span class="yk">server:</span> <span class="yv">'*'</span>
+  <span class="yk">sourceRepos:</span>
+    - <span class="yv">'*'</span>
+
+<span class="yh">---</span>
+<span class="yc">## 2) ApplicationSet（自動建立此 project 的所有 Application）</span>
+<span class="yh">apiVersion: argoproj.io/v1alpha1</span>
+<span class="yh">kind: ApplicationSet</span>
+<span class="yk">metadata:</span>
+  <span class="yk">name:</span> <span class="yv">production</span>
+  <span class="yk">namespace:</span> <span class="yv">argocd</span>
+<span class="yk">spec:</span>
+  <span class="yk">generators:</span>
+    - <span class="yk">git:</span>
+        <span class="yk">repoURL:</span> <span class="yv">https://github.com/myorg/gitops.git</span>
+        <span class="yc"># 監聽 apps/*/overlays/production/config.json</span>
+        <span class="yk">files:</span>
+          - <span class="yk">path:</span> <span class="yv">"apps/**/overlays/production/config.json"</span>
+        <span class="yk">requeueAfterSeconds:</span> <span class="yn">20</span>
+  <span class="yk">template:</span>
+    <span class="yk">metadata:</span>
+      <span class="yk">name:</span> <span class="yv">'{{userGivenName}}-production'</span>
+      <span class="yk">labels:</span>
+        <span class="yk">app.kubernetes.io/managed-by:</span> <span class="yv">argocd-autopilot</span>
+    <span class="yk">spec:</span>
+      <span class="yk">project:</span> <span class="yv">production</span>
+      <span class="yk">source:</span>
+        <span class="yk">repoURL:</span> <span class="yv">https://github.com/myorg/gitops.git</span>
+        <span class="yk">path:</span> <span class="yv">'apps/{{userGivenName}}/overlays/production'</span>
+      <span class="yk">destination:</span>
+        <span class="yk">server:</span> <span class="yv">https://kubernetes.default.svc</span>
+        <span class="yk">namespace:</span> <span class="yv">'{{destNamespace}}'</span>
+      <span class="yk">syncPolicy:</span>
+        <span class="yk">automated:</span> {<span class="yk">prune:</span> <span class="yv">true</span>, <span class="yk">selfHeal:</span> <span class="yv">true</span>}</code></pre>
+      </div>
+
+      <h3 id="s4c">4.3 /apps 目錄</h3>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Diagram — apps 目錄結構</span><button class="copy-btn">Copy</button></div>
+        <pre><code>apps/
+├── guestbook/                          ← 一個應用一個 dir
+│   ├── base/                          ← Kustomize base manifest
+│   │   ├── kustomization.yaml
+│   │   └── ...                        ← guestbook 的 Deployment/Service 等
+│   └── overlays/                      ← 各環境覆蓋
+│       ├── production/
+│       │   ├── kustomization.yaml
+│       │   └── config.json            ← ApplicationSet 監聽此 file
+│       └── staging/
+│           ├── kustomization.yaml
+│           └── config.json
+└── nginx/
+    ├── base/
+    └── overlays/
+        ├── production/
+        └── dev/
+
+# config.json 範例（內容由 autopilot app create 自動產生）：
+# {
+#   "appName": "guestbook",
+#   "userGivenName": "guestbook",
+#   "destNamespace": "guestbook",
+#   "destServer": "https://kubernetes.default.svc",
+#   "srcPath": "apps/guestbook/overlays/production",
+#   "srcRepoURL": "https://github.com/myorg/gitops.git",
+#   "srcTargetRevision": ""
+# }</code></pre>
+      </div>
+    </section>
+
+    <section class="sec" id="s5">
+      <h2><span class="sn">5</span>Project 與 Application 命令</h2>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — Project 與 Application 完整工作流</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## 1) 建立 Project（自動 commit 到 /projects）</span>
+$ argocd-autopilot project create production
+<span class="sh-comment"># INFO cloning git repository...</span>
+<span class="sh-comment"># INFO pushing new project manifest to repo</span>
+<span class="sh-comment"># INFO project created: 'production'</span>
+
+<span class="sh-comment"># Argo CD 同步後，UI 中會看到 production AppProject + ApplicationSet</span>
+
+<span class="sh-comment">## 2) 建立第二個 Project</span>
+$ argocd-autopilot project create staging
+
+<span class="sh-comment">## 3) 從 public repo 建立 application</span>
+$ argocd-autopilot app create guestbook \
+    --app github.com/argoproj-labs/argocd-autopilot/examples/demo-app/ \
+    -p production
+<span class="sh-comment"># INFO cloning git repository...</span>
+<span class="sh-comment"># INFO created kustomization at: apps/guestbook/base/kustomization.yaml</span>
+<span class="sh-comment"># INFO created config at: apps/guestbook/overlays/production/config.json</span>
+<span class="sh-comment"># INFO pushing application manifests to repo</span>
+<span class="sh-comment"># INFO application created: 'guestbook' in project 'production'</span>
+
+<span class="sh-comment">## --app 接受多種格式：</span>
+<span class="sh-comment"># 1) github.com/...     ← public repo</span>
+<span class="sh-comment"># 2) https://github.com/...   ← HTTPS URL</span>
+<span class="sh-comment"># 3) ./local/path      ← 本機 directory（autopilot 會把內容 commit）</span>
+
+<span class="sh-comment">## 4) 把同一 app 加到 staging project（跨 project 共用 base）</span>
+$ argocd-autopilot app create guestbook \
+    --app github.com/argoproj-labs/argocd-autopilot/examples/demo-app/ \
+    -p staging
+
+<span class="sh-comment">## 5) 列出 Applications</span>
+$ argocd-autopilot app list -p production
+
+<span class="sh-comment">## 6) 刪除 Application</span>
+$ argocd-autopilot app delete guestbook -p production
+<span class="sh-comment"># 自動移除 apps/guestbook/overlays/production，</span>
+<span class="sh-comment"># 不影響 staging 的 overlay</span>
+
+<span class="sh-comment">## 7) 刪除整個 Project</span>
+$ argocd-autopilot project delete production</code></pre>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>app create 兩種儲存模式：kustomization vs flat</h4>
+          <p>① <strong>Kustomization mode（預設）</strong>：在 <code>apps/&lt;name&gt;/base/kustomization.yaml</code> 用 <code>resources</code> 引用 public repo URL——保持與上游同步、適合「我只是要部署這個 chart」場景；② <strong>Flat mode（<code>--type dir</code>）</strong>：把 manifest 完整拷貝到 <code>apps/&lt;name&gt;/base/</code>——適合需要修改原始 manifest 的場景。<strong>多數情況用 Kustomization mode</strong>——保持 GitOps 純粹（image tag 等變更靠 overlay 即可）。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s6">
+      <h2><span class="sn">6</span>多 Cluster 多 Project 部署</h2>
+
+      <p>Autopilot 支援用<strong>單一 Argo CD 管理多 cluster</strong>——把 Argo CD 裝在 prod cluster，staging cluster 用 <code>--dest-kube-context</code> 加入：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — 多 Cluster 完整工作流</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## Step 1：切到 prod cluster bootstrap Argo CD</span>
+$ kubectl config use-context prod-cluster
+$ export GIT_TOKEN=ghp_xxxx
+$ export GIT_REPO=https://github.com/myorg/gitops.git
+$ argocd-autopilot repo bootstrap
+
+<span class="sh-comment">## Step 2：建立 prod 與 staging 兩個 project</span>
+$ argocd-autopilot project create prod
+$ argocd-autopilot project create staging \
+    --dest-kube-context staging-cluster
+
+<span class="sh-comment"># staging project 預設指向 staging cluster</span>
+<span class="sh-comment"># （Argo CD 透過 cluster credentials 連到外部 cluster）</span>
+
+<span class="sh-comment">## Step 3：app create 預設用 project 的 default cluster</span>
+$ argocd-autopilot app create myapp \
+    --app github.com/myorg/myapp \
+    -p prod
+<span class="sh-comment"># 部署到 prod-cluster（project 預設）</span>
+
+$ argocd-autopilot app create myapp \
+    --app github.com/myorg/myapp \
+    -p staging
+<span class="sh-comment"># 部署到 staging-cluster</span>
+
+<span class="sh-comment">## Step 4：跨 project 不同 cluster 的特殊情境</span>
+<span class="sh-comment"># 例如 dev project 預設指 staging cluster，但這個 app 要部到 dev cluster：</span>
+$ argocd-autopilot app create special-app \
+    --app github.com/myorg/special-app \
+    -p dev \
+    --dest-server https://dev-cluster.example.com</code></pre>
+      </div>
+
+      <div class="cal ci">
+        <span class="ic">ℹ️</span>
+        <div>
+          <h4>多 cluster 需先註冊 cluster credentials</h4>
+          <p>在 Autopilot 之外，<strong>Argo CD 必須先有 staging cluster 的 credentials</strong>（如 Ch.16 介紹的 <code>argocd cluster add</code>）。Autopilot 不負責加 cluster；它假設你已經把目標 cluster 加進 Argo CD。<strong>實務流程</strong>：① bootstrap Argo CD；② <code>argocd cluster add staging-cluster</code>（Ch.16）；③ <code>argocd-autopilot project create staging --dest-kube-context staging-cluster</code>。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s7">
+      <h2><span class="sn">7</span>Disaster Recovery 流程</h2>
+
+      <p>Autopilot 的「殺手級功能」——一鍵 DR：</p>
+
+      <div class="code-wrap">
+        <div class="code-hdr"><span class="code-lang">Bash — DR Recovery 完整流程</span><button class="copy-btn">Copy</button></div>
+        <pre><code><span class="sh-comment">## 情境：原 cluster 完全爆炸，所有東西都沒了</span>
+<span class="sh-comment">##       但你的 GitOps repo 還在</span>
+
+<span class="sh-comment">## Step 1：provision 新 K8s cluster（如 EKS / GKE / AKS）</span>
+$ eksctl create cluster --name recovery-cluster --region us-east-1
+
+<span class="sh-comment">## Step 2：switch context 到新 cluster</span>
+$ aws eks update-kubeconfig --name recovery-cluster
+$ kubectl cluster-info
+
+<span class="sh-comment">## Step 3：執行 recover 命令</span>
+$ export GIT_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+$ export GIT_REPO=https://github.com/myorg/gitops.git
+$ argocd-autopilot repo bootstrap --recover
+
+<span class="sh-comment"># INFO cloning git repository from existing GitOps repo...</span>
+<span class="sh-comment"># INFO installing argo-cd to new cluster...</span>
+<span class="sh-comment"># INFO bootstrap completed successfully</span>
+
+<span class="sh-comment">## Step 4：等 Argo CD 開始 sync 既有 manifest</span>
+$ kubectl port-forward -n argocd svc/argocd-server 8080:80
+
+<span class="sh-comment"># 在 UI 你會看到：</span>
+<span class="sh-comment"># 1. autopilot-bootstrap / argo-cd / root 三個 root Application 自動建立</span>
+<span class="sh-comment"># 2. ApplicationSet 從 /projects 自動發現所有 project</span>
+<span class="sh-comment"># 3. 每個 project 的 ApplicationSet 從 /apps 發現所有 Application</span>
+<span class="sh-comment"># 4. 每個 Application 自動 sync</span>
+<span class="sh-comment"># 全部完成後，cluster 上的所有應用都還原了</span>
+
+<span class="sh-comment">## Step 5：恢復時間估計</span>
+<span class="sh-comment"># 取決於應用數量與 image pull 速度：</span>
+<span class="sh-comment"># - 10 個 Application: ~5-10 分鐘</span>
+<span class="sh-comment"># - 100 個 Application: ~30-60 分鐘</span>
+<span class="sh-comment"># - 1000+ Application: 數小時（受 image registry 與 etcd 影響）</span></code></pre>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>DR 流程 vs Ch.19 Disaster Recovery 章節</h4>
+          <p>Ch.19 介紹了 Argo CD 整體 DR 策略（etcd backup、Argo CD secrets backup、cluster certificate 等）。<strong>Autopilot 的 <code>--recover</code> 只負責還原「應用程式定義」</strong>（Application / AppProject）——不還原 Secrets / CRD 中的 data / image registry credentials 等。<strong>完整 DR 策略</strong>：Autopilot --recover + Velero（cluster-wide state）+ external secret store（Ch.35 ESO）+ cluster bootstrap script（Terraform / Crossplane）。</p>
+        </div>
+      </div>
+    </section>
+    <section class="sec" id="s8">
+      <h2><span class="sn">8</span>三方案對比：app-of-apps vs ApplicationSet vs Autopilot</h2>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>面向</th><th>手動 app-of-apps</th><th>ApplicationSet</th><th>Autopilot</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>目錄結構規範</td>
+              <td>❌ 自由</td>
+              <td>❌ 自由</td>
+              <td>✅ 強加（bootstrap/projects/apps）</td>
+            </tr>
+            <tr>
+              <td>Argo CD 自管</td>
+              <td>⚠️ 需手動實作</td>
+              <td>⚠️ 需手動實作</td>
+              <td>✅ 內建（bootstrap 即自管）</td>
+            </tr>
+            <tr>
+              <td>建立 Application 方式</td>
+              <td>手動寫 YAML + commit</td>
+              <td>generator 自動產生</td>
+              <td>CLI 一指令 + 自動 commit</td>
+            </tr>
+            <tr>
+              <td>多 cluster 支援</td>
+              <td>需自行設計</td>
+              <td>✅ cluster generator</td>
+              <td>✅ --dest-kube-context</td>
+            </tr>
+            <tr>
+              <td>跨 env 推進</td>
+              <td>需自行設計</td>
+              <td>需配 Kustomize overlay</td>
+              <td>✅ 內建 overlay 結構</td>
+            </tr>
+            <tr>
+              <td>DR 流程</td>
+              <td>❌ 需自寫 script</td>
+              <td>❌ 需自寫 script</td>
+              <td>✅ --recover 一鍵還原</td>
+            </tr>
+            <tr>
+              <td>學習曲線</td>
+              <td>低（簡單概念）</td>
+              <td>中（generator 語法）</td>
+              <td>低（CLI 友善）</td>
+            </tr>
+            <tr>
+              <td>靈活度</td>
+              <td>✅ 完全自由</td>
+              <td>✅ 大量 generator</td>
+              <td>⚠️ 強制 opinionated 結構</td>
+            </tr>
+            <tr>
+              <td>Helm 支援</td>
+              <td>✅ Argo CD 原生</td>
+              <td>✅ Argo CD 原生</td>
+              <td>❌ 目前不支援（roadmap）</td>
+            </tr>
+            <tr>
+              <td>成熟度</td>
+              <td>✅ Stable（社群最早期）</td>
+              <td>✅ Stable（v2.0+）</td>
+              <td>⚠️ Beta（積極開發）</td>
+            </tr>
+            <tr>
+              <td>適合</td>
+              <td>學習 / 完全客製</td>
+              <td>多 cluster 多 env 規模化</td>
+              <td>新團隊快速上手 / DR 需求</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cal ct">
+        <span class="ic">💡</span>
+        <div>
+          <h4>三方案的並用組合</h4>
+          <p>① <strong>新團隊 / 新專案</strong>：從 Autopilot 開始，省去結構設計時間（前提：只用 Raw YAML / Kustomize）；② <strong>大規模 / 已有完整 GitOps repo</strong>：手動 app-of-apps 配 ApplicationSet（靈活度高，可用 Helm）；③ <strong>Helm-heavy 環境</strong>：避免 Autopilot，用 ApplicationSet 的 Helm support；④ <strong>需要 multi-stage promotion</strong>：用 Kargo（Ch.40）取代 Autopilot 的環境推進邏輯。<strong>不是非此即彼</strong>——Autopilot 底層仍用 ApplicationSet，可以混搭。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="s9">
+      <h2><span class="sn">9</span>限制與最佳實踐</h2>
+
+      <h3>已知限制</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>限制</th><th>影響</th><th>workaround</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>不支援 Helm（roadmap）</td>
+              <td>Helm 用戶無法用 Autopilot</td>
+              <td>用 Kustomize Helm chart inflator；或等 Helm 支援</td>
+            </tr>
+            <tr>
+              <td>Beta 階段</td>
+              <td>API 可能變更</td>
+              <td>固定 Autopilot version，不要 latest</td>
+            </tr>
+            <tr>
+              <td>修改 /bootstrap 會被覆蓋</td>
+              <td>無法自訂 Argo CD ConfigMap</td>
+              <td>用 cluster-resources 目錄管理自訂資源</td>
+            </tr>
+            <tr>
+              <td>Secret 管理尚未完善</td>
+              <td>plain text secret 仍是手動處理</td>
+              <td>用 ESO 或 SealedSecrets（Ch.35）</td>
+            </tr>
+            <tr>
+              <td>Project 結構強制</td>
+              <td>需符合 Autopilot 規範</td>
+              <td>Bootstrap 後可漸進遷移既有結構</td>
+            </tr>
+            <tr>
+              <td>不支援 ApplicationSet 進階 generator</td>
+              <td>只有 git file generator</td>
+              <td>bootstrap 後手動加 ApplicationSet 補強</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>常見錯誤對照</h3>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>錯誤</th><th>原因</th><th>解法</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>bootstrap 失敗 401</td>
+              <td>GIT_TOKEN 權限不足</td>
+              <td>確認 PAT 有 <code>repo</code> 完整權限</td>
+            </tr>
+            <tr>
+              <td>bootstrap 失敗 git not found</td>
+              <td>repo 不存在且 token 無建立權限</td>
+              <td>先手動建空 repo 再執行 bootstrap</td>
+            </tr>
+            <tr>
+              <td>repo bootstrap 不支援 helm</td>
+              <td>已知限制</td>
+              <td>用 Kustomize；或等 Helm 支援</td>
+            </tr>
+            <tr>
+              <td>app create 卡 cluster connection</td>
+              <td>需 cluster 已加入 Argo CD</td>
+              <td>先 <code>argocd cluster add</code></td>
+            </tr>
+            <tr>
+              <td>UI 看不到新 Application</td>
+              <td>ApplicationSet 還在 requeue（20s）</td>
+              <td>等待或手動 sync ApplicationSet</td>
+            </tr>
+            <tr>
+              <td>argo-cd Application OutOfSync</td>
+              <td>手動修改了 argocd namespace 資源</td>
+              <td>把變更挪到 cluster-resources 目錄</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>最佳實踐 Checklist</h3>
+
+      <div class="cal ct">
+        <span class="ic">✅</span>
+        <div>
+          <h4>Autopilot 上線 10 項 Checklist</h4>
+          <p>① <strong>固定 Autopilot version</strong>（不要 latest，避免 API 變更影響）；② <strong>GitOps repo 用 private repo</strong>（含 Argo CD 設定）；③ <strong>GIT_TOKEN 用最小權限</strong>的 PAT（只給此 repo）；④ <strong>不要手動編輯 /bootstrap</strong>；⑤ <strong>Argo CD 自訂用 cluster-resources 目錄</strong>；⑥ <strong>Secret 管理用 ESO（Ch.35）</strong>不要 plain text；⑦ <strong>每環境一個 Project</strong>（production / staging / dev）；⑧ <strong>app create 用 Kustomization mode</strong>保持上游同步；⑨ <strong>multi-stage promotion 用 Kargo（Ch.40）</strong>而非靠 Autopilot；⑩ <strong>定期測試 DR</strong>：每季用 <code>--recover</code> 還原到測試 cluster 驗證流程。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" id="sum">
+      <h2><span class="sn">✓</span>本章重點回顧</h2>
+      <div class="kp">
+        <h3>📌 Key Takeaways</h3>
+        <ul class="kp-list">
+          <li><span class="kp-ic">🌳</span><span><strong>App-of-Apps 是 Argo CD 社群最早的「Argo CD 自管」模式</strong>：root Application 指向 /apps directory + recurse: true，自動 apply 所有 child Application。<strong>缺點</strong>：無強加目錄結構、無 Argo CD 自管、跨環境推進需自行設計、無 DR 流程。<strong>ApplicationSet（Vol 5）部分解決</strong>了多 cluster / 模板化問題，但仍是社群自由發揮。</span></li>
+          <li><span class="kp-ic">🛠️</span><span><strong>argocd-autopilot 是 argoproj-labs 的 opinionated CLI 工具</strong>（Codefresh 開發後捐給 Argo 社群）。<strong>5 大價值</strong>：① 強加目錄結構規範；② Argo CD 自管（GitOps 純粹）；③ CLI workflow 隱藏 YAML 複雜度；④ 多 cluster 友善；⑤ <strong>內建一鍵 DR recovery</strong>（殺手級功能）。底層仍用 app-of-apps + ApplicationSet。</span></li>
+          <li><span class="kp-ic">⚙️</span><span><strong>核心命令三個</strong>：① <code>argocd-autopilot repo bootstrap</code>（安裝 Argo CD + 初始化 GitOps repo 結構）；② <code>argocd-autopilot project create &lt;name&gt;</code>（建 Project，自動產生 AppProject + ApplicationSet）；③ <code>argocd-autopilot app create &lt;name&gt; --app &lt;source&gt; -p &lt;project&gt;</code>（建 Application，自動產生 Kustomize 結構）。<strong>所有變更都自動 commit</strong>到 GitOps repo。</span></li>
+          <li><span class="kp-ic">📁</span><span><strong>三層強加目錄結構</strong>：① <code>/bootstrap</code>（autopilot 自管，含三個關鍵 Application：autopilot-bootstrap / argo-cd / root；<strong>勿手動編輯</strong>）；② <code>/projects</code>（每 project 一個 yaml，含 AppProject + ApplicationSet）；③ <code>/apps</code>（每 app 一個 dir，含 <code>base/</code> + <code>overlays/&lt;project&gt;</code>）。</span></li>
+          <li><span class="kp-ic">🔑</span><span><strong>Bootstrap 只與 cluster 直接互動一次</strong>。之後所有命令（project create / app create / repo recover）<strong>只與 Git repo 互動</strong>，透過 Argo CD 同步到 cluster。<strong>意義</strong>：CI/CD 中執行 Autopilot 不需 kubeconfig；多 cluster 場景從本機執行不需切 context；整體更貼近 GitOps 純粹度。</span></li>
+          <li><span class="kp-ic">🌐</span><span><strong>多 Cluster 支援</strong>：用 <code>--dest-kube-context</code> 指定 project 的目標 cluster；或 app-level <code>--dest-server</code> 覆蓋。<strong>前提</strong>：cluster 必須先用 <code>argocd cluster add</code>（Ch.16）加入 Argo CD——Autopilot 不負責 cluster 註冊。</span></li>
+          <li><span class="kp-ic">🆘</span><span><strong>Disaster Recovery 是 Autopilot 的殺手級功能</strong>：<code>argocd-autopilot repo bootstrap --recover</code> 在新 cluster 用既有 GitOps repo 一鍵還原所有應用。<strong>原理</strong>：① 新 cluster 安裝 Argo CD；② Argo CD 從 GitOps repo 還原所有 Application 定義；③ 每個 Application sync 還原實際 workload。<strong>但只還原應用定義</strong>——Secrets / CRD data / image credentials 需配合 ESO + Velero + external state。</span></li>
+          <li><span class="kp-ic">⚖️</span><span><strong>三方案對比</strong>：① <strong>手動 app-of-apps</strong>（靈活但無規範）；② <strong>ApplicationSet</strong>（多 cluster / 多 env 自動化但無 Argo CD 自管）；③ <strong>Autopilot</strong>（強加結構 + DR + CLI）。<strong>三者不互斥</strong>：Autopilot 底層用 app-of-apps + ApplicationSet，可混搭。</span></li>
+          <li><span class="kp-ic">⚠️</span><span><strong>主要限制</strong>：① <strong>目前只支援 Raw YAML 與 Kustomize</strong>，<strong>Helm 在 roadmap</strong>——Helm-heavy 環境不適合；② <strong>Beta 階段</strong>，API 可能變更；③ 修改 /bootstrap 會被覆蓋；④ Secret 管理尚未完善（用 ESO 補強）；⑤ ApplicationSet 進階 generator（如 PR generator）需手動加。</span></li>
+          <li><span class="kp-ic">✅</span><span><strong>10 項 Checklist</strong>：固定 Autopilot 版本、private GitOps repo、最小權限 PAT、勿改 /bootstrap、Argo CD 自訂用 cluster-resources、Secret 用 ESO、每環境一 Project、Kustomization mode、multi-stage promotion 用 Kargo、每季測試 DR。<strong>定期測試 --recover 是 production-readiness 的關鍵</strong>——確保真的需要時 DR 流程確實能用。</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <nav class="ch-nav">
+      <a href="ch40-kargo-promotion.html" class="nav-btn nav-prev">
+        <div><div class="nav-sub">上一章 / PREV</div><div>← Ch.40 Kargo Multi-Stage Promotion</div></div>
+      </a>
+      <a href="#" class="nav-btn nav-next">
+        <div><div class="nav-sub">下一章 / NEXT</div><div>Ch.42 未來展望與 Argo 2.x → 3.x 遷移 →</div></div>
+      </a>
+    </nav>
+  </main>
+</div>
+
+<footer>Argo CD 完整教學手冊 · <strong>Vol 9 Ch.41</strong> · 基於 Argo CD <strong>v3.4</strong> · 2026-05-09</footer>
+
+<script>
+(function(){
+  'use strict';
+  const KEY='jhsun-theme';
+  const IC={light:'☀',dark:'☾',system:'◐'};
+  const LB={light:'Light',dark:'Dark',system:'System'};
+  function gs(){try{return localStorage.getItem(KEY);}catch(_){return null;}}
+  function ss(v){try{v==='system'||v==null?localStorage.removeItem(KEY):localStorage.setItem(KEY,v);}catch(_){}}
+  function sp(){return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  function ef(m){return m==='system'?sp():m;}
+  function apply(m){
+    const e=ef(m);
+    document.documentElement.dataset.theme=e;
+    document.documentElement.dataset.themeMode=m;
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{
+      b.dataset.themeMode=m;
+      b.setAttribute('aria-label','Theme: '+LB[m]);
+      b.title='Theme: '+LB[m];
+      if(!b.dataset.themeToggleStyled)b.innerHTML='<span>'+IC[m]+'</span><span>'+LB[m]+'</span>';
+    });
+    dispatchEvent(new CustomEvent('jhsun:theme-changed',{detail:{theme:e,mode:m}}));
+  }
+  function cyc(c){return c==='light'?'dark':c==='dark'?'system':'light';}
+  function cur(){return gs()||'system';}
+  function init(){
+    apply(cur());
+    document.querySelectorAll('[data-theme-toggle]').forEach(b=>{b.addEventListener('click',()=>{const n=cyc(cur());ss(n);apply(n);});});
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(cur()==='system')apply('system');});
+  }
+  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+  window.JHsunTheme={get:cur,set:m=>{ss(m);apply(m);},toggle:()=>{const n=cyc(cur());ss(n);apply(n);}};
+})();
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('.copy-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const pre=btn.closest('.code-wrap').querySelector('pre');
+      navigator.clipboard.writeText(pre.innerText).then(()=>{btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},2000);});
+    });
+  });
+  const hds=document.querySelectorAll('.sec h2,.sec h3');
+  const lks=document.querySelectorAll('.toc-list a');
+  const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){lks.forEach(l=>l.classList.remove('active'));const id=e.target.id||e.target.closest('[id]')?.id;if(id){const a=document.querySelector('.toc-list a[href="#'+id+'"]');if(a)a.classList.add('active');}}});},{rootMargin:'-60px 0px -70% 0px'});
+  hds.forEach(h=>{if(h.id)obs.observe(h);});
+});
+</script>
+</body>
+</html>
